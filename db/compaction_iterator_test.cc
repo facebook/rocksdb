@@ -229,14 +229,15 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
       compaction_proxy_->is_bottommost_level = bottommost_level;
       compaction.reset(compaction_proxy_);
     }
-    merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, merge_op, filter,
-                                        nullptr, false, 0, 0, nullptr,
-                                        &shutting_down_));
     bool use_snapshot_checker = UseSnapshotChecker() || GetParam();
     if (use_snapshot_checker || last_committed_sequence < kMaxSequenceNumber) {
       snapshot_checker_.reset(
           new TestSnapshotChecker(last_committed_sequence, snapshot_map_));
     }
+    merge_helper_.reset(
+        new MergeHelper(Env::Default(), cmp_, merge_op, filter, nullptr, false,
+                        0 /*latest_snapshot*/, snapshot_checker_.get(),
+                        0 /*level*/, nullptr /*statistics*/, &shutting_down_));
 
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
@@ -775,17 +776,18 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Deletion) {
       {"v4", "", "v1"}, 3 /*last_committed_seq*/);
 }
 
-TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       DISABLED_DedupSameSnapshot_Merge) {
+TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Merge) {
   AddSnapshot(2, 1);
+  AddSnapshot(4, 3);
   auto merge_op = MergeOperators::CreateStringAppendOperator();
   RunTest(
-      {test::KeyStr("foo", 4, kTypeValue), test::KeyStr("foo", 3, kTypeMerge),
-       test::KeyStr("foo", 2, kTypeMerge), test::KeyStr("foo", 1, kTypeValue)},
-      {"v4", "v3", "v2", "v1"},
-      {test::KeyStr("foo", 4, kTypeValue), test::KeyStr("foo", 3, kTypeMerge),
+      {test::KeyStr("foo", 5, kTypeMerge), test::KeyStr("foo", 4, kTypeMerge),
+       test::KeyStr("foo", 3, kTypeMerge), test::KeyStr("foo", 2, kTypeMerge),
        test::KeyStr("foo", 1, kTypeValue)},
-      {"v4", "v2,v3", "v1"}, 3 /*last_committed_seq*/, merge_op.get());
+      {"v5", "v4", "v3", "v2", "v1"},
+      {test::KeyStr("foo", 5, kTypeMerge), test::KeyStr("foo", 4, kTypeMerge),
+       test::KeyStr("foo", 3, kTypeMerge), test::KeyStr("foo", 1, kTypeValue)},
+      {"v5", "v4", "v2,v3", "v1"}, 4 /*last_committed_seq*/, merge_op.get());
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -886,8 +888,9 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           2 /*earliest_write_conflict_snapshot*/);
 }
 
-// Compaction filter should keep uncommitted key as-is, and trigger on the
-// first committed version of a key.
+// Compaction filter should keep uncommitted key as-is, and
+//   * Convert the latest velue to deletion, and/or
+//   * if latest value is a merge, apply filter to all suequent merges.
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_Value) {
   std::unique_ptr<CompactionFilter> compaction_filter(
@@ -915,22 +918,18 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_Deletion) {
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       DISABLED_CompactionFilter_PartialMerge) {
+       CompactionFilter_PartialMerge) {
   std::shared_ptr<MergeOperator> merge_op =
       MergeOperators::CreateStringAppendOperator();
   std::unique_ptr<CompactionFilter> compaction_filter(
       new FilterAllKeysCompactionFilter());
-  RunTest(
-      {test::KeyStr("a", 3, kTypeMerge), test::KeyStr("a", 2, kTypeMerge),
-       test::KeyStr("a", 1, kTypeMerge)},
-      {"v3", "v2", "v1"},
-      {test::KeyStr("a", 3, kTypeMerge), test::KeyStr("a", 2, kTypeDeletion)},
-      {"v3", ""}, 2 /*last_committed_seq*/, merge_op.get(),
-      compaction_filter.get());
+  RunTest({test::KeyStr("a", 3, kTypeMerge), test::KeyStr("a", 2, kTypeMerge),
+           test::KeyStr("a", 1, kTypeMerge)},
+          {"v3", "v2", "v1"}, {test::KeyStr("a", 3, kTypeMerge)}, {"v3"},
+          2 /*last_committed_seq*/, merge_op.get(), compaction_filter.get());
 }
 
-TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       DISABLED_CompactionFilter_FullMerge) {
+TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_FullMerge) {
   std::shared_ptr<MergeOperator> merge_op =
       MergeOperators::CreateStringAppendOperator();
   std::unique_ptr<CompactionFilter> compaction_filter(
@@ -939,7 +938,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
       {test::KeyStr("a", 3, kTypeMerge), test::KeyStr("a", 2, kTypeMerge),
        test::KeyStr("a", 1, kTypeValue)},
       {"v3", "v2", "v1"},
-      {test::KeyStr("a", 3, kTypeMerge), test::KeyStr("a", 2, kTypeDeletion)},
+      {test::KeyStr("a", 3, kTypeMerge), test::KeyStr("a", 1, kTypeDeletion)},
       {"v3", ""}, 2 /*last_committed_seq*/, merge_op.get(),
       compaction_filter.get());
 }

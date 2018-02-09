@@ -559,10 +559,6 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      // In case snapshot_checker is present, we can probably merge further
-      // beyond prev_snapshot, since there could be more keys with sequence
-      // smaller than prev_snapshot, but reported by snapshot_checker as not
-      // visible by prev_snapshot. But it will make the logic more complicated.
       Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
                                            prev_snapshot, bottommost_level_);
       merge_out_iter_.SeekToFirst();

@@ -14,10 +14,43 @@
 
 namespace rocksdb {
 
+class TestReadCallback : public ReadCallback {
+ public:
+  TestReadCallback(SnapshotChecker* snapshot_checker,
+                   SequenceNumber snapshot_seq)
+      : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
+
+  bool IsCommitted(SequenceNumber seq) override {
+    return snapshot_checker_->IsInSnapshot(seq, snapshot_seq_);
+  }
+
+ private:
+  SnapshotChecker* snapshot_checker_;
+  SequenceNumber snapshot_seq_;
+};
+
 // Test merge operator functionality.
 class DBMergeOperatorTest : public DBTestBase {
  public:
   DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
+
+  std::string GetWithReadCallback(SnapshotChecker* snapshot_checker,
+                                  const Slice& key,
+                                  const Snapshot* snapshot = nullptr) {
+    SequenceNumber seq = snapshot == nullptr ? db_->GetLatestSequenceNumber()
+                                             : snapshot->GetSequenceNumber();
+    TestReadCallback read_callback(snapshot_checker, seq);
+    ReadOptions read_opt;
+    read_opt.snapshot = snapshot;
+    PinnableSlice value;
+    Status s =
+        dbfull()->GetImpl(read_opt, db_->DefaultColumnFamily(), key, &value,
+                          nullptr /*value_found*/, &read_callback);
+    if (!s.ok()) {
+      return s.ToString();
+    }
+    return value.ToString();
+  }
 };
 
 TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
@@ -507,6 +540,93 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   EXPECT_TRUE(stepped_to_next_operand);
 }
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  class TestSnapshotChecker : public SnapshotChecker {
+    bool IsInSnapshot(SequenceNumber seq,
+                      SequenceNumber snapshot_seq) const override {
+      switch (snapshot_seq) {
+        case 0:
+          return seq == 0;
+        case 1:
+          return seq <= 1;
+        case 2:
+          // seq = 2 not visible to snapshot with seq = 2
+          return seq <= 1;
+        case 3:
+          return seq <= 3;
+        case 4:
+          // seq = 4 not visible to snpahost with seq = 4
+          return seq <= 3;
+        default:
+          // seq >=4 is uncommitted
+          return seq <= 4;
+      };
+    }
+  };
+  TestSnapshotChecker* snapshot_checker = new TestSnapshotChecker();
+  dbfull()->SetSnapshotChecker(snapshot_checker);
+
+  std::string value;
+  ASSERT_OK(Merge("foo", "v1"));
+  ASSERT_EQ(1, db_->GetLatestSequenceNumber());
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo"));
+  ASSERT_OK(Merge("foo", "v2"));
+  ASSERT_EQ(2, db_->GetLatestSequenceNumber());
+  // v2 is not visible to latest snapshot, which has seq = 2.
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo"));
+  // Take a snapshot with seq = 2.
+  const Snapshot* snapshot1 = db_->GetSnapshot();
+  ASSERT_EQ(2, snapshot1->GetSequenceNumber());
+  // v2 is not visible to snapshot1, which has seq = 2
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
+
+  // Verify flush doesn't alter the result.
+  ASSERT_OK(Flush());
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo"));
+
+  ASSERT_OK(Merge("foo", "v3"));
+  ASSERT_EQ(3, db_->GetLatestSequenceNumber());
+  ASSERT_EQ("v1,v2,v3", GetWithReadCallback(snapshot_checker, "foo"));
+  ASSERT_OK(Merge("foo", "v4"));
+  ASSERT_EQ(4, db_->GetLatestSequenceNumber());
+  // v4 is not visible to latest snapshot, which has seq = 4.
+  ASSERT_EQ("v1,v2,v3", GetWithReadCallback(snapshot_checker, "foo"));
+  const Snapshot* snapshot2 = db_->GetSnapshot();
+  ASSERT_EQ(4, snapshot2->GetSequenceNumber());
+  // v4 is not visible to snapshot2, which has seq = 4.
+  ASSERT_EQ("v1,v2,v3",
+            GetWithReadCallback(snapshot_checker, "foo", snapshot2));
+
+  // Verify flush doesn't alter the result.
+  ASSERT_OK(Flush());
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
+  ASSERT_EQ("v1,v2,v3",
+            GetWithReadCallback(snapshot_checker, "foo", snapshot2));
+  ASSERT_EQ("v1,v2,v3", GetWithReadCallback(snapshot_checker, "foo"));
+
+  ASSERT_OK(Merge("foo", "v5"));
+  ASSERT_EQ(5, db_->GetLatestSequenceNumber());
+  // v5 is uncommitted
+  ASSERT_EQ("v1,v2,v3,v4", GetWithReadCallback(snapshot_checker, "foo"));
+
+  // full manual compaction.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify compaction doesn't alter the result.
+  ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
+  ASSERT_EQ("v1,v2,v3",
+            GetWithReadCallback(snapshot_checker, "foo", snapshot2));
+  ASSERT_EQ("v1,v2,v3,v4", GetWithReadCallback(snapshot_checker, "foo"));
+
+  db_->ReleaseSnapshot(snapshot1);
+  db_->ReleaseSnapshot(snapshot2);
+}
 
 }  // namespace rocksdb
 

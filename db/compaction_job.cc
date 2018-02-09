@@ -747,8 +747,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       compaction_filter, db_options_.info_log.get(),
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
-      compact_->compaction->level(), db_options_.statistics.get(),
-      shutting_down_);
+      snapshot_checker_, compact_->compaction->level(),
+      db_options_.statistics.get(), shutting_down_);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
 
