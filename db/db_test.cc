@@ -483,6 +483,36 @@ TEST_F(DBTest, SingleDeletePutFlush) {
 // Disable because not all platform can run it.
 // It requires more than 9GB memory to run it, With single allocation
 // of more than 3GB.
+TEST_F(DBTest, DISABLED_SanitizeVeryVeryLargeValue) {
+  const size_t kValueSize = 4 * size_t{1024 * 1024 * 1024};  // 4GB value
+  std::string raw(kValueSize, 'v');
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.write_buffer_size = 100000;  // Small write buffer
+  options.paranoid_checks = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("boo", "v1"));
+  ASSERT_TRUE(Put("foo", raw).IsInvalidArgument());
+  ASSERT_TRUE(Merge("foo", raw).IsInvalidArgument());
+
+  WriteBatch wb;
+  ASSERT_TRUE(wb.Put("foo", raw).IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge("foo", raw).IsInvalidArgument());
+
+  Slice value_slice = raw;
+  Slice key_slice = "foo";
+  SliceParts sp_key(&key_slice, 1);
+  SliceParts sp_value(&value_slice, 1);
+
+  ASSERT_TRUE(wb.Put(sp_key, sp_value).IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(sp_key, sp_value).IsInvalidArgument());
+}
+
+// Disable because not all platform can run it.
+// It requires more than 9GB memory to run it, With single allocation
+// of more than 3GB.
 TEST_F(DBTest, DISABLED_VeryLargeValue) {
   const size_t kValueSize = 3221225472u;  // 3GB value
   const size_t kKeySize = 8388608u;       // 8MB key

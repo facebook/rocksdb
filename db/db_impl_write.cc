@@ -1395,7 +1395,10 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
   // and we allocate 11 extra bytes for key length, as well as value length.
   WriteBatch batch(key.size() + value.size() + 24);
-  batch.Put(column_family, key, value);
+  Status s = batch.Put(column_family, key, value);
+  if (!s.ok()) {
+    return s;
+  }
   return Write(opt, &batch);
 }
 
@@ -1424,7 +1427,10 @@ Status DB::DeleteRange(const WriteOptions& opt,
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family, key, value);
+  Status s = batch.Merge(column_family, key, value);
+  if (!s.ok()) {
+    return s;
+  }
   return Write(opt, &batch);
 }
 }  // namespace rocksdb

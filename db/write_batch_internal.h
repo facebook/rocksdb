@@ -138,6 +138,9 @@ class WriteBatchInternal {
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
 
+  static Status CheckSlicePartsLength(const SliceParts& key,
+                                      const SliceParts& value);
+
   // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
   //
   // If ignore_missing_column_families == true. WriteBatch

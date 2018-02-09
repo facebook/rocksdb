@@ -574,6 +574,13 @@ size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) {
 
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
+  if (key.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+  if (value.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("value is too large");
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -596,8 +603,33 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                                  value);
 }
 
+Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
+                                                 const SliceParts& value) {
+  size_t total_key_bytes = 0;
+  for (int i = 0; i < key.num_parts; ++i) {
+    total_key_bytes += key.parts[i].size();
+  }
+  if (total_key_bytes >= size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+
+  size_t total_value_bytes = 0;
+  for (int i = 0; i < value.num_parts; ++i) {
+    total_value_bytes += value.parts[i].size();
+  }
+  if (total_value_bytes >= size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("value is too large");
+  }
+  return Status::OK();
+}
+
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const SliceParts& key, const SliceParts& value) {
+  Status s = CheckSlicePartsLength(key, value);
+  if (!s.ok()) {
+    return s;
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -814,6 +846,13 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                  const Slice& key, const Slice& value) {
+  if (key.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+  if (value.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("value is too large");
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -839,6 +878,11 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                  const SliceParts& key,
                                  const SliceParts& value) {
+  Status s = CheckSlicePartsLength(key, value);
+  if (!s.ok()) {
+    return s;
+  }
+
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
