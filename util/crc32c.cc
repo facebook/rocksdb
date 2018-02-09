@@ -39,8 +39,10 @@
 namespace rocksdb {
 namespace crc32c {
 
+#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
 #ifdef __powerpc64__
 static int arch_ppc_crc32 = 0;
+#endif /* __powerpc64__ */
 #endif
 
 static const uint32_t table0_[256] = {
