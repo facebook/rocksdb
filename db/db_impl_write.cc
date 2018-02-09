@@ -1019,7 +1019,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
         break;
       }
       cfd->imm()->FlushRequested();
-      SchedulePendingFlush(cfd);
+      SchedulePendingFlush(cfd, FlushReason::kWriteBufferManager);
     }
   }
   MaybeScheduleFlushOrCompaction();
@@ -1065,7 +1065,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     status = SwitchMemtable(cfd_picked, write_context);
     if (status.ok()) {
       cfd_picked->imm()->FlushRequested();
-      SchedulePendingFlush(cfd_picked);
+      SchedulePendingFlush(cfd_picked, FlushReason::kWriteBufferFull);
       MaybeScheduleFlushOrCompaction();
     }
   }

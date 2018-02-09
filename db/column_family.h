@@ -202,6 +202,10 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
+  void SetFlushReason(FlushReason flush_reason) {
+    flush_reason_ = flush_reason;
+  }
+  FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
@@ -403,6 +407,8 @@ class ColumnFamilyData {
   // Column Family. All earlier log files must be ignored and not
   // recovered from
   uint64_t log_number_;
+
+  FlushReason flush_reason_;
 
   // An object that keeps all the compaction stats
   // and picks the next compaction
