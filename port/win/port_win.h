@@ -92,6 +92,7 @@ namespace port {
 // therefore, use the same limits
 
 // For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = UINT32_MAX;
 const int kMaxInt32 = INT32_MAX;
 const int64_t kMaxInt64 = INT64_MAX;
 const uint64_t kMaxUint64 = UINT64_MAX;
@@ -107,6 +108,7 @@ const size_t kMaxSizet = UINT_MAX;
 #define ROCKSDB_NOEXCEPT noexcept
 
 // For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
 const int kMaxInt32 = std::numeric_limits<int>::max();
 const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
 const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
