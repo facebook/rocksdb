@@ -54,15 +54,30 @@
 
 namespace rocksdb {
 
-const char* flush_reason_map[] = {"Unknown",
-                                  "Get Live Files",
-                                  "Shut down",
-                                  "External File Ingestion",
-                                  "Manual Compaction",
-                                  "Write Buffer Manager",
-                                  "Write Buffer Full",
-                                  "Test",
-                                  "SuperVersion Change"};
+const char* GetFlushReasonString (FlushReason flush_reason) {
+  switch (flush_reason) {
+    case FlushReason::kUnknown:
+      return "Unknown";
+    case FlushReason::kGetLiveFiles:
+      return "Get Live Files";
+    case FlushReason::kShutDown:
+      return "Shut down";
+    case FlushReason::kExternalFileIngestion:
+      return "External File Ingestion";
+    case FlushReason::kManualCompaction:
+      return "Manual Compaction";
+    case FlushReason::kWriteBufferManager:
+      return "Write Buffer Manager";
+    case FlushReason::kWriteBufferFull:
+      return "Write Buffer Full";
+    case FlushReason::kTest:
+      return "Test";
+    case FlushReason::kSuperVersionChange:
+      return "SuperVersion Change";
+    default:
+      return "Invalid";
+  }
+}
 
 
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
@@ -295,7 +310,7 @@ Status FlushJob::WriteLevel0Table() {
         << "num_memtables" << mems_.size() << "num_entries" << total_num_entries
         << "num_deletes" << total_num_deletes << "memory_usage"
         << total_memory_usage << "flush_reason"
-        << flush_reason_map[static_cast<int>(cfd_->GetFlushReason())];
+        << GetFlushReasonString(cfd_->GetFlushReason());
 
     {
       ScopedArenaIterator iter(
