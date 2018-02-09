@@ -54,15 +54,15 @@
 
 namespace rocksdb {
 
-const char* flush_reason_map[] = {"unknown",
-                                  "GetLiveFiles",
+const char* flush_reason_map[] = {"Unknown",
+                                  "Get Live Files",
                                   "Shut down",
-                                  "ExternalSstFileIngestion",
+                                  "External File Ingestion",
                                   "Manual Compaction",
                                   "Write Buffer Manager",
                                   "Write Buffer Full",
                                   "Test",
-                                  "SuperVersion change"};
+                                  "SuperVersion Change"};
 
 
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
