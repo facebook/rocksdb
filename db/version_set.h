@@ -811,7 +811,8 @@ class VersionSet {
   void MarkFileNumberUsed(uint64_t number);
 
   // Mark the specified log number as deleted
-  // REQUIRED: this is only called during single-threaded recovery or repair, or from ::LogAndApply where the global mutex is held.
+  // REQUIRED: this is only called during single-threaded recovery or repair, or
+  // from ::LogAndApply where the global mutex is held.
   void MarkDeletedLogNumber(uint64_t number);
 
   // Return the log file number for the log file that is currently
@@ -911,8 +912,8 @@ class VersionSet {
   const std::string dbname_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
-  // Any log number lower than this should be ignored during recovery.
-  std::atomic<uint64_t> latest_deleted_log_number_;
+  // Any log number equal or lower than this should be ignored during recovery.
+  std::atomic<uint64_t> latest_deleted_log_number_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;

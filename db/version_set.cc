@@ -3218,7 +3218,8 @@ Status VersionSet::Recover(
       }
 
       if (edit.has_deleted_log_number_) {
-        deleted_log_number = std::max(deleted_log_number, edit.deleted_log_number_);
+        deleted_log_number =
+            std::max(deleted_log_number, edit.deleted_log_number_);
       }
 
       if (edit.has_last_sequence_) {
@@ -3315,7 +3316,7 @@ Status VersionSet::Recover(
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu,"
-        "max_column_family is %u\n",
+        "max_column_family is %u,"
         "deleted_log_number is %lu\n",
         manifest_filename.c_str(), (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
@@ -3626,6 +3627,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       if (edit.has_max_column_family_) {
         column_family_set_->UpdateMaxColumnFamily(edit.max_column_family_);
       }
+
+      if (edit.has_deleted_log_number_) {
+        MarkDeletedLogNumber(edit.deleted_log_number_);
+      }
     }
   }
   file_reader.reset();
@@ -3684,11 +3689,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
     printf(
         "next_file_number %lu last_sequence "
-        "%lu  prev_log_number %lu max_column_family %u deleted_log_number %lu\n",
+        "%lu  prev_log_number %lu max_column_family %u deleted_log_number "
+        "%lu\n",
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)previous_log_number,
-        column_family_set_->GetMaxColumnFamily(),
-        latest_deleted_log_number());
+        column_family_set_->GetMaxColumnFamily(), latest_deleted_log_number());
   }
 
   return s;
@@ -3703,7 +3708,8 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   }
 }
 
-// Called only either from ::LogAndApply which is protected by mutex or during recovery which is single-threaded.
+// Called only either from ::LogAndApply which is protected by mutex or during
+// recovery which is single-threaded.
 void VersionSet::MarkDeletedLogNumber(uint64_t number) {
   if (latest_deleted_log_number_.load(std::memory_order_relaxed) < number) {
     latest_deleted_log_number_.store(number, std::memory_order_relaxed);
