@@ -891,7 +891,7 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 
   // Record the offset at this point
   Env* env = options.env;
-  int wal_file_id = RecoveryTestHelper::kWALFileOffset + 1;
+  int wal_file_id = dbfull()->TEST_LogfileNumber();
   std::string fname = LogFileName(dbname_, wal_file_id);
   uint64_t offset_to_corrupt;
   ASSERT_OK(env->GetFileSize(fname, &offset_to_corrupt));

@@ -1413,8 +1413,12 @@ TEST_F(ExternalSSTFileTest, AddFileTrivialMoveBug) {
         // fit in L3 but will overlap with compaction so will be added
         // to L2 but a compaction will trivially move it to L3
         // and break LSM consistency
-        ASSERT_OK(dbfull()->SetOptions({{"max_bytes_for_level_base", "1"}}));
-        ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7));
+        static std::atomic<bool> called = {false};
+        if (!called) {
+          called = true;
+          ASSERT_OK(dbfull()->SetOptions({{"max_bytes_for_level_base", "1"}}));
+          ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7));
+        }
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
