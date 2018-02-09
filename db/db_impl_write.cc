@@ -339,7 +339,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
-    WriteCallbackStatusCheck(status);
+    WriteStatusCheck(status);
   }
 
   if (need_log_sync) {
@@ -462,7 +462,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     }
 
     if (!w.CallbackFailed()) {
-      WriteCallbackStatusCheck(w.status);
+      WriteStatusCheck(w.status);
     }
 
     if (need_log_sync) {
@@ -623,7 +623,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
-    WriteCallbackStatusCheck(status);
+    WriteStatusCheck(status);
   }
   if (status.ok()) {
     for (auto* writer : write_group) {
@@ -647,7 +647,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   return status;
 }
 
-void DBImpl::WriteCallbackStatusCheck(const Status& status) {
+void DBImpl::WriteStatusCheck(const Status& status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
