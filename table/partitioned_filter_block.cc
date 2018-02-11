@@ -232,10 +232,10 @@ PartitionedFilterBlockReader::GetFilterPartition(
     }
     return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
                              is_a_filter_partition, no_io,
-                             /* get_context */ nullptr);
+                             /* get_context */ nullptr, fltr_blk_handle);
   } else {
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
-                                     is_a_filter_partition);
+                                     is_a_filter_partition, fltr_blk_handle);
     return {filter, nullptr};
   }
 }
@@ -297,7 +297,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
     const bool is_a_filter_partition = true;
     auto filter = table_->GetFilter(prefetch_buffer.get(), handle,
                                     is_a_filter_partition, !no_io,
-                                    /* get_context */ nullptr);
+                                    /* get_context */ nullptr, handle);
     if (LIKELY(filter.IsSet())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);

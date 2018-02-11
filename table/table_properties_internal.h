@@ -16,16 +16,16 @@ class BlockHandle;
 // Seek to the properties block.
 // If it successfully seeks to the properties block, "is_found" will be
 // set to true.
-Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found);
+Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found, std::string which_block=kPropertiesBlock);
 
 // Seek to the compression dictionary block.
 // If it successfully seeks to the properties block, "is_found" will be
 // set to true.
 Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
-                          BlockHandle* block_handle);
+                          BlockHandle* block_handle, std::string which_dict=kCompressionDictBlock);
 
 // TODO(andrewkr) should not put all meta block in table_properties.h/cc
 Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
-                           BlockHandle* block_handle);
+                           BlockHandle* block_handle, std::string which_range=kRangeDelBlock);
 
 }  // namespace rocksdb

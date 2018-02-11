@@ -796,6 +796,7 @@ DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
 #endif  // ROCKSDB_LITE
 
 DEFINE_int64(uber, -1, "UBER to use with BitCorruptionInjectionTestEnv");
+DEFINE_bool(oneEvery, false, "oneEvery to use with BitCorruptionInjectionTestEnv");
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
@@ -3136,6 +3137,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
+      block_based_options.double_metadata =
+          FLAGS_double_metadata;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;
@@ -5358,7 +5361,7 @@ int db_bench_tool(int argc, char** argv) {
 #endif  // ROCKSDB_LITE
   if (!(FLAGS_uber < 0)) {
     FLAGS_env = new BitCorruptionInjectionTestEnv(
-      rocksdb::Env::Default(), FLAGS_uber);
+      rocksdb::Env::Default(), FLAGS_uber, FLAGS_oneEvery);
   }
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);

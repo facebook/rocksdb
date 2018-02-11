@@ -31,7 +31,9 @@ class BitCorruptionInjectionTestEnv;
 class BitCorruptionInjectionTestEnv : public EnvWrapper {
  public:
   explicit BitCorruptionInjectionTestEnv(Env* base, uint64_t uber)
-      : EnvWrapper(base), UBER_(uber) {}
+      : EnvWrapper(base), UBER_(uber), oneEvery_(false) {}
+  explicit BitCorruptionInjectionTestEnv(Env* base, uint64_t uber, bool oneEvery)
+      : EnvWrapper(base), UBER_(uber), oneEvery_(oneEvery) {}
   virtual ~BitCorruptionInjectionTestEnv() {}
 
   virtual Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
@@ -43,6 +45,8 @@ class BitCorruptionInjectionTestEnv : public EnvWrapper {
  private:
    uint64_t UBER_;
    static std::vector<std::string> excludedFiles_;
+   bool oneEvery_; // For testing purposes: if true, then true UBER_ as "1 in every UBER_
+                   // calls to Read will flip bits.
 };
 
 }  // namespace rocksdb

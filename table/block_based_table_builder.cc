@@ -667,10 +667,10 @@ Status BlockBasedTableBuilder::Finish() {
   // Locally replicate filter block(s) again.
   BlockHandle filter_block_handle2;
   if (r->table_options.double_metadata) {
+    // We don't support partitioned filters
+    assert(filter_blocks.size() <= 1);
     for (std::vector<Slice>::iterator it = filter_blocks.begin();
         it != filter_blocks.end(); it++) {
-      // TODO(amytai09): We don't support partitioned filters... so we should probably
-      // assert that filter_blocks.size() == 1 or something
       WriteRawBlock(*it, kNoCompression, &filter_block_handle2);
     }
   }
@@ -851,11 +851,17 @@ Status BlockBasedTableBuilder::Finish() {
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
                     &index_block_handle);
-      index_blocks_to_replicate.push_back(index_blocks.index_block_contents);
+      if (r->table_options.double_metadata) {
+        index_blocks_to_replicate.push_back(index_blocks.index_block_contents);
+      }
     }
     // If there are more index partitions, finish them and write them out
     Status& s = index_builder_status;
     while (s.IsIncomplete()) {
+      // We don't support surviving corruptions on partitioned indexes
+      if (r->table_options.double_metadata) {
+        assert(false);
+      }
       s = r->index_builder->Finish(&index_blocks, index_block_handle);
       if (!s.ok() && !s.IsIncomplete()) {
         return s;
@@ -868,7 +874,10 @@ Status BlockBasedTableBuilder::Finish() {
                    false);
       } else {
         WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
-                      &index_block_handle);
+            &index_block_handle);
+        if (r->table_options.double_metadata) {
+          index_blocks_to_replicate.push_back(index_blocks.index_block_contents);
+        }
       }
       // The last index_block_handle will be for the partition index block
     }
@@ -876,15 +885,14 @@ Status BlockBasedTableBuilder::Finish() {
 
     // Locally replicate all the index blocks again
     if (r->table_options.double_metadata) {
+      // We don't support partitioned indices
+      assert(index_blocks_to_replicate.size() <= 1);
       for (std::vector<Slice>::iterator it = index_blocks_to_replicate.begin();
           it != index_blocks_to_replicate.end(); it++) {
-        // TODO(amytai09): We don't support partitioned indices (see filter blocks too)
-        // so should assert index_blocks_to_replicate.size() == 1 or something..
         WriteRawBlock(*it, kNoCompression,
             &index_block_handle2);
       }
     }
-    // The last index_block_handle will be for the partition index block2
   }
 
   // Write footer

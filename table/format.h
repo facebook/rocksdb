@@ -185,10 +185,14 @@ class Footer {
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
+// Will read either the first or second footer based on value of which_footer
+// false = first, true = second
 Status ReadFooterFromFile(RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
-                          uint64_t enforce_table_magic_number = 0);
+                          uint64_t enforce_table_magic_number = 0,
+                          bool double_metadata = false,
+                          bool which_footer = false);
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;

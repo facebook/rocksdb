@@ -19,10 +19,13 @@ namespace rocksdb {
 class CorruptedSequentialFile : public SequentialFile {
  public:
   explicit CorruptedSequentialFile(uint64_t uber,
-                            unique_ptr<SequentialFile>&& f)
+                            unique_ptr<SequentialFile>&& f,
+                            bool oneEvery=false)
     : UBER_(uber),
-      target_(std::move(f)) {
+      target_(std::move(f)),
+      oneEvery_(oneEvery) {
         assert(target_ != nullptr);
+        counter_ = 0;
   }
   // Here is where we will inject bit errors randomly
   Status Read(size_t n, Slice* result, char* scratch) {
@@ -32,6 +35,18 @@ class CorruptedSequentialFile : public SequentialFile {
     rocksdb::Slice tempResult;
     Status s = target_->Read(n, &tempResult, tempScratch.get());
     if (!s.ok()) {
+      return s;
+    }
+    if (oneEvery_) {
+      for (size_t i = 0; i < tempResult.size(); ++i) {
+        scratch[i] = tempScratch[i];
+      }
+      if (counter_ % UBER_ == 0) {
+        // flip a bit
+        scratch[0] = (scratch[0] ^ (char) 0x80);
+      }
+      counter_++;
+      *result = Slice(scratch, tempResult.size());
       return s;
     }
     // Use the uber to flip bits
@@ -58,47 +73,67 @@ class CorruptedSequentialFile : public SequentialFile {
   // will happen even if 1 bit is flipped.
   uint64_t UBER_; // 1 in UBER_ *bytes* are corrupted.
   unique_ptr<SequentialFile> target_;
+  bool oneEvery_; // If true, treat UBER_ as 1 in UBER_ calls to read are corrupted
+                  // oneEvery_ == true is ONLY for testing purposes!!
+  int counter_; // Used when oneEvery_ == true
 };
 
 // A wrapper around RandomAccessFile that will inject bit errors.
 class CorruptedRandomAccessFile : public RandomAccessFile {
- public:
-   explicit CorruptedRandomAccessFile(uint64_t uber,
-                             unique_ptr<RandomAccessFile>&& f)
-       : UBER_(uber),
-         target_(std::move(f)) {
-           assert(target_ != nullptr);
-   }
+  public:
+    explicit CorruptedRandomAccessFile(uint64_t uber,
+        unique_ptr<RandomAccessFile>&& f, bool oneEvery = false)
+      : UBER_(uber),
+        target_(std::move(f)),
+        oneEvery_(oneEvery) {
+        assert(target_ != nullptr);
+        counter_ = 0;
+      }
 
-  // Here is where we will inject bit errors randomly
-  Status Read(uint64_t offset, size_t n,
-    Slice* result, char* scratch) const {
-    // First do the read from the underlying RandomAccessFile
-    // We can't use result/scratch to call because they are const
-    std::unique_ptr<char[]> tempScratch(new char[n]);
-    rocksdb::Slice tempResult;
-    Status s = target_->Read(offset, n, &tempResult, tempScratch.get());
-    if (!s.ok()) {
+    // Here is where we will inject bit errors randomly
+    Status Read(uint64_t offset, size_t n,
+        Slice* result, char* scratch) const {
+      // First do the read from the underlying RandomAccessFile
+      // We can't use result/scratch to call because they are const
+      std::unique_ptr<char[]> tempScratch(new char[n]);
+      rocksdb::Slice tempResult;
+      Status s = target_->Read(offset, n, &tempResult, tempScratch.get());
+      if (!s.ok()) {
+        return s;
+      }
+      if (oneEvery_) {
+        for (size_t i = 0; i < tempResult.size(); ++i) {
+          scratch[i] = tempScratch[i];
+        }
+        if (counter_ % UBER_ == 0) {
+          // flip a bit
+          scratch[0] = (scratch[0] ^ (char) 0x80);
+        }
+        counter_++;
+        *result = Slice(scratch, tempResult.size());
+        return s;
+      }
+      // Use the uber to flip bits
+      Random r((uint32_t)Env::Default()->NowMicros());
+      for (size_t i = 0; i < tempResult.size(); ++i) {
+        bool flipThis = r.OneIn(UBER_);
+        if (flipThis) {
+          // This should flip top bit
+          scratch[i] = (tempScratch[i] ^ (char) 0x80);
+        } else {
+          scratch[i] = tempScratch[i];
+        }
+      }
+      *result = Slice(scratch, tempResult.size());
       return s;
     }
-    // Use the uber to flip bits
-    Random r((uint32_t)Env::Default()->NowMicros());
-    for (size_t i = 0; i < tempResult.size(); ++i) {
-      bool flipThis = r.OneIn(UBER_);
-      if (flipThis) {
-        // This should flip top bit
-        scratch[i] = (tempScratch[i] ^ (char) 0x80);
-      } else {
-        scratch[i] = tempScratch[i];
-      }
-    }
-    *result = Slice(scratch, tempResult.size());
-    return s;
-  }
 
- private:
-  uint64_t UBER_;
-  unique_ptr<RandomAccessFile> target_;
+  private:
+    uint64_t UBER_;
+    unique_ptr<RandomAccessFile> target_;
+    bool oneEvery_; // If true, treat UBER_ as 1 in UBER_ calls to read are corrupted
+                    // oneEvery_ == true is ONLY for testing purposes!!
+    mutable uint64_t counter_; // Used when oneEvery_ == true
 };
 
 std::vector<std::string> initExcludedFilePrefixes() {
@@ -111,7 +146,7 @@ std::vector<std::string> initExcludedFilePrefixes() {
 }
 
 std::vector<std::string>
-  BitCorruptionInjectionTestEnv::excludedFiles_ = initExcludedFilePrefixes();
+BitCorruptionInjectionTestEnv::excludedFiles_ = initExcludedFilePrefixes();
 
 bool fileMatch(std::string fullPath, std::string matchMe) {
   size_t curPos = -1;
@@ -123,45 +158,45 @@ bool fileMatch(std::string fullPath, std::string matchMe) {
 }
 
 Status BitCorruptionInjectionTestEnv::NewSequentialFile(
-  const std::string& f, unique_ptr<SequentialFile>* r,
-  const EnvOptions& options) {
+    const std::string& f, unique_ptr<SequentialFile>* r,
+    const EnvOptions& options) {
   Status s;
   s = EnvWrapper::NewSequentialFile(f, r, options);
   if (!s.ok()) {
     return s;
   }
   for (std::vector<std::string>::iterator it = excludedFiles_.begin();
-    it < excludedFiles_.end(); it++) {
-      // f is of the form /tmp/dir/a/b/c/FILENAME, so we actually only want
-      // to match on FILENAME.
-      if (fileMatch(f, *it)) {
-        // Then it's a special metadata file and should be ignored
-        return s;
-      }
+      it < excludedFiles_.end(); it++) {
+    // f is of the form /tmp/dir/a/b/c/FILENAME, so we actually only want
+    // to match on FILENAME.
+    if (fileMatch(f, *it)) {
+      // Then it's a special metadata file and should be ignored
+      return s;
+    }
   }
   CorruptedSequentialFile* retMe = new CorruptedSequentialFile(UBER_,
-    std::move(*r));
+      std::move(*r), oneEvery_);
   r->reset(retMe);
   return s;
 }
 
 Status BitCorruptionInjectionTestEnv::NewRandomAccessFile(
-  const std::string& f, unique_ptr<RandomAccessFile>* r,
-  const EnvOptions& options) {
+    const std::string& f, unique_ptr<RandomAccessFile>* r,
+    const EnvOptions& options) {
   Status s;
   s = EnvWrapper::NewRandomAccessFile(f, r, options);
   if (!s.ok()) {
     return s;
   }
   for (std::vector<std::string>::iterator it = excludedFiles_.begin();
-    it < excludedFiles_.end(); it++) {
-      if (f.compare(*it) == 0) {
-        // Then it's a special metadata file and should be ignored
-        return s;
-      }
+      it < excludedFiles_.end(); it++) {
+    if (f.compare(*it) == 0) {
+      // Then it's a special metadata file and should be ignored
+      return s;
+    }
   }
   CorruptedRandomAccessFile* retMe = new CorruptedRandomAccessFile(UBER_,
-    std::move(*r));
+      std::move(*r), oneEvery_);
   r->reset(retMe);
   return s;
 }

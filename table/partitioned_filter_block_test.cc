@@ -30,7 +30,7 @@ class MockedBlockBasedTable : public BlockBasedTable {
   virtual CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
       const bool /* unused */, bool /* unused */,
-      GetContext* /* unused */) const override {
+      GetContext* /* unused */, const BlockHandle& filter_blk_handle2) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),

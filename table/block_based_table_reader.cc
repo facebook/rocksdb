@@ -645,6 +645,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
+  bool double_metadata = table_options.double_metadata;
   // Before read footer, readahead backwards to prefetch data
   const size_t kTailPrefetchSize = 512 * 1024;
   size_t prefetch_off;
@@ -665,7 +666,14 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
   }
   s = ReadFooterFromFile(file.get(), prefetch_buffer.get(), file_size, &footer,
-                         kBlockBasedTableMagicNumber);
+                         kBlockBasedTableMagicNumber, double_metadata, false);
+
+  // If the footer has a corrupt checksum, read from the second footer
+  if (s.IsCorruption() && double_metadata) {
+     s = ReadFooterFromFile(file.get(), prefetch_buffer.get(), file_size, &footer,
+                         kBlockBasedTableMagicNumber, double_metadata, true);
+    // TODO(amytai09): Do majority voting, if the second footer is also corrupt?
+  }
   if (!s.ok()) {
     return s;
   }
@@ -674,6 +682,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         "Unknown Footer version. Maybe this file was created with newer "
         "version of RocksDB?");
   }
+  // At this point, footer should be clean
 
   // We've successfully read the footer. We are ready to serve requests.
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
@@ -702,10 +711,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Read meta index
   std::unique_ptr<Block> meta;
   std::unique_ptr<InternalIterator> meta_iter;
+  // ReadMetaBlock will read metaindex_handle2 if there is a corruption
   s = ReadMetaBlock(rep, prefetch_buffer.get(), &meta, &meta_iter);
   if (!s.ok()) {
     return s;
   }
+  // At this point, metaindex block is clean
 
   // Find filter handle and filter type
   if (rep->filter_policy) {
@@ -713,24 +724,37 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
          {Rep::FilterType::kFullFilter, Rep::FilterType::kPartitionedFilter,
           Rep::FilterType::kBlockFilter}) {
       std::string prefix;
+      std::string prefix2;
       switch (filter_type) {
         case Rep::FilterType::kFullFilter:
           prefix = kFullFilterBlockPrefix;
+          prefix2 = kFullFilterBlockPrefix2;
           break;
         case Rep::FilterType::kPartitionedFilter:
           prefix = kPartitionedFilterBlockPrefix;
+          prefix2 = kPartitionedFilterBlockPrefix2;
           break;
         case Rep::FilterType::kBlockFilter:
           prefix = kFilterBlockPrefix;
+          prefix2 = kFilterBlockPrefix2;
           break;
         default:
           assert(0);
       }
       std::string filter_block_key = prefix;
+      std::string filter_block_key2 = prefix2;
       filter_block_key.append(rep->filter_policy->Name());
+      filter_block_key2.append(rep->filter_policy->Name());
       if (FindMetaBlock(meta_iter.get(), filter_block_key, &rep->filter_handle)
               .ok()) {
         rep->filter_type = filter_type;
+        if (double_metadata) {
+          if (FindMetaBlock(meta_iter.get(), filter_block_key2, &rep->filter_handle2).ok()) {
+            ROCKS_LOG_WARN(rep->ioptions.info_log,
+                "Error when reading second filter block handle from file: %s",
+                s.ToString().c_str());
+          }
+        }
         break;
       }
     }
@@ -738,7 +762,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // Read the properties
   bool found_properties_block = true;
-  s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
+  // The metaindex block is clean, so this seek will not encounter corruptions
+  s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block, kPropertiesBlock);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(rep->ioptions.info_log,
@@ -751,6 +776,28 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       s = ReadProperties(meta_iter->value(), rep->file.get(),
                          prefetch_buffer.get(), rep->footer, rep->ioptions,
                          &table_properties);
+
+      if (s.IsCorruption() && double_metadata) {
+        // Seek to kPropertiesBlock2. Because we put this directly after
+        // kPropertiesBlock, we can use the same meta_iter
+        found_properties_block = false;
+        // If the seek is successful, meta_iter will point to the second properties block,
+        // so the call to ReadProperties below will be successful because it uses
+        // meta_iter->value()
+        s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block, kPropertiesBlock2);
+        if (!s.ok() || !found_properties_block) {
+          ROCKS_LOG_WARN(rep->ioptions.info_log,
+                   "Error when seeking to properties block2 from file: %s",
+                   s.ToString().c_str());
+        }
+        s = meta_iter->status();
+        table_properties = nullptr;
+        if (s.ok()) {
+          s = ReadProperties(meta_iter->value(), rep->file.get(),
+                         prefetch_buffer.get(), rep->footer, rep->ioptions,
+                         &table_properties);
+        }
+      }
     }
 
     if (!s.ok()) {
@@ -769,8 +816,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Read the compression dictionary meta block
   bool found_compression_dict;
   BlockHandle compression_dict_handle;
-  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict, 
-    &compression_dict_handle);
+  // Seek has no corruptions because meta_iter should be clean.
+  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict,
+    &compression_dict_handle, kCompressionDictBlock);
+
   if (!s.ok()) {
     ROCKS_LOG_WARN(
         rep->ioptions.info_log,
@@ -789,6 +838,23 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       Slice() /*compression dict*/, cache_options);
     s = compression_block_fetcher.ReadBlockContents();
 
+    if (s.IsCorruption() && double_metadata) {
+      // Seek to kCompressionDictBlock2.
+      found_compression_dict = false;
+      BlockHandle compression_dict_handle2;
+      s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict,
+            &compression_dict_handle2, kCompressionDictBlock2);
+      if (s.ok() && found_compression_dict && !compression_dict_handle2.IsNull()) {
+        BlockFetcher compression_block_fetcher2(
+            rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
+            compression_dict_handle2, compression_dict_cont.get(), rep->ioptions, false /* decompress */,
+            Slice() /*compression dict*/, cache_options);
+        s = compression_block_fetcher2.ReadBlockContents();
+
+        //TODO(amytai09): if s.IsCorruption() again, try majority voting.
+      }
+    }
+
     if (!s.ok()) {
       ROCKS_LOG_WARN(
           rep->ioptions.info_log,
@@ -802,8 +868,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // Read the range del meta block
   bool found_range_del_block;
+  // This seek should be fine because meta_iter is clean
   s = SeekToRangeDelBlock(meta_iter.get(), &found_range_del_block,
-                          &rep->range_del_handle);
+                          &rep->range_del_handle, kRangeDelBlock);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
         rep->ioptions.info_log,
@@ -816,6 +883,20 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
           prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
           Slice() /* compression_dict */, &rep->range_del_entry,
           false /* is_index */, nullptr /* get_context */);
+
+      if (s.IsCorruption() && double_metadata) {
+        // Seek to the second tombstone block
+        found_range_del_block = false;
+        s = SeekToRangeDelBlock(meta_iter.get(), &found_range_del_block,
+            &rep->range_del_handle, kRangeDelBlock2);
+        if (s.ok() && found_range_del_block && !rep->range_del_handle.IsNull()) {
+          s = MaybeLoadDataBlockToCache(
+              prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
+              Slice() /* compression_dict */, &rep->range_del_entry,
+              false /* is_index */, nullptr /* get_context */);
+        }
+      }
+
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             rep->ioptions.info_log,
@@ -851,14 +932,18 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // block_cache
 
       CachableEntry<IndexReader> index_entry;
+      // Any file IO in the following call will be in CreateIndexReader
       unique_ptr<InternalIterator> iter(
           new_table->NewIndexIterator(ReadOptions(), nullptr, &index_entry));
+
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
         // On success it should give us ownership of the `CachableEntry` by
         // populating `index_entry`.
         assert(index_entry.value != nullptr);
+        // If we assume that index_entry isn't a PartitionIndexReader, then
+        // the called to CacheDependencies is a no-op.
         index_entry.value->CacheDependencies(pin);
         if (pin) {
           rep->index_entry = std::move(index_entry);
@@ -869,6 +954,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         // Hack: Call GetFilter() to implicitly add filter to the block_cache
         auto filter_entry = new_table->GetFilter();
         if (filter_entry.value != nullptr) {
+          // If we assume that index_entry isn't a PartitionFilterReader, then
+          // the called to CacheDependencies is a no-op.
           filter_entry.value->CacheDependencies(pin);
         }
         // if pin_l0_filter_and_index_blocks_in_cache is true, and this is
@@ -888,7 +975,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     // and with a same life-time as this table object.
     IndexReader* index_reader = nullptr;
     s = new_table->CreateIndexReader(prefetch_buffer.get(), &index_reader,
-                                     meta_iter.get(), level);
+                                     meta_iter.get(), level, double_metadata);
     if (s.ok()) {
       rep->index_reader.reset(index_reader);
       // The partitions of partitioned index are always stored in cache. They
@@ -902,7 +989,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       if (rep->filter_policy) {
         const bool is_a_filter_partition = true;
         auto filter = new_table->ReadFilter(
-            prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition);
+            prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition,
+            rep->filter_handle2);
         rep->filter.reset(filter);
         // Refer to the comment above about paritioned indexes always being
         // cached
@@ -971,6 +1059,21 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
       true /* decompress */, Slice() /*compression dict*/,
       rep->persistent_cache_options, kDisableGlobalSequenceNumber,
       0 /* read_amp_bytes_per_bit */);
+
+  if (s.IsCorruption() && rep->table_options.double_metadata) {
+    // Read the second metaindex block
+    s = ReadBlockFromFile(
+      rep->file.get(), prefetch_buffer, rep->footer, ReadOptions(),
+      rep->footer.metaindex_handle2(), &meta, rep->ioptions,
+      true /* decompress */, Slice() /*compression dict*/,
+      rep->persistent_cache_options, kDisableGlobalSequenceNumber,
+      0 /* read_amp_bytes_per_bit */);
+
+    //TODO(amytai09): if there is another corruption, could do majority voting..
+    if (!s.ok()) {
+      return s;
+    }
+  }
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
@@ -1203,7 +1306,7 @@ Status BlockBasedTable::PutDataBlockToCache(
 
 FilterBlockReader* BlockBasedTable::ReadFilter(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_handle,
-    const bool is_a_filter_partition) const {
+    const bool is_a_filter_partition, const BlockHandle& filter_handle2) const {
   auto& rep = rep_;
   // TODO: We might want to unify with ReadBlockFromFile() if we start
   // requiring checksum verification in Table::Open.
@@ -1219,6 +1322,14 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
                              rep->ioptions, false /* decompress */,
                              dummy_comp_dict, rep->persistent_cache_options);
   Status s = block_fetcher.ReadBlockContents();
+
+  if (s.IsCorruption() && rep->table_options.double_metadata) {
+    BlockFetcher block_fetcher2(rep->file.get(), prefetch_buffer, rep->footer,
+        ReadOptions(), filter_handle2, &block,
+        rep->ioptions, false /* decompress */,
+        dummy_comp_dict, rep->persistent_cache_options);
+    s = block_fetcher2.ReadBlockContents();
+  }
 
   if (!s.ok()) {
     // Error reading the block
@@ -1269,15 +1380,16 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     FilePrefetchBuffer* prefetch_buffer, bool no_io,
     GetContext* get_context) const {
   const BlockHandle& filter_blk_handle = rep_->filter_handle;
+  const BlockHandle& filter_blk_handle2 = rep_->filter_handle2;
   const bool is_a_filter_partition = true;
   return GetFilter(prefetch_buffer, filter_blk_handle, !is_a_filter_partition,
-                   no_io, get_context);
+                   no_io, get_context, filter_blk_handle2) ;
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
     const bool is_a_filter_partition, bool no_io,
-    GetContext* get_context) const {
+    GetContext* get_context, const BlockHandle& filter_blk_handle2) const {
   // If cache_index_and_filter_blocks is false, filter should be pre-populated.
   // We will return rep_->filter anyway. rep_->filter can be nullptr if filter
   // read fails at Open() time. We don't want to reload again since it will
@@ -1318,7 +1430,9 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     return CachableEntry<FilterBlockReader>();
   } else {
     filter =
-        ReadFilter(prefetch_buffer, filter_blk_handle, is_a_filter_partition);
+        ReadFilter(prefetch_buffer, filter_blk_handle, is_a_filter_partition,
+            filter_blk_handle2);
+
     if (filter != nullptr) {
       assert(filter->size() > 0);
       Status s = block_cache->Insert(
@@ -2116,7 +2230,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 //  5. index_type
 Status BlockBasedTable::CreateIndexReader(
     FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
-    InternalIterator* preloaded_meta_index_iter, int level) {
+    InternalIterator* preloaded_meta_index_iter, int level, bool double_metadata) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
   auto index_type_on_file = BlockBasedTableOptions::kBinarySearch;
@@ -2141,19 +2255,31 @@ Status BlockBasedTable::CreateIndexReader(
     index_type_on_file = BlockBasedTableOptions::kBinarySearch;
   }
 
+  Status st;
   switch (index_type_on_file) {
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
+      // We don't support Partitioned indexes, so if there is a corruption
+      // we can't help
       return PartitionIndexReader::Create(
           this, file, prefetch_buffer, footer, footer.index_handle(),
           rep_->ioptions, icomparator, index_reader,
           rep_->persistent_cache_options, level);
     }
     case BlockBasedTableOptions::kBinarySearch: {
-      return BinarySearchIndexReader::Create(
+      st = BinarySearchIndexReader::Create(
           file, prefetch_buffer, footer, footer.index_handle(), rep_->ioptions,
           icomparator, index_reader, rep_->persistent_cache_options);
+      if (st.IsCorruption() && double_metadata) {
+        // Try to read the back-up index block.
+        st = BinarySearchIndexReader::Create(
+            file, prefetch_buffer, footer, footer.index_handle2(), rep_->ioptions,
+            icomparator, index_reader, rep_->persistent_cache_options);
+        // TODO(amytai09): try majority voting if there's still a corruption?
+      }
+      return st;
     }
     case BlockBasedTableOptions::kHashSearch: {
+      // TODO(amytai09): does anyone actually use kHashSearch????
       std::unique_ptr<Block> meta_guard;
       std::unique_ptr<InternalIterator> meta_iter_guard;
       auto meta_index_iter = preloaded_meta_index_iter;

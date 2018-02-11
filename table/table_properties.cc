@@ -206,10 +206,10 @@ extern const std::string kCompressionDictBlock2 = "rocksdb.compression_dict2";
 extern const std::string kRangeDelBlock = "rocksdb.range_del";
 extern const std::string kRangeDelBlock2 = "rocksdb.range_del2";
 
-// Seek to the properties block.
+// Seek to the properties block, which_block = kPropertiesBlock | kPropertiesBlock2.
 // Return true if it successfully seeks to the properties block.
-Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
-  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found);
+Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found, std::string which_block) {
+  Status status = SeekToMetaBlock(meta_iter, which_block, is_found);
   if (!*is_found && status.ok()) {
     status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found);
   }
@@ -219,13 +219,13 @@ Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
 // Seek to the compression dictionary block.
 // Return true if it successfully seeks to that block.
 Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
-                                  BlockHandle* block_handle) {
-  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found, block_handle);
+                                  BlockHandle* block_handle, std::string which_dict) {
+  return SeekToMetaBlock(meta_iter, which_dict, is_found, block_handle);
 }
 
 Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
-                           BlockHandle* block_handle = nullptr) {
-  return SeekToMetaBlock(meta_iter, kRangeDelBlock, is_found, block_handle);
+                           BlockHandle* block_handle = nullptr, std::string which_range) {
+  return SeekToMetaBlock(meta_iter, which_range, is_found, block_handle);
 }
 
 }  // namespace rocksdb

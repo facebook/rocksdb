@@ -253,7 +253,7 @@ class BlockBasedTable : public TableReader {
   virtual CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
       const bool is_a_filter_partition, bool no_io,
-      GetContext* get_context) const;
+      GetContext* get_context, const BlockHandle& filter_blk_handle2) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -318,7 +318,7 @@ class BlockBasedTable : public TableReader {
   Status CreateIndexReader(
       FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
       InternalIterator* preloaded_meta_index_iter = nullptr,
-      const int level = -1);
+      const int level = -1, bool double_metadata = false);
 
   bool FullFilterKeyMayMatch(const ReadOptions& read_options,
                              FilterBlockReader* filter, const Slice& user_key,
@@ -334,7 +334,8 @@ class BlockBasedTable : public TableReader {
   // Create the filter from the filter block.
   FilterBlockReader* ReadFilter(FilePrefetchBuffer* prefetch_buffer,
                                 const BlockHandle& filter_handle,
-                                const bool is_a_filter_partition) const;
+                                const bool is_a_filter_partition,
+                                const BlockHandle& filter_handle2) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
@@ -463,6 +464,7 @@ struct BlockBasedTable::Rep {
   };
   FilterType filter_type;
   BlockHandle filter_handle;
+  BlockHandle filter_handle2;
 
   std::shared_ptr<const TableProperties> table_properties;
   // Block containing the data for the compression dictionary. We take ownership

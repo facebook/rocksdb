@@ -140,7 +140,7 @@ void Footer::EncodeTo(std::string* dst, bool double_metadata) const {
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
 
     if (double_metadata) {
-      auto crc = crc32c::Value(dst->data(), kNewVersionsEncodedLength - kFooterTrailerSize);
+      auto crc = crc32c::Value(dst->data(), kDoubleMetadataEncodedLength - kFooterTrailerSize);
       PutFixed32(dst, crc32c::Mask(crc));
       assert(dst->size() == original_size + kDoubleMetadataEncodedLength);
     } else {
@@ -208,10 +208,18 @@ Status Footer::DecodeFrom(Slice* input, bool double_metadata) {
     // Footer version 1 and higher will always occupy exactly this many bytes.
     // It consists of the checksum type, two block handles, padding,
     // a version number, and a magic number
-    if (input->size() < kNewVersionsEncodedLength) {
-      return Status::Corruption("input is too short to be an sstable");
+    if (!double_metadata) {
+      if (input->size() < kNewVersionsEncodedLength) {
+        return Status::Corruption("input is too short to be an sstable");
+      } else {
+        input->remove_prefix(input->size() - kNewVersionsEncodedLength);
+      }
     } else {
-      input->remove_prefix(input->size() - kNewVersionsEncodedLength);
+      if (input->size() < kDoubleMetadataEncodedLength) {
+        return Status::Corruption("input is too short to be an sstable");
+      } else {
+        input->remove_prefix(input->size() - kDoubleMetadataEncodedLength);
+      }
     }
     uint32_t chksum;
     if (!GetVarint32(input, &chksum)) {
@@ -269,24 +277,39 @@ std::string Footer::ToString() const {
 Status ReadFooterFromFile(RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
-                          uint64_t enforce_table_magic_number) {
+                          uint64_t enforce_table_magic_number,
+                          bool double_metadata,
+                          bool which_footer) {
   if (file_size < Footer::kMinEncodedLength) {
     return Status::Corruption(
       "file is too short (" + ToString(file_size) + " bytes) to be an "
       "sstable: " + file->file_name());
   }
 
-  char footer_space[Footer::kMaxEncodedLength];
+  size_t maxFooterLength = Footer::kMaxEncodedLength;
+  if (double_metadata) {
+    maxFooterLength = Footer::kDoubleMetadataEncodedLength;
+  }
+
+  char footer_space[maxFooterLength];
   Slice footer_input;
-  size_t read_offset =
-      (file_size > Footer::kMaxEncodedLength)
-          ? static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
+  size_t read_offset;
+  if (which_footer) {
+    read_offset=
+      (file_size > maxFooterLength)
+          ? static_cast<size_t>(file_size - maxFooterLength)
           : 0;
+  } else {
+    read_offset=
+      (file_size > maxFooterLength)
+          ? static_cast<size_t>(file_size - 2 * maxFooterLength)
+          : 0;
+  }
   Status s;
   if (prefetch_buffer == nullptr ||
-      !prefetch_buffer->TryReadFromCache(read_offset, Footer::kMaxEncodedLength,
+      !prefetch_buffer->TryReadFromCache(read_offset, maxFooterLength,
                                          &footer_input)) {
-    s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
+    s = file->Read(read_offset, maxFooterLength, &footer_input,
                    footer_space);
     if (!s.ok()) return s;
   }
@@ -299,7 +322,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
       "sstable" + file->file_name());
   }
 
-  s = footer->DecodeFrom(&footer_input);
+  s = footer->DecodeFrom(&footer_input, double_metadata);
   if (!s.ok()) {
     return s;
   }
