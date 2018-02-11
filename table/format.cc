@@ -294,7 +294,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   char footer_space[maxFooterLength];
   Slice footer_input;
   size_t read_offset;
-  if (which_footer) {
+  if (!double_metadata || which_footer) {
     read_offset=
       (file_size > maxFooterLength)
           ? static_cast<size_t>(file_size - maxFooterLength)
