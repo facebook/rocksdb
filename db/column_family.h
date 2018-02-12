@@ -408,7 +408,7 @@ class ColumnFamilyData {
   // recovered from
   uint64_t log_number_;
 
-  FlushReason flush_reason_;
+  std::atomic<FlushReason> flush_reason_;
 
   // An object that keeps all the compaction stats
   // and picks the next compaction
