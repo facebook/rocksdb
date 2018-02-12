@@ -549,6 +549,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
 
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+      bg_cv_.SignalAll();
     }
   }
   sv_context.Clean();
@@ -1433,6 +1434,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       }
       is_snapshot_supported_ = new_is_snapshot_supported;
     }
+    bg_cv_.SignalAll();
   }
 
   if (s.ok()) {

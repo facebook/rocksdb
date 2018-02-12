@@ -30,6 +30,7 @@ namespace rocksdb {
 
 class Version;
 class VersionSet;
+class VersionStorageInfo;
 class MemTable;
 class MemTableListVersion;
 class CompactionPicker;
@@ -334,6 +335,17 @@ class ColumnFamilyData {
   void set_pending_compaction(bool value) { pending_compaction_ = value; }
   bool pending_flush() { return pending_flush_; }
   bool pending_compaction() { return pending_compaction_; }
+
+  enum class WriteStallCause {
+    kNone,
+    kMemtableLimit,
+    kL0FileCountLimit,
+    kPendingCompactionBytes,
+  };
+  static std::pair<WriteStallCondition, WriteStallCause>
+  GetWriteStallConditionAndCause(int num_unflushed_memtables, int num_l0_files,
+                                 uint64_t num_compaction_needed_bytes,
+                                 const MutableCFOptions& mutable_cf_options);
 
   // Recalculate some small conditions, which are changed only during
   // compaction, adding new memtable and/or

@@ -1205,6 +1205,9 @@ struct CompactRangeOptions {
   // if there is a compaction filter
   BottommostLevelCompaction bottommost_level_compaction =
       BottommostLevelCompaction::kIfHaveCompactionFilter;
+  // If true, will execute immediately even if doing so would cause the DB to
+  // enter write stall mode. Otherwise, it'll sleep until load is low enough.
+  bool allow_write_stall = false;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
