@@ -100,6 +100,14 @@ struct Range {
   Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
 };
 
+struct RangePtr {
+  const Slice* start;
+  const Slice* limit;
+
+  RangePtr() : start(nullptr), limit(nullptr) { }
+  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) { }
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -165,8 +173,9 @@ class DB {
 
   // Close the DB by releasing resources, closing files etc. This should be
   // called before calling the desctructor so that the caller can get back a
-  // status in case there are any errors. Regardless of the return status, the
-  // DB must be freed
+  // status in case there are any errors. This will not fsync the WAL files.
+  // If syncing is required, the caller must first call SyncWAL.
+  // Regardless of the return status, the DB must be freed
   virtual Status Close() { return Status::OK(); }
 
   // ListColumnFamilies will open the DB specified by argument name
@@ -979,7 +988,7 @@ class DB {
   // the file can fit in, and ingest the file into this level (2). A file that
   // have a key range that overlap with the memtable key range will require us
   // to Flush the memtable first before ingesting the file.
-  // In the second mode we will always ingest in the bottom mode level (see
+  // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
   //
   // (1) External SST files can be created using SstFileWriter

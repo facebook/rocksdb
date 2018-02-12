@@ -196,35 +196,57 @@ ForwardIterator::~ForwardIterator() {
   Cleanup(true);
 }
 
-namespace {
-// Used in PinnedIteratorsManager to release pinned SuperVersion
-static void ReleaseSuperVersionFunc(void* sv) {
-  delete reinterpret_cast<SuperVersion*>(sv);
-}
-}  // namespace
-
-void ForwardIterator::SVCleanup() {
-  if (sv_ != nullptr && sv_->Unref()) {
+void ForwardIterator::SVCleanup(DBImpl* db, SuperVersion* sv,
+                                bool background_purge_on_iterator_cleanup) {
+  if (sv->Unref()) {
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
-    db_->mutex_.Lock();
-    sv_->Cleanup();
-    db_->FindObsoleteFiles(&job_context, false, true);
-    if (read_options_.background_purge_on_iterator_cleanup) {
-      db_->ScheduleBgLogWriterClose(&job_context);
+    db->mutex_.Lock();
+    sv->Cleanup();
+    db->FindObsoleteFiles(&job_context, false, true);
+    if (background_purge_on_iterator_cleanup) {
+      db->ScheduleBgLogWriterClose(&job_context);
     }
-    db_->mutex_.Unlock();
-    if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
-      pinned_iters_mgr_->PinPtr(sv_, &ReleaseSuperVersionFunc);
-    } else {
-      delete sv_;
-    }
+    db->mutex_.Unlock();
+    delete sv;
     if (job_context.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(
-          job_context, read_options_.background_purge_on_iterator_cleanup);
+      db->PurgeObsoleteFiles(job_context, background_purge_on_iterator_cleanup);
     }
     job_context.Clean();
+  }
+}
+
+namespace {
+struct SVCleanupParams {
+  DBImpl* db;
+  SuperVersion* sv;
+  bool background_purge_on_iterator_cleanup;
+};
+}
+
+// Used in PinnedIteratorsManager to release pinned SuperVersion
+void ForwardIterator::DeferredSVCleanup(void* arg) {
+  auto d = reinterpret_cast<SVCleanupParams*>(arg);
+  ForwardIterator::SVCleanup(
+    d->db, d->sv, d->background_purge_on_iterator_cleanup);
+  delete d;
+}
+
+void ForwardIterator::SVCleanup() {
+  if (sv_ == nullptr) {
+    return;
+  }
+  if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
+    // pinned_iters_mgr_ tells us to make sure that all visited key-value slices
+    // are alive until pinned_iters_mgr_->ReleasePinnedData() is called.
+    // The slices may point into some memtables owned by sv_, so we need to keep
+    // sv_ referenced until pinned_iters_mgr_ unpins everything.
+    auto p = new SVCleanupParams{
+      db_, sv_, read_options_.background_purge_on_iterator_cleanup};
+    pinned_iters_mgr_->PinPtr(p, &ForwardIterator::DeferredSVCleanup);
+  } else {
+    SVCleanup(db_, sv_, read_options_.background_purge_on_iterator_cleanup);
   }
 }
 

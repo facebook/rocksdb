@@ -28,7 +28,7 @@ class HashSkipListRep : public MemTableRep {
                   size_t bucket_size, int32_t skiplist_height,
                   int32_t skiplist_branching_factor);
 
-  virtual void Insert(KeyHandle handle) override;
+  virtual bool Insert(KeyHandle handle) override;
 
   virtual bool Contains(const char* key) const override;
 
@@ -267,12 +267,13 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
   return bucket;
 }
 
-void HashSkipListRep::Insert(KeyHandle handle) {
+bool HashSkipListRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
   assert(!Contains(key));
   auto transformed = transform_->Transform(UserKey(key));
   auto bucket = GetInitializedBucket(transformed);
   bucket->Insert(key);
+  return true;
 }
 
 bool HashSkipListRep::Contains(const char* key) const {

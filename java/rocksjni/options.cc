@@ -61,6 +61,18 @@ jlong Java_org_rocksdb_Options_newOptions__JJ(JNIEnv* env, jclass jcls,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    copyOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_copyOptions(JNIEnv* env, jclass jcls,
+    jlong jhandle) {
+  auto new_opt = new rocksdb::Options(
+      *(reinterpret_cast<rocksdb::Options*>(jhandle)));
+  return reinterpret_cast<jlong>(new_opt);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    disposeInternal
  * Signature: (J)V
  */
@@ -2850,6 +2862,18 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    copyColumnFamilyOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_copyColumnFamilyOptions(
+    JNIEnv* env, jclass jcls, jlong jhandle) {
+  auto new_opt = new rocksdb::ColumnFamilyOptions(
+      *(reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)));
+  return reinterpret_cast<jlong>(new_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    getColumnFamilyOptionsFromProps
  * Signature: (Ljava/util/String;)J
  */
@@ -4159,6 +4183,18 @@ jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
     jclass jcls) {
   auto* dbop = new rocksdb::DBOptions();
   return reinterpret_cast<jlong>(dbop);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    copyDBOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_copyDBOptions(JNIEnv* env, jclass jcls,
+    jlong jhandle) {
+  auto new_opt = new rocksdb::DBOptions(
+      *(reinterpret_cast<rocksdb::DBOptions*>(jhandle)));
+  return reinterpret_cast<jlong>(new_opt);
 }
 
 /*
@@ -5692,6 +5728,18 @@ jlong Java_org_rocksdb_WriteOptions_newWriteOptions(
 
 /*
  * Class:     org_rocksdb_WriteOptions
+ * Method:    copyWriteOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteOptions_copyWriteOptions(
+    JNIEnv* env, jclass jcls, jlong jhandle) {
+  auto new_opt = new rocksdb::WriteOptions(
+      *(reinterpret_cast<rocksdb::WriteOptions*>(jhandle)));
+  return reinterpret_cast<jlong>(new_opt);
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
  * Method:    disposeInternal
  * Signature: ()V
  */
@@ -5808,10 +5856,9 @@ jlong Java_org_rocksdb_ReadOptions_newReadOptions(
  */
 jlong Java_org_rocksdb_ReadOptions_copyReadOptions(
     JNIEnv* env, jclass jcls, jlong jhandle) {
-  auto old_read_opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
-  auto new_read_opt = new rocksdb::ReadOptions();
-  *new_read_opt = *old_read_opt;
-  return reinterpret_cast<jlong>(new_read_opt);
+  auto new_opt = new rocksdb::ReadOptions(
+      *(reinterpret_cast<rocksdb::ReadOptions*>(jhandle)));
+  return reinterpret_cast<jlong>(new_opt);
 }
 
 /*

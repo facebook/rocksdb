@@ -537,6 +537,11 @@ void CompactionIterator::NextFromInput() {
       //
       // Note:  Dropping this Delete will not affect TransactionDB
       // write-conflict checking since it is earlier than any snapshot.
+      //
+      // It seems that we can also drop deletion later than earliest snapshot
+      // given that:
+      // (1) The deletion is earlier than earliest_write_conflict_snapshot, and
+      // (2) No value exist earlier than the deletion.
       ++iter_stats_.num_record_drop_obsolete;
       if (!bottommost_level_) {
         ++iter_stats_.num_optimized_del_drop_obsolete;
@@ -554,10 +559,6 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      // In case snapshot_checker is present, we can probably merge further
-      // beyond prev_snapshot, since there could be more keys with sequence
-      // smaller than prev_snapshot, but reported by snapshot_checker as not
-      // visible by prev_snapshot. But it will make the logic more complicated.
       Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
                                            prev_snapshot, bottommost_level_);
       merge_out_iter_.SeekToFirst();
@@ -621,9 +622,12 @@ void CompactionIterator::PrepareOutput() {
   // and the earliest snapshot is larger than this seqno
   // and the userkey differs from the last userkey in compaction
   // then we can squash the seqno to zero.
-
+  //
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
+  //
+  // Can we do the same for levels above bottom level as long as
+  // KeyNotExistsBeyondOutputLevel() return true?
   if ((compaction_ != nullptr &&
       !compaction_->allow_ingest_behind()) &&
       ikeyNotNeededForIncrementalSnapshot() &&

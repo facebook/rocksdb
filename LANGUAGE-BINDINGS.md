@@ -15,3 +15,4 @@ This is the list of all known third-party language bindings for RocksDB. If some
 * D programming language - https://github.com/b1naryth1ef/rocksdb
 * Erlang - https://gitlab.com/barrel-db/erlang-rocksdb
 * Elixir - https://github.com/urbint/rox
+* Nim - https://github.com/status-im/nim-rocksdb

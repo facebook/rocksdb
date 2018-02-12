@@ -23,6 +23,7 @@
 #include "util/sync_point.h"
 
 namespace rocksdb {
+
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
   TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   mutex_.AssertHeld();
@@ -134,7 +135,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforeInstallSV");
     InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
                                        mutable_cf_options);
     if (made_progress) {
@@ -223,6 +223,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.smallest_seqno = file_meta->smallest_seqno;
     info.largest_seqno = file_meta->largest_seqno;
     info.table_properties = prop;
+    info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnFlushBegin(this, info);
     }
@@ -267,6 +268,7 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
     info.smallest_seqno = file_meta->smallest_seqno;
     info.largest_seqno = file_meta->largest_seqno;
     info.table_properties = prop;
+    info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnFlushCompleted(this, info);
     }
@@ -342,7 +344,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   TEST_SYNC_POINT("DBImpl::CompactRange:StallWaitDone");
   Status s;
   if (flush_needed) {
-    s = FlushMemTable(cfd, FlushOptions());
+    s = FlushMemTable(cfd, FlushOptions(), FlushReason::kManualCompaction);
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;
@@ -868,7 +870,8 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s = FlushMemTable(cfh->cfd(), flush_options);
+  Status s =
+      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualCompaction);
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
@@ -1005,7 +1008,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
-                             bool writes_stopped) {
+                             FlushReason flush_reason, bool writes_stopped) {
   Status s;
   uint64_t flush_memtable_id = 0;
   {
@@ -1034,7 +1037,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     cfd->imm()->FlushRequested();
 
     // schedule flush
-    SchedulePendingFlush(cfd);
+    SchedulePendingFlush(cfd, flush_reason);
     MaybeScheduleFlushOrCompaction();
   }
 
@@ -1190,11 +1193,12 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
   return cfd;
 }
 
-void DBImpl::AddToFlushQueue(ColumnFamilyData* cfd) {
+void DBImpl::AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason) {
   assert(!cfd->pending_flush());
   cfd->Ref();
   flush_queue_.push_back(cfd);
   cfd->set_pending_flush(true);
+  cfd->SetFlushReason(flush_reason);
 }
 
 ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
@@ -1203,12 +1207,14 @@ ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
   flush_queue_.pop_front();
   assert(cfd->pending_flush());
   cfd->set_pending_flush(false);
+  // TODO: need to unset flush reason?
   return cfd;
 }
 
-void DBImpl::SchedulePendingFlush(ColumnFamilyData* cfd) {
+void DBImpl::SchedulePendingFlush(ColumnFamilyData* cfd,
+                                  FlushReason flush_reason) {
   if (!cfd->pending_flush() && cfd->imm()->IsFlushPending()) {
-    AddToFlushQueue(cfd);
+    AddToFlushQueue(cfd, flush_reason);
     ++unscheduled_flushes_;
   }
 }
@@ -1751,7 +1757,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
                    this, &DBImpl::UnscheduleCallback);
   } else {
-    int output_level  __attribute__((unused));
+    int output_level  __attribute__((__unused__));
     output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
@@ -1985,7 +1991,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush(cfd);
+  SchedulePendingFlush(cfd, FlushReason::kSuperVersionChange);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 

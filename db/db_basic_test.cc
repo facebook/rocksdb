@@ -9,6 +9,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
+#include "util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "util/sync_point.h"
 #endif
@@ -896,6 +897,28 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(s, Status::OK());
   delete db;
   delete options.env;
+}
+
+TEST_F(DBBasicTest, DBCloseFlushError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.manual_wal_flush = true;
+  options.write_buffer_size=100;
+  options.env = fault_injection_env.get();
+
+  Reopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(Put("key3", "value3"));
+  fault_injection_env->SetFilesystemActive(false);
+  Status s = dbfull()->Close();
+  fault_injection_env->SetFilesystemActive(true);
+  ASSERT_NE(s, Status::OK());
+
+  Destroy(options);
 }
 
 }  // namespace rocksdb

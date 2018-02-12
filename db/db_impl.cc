@@ -123,13 +123,13 @@ CompressionType GetCompressionFlush(
 namespace {
 void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "Compression algorithms supported:");
-  ROCKS_LOG_HEADER(logger, "\tSnappy supported: %d", Snappy_Supported());
-  ROCKS_LOG_HEADER(logger, "\tZlib supported: %d", Zlib_Supported());
-  ROCKS_LOG_HEADER(logger, "\tBzip supported: %d", BZip2_Supported());
-  ROCKS_LOG_HEADER(logger, "\tLZ4 supported: %d", LZ4_Supported());
-  ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
-                   ZSTDNotFinal_Supported());
-  ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
+  for (auto& compression : OptionsHelper::compression_type_string_map) {
+    if (compression.second != kNoCompression &&
+        compression.second != kDisableCompressionOption) {
+      ROCKS_LOG_HEADER(logger, "\t%s supported: %d", compression.first.c_str(),
+                       CompressionTypeSupported(compression.second));
+    }
+  }
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
 }
@@ -258,7 +258,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
         mutex_.Unlock();
-        FlushMemTable(cfd, FlushOptions());
+        FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
         mutex_.Lock();
         cfd->Unref();
       }
@@ -287,6 +287,7 @@ Status DBImpl::CloseImpl() {
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
+  Status ret;
   mutex_.Lock();
   bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
   bg_compaction_scheduled_ -= compactions_unscheduled;
@@ -349,7 +350,18 @@ Status DBImpl::CloseImpl() {
     delete l;
   }
   for (auto& log : logs_) {
-    log.ClearWriter();
+    uint64_t log_number = log.writer->get_log_number();
+    Status s = log.ClearWriter();
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to Sync WAL file %s with error -- %s",
+                     LogFileName(immutable_db_options_.wal_dir, log_number).c_str(),
+                     s.ToString().c_str());
+      // Retain the first error
+      if (ret.ok()) {
+        ret = s;
+      }
+    }
   }
   logs_.clear();
 
@@ -383,11 +395,13 @@ Status DBImpl::CloseImpl() {
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
 
-  Status s = Status::OK();
   if (immutable_db_options_.info_log && own_info_log_) {
-    s = immutable_db_options_.info_log->Close();
+    Status s = immutable_db_options_.info_log->Close();
+    if (ret.ok()) {
+      ret = s;
+    }
   }
-  return s;
+  return ret;
 }
 
 DBImpl::~DBImpl() { Close(); }
@@ -2140,52 +2154,63 @@ Status DBImpl::DeleteFile(std::string name) {
   return status;
 }
 
-Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
-                                  const Slice* begin, const Slice* end) {
+Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
+                                   const RangePtr* ranges, size_t n,
+                                   bool include_end) {
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   VersionEdit edit;
-  std::vector<FileMetaData*> deleted_files;
+  std::set<FileMetaData*> deleted_files;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   {
     InstrumentedMutexLock l(&mutex_);
     Version* input_version = cfd->current();
 
     auto* vstorage = input_version->storage_info();
-    for (int i = 1; i < cfd->NumberLevels(); i++) {
-      if (vstorage->LevelFiles(i).empty() ||
-          !vstorage->OverlapInLevel(i, begin, end)) {
-        continue;
-      }
-      std::vector<FileMetaData*> level_files;
-      InternalKey begin_storage, end_storage, *begin_key, *end_key;
-      if (begin == nullptr) {
-        begin_key = nullptr;
-      } else {
-        begin_storage.SetMinPossibleForUserKey(*begin);
-        begin_key = &begin_storage;
-      }
-      if (end == nullptr) {
-        end_key = nullptr;
-      } else {
-        end_storage.SetMaxPossibleForUserKey(*end);
-        end_key = &end_storage;
-      }
-
-      vstorage->GetCleanInputsWithinInterval(i, begin_key, end_key,
-                                             &level_files, -1 /* hint_index */,
-                                             nullptr /* file_index */);
-      FileMetaData* level_file;
-      for (uint32_t j = 0; j < level_files.size(); j++) {
-        level_file = level_files[j];
-        if (level_file->being_compacted) {
+    for (size_t r = 0; r < n; r++) {
+      auto begin = ranges[r].start, end = ranges[r].limit;
+      for (int i = 1; i < cfd->NumberLevels(); i++) {
+        if (vstorage->LevelFiles(i).empty() ||
+            !vstorage->OverlapInLevel(i, begin, end)) {
           continue;
         }
-        edit.SetColumnFamily(cfd->GetID());
-        edit.DeleteFile(i, level_file->fd.GetNumber());
-        deleted_files.push_back(level_file);
-        level_file->being_compacted = true;
+        std::vector<FileMetaData*> level_files;
+        InternalKey begin_storage, end_storage, *begin_key, *end_key;
+        if (begin == nullptr) {
+          begin_key = nullptr;
+        } else {
+          begin_storage.SetMinPossibleForUserKey(*begin);
+          begin_key = &begin_storage;
+        }
+        if (end == nullptr) {
+          end_key = nullptr;
+        } else {
+          end_storage.SetMaxPossibleForUserKey(*end);
+          end_key = &end_storage;
+        }
+
+        vstorage->GetCleanInputsWithinInterval(i, begin_key, end_key,
+                                               &level_files, -1 /* hint_index */,
+                                               nullptr /* file_index */);
+        FileMetaData* level_file;
+        for (uint32_t j = 0; j < level_files.size(); j++) {
+          level_file = level_files[j];
+          if (level_file->being_compacted) {
+            continue;
+          }
+          if (deleted_files.find(level_file) != deleted_files.end()) {
+            continue;
+          }
+          if (!include_end && end != nullptr &&
+              cfd->user_comparator()->Compare(level_file->largest.user_key(), *end) == 0) {
+            continue;
+          }
+          edit.SetColumnFamily(cfd->GetID());
+          edit.DeleteFile(i, level_file->fd.GetNumber());
+          deleted_files.insert(level_file);
+          level_file->being_compacted = true;
+        }
       }
     }
     if (edit.GetDeletedFiles().empty()) {
@@ -2803,7 +2828,9 @@ Status DBImpl::IngestExternalFile(
                                &need_flush);
       if (status.ok() && need_flush) {
         mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
+        status = FlushMemTable(cfd, FlushOptions(),
+                               FlushReason::kExternalFileIngestion,
+                               true /* writes_stopped */);
         mutex_.Lock();
       }
     }

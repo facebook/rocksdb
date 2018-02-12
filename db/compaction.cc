@@ -405,20 +405,23 @@ void Compaction::Summary(char* output, int len) {
 uint64_t Compaction::OutputFilePreallocationSize() const {
   uint64_t preallocation_size = 0;
 
-  if (max_output_file_size_ != port::kMaxUint64 &&
-      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||
-       output_level() > 0)) {
-    preallocation_size = max_output_file_size_;
-  } else {
-    for (const auto& level_files : inputs_) {
-      for (const auto& file : level_files.files) {
-        preallocation_size += file->fd.GetFileSize();
-      }
+  for (const auto& level_files : inputs_) {
+    for (const auto& file : level_files.files) {
+      preallocation_size += file->fd.GetFileSize();
     }
   }
+
+  if (max_output_file_size_ != port::kMaxUint64 &&
+      (immutable_cf_options_.compaction_style == kCompactionStyleLevel ||
+       output_level() > 0)) {
+    preallocation_size = std::min(max_output_file_size_, preallocation_size);
+  }
+
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
-  return preallocation_size + (preallocation_size / 10);
+  // No point to prellocate more than 1GB.
+  return std::min(uint64_t{1073741824},
+                  preallocation_size + (preallocation_size / 10));
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {

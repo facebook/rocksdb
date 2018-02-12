@@ -138,6 +138,9 @@ class WriteBatchInternal {
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
 
+  static Status CheckSlicePartsLength(const SliceParts& key,
+                                      const SliceParts& value);
+
   // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
   //
   // If ignore_missing_column_families == true. WriteBatch
@@ -182,7 +185,7 @@ class WriteBatchInternal {
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
-                           bool seq_per_batch = false);
+                           bool seq_per_batch = false, size_t batch_cnt = 0);
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);

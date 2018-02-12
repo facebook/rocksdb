@@ -274,14 +274,14 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 enum class WALRecoveryMode : char {
   // Original levelDB recovery
   // We tolerate incomplete record in trailing data on all logs
-  // Use case : This is legacy behavior (default)
+  // Use case : This is legacy behavior
   kTolerateCorruptedTailRecords = 0x00,
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
   // Use case : This is ideal for unit tests and rare applications that
   // can require high consistency guarantee
   kAbsoluteConsistency = 0x01,
-  // Recover to point-in-time consistency
+  // Recover to point-in-time consistency (default)
   // We stop the WAL playback on discovering WAL inconsistency
   // Use case : Ideal for systems that have disk controller cache like
   // hard disk, SSD without super capacitor that store related data
@@ -406,13 +406,14 @@ struct DBOptions {
   // If non-null, then we should collect metrics about database operations
   std::shared_ptr<Statistics> statistics = nullptr;
 
-  // If true, then every store to stable storage will issue a fsync.
-  // If false, then every store to stable storage will issue a fdatasync.
-  // This parameter should be set to true while storing data to
-  // filesystem like ext3 that can lose files after a reboot.
-  // Default: false
-  // Note: on many platforms fdatasync is defined as fsync, so this parameter
-  // would make no difference. Refer to fdatasync definition in this code base.
+  // By default, writes to stable storage use fdatasync (on platforms
+  // where this function is available). If this option is true,
+  // fsync is used instead. 
+  //
+  // fsync and fdatasync are equally safe for our purposes and fdatasync is
+  // faster, so it is rarely necessary to set this option. It is provided
+  // as a workaround for kernel/filesystem bugs, such as one that affected
+  // fdatasync with ext4 in kernel versions prior to 3.7.
   bool use_fsync = false;
 
   // A list of paths where SST files can be put into, with its target size.
@@ -559,7 +560,7 @@ struct DBOptions {
   //    then WAL_size_limit_MB, they will be deleted starting with the
   //    earliest until size_limit is met. All empty files will be deleted.
   // 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-  //    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+  //    WAL files will be checked every WAL_ttl_seconds / 2 and those that
   //    are older than WAL_ttl_seconds will be deleted.
   // 4. If both are not 0, WAL files will be checked every 10 min and both
   //    checks will be performed with ttl being first.

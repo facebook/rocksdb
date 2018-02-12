@@ -381,6 +381,7 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
+      flush_reason_(FlushReason::kUnknown),
       column_family_set_(column_family_set),
       pending_flush_(false),
       pending_compaction_(false),
@@ -469,7 +470,7 @@ ColumnFamilyData::~ColumnFamilyData() {
     local_sv_.reset();
     super_version_->db_mutex->Lock();
 
-    bool is_last_reference __attribute__((unused));
+    bool is_last_reference __attribute__((__unused__));
     is_last_reference = super_version_->Unref();
     assert(is_last_reference);
     super_version_->Cleanup();
@@ -480,7 +481,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->TEST_Next() == dummy_versions_);
-    bool deleted __attribute__((unused));
+    bool deleted __attribute__((__unused__));
     deleted = dummy_versions_->Unref();
     assert(deleted);
   }
@@ -1089,10 +1090,14 @@ ColumnFamilySet::~ColumnFamilySet() {
   while (column_family_data_.size() > 0) {
     // cfd destructor will delete itself from column_family_data_
     auto cfd = column_family_data_.begin()->second;
-    cfd->Unref();
+    bool last_ref __attribute__((__unused__));
+    last_ref = cfd->Unref();
+    assert(last_ref);
     delete cfd;
   }
-  dummy_cfd_->Unref();
+  bool dummy_last_ref __attribute__((__unused__));
+  dummy_last_ref = dummy_cfd_->Unref();
+  assert(dummy_last_ref);
   delete dummy_cfd_;
 }
 

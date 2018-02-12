@@ -1,3 +1,4 @@
+# shellcheck disable=SC2148
 TMP_DIR="${TMPDIR:-/tmp}/rocksdb-sanity-test"
 
 if [ "$#" -lt 2 ]; then

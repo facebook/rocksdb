@@ -465,4 +465,5 @@ function cleanup_test_directory {
 
 ############################################################################
 
+# shellcheck disable=SC2068
 main $@

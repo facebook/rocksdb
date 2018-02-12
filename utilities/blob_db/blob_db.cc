@@ -73,6 +73,8 @@ void BlobDBOptions::Dump(Logger* log) const {
                    blob_dir_size);
   ROCKS_LOG_HEADER(log, "           blob_db_options.ttl_range_secs: %" PRIu32,
                    ttl_range_secs);
+  ROCKS_LOG_HEADER(log, "            blob_db_options.min_blob_size: %" PRIu64,
+                   min_blob_size);
   ROCKS_LOG_HEADER(log, "           blob_db_options.bytes_per_sync: %" PRIu64,
                    bytes_per_sync);
   ROCKS_LOG_HEADER(log, "           blob_db_options.blob_file_size: %" PRIu64,

@@ -170,7 +170,7 @@ class HashLinkListRep : public MemTableRep {
 
   virtual KeyHandle Allocate(const size_t len, char** buf) override;
 
-  virtual void Insert(KeyHandle handle) override;
+  virtual bool Insert(KeyHandle handle) override;
 
   virtual bool Contains(const char* key) const override;
 
@@ -571,7 +571,7 @@ Node* HashLinkListRep::GetLinkListFirstNode(Pointer* first_next_pointer) const {
   return nullptr;
 }
 
-void HashLinkListRep::Insert(KeyHandle handle) {
+bool HashLinkListRep::Insert(KeyHandle handle) {
   Node* x = static_cast<Node*>(handle);
   assert(!Contains(x->key));
   Slice internal_key = GetLengthPrefixedSlice(x->key);
@@ -586,7 +586,7 @@ void HashLinkListRep::Insert(KeyHandle handle) {
     // we publish a pointer to "x" in prev[i].
     x->NoBarrier_SetNext(nullptr);
     bucket.store(x, std::memory_order_release);
-    return;
+    return true;
   }
 
   BucketHeader* header = nullptr;
@@ -613,7 +613,7 @@ void HashLinkListRep::Insert(KeyHandle handle) {
       // incremental.
       skip_list_bucket_header->Counting_header.IncNumEntries();
       skip_list_bucket_header->skip_list.Insert(x->key);
-      return;
+      return true;
     }
   }
 
@@ -691,6 +691,7 @@ void HashLinkListRep::Insert(KeyHandle handle) {
       header->next.store(static_cast<void*>(x), std::memory_order_release);
     }
   }
+  return true;
 }
 
 bool HashLinkListRep::Contains(const char* key) const {

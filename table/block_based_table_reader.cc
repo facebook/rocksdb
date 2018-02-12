@@ -64,6 +64,8 @@ BlockBasedTable::~BlockBasedTable() {
   delete rep_;
 }
 
+std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
+
 namespace {
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -112,6 +114,13 @@ void ReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
   cache->Release(handle);
+}
+
+// Release the cached entry and decrement its ref count.
+void ForceReleaseCachedEntry(void* arg, void* h) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle, true);
 }
 
 Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
@@ -750,7 +759,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                      "block %s",
                      s.ToString().c_str());
     } else {
+      assert(table_properties != nullptr);
       rep->table_properties.reset(table_properties);
+      rep->blocks_maybe_compressed = rep->table_properties->compression_name !=
+                                     CompressionTypeToString(kNoCompression);
     }
   } else {
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
@@ -760,7 +772,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Read the compression dictionary meta block
   bool found_compression_dict;
   BlockHandle compression_dict_handle;
-  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict, 
+  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict,
     &compression_dict_handle);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
@@ -1442,7 +1454,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   return iter;
 }
 
-InternalIterator* BlockBasedTable::NewDataBlockIterator(
+BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter, bool is_index, GetContext* get_context) {
   BlockHandle handle;
@@ -1458,7 +1470,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
 // into an iterator over the contents of the corresponding block.
 // If input_iter is null, new a iterator
 // If input_iter is not null, update this iter and return it
-InternalIterator* BlockBasedTable::NewDataBlockIterator(
+BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
     BlockIter* input_iter, bool is_index, GetContext* get_context, Status s) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
@@ -1476,47 +1488,80 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
                                   get_context);
   }
 
+  BlockIter* iter;
+  if (input_iter != nullptr) {
+    iter = input_iter;
+  } else {
+    iter = new BlockIter;
+  }
   // Didn't get any data from block caches.
   if (s.ok() && block.value == nullptr) {
     if (no_io) {
       // Could not read from block_cache and can't do IO
-      if (input_iter != nullptr) {
-        input_iter->SetStatus(Status::Incomplete("no blocking io"));
-        return input_iter;
-      } else {
-        return NewErrorInternalIterator(Status::Incomplete("no blocking io"));
-      }
+      iter->SetStatus(Status::Incomplete("no blocking io"));
+      return iter;
     }
     std::unique_ptr<Block> block_value;
-    s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
-                          rep->footer, ro, handle, &block_value, rep->ioptions,
-                          true /* compress */, compression_dict,
-                          rep->persistent_cache_options, rep->global_seqno,
-                          rep->table_options.read_amp_bytes_per_bit);
+    {
+      StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
+                   READ_BLOCK_GET_MICROS);
+      s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
+                            rep->footer, ro, handle, &block_value, rep->ioptions,
+                            rep->blocks_maybe_compressed, compression_dict,
+                            rep->persistent_cache_options, rep->global_seqno,
+                            rep->table_options.read_amp_bytes_per_bit);
+    }
     if (s.ok()) {
       block.value = block_value.release();
     }
   }
 
-  InternalIterator* iter;
   if (s.ok()) {
     assert(block.value != nullptr);
-    iter = block.value->NewIterator(&rep->internal_comparator, input_iter, true,
+    iter = block.value->NewIterator(&rep->internal_comparator, iter, true,
                                     rep->ioptions.statistics);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
     } else {
+      if (!ro.fill_cache && rep->cache_key_prefix_size != 0) {
+        // insert a dummy record to block cache to track the memory usage
+        Cache::Handle* cache_handle;
+        // There are two other types of cache keys: 1) SST cache key added in
+        // `MaybeLoadDataBlockToCache` 2) dummy cache key added in
+        // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
+        // from SST cache key(31 bytes), and use non-zero prefix to
+        // differentiate from `write_buffer_manager`
+        const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
+        char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
+        // Prefix: use rep->cache_key_prefix padded by 0s
+        memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
+        assert(rep->cache_key_prefix_size != 0);
+        assert(rep->cache_key_prefix_size <= kExtraCacheKeyPrefix);
+        memcpy(cache_key, rep->cache_key_prefix, rep->cache_key_prefix_size);
+        char* end = EncodeVarint64(cache_key + kExtraCacheKeyPrefix,
+                                   next_cache_key_id_++);
+        assert(end - cache_key <=
+               static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
+        Slice unique_key =
+            Slice(cache_key, static_cast<size_t>(end - cache_key));
+        s = block_cache->Insert(unique_key, nullptr, block.value->usable_size(),
+                                nullptr, &cache_handle);
+        if (s.ok()) {
+          if (cache_handle != nullptr) {
+            iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
+                                  cache_handle);
+          }
+        } else {
+          delete block.value;
+          block.value = nullptr;
+        }
+      }
       iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
     }
   } else {
     assert(block.value == nullptr);
-    if (input_iter != nullptr) {
-      input_iter->SetStatus(s);
-      iter = input_iter;
-    } else {
-      iter = NewErrorInternalIterator(s);
-    }
+    iter->SetStatus(s);
   }
   return iter;
 }
@@ -1563,7 +1608,8 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
         StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
         s = ReadBlockFromFile(
             rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
-            &raw_block, rep->ioptions, block_cache_compressed == nullptr,
+            &raw_block, rep->ioptions,
+            block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
             compression_dict, rep->persistent_cache_options, rep->global_seqno,
             rep->table_options.read_amp_bytes_per_bit);
       }
@@ -1598,6 +1644,9 @@ BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
       is_index_(is_index),
       block_map_(block_map) {}
 
+const size_t BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize =
+    256 * 1024;
+
 InternalIterator*
 BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     const Slice& index_value) {
@@ -1622,6 +1671,28 @@ BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
           &rep->internal_comparator, nullptr, true, rep->ioptions.statistics);
     }
   }
+
+  // Automatically prefetch additional data when a range scan (iterator) does
+  // more than 2 sequential IOs. This is enabled only when
+  // ReadOptions.readahead_size is 0.
+  if (read_options_.readahead_size == 0) {
+    if (num_file_reads_ < 2) {
+      num_file_reads_++;
+    } else if (handle.offset() + static_cast<size_t>(handle.size()) +
+                   kBlockTrailerSize >
+               readahead_limit_) {
+      num_file_reads_++;
+      // Do not readahead more than kMaxReadaheadSize.
+      readahead_size_ =
+          std::min(BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize,
+                   readahead_size_);
+      table_->rep_->file->Prefetch(handle.offset(), readahead_size_);
+      readahead_limit_ = handle.offset() + readahead_size_;
+      // Keep exponentially increasing readahead size until kMaxReadaheadSize.
+      readahead_size_ *= 2;
+    }
+  }
+
   return NewDataBlockIterator(rep, read_options_, handle,
                               /* input_iter */ nullptr, is_index_,
                               /* get_context */ nullptr, s);

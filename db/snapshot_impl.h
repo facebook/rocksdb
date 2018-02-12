@@ -45,6 +45,10 @@ class SnapshotList {
     list_.prev_ = &list_;
     list_.next_ = &list_;
     list_.number_ = 0xFFFFFFFFL;      // placeholder marker, for debugging
+    // Set all the variables to make UBSAN happy.
+    list_.list_ = nullptr;
+    list_.unix_time_ = 0;
+    list_.is_write_conflict_boundary_ = false;
     count_ = 0;
   }
 

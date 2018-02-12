@@ -388,10 +388,16 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   DestroyAndReopen(options);
 
   int total_picked_compactions = 0;
+  int total_size_amp_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
         if (arg) {
           total_picked_compactions++;
+          Compaction* c = static_cast<Compaction*>(arg);
+          if (c->compaction_reason() ==
+              CompactionReason::kUniversalSizeAmplification) {
+            total_size_amp_compactions++;
+          }
         }
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -445,6 +451,102 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   // Verify that size amplification did happen
   ASSERT_EQ(NumSortedRuns(1), 1);
   ASSERT_EQ(total_picked_compactions, 1);
+  ASSERT_EQ(total_size_amp_compactions, 1);
+}
+
+TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 1;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = 3;
+  // Initial setup of compaction_options_universal will prevent universal
+  // compaction from happening
+  options.compaction_options_universal.max_size_amplification_percent = 2000;
+  options.compaction_options_universal.size_ratio = 0;
+  options.compaction_options_universal.min_merge_width = 100;
+  DestroyAndReopen(options);
+
+  int total_picked_compactions = 0;
+  int total_size_ratio_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (arg) {
+          total_picked_compactions++;
+          Compaction* c = static_cast<Compaction*>(arg);
+          if (c->compaction_reason() == CompactionReason::kUniversalSizeRatio) {
+            total_size_ratio_compactions++;
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  MutableCFOptions mutable_cf_options;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // Generate three files in Level 0. All files are approx the same size.
+  for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
+      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    ASSERT_EQ(NumSortedRuns(1), num + 1);
+  }
+  ASSERT_EQ(NumSortedRuns(1), options.level0_file_num_compaction_trigger);
+
+  // Flush whatever is remaining in memtable. This is typically small, about
+  // 30KB.
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  // Verify compaction did not happen
+  ASSERT_EQ(NumSortedRuns(1), options.level0_file_num_compaction_trigger + 1);
+  ASSERT_EQ(total_picked_compactions, 0);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      handles_[1],
+      {{"compaction_options_universal",
+        "{min_merge_width=2;max_merge_width=2;size_ratio=100;}"}}));
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_merge_width,
+            2);
+  ASSERT_EQ(
+      dbfull()->GetOptions(handles_[1]).compaction_options_universal.size_ratio,
+      100);
+
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.size_ratio, 100);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width, 2);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width, 2);
+
+  dbfull()->TEST_WaitForCompact();
+
+  // Files in L0 are approx: 0.3 (30KB), 1, 1, 1.
+  // On compaction: the files are below the size amp threshold, so we
+  // fallthrough to checking read amp conditions. The configured size ratio is
+  // not big enough to take 0.3 into consideration. So the next files 1 and 1
+  // are compacted together first as they satisfy size ratio condition and
+  // (min_merge_width, max_merge_width) condition, to give out a file size of 2.
+  // Next, the newly generated 2 and the last file 1 are compacted together. So
+  // at the end: #sortedRuns = 2, #picked_compactions = 2, and all the picked
+  // ones are size ratio based compactions.
+  ASSERT_EQ(NumSortedRuns(1), 2);
+  // If max_merge_width had not been changed dynamically above, and if it
+  // continued to be the default value of UINIT_MAX, total_picked_compactions
+  // would have been 1.
+  ASSERT_EQ(total_picked_compactions, 2);
+  ASSERT_EQ(total_size_ratio_compactions, 2);
 }
 
 TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {

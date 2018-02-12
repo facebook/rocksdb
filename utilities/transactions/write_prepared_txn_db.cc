@@ -11,7 +11,6 @@
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-#include <inttypes.h>
 #include <algorithm>
 #include <string>
 #include <unordered_set>
@@ -47,6 +46,20 @@ Status WritePreparedTxnDB::Initialize(
   auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
                                                 handles);
   return s;
+}
+
+Status WritePreparedTxnDB::VerifyCFOptions(
+    const ColumnFamilyOptions& cf_options) {
+  Status s = PessimisticTransactionDB::VerifyCFOptions(cf_options);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!cf_options.memtable_factory->CanHandleDuplicatedKey()) {
+    return Status::InvalidArgument(
+        "memtable_factory->CanHandleDuplicatedKey() cannot be false with "
+        "WritePrpeared transactions");
+  }
+  return Status::OK();
 }
 
 Transaction* WritePreparedTxnDB::BeginTransaction(

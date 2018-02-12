@@ -232,9 +232,13 @@ endif
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=undefined
-	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+	# Suppress alignment warning because murmurhash relies on casting unaligned
+	# memory to integer. Fixing it may cause performance regression. 3-way crc32
+	# relies on it too, although it can be rewritten to eliminate with minimal
+	# performance regression.
+	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment
+	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment -DROCKSDB_UBSAN_RUN
 endif
 
 ifdef ROCKSDB_VALGRIND_RUN
@@ -523,6 +527,10 @@ PARALLEL_TEST = \
 	transaction_test \
 	write_prepared_transaction_test \
 
+# options_settable_test doesn't pass with UBSAN as we use hack in the test
+ifdef COMPILE_WITH_UBSAN
+        TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
+endif
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
         SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')

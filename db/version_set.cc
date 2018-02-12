@@ -1976,7 +1976,7 @@ void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
 #endif
   *start_index = mid_index + 1;
   *end_index = mid_index;
-  int count __attribute__((unused));
+  int count __attribute__((__unused__));
   count = 0;
 
   // check backwards from 'mid' to lower indices
