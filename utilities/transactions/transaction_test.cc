@@ -4987,6 +4987,27 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   }
 }
 
+// Verify that the optimization would not compromize the correctness
+TEST_P(TransactionTest, Optimizations) {
+  size_t comb_cnt = size_t(1) << 2;  // 2 is number of optimization vars
+  for (size_t new_comb = 0; new_comb < comb_cnt; new_comb++) {
+    TransactionDBWriteOptimizations optimizations;
+    optimizations.skip_concurrency_control = IsInCombination(0, new_comb);
+    optimizations.skip_duplicate_key_check = IsInCombination(1, new_comb);
+
+    ReOpen();
+    WriteOptions write_options;
+    WriteBatch batch;
+    batch.Put(Slice("k"), Slice("v1"));
+    ASSERT_OK(db->Write(write_options, &batch));
+
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+    ASSERT_OK(db->Get(ropt, db->DefaultColumnFamily(), "k", &pinnable_val));
+    ASSERT_TRUE(pinnable_val == ("v1"));
+  }
+}
+
 // Test that the transactional db can handle duplicate keys in the write batch
 TEST_P(TransactionTest, DuplicateKeys) {
   ColumnFamilyOptions cf_options;

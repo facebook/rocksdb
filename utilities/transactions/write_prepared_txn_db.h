@@ -73,13 +73,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
-  // TODO(myabandeh): Implement this
   // Optimized version of ::Write that receives more optimization request such
   // as skip_concurrency_control.
-  // using PessimisticTransactionDB::Write;
-  // Status Write(const WriteOptions& opts, const
-  // TransactionDBWriteOptimizations&,
-  //             WriteBatch* updates) override;
+  using PessimisticTransactionDB::Write;
+  Status Write(const WriteOptions& opts, const TransactionDBWriteOptimizations&,
+               WriteBatch* updates) override;
+
+  // Write the batch to the underlying DB and mark it as committed. Could be
+  // used by both directly from TxnDB or through a transaction.
+  Status WriteInternal(const WriteOptions& write_options, WriteBatch* batch,
+                       size_t batch_cnt, WritePreparedTxn* txn);
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -471,6 +474,54 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   // Either because it is commit without prepare or it has a
   // CommitTimeWriteBatch
   bool includes_data_;
+};
+
+// A wrapper around Comparator to make it usable in std::set
+struct SetComparator {
+  explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
+  explicit SetComparator(const Comparator* user_comparator)
+      : user_comparator_(user_comparator ? user_comparator
+                                         : BytewiseComparator()) {}
+  bool operator()(const Slice& lhs, const Slice& rhs) const {
+    return user_comparator_->Compare(lhs, rhs) < 0;
+  }
+
+ private:
+  const Comparator* user_comparator_;
+};
+// Count the number of sub-batches inside a batch. A sub-batch does not have
+// duplicate keys.
+struct SubBatchCounter : public WriteBatch::Handler {
+  explicit SubBatchCounter(std::map<uint32_t, const Comparator*>& comparators)
+      : comparators_(comparators), batches_(1) {}
+  std::map<uint32_t, const Comparator*>& comparators_;
+  using CFKeys = std::set<Slice, SetComparator>;
+  std::map<uint32_t, CFKeys> keys_;
+  size_t batches_;
+  size_t BatchCount() { return batches_; }
+  void AddKey(const uint32_t cf, const Slice& key);
+  Status MarkNoop(bool) override { return Status::OK(); }
+  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+  Status MarkCommit(const Slice&) override { return Status::OK(); }
+  Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
+    AddKey(cf, key);
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t cf, const Slice& key) override {
+    AddKey(cf, key);
+    return Status::OK();
+  }
+  Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    AddKey(cf, key);
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
+    AddKey(cf, key);
+    return Status::OK();
+  }
+  Status MarkBeginPrepare() override { return Status::OK(); }
+  Status MarkRollback(const Slice&) override { return Status::OK(); }
+  bool WriteAfterCommit() const override { return false; }
 };
 
 }  //  namespace rocksdb
