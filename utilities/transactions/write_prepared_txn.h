@@ -61,8 +61,14 @@ class WritePreparedTxn : public PessimisticTransaction {
   virtual Iterator* GetIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
 
+ protected:
+  // Override the protected SetId to make it visible to the firend class
+  // WritePreparedTxnDB
+  inline void SetId(uint64_t id) override { Transaction::SetId(id); }
+
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTxnDB;
 
   Status PrepareInternal() override;
 

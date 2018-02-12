@@ -62,69 +62,6 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
-namespace {
-// A wrapper around Comparator to make it usable in std::set
-struct SetComparator {
-  explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
-  explicit SetComparator(const Comparator* user_comparator)
-      : user_comparator_(user_comparator ? user_comparator
-                                         : BytewiseComparator()) {}
-  bool operator()(const Slice& lhs, const Slice& rhs) const {
-    return user_comparator_->Compare(lhs, rhs) < 0;
-  }
-
- private:
-  const Comparator* user_comparator_;
-};
-// Count the number of sub-batches inside a batch. A sub-batch does not have
-// duplicate keys.
-struct SubBatchCounter : public WriteBatch::Handler {
-  explicit SubBatchCounter(std::map<uint32_t, const Comparator*>& comparators)
-      : comparators_(comparators), batches_(1) {}
-  std::map<uint32_t, const Comparator*>& comparators_;
-  using CFKeys = std::set<Slice, SetComparator>;
-  std::map<uint32_t, CFKeys> keys_;
-  size_t batches_;
-  size_t BatchCount() { return batches_; }
-  void AddKey(uint32_t cf, const Slice& key) {
-    CFKeys& cf_keys = keys_[cf];
-    if (cf_keys.size() == 0) {  // just inserted
-      auto cmp = comparators_[cf];
-      keys_[cf] = CFKeys(SetComparator(cmp));
-    }
-    auto it = cf_keys.insert(key);
-    if (it.second == false) {  // second is false if a element already existed.
-      batches_++;
-      keys_.clear();
-      keys_[cf].insert(key);
-    }
-  }
-  Status MarkNoop(bool) override { return Status::OK(); }
-  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
-  Status MarkCommit(const Slice&) override { return Status::OK(); }
-
-  Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
-    AddKey(cf, key);
-    return Status::OK();
-  }
-  Status DeleteCF(uint32_t cf, const Slice& key) override {
-    AddKey(cf, key);
-    return Status::OK();
-  }
-  Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-    AddKey(cf, key);
-    return Status::OK();
-  }
-  Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
-    AddKey(cf, key);
-    return Status::OK();
-  }
-  Status MarkBeginPrepare() override { return Status::OK(); }
-  Status MarkRollback(const Slice&) override { return Status::OK(); }
-  bool WriteAfterCommit() const override { return false; }
-};
-}  // namespace
-
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
@@ -168,72 +105,7 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch,
                                              size_t batch_cnt) {
-  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
-                    "CommitBatchInternal");
-  if (batch->Count() == 0) {
-    // Otherwise our 1 seq per batch logic will break since there is no seq
-    // increased for this batch.
-    return Status::OK();
-  }
-  if (batch_cnt == 0) {  // not provided, then compute it
-    // TODO(myabandeh): add an option to allow user skipping this cost
-    SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
-    auto s = batch->Iterate(&counter);
-    assert(s.ok());
-    batch_cnt = counter.BatchCount();
-  }
-  assert(batch_cnt);
-
-  bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
-  bool sync = write_options_.sync;
-  if (!do_one_write) {
-    // No need to sync on the first write
-    write_options_.sync = false;
-  }
-  // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(batch);
-  const bool DISABLE_MEMTABLE = true;
-  const uint64_t no_log_ref = 0;
-  uint64_t seq_used = kMaxSequenceNumber;
-  const size_t ZERO_PREPARES = 0;
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
-      wpt_db_, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, batch_cnt);
-  auto s = db_impl_->WriteImpl(
-      write_options_, batch, nullptr, nullptr, no_log_ref, !DISABLE_MEMTABLE,
-      &seq_used, batch_cnt, do_one_write ? &update_commit_map : nullptr);
-  assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  uint64_t& prepare_seq = seq_used;
-  SetId(prepare_seq);
-  if (!s.ok()) {
-    return s;
-  }
-  if (do_one_write) {
-    return s;
-  }  // else do the 2nd write for commit
-  // Set the original value of sync
-  write_options_.sync = sync;
-  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
-                    "CommitBatchInternal 2nd write prepare_seq: %" PRIu64,
-                    prepare_seq);
-  // Note: we skip AddPrepared here. This could be further optimized by skip
-  // erasing prepare_seq from prepared_txn_ in the following callback.
-  // TODO(myabandeh): What if max advances the prepare_seq_ in the meanwhile and
-  // readers assume the prepared data as committed? Almost zero probability.
-
-  // Commit the batch by writing an empty batch to the 2nd queue that will
-  // release the commit sequence number to readers.
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, prepare_seq, batch_cnt);
-  WriteBatch empty_batch;
-  empty_batch.PutLogData(Slice());
-  const size_t ONE_BATCH = 1;
-  // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&empty_batch);
-  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          no_log_ref, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_prepare);
-  assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  return s;
+  return wpt_db_->WriteInternal(write_options_, batch, batch_cnt, this);
 }
 
 Status WritePreparedTxn::CommitInternal() {
