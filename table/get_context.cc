@@ -92,10 +92,14 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
 }
 
 void GetContext::RecordCounters(Tickers ticker, size_t val) {
-  if (ticker == Tickers::TICKER_ENUM_MAX) {
-    return;
+  for (auto ticker_pair : tickers_pairs) {
+    if (ticker_pair.first == ticker) {
+      ticker_pair.second += static_cast<uint64_t>(val);
+      return;
+    }
   }
-  tickers_value[ticker] += static_cast<uint64_t>(val);
+  tickers_pairs.emplace_back(
+      std::make_pair(ticker, static_cast<uint64_t>(val)));
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,

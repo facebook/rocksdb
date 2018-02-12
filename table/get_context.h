@@ -27,7 +27,7 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
-  uint64_t tickers_value[Tickers::TICKER_ENUM_MAX] = {0};
+  autovector<std::pair<Tickers, uint64_t>> tickers_pairs;
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
