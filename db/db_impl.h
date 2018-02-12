@@ -963,6 +963,8 @@ class DBImpl : public DB {
   // * whenever num_running_ingest_file_ goes to 0.
   // * whenever pending_purge_obsolete_files_ goes to 0.
   // * whenever disable_delete_obsolete_files_ goes to 0.
+  // * whenever SetOptions successfully updates options.
+  // * whenever a column family is dropped.
   InstrumentedCondVar bg_cv_;
   // Writes are protected by locking both mutex_ and log_write_mutex_, and reads
   // must be under either mutex_ or log_write_mutex_. Since after ::Open,

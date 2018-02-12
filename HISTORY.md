@@ -2,11 +2,12 @@
 ## Unreleased
 ### Public API Change
 * Iterator::SeekForPrev is now a pure virtual method. This is to prevent user who implement the Iterator interface fail to implement SeekForPrev by mistake.
-- Add `include_end` option to make the range end exclusive when `include_end == false` in `DeleteFilesInRange()`.
+* Add `include_end` option to make the range end exclusive when `include_end == false` in `DeleteFilesInRange()`.
+* Add `CompactRangeOptions::allow_write_stall`, which makes `CompactRange` start working immediately, even if it causes user writes to stall. The default value is false, meaning we add delay to `CompactRange` calls until stalling can be avoided when possible. Note this delay is not present in previous RocksDB versions.
 
 ### New Features
 * Improve the performance of iterators doing long range scans by using readahead.
-- Add new function `DeleteFilesInRanges()` to delete files in multiple ranges at once for better performance.
+* Add new function `DeleteFilesInRanges()` to delete files in multiple ranges at once for better performance.
 
 ### Bug Fixes
 * Fix `DisableFileDeletions()` followed by `GetSortedWalFiles()` to not return obsolete WAL files that `PurgeObsoleteFiles()` is going to delete.
