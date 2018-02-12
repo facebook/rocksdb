@@ -210,13 +210,10 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
                                         bool dont_care = true) override {
     // Filters are already checked before seeking the index
-    const bool skip_filters = true;
-    const bool is_index = true;
     if (!partition_map_.empty()) {
       return NewTwoLevelIterator(
           new BlockBasedTable::PartitionedIndexIteratorState(
-              table_, ReadOptions(), icomparator_, skip_filters, is_index,
-              partition_map_.size() ? &partition_map_ : nullptr),
+              table_, partition_map_.size() ? &partition_map_ : nullptr),
           index_block_->NewIterator(icomparator_, nullptr, true));
     } else {
       return new BlockBasedTableIterator(
