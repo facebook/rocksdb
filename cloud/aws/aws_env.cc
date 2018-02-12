@@ -1000,9 +1000,11 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
 
   Status st;
   // Delete from destination bucket and local dir
-  if (has_dest_bucket_ && (sstfile || manifest || identity)) {
-    // add the remote file deletion to the queue
-    st = DeleteCloudFileFromDest(basename(fname));
+  if (sstfile || manifest || identity) {
+    if (has_dest_bucket_) {
+      // add the remote file deletion to the queue
+      st = DeleteCloudFileFromDest(basename(fname));
+    }
     // delete from local, too. Ignore the result, though. The file might not be
     // there locally.
     base_env_->DeleteFile(fname);
