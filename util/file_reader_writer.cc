@@ -239,6 +239,9 @@ Status WritableFileWriter::Close() {
   // we need to let the file know where data ends.
   if (use_direct_io()) {
     interim = writable_file_->Truncate(filesize_);
+    if (interim.ok()) {
+      interim = writable_file_->Fsync();
+    }
     if (!interim.ok() && s.ok()) {
       s = interim;
     }
