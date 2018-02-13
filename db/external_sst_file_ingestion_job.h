@@ -110,10 +110,6 @@ class ExternalSstFileIngestionJob {
   Status GetIngestedFileInfo(const std::string& external_file,
                              IngestedFileInfo* file_to_ingest);
 
-  // Check if the files we are ingesting overlap with any memtable.
-  // REQUIRES: Mutex held
-  Status IngestedFilesOverlapWithMemtables(SuperVersion* sv, bool* overlap);
-
   // Assign `file_to_ingest` the appropriate sequence number and  the lowest
   // possible level that it can be ingested to according to compaction_style.
   // REQUIRES: Mutex held

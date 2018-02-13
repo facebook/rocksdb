@@ -274,6 +274,13 @@ class ColumnFamilyData {
                                   const Slice& largest_user_key,
                                   int level) const;
 
+  // Check if the passed ranges overlap with any unflushed memtables
+  // (immutable or mutable).
+  // REQUIRES: DB mutex held. This function holds mutex for a significant
+  //    amount of time, so should not be called for any core functionality.
+  Status RangesOverlapWithMemtables(const std::vector<Range>& ranges,
+                                    bool* overlap);
+
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.
   static const int kCompactAllLevels;
