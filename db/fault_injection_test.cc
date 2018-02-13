@@ -228,16 +228,9 @@ class FaultInjectionTest : public testing::Test,
     return Status::OK();
   }
 
-#ifdef ROCKSDB_UBSAN_RUN
-#if defined(__clang__)
-__attribute__((__no_sanitize__("shift"), no_sanitize("signed-integer-overflow")))
-#elif defined(__GNUC__)
-__attribute__((__no_sanitize_undefined__))
-#endif
-#endif
   // Return the ith key
   Slice Key(int i, std::string* storage) const {
-    int num = i;
+    unsigned long long num = i;
     if (!sequential_order_) {
       // random transfer
       const int m = 0x5bd1e995;
@@ -245,7 +238,7 @@ __attribute__((__no_sanitize_undefined__))
       num ^= num << 24;
     }
     char buf[100];
-    snprintf(buf, sizeof(buf), "%016d", num);
+    snprintf(buf, sizeof(buf), "%016d", static_cast<int>(num));
     storage->assign(buf, strlen(buf));
     return Slice(*storage);
   }
