@@ -383,14 +383,13 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
       if (!l0_iters_[i]->status().ok()) {
         immutable_status_ = l0_iters_[i]->status();
-      } else if (l0_iters_[i]->Valid()) {
-        if (!IsOverUpperBound(l0_iters_[i]->key())) {
-          immutable_min_heap_.push(l0_iters_[i]);
-        } else {
-          has_iter_trimmed_for_upper_bound_ = true;
-          DeleteIterator(l0_iters_[i]);
-          l0_iters_[i] = nullptr;
-        }
+      } else if (l0_iters_[i]->Valid() &&
+                 !IsOverUpperBound(l0_iters_[i]->key())) {
+        immutable_min_heap_.push(l0_iters_[i]);
+      } else {
+        has_iter_trimmed_for_upper_bound_ = true;
+        DeleteIterator(l0_iters_[i]);
+        l0_iters_[i] = nullptr;
       }
     }
 
@@ -417,15 +416,14 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
         if (!level_iters_[level - 1]->status().ok()) {
           immutable_status_ = level_iters_[level - 1]->status();
-        } else if (level_iters_[level - 1]->Valid()) {
-          if (!IsOverUpperBound(level_iters_[level - 1]->key())) {
-            immutable_min_heap_.push(level_iters_[level - 1]);
-          } else {
-            // Nothing in this level is interesting. Remove.
-            has_iter_trimmed_for_upper_bound_ = true;
-            DeleteIterator(level_iters_[level - 1]);
-            level_iters_[level - 1] = nullptr;
-          }
+        } else if (level_iters_[level - 1]->Valid() &&
+                   !IsOverUpperBound(level_iters_[level - 1]->key())) {
+          immutable_min_heap_.push(level_iters_[level - 1]);
+        } else {
+          // Nothing in this level is interesting. Remove.
+          has_iter_trimmed_for_upper_bound_ = true;
+          DeleteIterator(level_iters_[level - 1]);
+          level_iters_[level - 1] = nullptr;
         }
       }
     }

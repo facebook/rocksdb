@@ -22,6 +22,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
@@ -33,8 +34,6 @@
 
 namespace rocksdb {
 
-class Block;
-class BlockIter;
 class BlockHandle;
 class Cache;
 class FilterBlockReader;
@@ -201,29 +200,36 @@ class BlockBasedTable : public TableReader {
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
 
-  class BlockEntryIteratorState;
+  template <class TValue>
+  struct CachableEntry;
+  struct Rep;
+
+  Rep* get_rep() { return rep_; }
+
+  // input_iter: if it is not null, update this one and return it as Iterator
+  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
+                                         const Slice& index_value,
+                                         BlockIter* input_iter = nullptr,
+                                         bool is_index = false,
+                                         GetContext* get_context = nullptr);
+  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
+                                         const BlockHandle& block_hanlde,
+                                         BlockIter* input_iter = nullptr,
+                                         bool is_index = false,
+                                         GetContext* get_context = nullptr,
+                                         Status s = Status());
+
+  class PartitionedIndexIteratorState;
 
   friend class PartitionIndexReader;
 
  protected:
-  template <class TValue>
-  struct CachableEntry;
-  struct Rep;
   Rep* rep_;
   explicit BlockBasedTable(Rep* rep) : rep_(rep) {}
 
  private:
   friend class MockedBlockBasedTable;
   static std::atomic<uint64_t> next_cache_key_id_;
-  // input_iter: if it is not null, update this one and return it as Iterator
-  static BlockIter* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const Slice& index_value,
-      BlockIter* input_iter = nullptr, bool is_index = false,
-      GetContext* get_context = nullptr);
-  static BlockIter* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
-      BlockIter* input_iter = nullptr, bool is_index = false,
-      GetContext* get_context = nullptr, Status s = Status());
 
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
@@ -357,35 +363,18 @@ class BlockBasedTable : public TableReader {
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure
-class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
+class BlockBasedTable::PartitionedIndexIteratorState
+    : public TwoLevelIteratorState {
  public:
-  BlockEntryIteratorState(
-      BlockBasedTable* table, const ReadOptions& read_options,
-      const InternalKeyComparator* icomparator, bool skip_filters,
-      bool is_index = false,
+  PartitionedIndexIteratorState(
+      BlockBasedTable* table,
       std::unordered_map<uint64_t, CachableEntry<Block>>* block_map = nullptr);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
-  bool PrefixMayMatch(const Slice& internal_key) override;
-  bool KeyReachedUpperBound(const Slice& internal_key) override;
 
  private:
   // Don't own table_
   BlockBasedTable* table_;
-  const ReadOptions read_options_;
-  const InternalKeyComparator* icomparator_;
-  bool skip_filters_;
-  // true if the 2nd level iterator is on indexes instead of on user data.
-  bool is_index_;
   std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
-  port::RWMutex cleaner_mu;
-
-  static const size_t kInitReadaheadSize = 8 * 1024;
-  // Found that 256 KB readahead size provides the best performance, based on
-  // experiments.
-  static const size_t kMaxReadaheadSize;
-  size_t readahead_size_ = kInitReadaheadSize;
-  size_t readahead_limit_ = 0;
-  int num_file_reads_ = 0;
 };
 
 // CachableEntry represents the entries that *may* be fetched from block cache.
@@ -502,6 +491,123 @@ struct BlockBasedTable::Rep {
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
+};
+
+class BlockBasedTableIterator : public InternalIterator {
+ public:
+  BlockBasedTableIterator(BlockBasedTable* table,
+                          const ReadOptions& read_options,
+                          const InternalKeyComparator& icomp,
+                          InternalIterator* index_iter, bool check_filter)
+      : table_(table),
+        read_options_(read_options),
+        icomp_(icomp),
+        index_iter_(index_iter),
+        pinned_iters_mgr_(nullptr),
+        block_iter_points_to_real_block_(false),
+        check_filter_(check_filter) {}
+
+  ~BlockBasedTableIterator() { delete index_iter_; }
+
+  void Seek(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
+  void SeekToFirst() override;
+  void SeekToLast() override;
+  void Next() override;
+  void Prev() override;
+  bool Valid() const override {
+    return block_iter_points_to_real_block_ && data_block_iter_.Valid();
+  }
+  Slice key() const override {
+    assert(Valid());
+    return data_block_iter_.key();
+  }
+  Slice value() const override {
+    assert(Valid());
+    return data_block_iter_.value();
+  }
+  Status status() const override {
+    // It'd be nice if status() returned a const Status& instead of a Status
+    if (!index_iter_->status().ok()) {
+      return index_iter_->status();
+    } else if (block_iter_points_to_real_block_ &&
+               !data_block_iter_.status().ok()) {
+      return data_block_iter_.status();
+    } else {
+      return Status::OK();
+    }
+  }
+
+  bool IsOutOfBound() override { return is_out_of_bound_; }
+
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+  }
+  bool IsKeyPinned() const override {
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           block_iter_points_to_real_block_;
+  }
+  bool IsValuePinned() const override {
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           block_iter_points_to_real_block_;
+  }
+
+  bool CheckPrefixMayMatch(const Slice& ikey) {
+    if (check_filter_ && !table_->PrefixMayMatch(ikey)) {
+      // TODO remember the iterator is invalidated because of prefix
+      // match. This can avoid the upper level file iterator to falsely
+      // believe the position is the end of the SST file and move to
+      // the first key of the next file.
+      ResetDataIter();
+      return false;
+    }
+    return true;
+  }
+
+  void ResetDataIter() {
+    if (block_iter_points_to_real_block_) {
+      if (pinned_iters_mgr_ != nullptr) {
+        data_block_iter_.DelegateCleanupsTo(pinned_iters_mgr_);
+      }
+      data_block_iter_.~BlockIter();
+      new (&data_block_iter_) BlockIter();
+      block_iter_points_to_real_block_ = false;
+    }
+  }
+
+  void SavePrevIndexValue() {
+    if (block_iter_points_to_real_block_) {
+      // Reseek. If they end up with the same data block, we shouldn't re-fetch
+      // the same data block.
+      Slice v = index_iter_->value();
+      prev_index_value_.assign(v.data(), v.size());
+    }
+  }
+
+  void InitDataBlock();
+  void FindKeyForward();
+  void FindKeyBackward();
+
+ private:
+  BlockBasedTable* table_;
+  const ReadOptions read_options_;
+  const InternalKeyComparator& icomp_;
+  InternalIterator* index_iter_;
+  PinnedIteratorsManager* pinned_iters_mgr_;
+  BlockIter data_block_iter_;
+  bool block_iter_points_to_real_block_;
+  bool is_out_of_bound_ = false;
+  bool check_filter_;
+  // TODO use block offset instead
+  std::string prev_index_value_;
+
+  static const size_t kInitReadaheadSize = 8 * 1024;
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments.
+  static const size_t kMaxReadaheadSize;
+  size_t readahead_size_ = kInitReadaheadSize;
+  size_t readahead_limit_ = 0;
+  int num_file_reads_ = 0;
 };
 
 }  // namespace rocksdb
