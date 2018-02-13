@@ -834,7 +834,8 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-  bool add_res __attribute__((__unused__)) = Add(seq, kTypeValue, key, value);
+  bool add_res __attribute__((__unused__));
+  add_res = Add(seq, kTypeValue, key, value);
   // We already checked unused != seq above. In that case, Add should not fail.
   assert(add_res);
 }
