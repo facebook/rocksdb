@@ -23,7 +23,7 @@ class DBImpl;
 class Env;
 struct SuperVersion;
 class ColumnFamilyData;
-class LevelIterator;
+class ForwardLevelIterator;
 class VersionStorageInfo;
 struct FileMetaData;
 
@@ -126,7 +126,7 @@ class ForwardIterator : public InternalIterator {
   InternalIterator* mutable_iter_;
   std::vector<InternalIterator*> imm_iters_;
   std::vector<InternalIterator*> l0_iters_;
-  std::vector<LevelIterator*> level_iters_;
+  std::vector<ForwardLevelIterator*> level_iters_;
   InternalIterator* current_;
   bool valid_;
 
