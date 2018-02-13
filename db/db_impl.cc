@@ -2389,10 +2389,13 @@ Snapshot::~Snapshot() {
 }
 
 Status DestroyDB(const std::string& dbname, const Options& options) {
-  const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
 
+  // Reset the logger because it holds a handle to the
+  // log file and prevents cleanup and directory removal
+  soptions.info_log.reset();
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
 
