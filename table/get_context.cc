@@ -67,6 +67,7 @@ GetContext::GetContext(const Comparator* ucmp,
     *seq_ = kMaxSequenceNumber;
   }
   sample_ = should_sample_file_read();
+  InitTickers();
 }
 
 // Called from TableCache::Get and Table::Get when file/block in which
@@ -92,14 +93,33 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
 }
 
 void GetContext::RecordCounters(Tickers ticker, size_t val) {
-  for (auto ticker_pair : tickers_pairs) {
-    if (ticker_pair.first == ticker) {
-      ticker_pair.second += static_cast<uint64_t>(val);
+  for (auto it = ticker_pairs_.begin(); it != ticker_pairs_.end(); ++it) {
+    if (it->first == ticker) {
+      it->second += static_cast<uint64_t>(val);
       return;
     }
   }
-  tickers_pairs.emplace_back(
-      std::make_pair(ticker, static_cast<uint64_t>(val)));
+  ticker_pairs_.push_back(std::make_pair(ticker, static_cast<uint64_t>(val)));
+}
+
+void GetContext::InitTickers() {
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_HIT, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_HIT, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_HIT, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_HIT, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_MISS, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_MISS, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_MISS, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_BYTES_READ, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_MISS, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_ADD, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_BYTES_WRITE, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_ADD, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_BYTES_INSERT, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_ADD, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_BYTES_INSERT, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_ADD, 0));
+  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_BYTES_INSERT, 0));
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,

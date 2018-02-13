@@ -27,7 +27,7 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
-  autovector<std::pair<Tickers, uint64_t>> tickers_pairs;
+  autovector<std::pair<Tickers, uint64_t>> ticker_pairs_;
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
@@ -78,6 +78,7 @@ class GetContext {
   }
 
   void RecordCounters(Tickers ticker, size_t val);
+  void InitTickers();
 
  private:
   const Comparator* ucmp_;

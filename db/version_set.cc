@@ -1212,9 +1212,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
     // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
-        get_context.State() != GetContext::kMerge) {
-      for (auto ticker_pair : get_context.tickers_pairs) {
-        if (ticker_pair.second > 0) {
+        get_context.State() != GetContext::kMerge &&
+        db_statistics_ != nullptr) {
+      for (auto ticker_pair : get_context.ticker_pairs_) {
+        if (ticker_pair.second != 0) {
           RecordTick(db_statistics_, ticker_pair.first, ticker_pair.second);
         }
       }
@@ -1251,9 +1252,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     f = fp.GetNextFile();
   }
 
-  for (auto ticker_pair : get_context.tickers_pairs) {
-    if (ticker_pair.second > 0) {
-      RecordTick(db_statistics_, ticker_pair.first, ticker_pair.second);
+  if (db_statistics_ != nullptr) {
+    for (auto ticker_pair : get_context.ticker_pairs_) {
+      if (ticker_pair.second != 0) {
+        RecordTick(db_statistics_, ticker_pair.first, ticker_pair.second);
+      }
     }
   }
   if (GetContext::kMerge == get_context.State()) {
