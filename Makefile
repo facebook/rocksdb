@@ -236,9 +236,9 @@ ifdef COMPILE_WITH_UBSAN
 	# memory to integer. Fixing it may cause performance regression. 3-way crc32
 	# relies on it too, although it can be rewritten to eliminate with minimal
 	# performance regression.
-	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment
-	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment -DROCKSDB_UBSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment -DROCKSDB_UBSAN_RUN
+	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover=all
+	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
 endif
 
 ifdef ROCKSDB_VALGRIND_RUN
