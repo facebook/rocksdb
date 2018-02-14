@@ -60,7 +60,7 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
 namespace {
 
 uint64_t GetUint64Property(const UserCollectedProperties& props,
-                           const std::string property_name,
+                           const std::string& property_name,
                            bool* property_present) {
   auto pos = props.find(property_name);
   if (pos == props.end()) {
