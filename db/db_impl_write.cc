@@ -214,7 +214,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                     write_group.size > 1;
     size_t total_count = 0;
     size_t valid_batches = 0;
-    uint64_t total_byte_size = 0;
+    size_t total_byte_size = 0;
     for (auto* writer : write_group) {
       if (writer->CheckCallback(this)) {
         valid_batches += writer->batch_cnt;
@@ -550,7 +550,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
 
-  uint64_t total_byte_size = 0;
+  size_t total_byte_size = 0;
   for (auto* writer : write_group) {
     if (writer->CheckCallback(this)) {
       total_byte_size = WriteBatchInternal::AppendedByteSize(
@@ -1369,22 +1369,22 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
 size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
   mutex_.AssertHeld();
-  size_t bsize = write_buffer_size / 10 + write_buffer_size;
+  uint64_t bsize = write_buffer_size / 10 + write_buffer_size;
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
   if (mutable_db_options_.max_total_wal_size > 0) {
-    bsize = std::min<size_t>(bsize, mutable_db_options_.max_total_wal_size);
+    bsize = std::min<uint64_t>(bsize, mutable_db_options_.max_total_wal_size);
   }
   if (immutable_db_options_.db_write_buffer_size > 0) {
-    bsize = std::min<size_t>(bsize, immutable_db_options_.db_write_buffer_size);
+    bsize = std::min<uint64_t>(bsize, immutable_db_options_.db_write_buffer_size);
   }
   if (immutable_db_options_.write_buffer_manager &&
       immutable_db_options_.write_buffer_manager->enabled()) {
-    bsize = std::min<size_t>(
+    bsize = std::min<uint64_t>(
         bsize, immutable_db_options_.write_buffer_manager->buffer_size());
   }
 
-  return bsize;
+  return static_cast<size_t>(bsize);
 }
 
 // Default implementations of convenience methods that subclasses of DB

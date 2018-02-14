@@ -94,35 +94,37 @@ class MemFile {
     uint64_t end = std::min(start + 512, size_.load());
     MutexLock lock(&mutex_);
     for (uint64_t pos = start; pos < end; ++pos) {
-      data_[pos] = static_cast<char>(rnd_.Uniform(256));
+      data_[static_cast<size_t>(pos)] = static_cast<char>(rnd_.Uniform(256));
     }
   }
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
     MutexLock lock(&mutex_);
     const uint64_t available = Size() - std::min(Size(), offset);
+    size_t offset_ = static_cast<size_t>(offset);
     if (n > available) {
-      n = available;
+      n = static_cast<size_t>(available);
     }
     if (n == 0) {
       *result = Slice();
       return Status::OK();
     }
     if (scratch) {
-      memcpy(scratch, &(data_[offset]), n);
+      memcpy(scratch, &(data_[offset_]), n);
       *result = Slice(scratch, n);
     } else {
-      *result = Slice(&(data_[offset]), n);
+      *result = Slice(&(data_[offset_]), n);
     }
     return Status::OK();
   }
 
   Status Write(uint64_t offset, const Slice& data) {
     MutexLock lock(&mutex_);
+    size_t offset_ = static_cast<size_t>(offset);
     if (offset + data.size() > data_.size()) {
-      data_.resize(offset + data.size());
+      data_.resize(offset_ + data.size());
     }
-    data_.replace(offset, data.size(), data.data(), data.size());
+    data_.replace(offset_, data.size(), data.data(), data.size());
     size_ = data_.size();
     modified_time_ = Now();
     return Status::OK();
@@ -203,7 +205,7 @@ class MockSequentialFile : public SequentialFile {
     if (pos_ > file_->Size()) {
       return Status::IOError("pos_ > file_->Size()");
     }
-    const size_t available = file_->Size() - pos_;
+    const uint64_t available = file_->Size() - pos_;
     if (n > available) {
       n = available;
     }
@@ -273,7 +275,7 @@ class MockWritableFile : public WritableFile {
   }
 
   virtual Status Append(const Slice& data) override {
-    uint64_t bytes_written = 0;
+    size_t bytes_written = 0;
     while (bytes_written < data.size()) {
       auto bytes = RequestToken(data.size() - bytes_written);
       Status s = file_->Append(Slice(data.data() + bytes_written, bytes));
@@ -285,7 +287,7 @@ class MockWritableFile : public WritableFile {
     return Status::OK();
   }
   virtual Status Truncate(uint64_t size) override {
-    file_->Truncate(size);
+    file_->Truncate(static_cast<size_t>(size));
     return Status::OK();
   }
   virtual Status Close() override { return file_->Fsync(); }

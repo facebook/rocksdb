@@ -260,7 +260,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
     auto& file = table_->rep_->file;
     prefetch_buffer.reset(new FilePrefetchBuffer());
-    s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
+    s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
+      static_cast<size_t>(prefetch_len));
 
     // After prefetch, read the partitions one by one
     biter.SeekToFirst();
@@ -654,9 +655,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   size_t prefetch_len;
   if (file_size < kTailPrefetchSize) {
     prefetch_off = 0;
-    prefetch_len = file_size;
+    prefetch_len = static_cast<size_t>(file_size);
   } else {
-    prefetch_off = file_size - kTailPrefetchSize;
+    prefetch_off = static_cast<size_t>(file_size - kTailPrefetchSize);
     prefetch_len = kTailPrefetchSize;
   }
   Status s;
@@ -1896,7 +1897,8 @@ void BlockBasedTableIterator::InitDataBlock() {
         readahead_size_ = std::min(kMaxReadaheadSize, readahead_size_);
         table_->get_rep()->file->Prefetch(data_block_handle.offset(),
                                           readahead_size_);
-        readahead_limit_ = data_block_handle.offset() + readahead_size_;
+        readahead_limit_ = static_cast<size_t>(data_block_handle.offset()
+          + readahead_size_);
         // Keep exponentially increasing readahead size until kMaxReadaheadSize.
         readahead_size_ *= 2;
       }
