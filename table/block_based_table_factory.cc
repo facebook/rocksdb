@@ -225,6 +225,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  block_align: %d\n",
+           table_options_.block_align);
+  ret.append(buffer);
   return ret;
 }
 

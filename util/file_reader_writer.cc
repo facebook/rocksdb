@@ -219,6 +219,16 @@ Status WritableFileWriter::Append(const Slice& data) {
   return s;
 }
 
+Status WritableFileWriter::Pad(const size_t pad_bytes) {
+  assert(pad_bytes < kDefaultPageSize);
+  assert((buf_.Capacity() - buf_.CurrentSize()) >= pad_bytes);
+
+  pending_sync_ = true;
+  buf_.PadWith(pad_bytes, 0);
+  filesize_ += pad_bytes;
+  return Status::OK();
+}
+
 Status WritableFileWriter::Close() {
 
   // Do not quit immediately on failure the file MUST be closed
