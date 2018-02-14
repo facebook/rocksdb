@@ -167,8 +167,7 @@ void BlockIter::SeekForPrev(const Slice& target) {
     return;
   }
   uint32_t index = 0;
-  bool ok = false;
-  ok = BinarySeek(target, 0, num_restarts_ - 1, &index);
+  bool ok = BinarySeek(target, 0, num_restarts_ - 1, &index);
 
   if (!ok) {
     return;

@@ -321,11 +321,10 @@ Status TransactionLockMgr::AcquireWithTimeout(
     uint32_t column_family_id, const std::string& key, Env* env,
     int64_t timeout, const LockInfo& lock_info) {
   Status result;
-  uint64_t start_time = 0;
   uint64_t end_time = 0;
 
   if (timeout > 0) {
-    start_time = env->NowMicros();
+    uint64_t start_time = env->NowMicros();
     end_time = start_time + timeout;
   }
 
