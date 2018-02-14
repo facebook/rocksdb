@@ -126,11 +126,15 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   if (hugetlb_size_ == 0) {
     return nullptr;
   }
-  // already reserve space in huge_blocks_ before calling mmap().
-  // this way the insertion into the vector below will not throw and we
-  // won't leak the mapping in that case. if reserve() throws, we
-  // won't leak either
-  huge_blocks_.reserve(huge_blocks_.size() + 1);
+  // Reserve space in `huge_blocks_` before calling `mmap`.
+  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
+  // own memory and do fewer reallocations.
+  //
+  // - If `emplace_back` throws, no memory leaks because we haven't called
+  //   `mmap` yet.
+  // - If `mmap` throws, no memory leaks because the vector will be cleaned up
+  //   via RAII.
+  huge_blocks_.emplace_back(nullptr /* addr */, 0 /* length */);
 
   void* addr = mmap(nullptr, bytes, (PROT_READ | PROT_WRITE),
                     (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), -1, 0);
@@ -138,8 +142,7 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   if (addr == MAP_FAILED) {
     return nullptr;
   }
-  // the following shouldn't throw because of the above reserve()
-  huge_blocks_.emplace_back(MmapInfo(addr, bytes));
+  huge_blocks_.back() = MmapInfo(addr, bytes);
   blocks_memory_ += bytes;
   if (tracker_ != nullptr) {
     tracker_->Allocate(bytes);
@@ -193,11 +196,15 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
-  // already reserve space in blocks_ before allocating memory via new.
-  // this way the insertion into the vector below will not throw and we
-  // won't leak the allocated memory in that case. if reserve() throws,
-  // we won't leak either
-  blocks_.reserve(blocks_.size() + 1);
+  // Reserve space in `blocks_` before allocating memory via new.
+  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
+  // own memory and do fewer reallocations.
+  //
+  // - If `emplace_back` throws, no memory leaks because we haven't called `new`
+  //   yet.
+  // - If `new` throws, no memory leaks because the vector will be cleaned up
+  //   via RAII.
+  blocks_.emplace_back(nullptr);
 
   char* block = new char[block_bytes];
   size_t allocated_size;
@@ -216,8 +223,7 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   if (tracker_ != nullptr) {
     tracker_->Allocate(allocated_size);
   }
-  // the following shouldn't throw because of the above reserve()
-  blocks_.push_back(block);
+  blocks_.back() = block;
   return block;
 }
 
