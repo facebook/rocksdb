@@ -8,6 +8,7 @@
 ### New Features
 * Improve the performance of iterators doing long range scans by using readahead.
 * Add new function `DeleteFilesInRanges()` to delete files in multiple ranges at once for better performance.
+* SstFileManager now can cancel compactions if they will result in max space errors. SstFileManager users can also use SetCompactionBufferSize to specify how much space must be leftover during a compaction for auxiliary file functions such as logging and flushing.
 
 ### Bug Fixes
 * Fix `DisableFileDeletions()` followed by `GetSortedWalFiles()` to not return obsolete WAL files that `PurgeObsoleteFiles()` is going to delete.

@@ -446,11 +446,6 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
-  virtual Status CheckCompactionSize(const char *path_in_filesystem,
-      uint64_t size_added_by_compact) {
-    return Status::NotSupported("CheckCompactionSize is not implemented in this Env");
-  }
-
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
