@@ -23,6 +23,7 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
       logger_(logger),
       total_files_size_(0),
       compaction_buffer_size_(0),
+      cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
       delete_scheduler_(env, rate_bytes_per_sec, logger.get(), this,
                         max_trash_db_ratio) {}
@@ -58,7 +59,7 @@ void SstFileManagerImpl::OnCompactionCompletion(Compaction *c) {
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }
-  total_files_size_ -= size_added_by_compaction;
+  cur_compactions_reserved_size_ -= size_added_by_compaction;
 }
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
@@ -94,6 +95,14 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReached() {
   return total_files_size_ >= max_allowed_space_;
 }
 
+bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
+  MutexLock l(&mu_);
+  if (max_allowed_space_ <= 0) {
+    return false;
+  }
+  return total_files_size_ + cur_compactions_reserved_size_ >= max_allowed_space_;
+}
+
 bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction *c) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
@@ -106,12 +115,12 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction *c) {
   }
 
   if (max_allowed_space_ != 0 &&
-      (size_added_by_compaction + total_files_size_ + compaction_buffer_size_
-       > max_allowed_space_)) {
+      (size_added_by_compaction + cur_compactions_reserved_size_ + total_files_size_ +
+        compaction_buffer_size_ > max_allowed_space_)) {
     return false;
   }
-  // Update total_files_size_ so concurrent compactions don't max out space
-  total_files_size_ += size_added_by_compaction;
+  // Update cur_compactions_reserved_size_ so concurrent compactions don't max out space
+  cur_compactions_reserved_size_ += size_added_by_compaction;
   return true;
 }
 

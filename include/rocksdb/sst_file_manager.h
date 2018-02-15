@@ -44,6 +44,10 @@ class SstFileManager {
   // thread-safe.
   virtual bool IsMaxAllowedSpaceReached() = 0;
 
+  // Returns true if the total size of SST files as well as estimated size
+  // of ongoing compactions exceeds the maximums allowed space usage.
+  virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
+
   // Returns true is there is enough (approximate) space for the specified
   // compaction. Space is approximate because this function conservatively
   // estimates how much space is currently being used by compactions (i.e.

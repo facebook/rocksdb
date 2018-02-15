@@ -574,11 +574,6 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_OK(Flush());
   dbfull()->TEST_WaitForCompact();
 
-
-
-  //ASSERT_OK(Put("key1", "val1"));
-  // This flush will cause bg_error_ and will fail
-  //ASSERT_NOK(Flush());
   ASSERT_GT(cancelled_compaction, 0);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -659,7 +654,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
                 estimate_multiplier * limit_mb * 1024 * 1024 * 2);
     }
     ASSERT_TRUE(bg_error_set);
-    //ASSERT_GE(total_sst_files_size, limit_mb * 1024 * 1024);
+    ASSERT_GE(total_sst_files_size, limit_mb * 1024 * 1024);
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
 

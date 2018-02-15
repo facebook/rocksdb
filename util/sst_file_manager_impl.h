@@ -58,6 +58,8 @@ class SstFileManagerImpl : public SstFileManager {
   // thread-safe.
   bool IsMaxAllowedSpaceReached() override;
 
+  bool IsMaxAllowedSpaceReachedIncludingCompactions() override;
+
   bool EnoughRoomForCompaction(Compaction *c) override;
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction finishes
@@ -106,6 +108,8 @@ class SstFileManagerImpl : public SstFileManager {
   // Compactions should only execute if they can leave at least
   // this amount of buffer space for logs and flushes
   uint64_t compaction_buffer_size_;
+  // Estimated size of the current ongoing compactions
+  uint64_t cur_compactions_reserved_size_;
   // A map containing all tracked files and there sizes
   //  file_path => file_size
   std::unordered_map<std::string, uint64_t> tracked_files_;
