@@ -1556,7 +1556,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
+#ifndef ROCKSDB_LITE
   bool sfm_bookkeeping = false;
+#endif  // ROCKSDB_LITE
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);

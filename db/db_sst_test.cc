@@ -557,8 +557,8 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
 
   Random rnd(301);
 
-  // Generate a file containing 100 keys.
-  for (int i = 0; i < 100; i++) {
+  // Generate a file containing 10 keys.
+  for (int i = 0; i < 10; i++) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
   }
   ASSERT_OK(Flush());
@@ -568,7 +568,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   sfm->SetMaxAllowedSpaceUsage(2*total_file_size + 1);
 
   // Generate another file to trigger compaction.
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 10; i++) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
   }
   ASSERT_OK(Flush());
