@@ -136,9 +136,9 @@ class SpecialMemTableRep : public MemTableRep {
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual bool Insert(KeyHandle handle) override {
+  virtual void Insert(KeyHandle handle) override {
     num_entries_++;
-    return memtable_->Insert(handle);
+    memtable_->Insert(handle);
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
