@@ -1622,6 +1622,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
       bool enough_room = true;
       if (c != nullptr) {
+#ifndef ROCKSDB_LITE
         auto sfm = static_cast<SstFileManagerImpl*>(
             immutable_db_options_.sst_file_manager.get());
         if (sfm) {
@@ -1630,6 +1631,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             sfm_bookkeeping = true;
           }
         }
+#endif  // ROCKSDB_LITE
         if (!enough_room) {
           // Just in case tests want to change the value of enough_room
           TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction():CancelledCompaction",
@@ -1828,12 +1830,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     c->ReleaseCompactionFiles(status);
     *made_progress = true;
 
+#ifndef ROCKSDB_LITE
     // Need to make sure SstFileManager does its bookkeeping
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm && sfm_bookkeeping) {
       sfm->OnCompactionCompletion(c.get());
     }
+#endif  // ROCKSDB_LITE
 
     NotifyOnCompactionCompleted(
         c->column_family_data(), c.get(), status,
