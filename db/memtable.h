@@ -24,6 +24,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/keycomparator.h"
 #include "util/allocator.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
@@ -31,6 +32,7 @@
 
 namespace rocksdb {
 
+class KeyComparator;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
@@ -78,14 +80,7 @@ struct MemTablePostProcessInfo {
 // written to (aka the 'immutable memtables').
 class MemTable {
  public:
-  struct KeyComparator : public MemTableRep::KeyComparator {
-    const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
-    virtual int operator()(const char* prefix_len_key1,
-                           const char* prefix_len_key2) const override;
-    virtual int operator()(const char* prefix_len_key,
-                           const Slice& key) const override;
-  };
+  typedef class rocksdb::KeyComparator KeyComparator;
 
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.

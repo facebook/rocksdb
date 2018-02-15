@@ -48,6 +48,7 @@ class LookupKey;
 class Slice;
 class SliceTransform;
 class Logger;
+class KeyComparator;
 
 typedef void* KeyHandle;
 
@@ -55,18 +56,7 @@ class MemTableRep {
  public:
   // KeyComparator provides a means to compare keys, which are internal keys
   // concatenated with values.
-  class KeyComparator {
-   public:
-    // Compare a and b. Return a negative value if a is less than b, 0 if they
-    // are equal, and a positive value if a is greater than b
-    virtual int operator()(const char* prefix_len_key1,
-                           const char* prefix_len_key2) const = 0;
-
-    virtual int operator()(const char* prefix_len_key,
-                           const Slice& key) const = 0;
-
-    virtual ~KeyComparator() { }
-  };
+  typedef class rocksdb::KeyComparator KeyComparator;
 
   explicit MemTableRep(Allocator* allocator) : allocator_(allocator) {}
 

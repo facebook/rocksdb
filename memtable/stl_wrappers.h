@@ -8,6 +8,7 @@
 #include <string>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/keycomparator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
@@ -18,13 +19,13 @@ namespace stl_wrappers {
 
 class Base {
  protected:
-  const MemTableRep::KeyComparator& compare_;
+  const rocksdb::KeyComparator& compare_;
   explicit Base(const MemTableRep::KeyComparator& compare)
       : compare_(compare) {}
 };
 
 struct Compare : private Base {
-  explicit Compare(const MemTableRep::KeyComparator& compare) : Base(compare) {}
+  explicit Compare(const rocksdb::KeyComparator& compare) : Base(compare) {}
   inline bool operator()(const char* a, const char* b) const {
     return compare_(a, b) < 0;
   }
