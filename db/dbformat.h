@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string>
 #include <utility>
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -244,6 +245,68 @@ class InternalKey {
 inline int InternalKeyComparator::Compare(
     const InternalKey& a, const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
+}
+
+inline int InternalKeyComparator::Compare(const Slice& akey,
+                                          const Slice& bkey) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  if (r == 0) {
+    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
+    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
+                                                const Slice& bkey) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  if (r == 0) {
+    // Shift the number to exclude the last byte which contains the value type
+    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8) >> 8;
+    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8) >> 8;
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+inline int InternalKeyComparator::Compare(const ParsedInternalKey& a,
+                                          const ParsedInternalKey& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_->Compare(a.user_key, b.user_key);
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  if (r == 0) {
+    if (a.sequence > b.sequence) {
+      r = -1;
+    } else if (a.sequence < b.sequence) {
+      r = +1;
+    } else if (a.type > b.type) {
+      r = -1;
+    } else if (a.type < b.type) {
+      r = +1;
+    }
+  }
+  return r;
 }
 
 inline bool ParseInternalKey(const Slice& internal_key,
