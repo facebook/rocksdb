@@ -73,6 +73,8 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = 1;
   if (GetWriteBatch()->HasDuplicateKeys()) {
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Duplicate key overhead");
     SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
@@ -130,6 +132,8 @@ Status WritePreparedTxn::CommitInternal() {
   assert(prepare_batch_cnt_);
   size_t commit_batch_cnt = 0;
   if (includes_data) {
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Duplicate key overhead");
     SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = working_batch->Iterate(&counter);
     assert(s.ok());
@@ -321,6 +325,8 @@ Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
   auto ret = PessimisticTransaction::RebuildFromWriteBatch(src_batch);
   prepare_batch_cnt_ = 1;
   if (GetWriteBatch()->HasDuplicateKeys()) {
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Duplicate key overhead");
     SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());

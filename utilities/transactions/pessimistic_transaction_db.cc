@@ -228,7 +228,7 @@ Status TransactionDB::Open(
   Status s;
   DB* db;
 
-  ROCKS_LOG_WARN(db_options.info_log, "Transaction write_policy is " PRId32,
+  ROCKS_LOG_WARN(db_options.info_log, "Transaction write_policy is %" PRId32,
                  static_cast<int>(txn_db_options.write_policy));
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;

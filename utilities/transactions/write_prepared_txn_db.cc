@@ -104,6 +104,8 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   }
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Duplicate key overhead");
     SubBatchCounter counter(*GetCFComparatorMap());
     auto s = batch->Iterate(&counter);
     assert(s.ok());
