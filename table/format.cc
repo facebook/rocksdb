@@ -196,7 +196,7 @@ Status Footer::DecodeFrom(Slice* input) {
 }
 
 std::string Footer::ToString() const {
-  std::string result, handle_;
+  std::string result;
   result.reserve(1024);
 
   bool legacy = IsLegacyFooterFormat(table_magic_number_);

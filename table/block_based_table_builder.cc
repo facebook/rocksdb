@@ -724,7 +724,6 @@ Status BlockBasedTableBuilder::Finish() {
               : "nullptr";
 
       std::string property_collectors_names = "[";
-      property_collectors_names = "[";
       for (size_t i = 0;
            i < r->ioptions.table_properties_collector_factories.size(); ++i) {
         if (i != 0) {

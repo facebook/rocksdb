@@ -763,7 +763,7 @@ class PosixEnv : public Env {
 
   virtual Status GetAbsolutePath(const std::string& db_path,
                                  std::string* output_path) override {
-    if (db_path.find('/') == 0) {
+    if (!db_path.empty() && db_path[0] == '/') {
       *output_path = db_path;
       return Status::OK();
     }

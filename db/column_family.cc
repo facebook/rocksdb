@@ -898,8 +898,7 @@ Compaction* ColumnFamilyData::CompactRange(
 
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
     InstrumentedMutex* db_mutex) {
-  SuperVersion* sv = nullptr;
-  sv = GetThreadLocalSuperVersion(db_mutex);
+  SuperVersion* sv = GetThreadLocalSuperVersion(db_mutex);
   sv->Ref();
   if (!ReturnThreadLocalSuperVersion(sv)) {
     // This Unref() corresponds to the Ref() in GetThreadLocalSuperVersion()
@@ -913,7 +912,6 @@ SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
 
 SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
     InstrumentedMutex* db_mutex) {
-  SuperVersion* sv = nullptr;
   // The SuperVersion is cached in thread local storage to avoid acquiring
   // mutex when SuperVersion does not change since the last use. When a new
   // SuperVersion is installed, the compaction or flush thread cleans up
@@ -932,7 +930,7 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
   // should only keep kSVInUse before ReturnThreadLocalSuperVersion call
   // (if no Scrape happens).
   assert(ptr != SuperVersion::kSVInUse);
-  sv = static_cast<SuperVersion*>(ptr);
+  SuperVersion* sv = static_cast<SuperVersion*>(ptr);
   if (sv == SuperVersion::kSVObsolete ||
       sv->version_number != super_version_number_.load()) {
     RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_ACQUIRES);
