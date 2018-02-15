@@ -216,6 +216,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Struct to hold ownership of snapshot and read callback for cleanup.
   struct IteratorState;
 
+  std::map<uint32_t, const Comparator*>* GetCFComparatorMap() {
+    return cf_map_.load();
+  }
+  void UpdateCFComparatorMap(
+      const std::vector<ColumnFamilyHandle*>& handles) override;
+  void UpdateCFComparatorMap(const ColumnFamilyHandle* handle) override;
+
  protected:
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
@@ -394,6 +401,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   mutable port::RWMutex old_commit_map_mutex_;
   mutable port::RWMutex commit_cache_mutex_;
   mutable port::RWMutex snapshots_mutex_;
+  // A cache of the cf comparators
+  std::atomic<std::map<uint32_t, const Comparator*>*> cf_map_;
+  // GC of the object above
+  std::unique_ptr<std::map<uint32_t, const Comparator*>> cf_map_gc_;
 };
 
 class WritePreparedTxnReadCallback : public ReadCallback {

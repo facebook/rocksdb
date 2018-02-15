@@ -186,6 +186,31 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                            &callback);
 }
 
+void WritePreparedTxnDB::UpdateCFComparatorMap(
+    const std::vector<ColumnFamilyHandle*>& handles) {
+  auto cf_map = new std::map<uint32_t, const Comparator*>();
+  for (auto h : handles) {
+    auto id = h->GetID();
+    const Comparator* comparator = h->GetComparator();
+    (*cf_map)[id] = comparator;
+  }
+  cf_map_.store(cf_map);
+  cf_map_gc_.reset(cf_map);
+}
+
+void WritePreparedTxnDB::UpdateCFComparatorMap(
+    const ColumnFamilyHandle* h) {
+  auto old_cf_map_ptr = cf_map_.load();
+  assert(old_cf_map_ptr);
+  auto cf_map = new std::map<uint32_t, const Comparator*>(*old_cf_map_ptr);
+  auto id = h->GetID();
+  const Comparator* comparator = h->GetComparator();
+  (*cf_map)[id] = comparator;
+  cf_map_.store(cf_map);
+  cf_map_gc_.reset(cf_map);
+}
+
+
 std::vector<Status> WritePreparedTxnDB::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,

@@ -175,30 +175,6 @@ TransactionDBOptions PessimisticTransactionDB::ValidateTxnDBOptions(
   return validated;
 }
 
-void PessimisticTransactionDB::UpdateCFComparatorMap(
-    const std::vector<ColumnFamilyHandle*>& handles) {
-  auto cf_map = new std::map<uint32_t, const Comparator*>();
-  for (auto h : handles) {
-    auto id = h->GetID();
-    const Comparator* comparator = h->GetComparator();
-    (*cf_map)[id] = comparator;
-  }
-  cf_map_.store(cf_map);
-  cf_map_gc_.reset(cf_map);
-}
-
-void PessimisticTransactionDB::UpdateCFComparatorMap(
-    const ColumnFamilyHandle* h) {
-  auto old_cf_map_ptr = cf_map_.load();
-  assert(old_cf_map_ptr);
-  auto cf_map = new std::map<uint32_t, const Comparator*>(*old_cf_map_ptr);
-  auto id = h->GetID();
-  const Comparator* comparator = h->GetComparator();
-  (*cf_map)[id] = comparator;
-  cf_map_.store(cf_map);
-  cf_map_gc_.reset(cf_map);
-}
-
 Status TransactionDB::Open(const Options& options,
                            const TransactionDBOptions& txn_db_options,
                            const std::string& dbname, TransactionDB** dbptr) {
