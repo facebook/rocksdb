@@ -5722,6 +5722,50 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   // now it's done
   ASSERT_TRUE(done.load());
 }
+
+// Keep spawning short-living threads that create an iterator and quit.
+// Meanwhile in another thread keep flushing memtables.
+// This used to cause a deadlock.
+TEST_F(DBTest, ThreadLocalPtrDeadlock) {
+  std::atomic<int> flushes_done{0};
+  std::atomic<int> threads_destroyed{0};
+  auto done = [&] {
+    return flushes_done.load() > 10;
+  };
+
+  std::thread flushing_thread([&] {
+    for (int i = 0; !done(); ++i) {
+      ASSERT_OK(db_->Put(WriteOptions(), Slice("hi"),
+                         Slice(std::to_string(i).c_str())));
+      ASSERT_OK(db_->Flush(FlushOptions()));
+      int cnt = ++flushes_done;
+      fprintf(stderr, "Flushed %d times\n", cnt);
+    }
+  });
+
+  std::vector<std::thread> thread_spawning_threads(10);
+  for (auto& t: thread_spawning_threads) {
+    t = std::thread([&] {
+      while (!done()) {
+        {
+          std::thread tmp_thread([&] {
+            auto it = db_->NewIterator(ReadOptions());
+            delete it;
+          });
+          tmp_thread.join();
+        }
+        ++threads_destroyed;
+      }
+    });
+  }
+
+  for (auto& t: thread_spawning_threads) {
+    t.join();
+  }
+  flushing_thread.join();
+  fprintf(stderr, "Done. Flushed %d times, destroyed %d threads\n",
+          flushes_done.load(), threads_destroyed.load());
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
