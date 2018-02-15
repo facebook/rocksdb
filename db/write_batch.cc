@@ -404,8 +404,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
   Status s;
   char tag = 0;
   uint32_t column_family = 0;  // default
-  while ((s.ok() || s.IsTryAgain()) && !input.empty() && handler->Continue()) {
-    if (!s.IsTryAgain()) {
+  while ((s.ok() || UNLIKELY(s.IsTryAgain())) && !input.empty() && handler->Continue()) {
+    if (LIKELY(!s.IsTryAgain())) {
       tag = 0;
       column_family = 0;  // default
 
@@ -425,7 +425,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
         s = handler->PutCF(column_family, key, value);
-        if (s.ok()) {
+        if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
         }
@@ -435,7 +435,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
         s = handler->DeleteCF(column_family, key);
-        if (s.ok()) {
+        if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
         }
@@ -445,7 +445,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
         s = handler->SingleDeleteCF(column_family, key);
-        if (s.ok()) {
+        if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
         }
@@ -455,7 +455,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
         s = handler->DeleteRangeCF(column_family, key, value);
-        if (s.ok()) {
+        if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
         }
@@ -465,7 +465,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
         s = handler->MergeCF(column_family, key, value);
-        if (s.ok()) {
+        if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
         }
@@ -475,7 +475,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
         s = handler->PutBlobIndexCF(column_family, key, value);
-        if (s.ok()) {
+        if (LIKELY(s.ok())) {
           found++;
         }
         break;
@@ -1158,7 +1158,7 @@ class MemTableInserter : public WriteBatch::Handler {
       bool mem_res =
           mem->Add(sequence_, value_type, key, value,
                    concurrent_memtable_writes_, get_post_process_info(mem));
-      if (!mem_res) {
+      if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
         const bool BATCH_BOUNDRY = true;
@@ -1234,7 +1234,7 @@ class MemTableInserter : public WriteBatch::Handler {
     bool mem_res =
         mem->Add(sequence_, delete_type, key, value,
                  concurrent_memtable_writes_, get_post_process_info(mem));
-    if (!mem_res) {
+    if (UNLIKELY(!mem_res)) {
       assert(seq_per_batch_);
       ret_status = Status::TryAgain("key+seq exists");
       const bool BATCH_BOUNDRY = true;
@@ -1391,7 +1391,7 @@ class MemTableInserter : public WriteBatch::Handler {
       } else {
         // 3) Add value to memtable
         bool mem_res = mem->Add(sequence_, kTypeValue, key, new_value);
-        if (!mem_res) {
+        if (UNLIKELY(!mem_res)) {
           assert(seq_per_batch_);
           ret_status = Status::TryAgain("key+seq exists");
           const bool BATCH_BOUNDRY = true;
@@ -1403,7 +1403,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (!perform_merge) {
       // Add merge operator to memtable
       bool mem_res = mem->Add(sequence_, kTypeMerge, key, value);
-      if (!mem_res) {
+      if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
         const bool BATCH_BOUNDRY = true;
