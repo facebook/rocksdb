@@ -473,7 +473,10 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
                             return f1->largest_seqno < f2->largest_seqno;
                           }))
                 ->largest_seqno;
-        if (level_largest_seqno != 0) {
+        // should only assign seqno to current level's largest seqno when
+        // the file fits
+        if (level_largest_seqno != 0 &&
+            IngestedFileFitInLevel(file_to_ingest, lvl)) {
           *assigned_seqno = level_largest_seqno;
         } else {
           continue;
