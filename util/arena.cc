@@ -79,6 +79,9 @@ Arena::~Arena() {
 
 #ifdef MAP_HUGETLB
   for (const auto& mmap_info : huge_blocks_) {
+    if (mmap_info.addr_ == nullptr) {
+      continue;
+    }
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
     if (ret != 0) {
       // TODO(sdong): Better handling
