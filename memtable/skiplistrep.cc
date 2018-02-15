@@ -38,7 +38,7 @@ public:
     skip_list_.Insert(static_cast<char*>(handle));
   }
 
-  virtual bool InsertAndReturn(KeyHandle handle) override {
+  virtual bool InsertKey(KeyHandle handle) override {
     return skip_list_.Insert(static_cast<char*>(handle));
   }
 
@@ -46,7 +46,7 @@ public:
     skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
-  virtual bool InsertWithHintAndReturn(KeyHandle handle, void** hint) override {
+  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
     return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
@@ -54,7 +54,7 @@ public:
     skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
-  virtual bool InsertConcurrentlyAndReturn(KeyHandle handle) override {
+  virtual bool InsertKeyConcurrently(KeyHandle handle) override {
     return skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 

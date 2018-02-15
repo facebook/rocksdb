@@ -86,7 +86,7 @@ class MemTableRep {
   // Same as ::Insert
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool InsertAndReturn(KeyHandle handle) {
+  virtual bool InsertKey(KeyHandle handle) {
     Insert(handle);
     return true;
   }
@@ -105,7 +105,7 @@ class MemTableRep {
   // Same as ::InsertWithHint
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool InsertWithHintAndReturn(KeyHandle handle, void** hint) {
+  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) {
     InsertWithHint(handle, hint);
     return true;
   }
@@ -120,7 +120,7 @@ class MemTableRep {
   // Same as ::InsertConcurrently
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool InsertConcurrentlyAndReturn(KeyHandle handle) {
+  virtual bool InsertKeyConcurrently(KeyHandle handle) {
     InsertConcurrently(handle);
     return true;
   }
