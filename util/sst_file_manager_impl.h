@@ -103,7 +103,6 @@ class SstFileManagerImpl : public SstFileManager {
   // Mutex to protect tracked_files_, total_files_size_
   port::Mutex mu_;
   // The summation of the sizes of all files in tracked_files_ map
-  // IN ADDITION TO the additional space used by any ongoing compactions
   uint64_t total_files_size_;
   // Compactions should only execute if they can leave at least
   // this amount of buffer space for logs and flushes
