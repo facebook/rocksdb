@@ -81,10 +81,15 @@ class MemTableRep {
   // single buffer and pass that in as the parameter to Insert).
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection, and no concurrent modifications to the table in progress
-  //
+  virtual void Insert(KeyHandle handle) = 0;
+
+  // Same as ::Insert
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool Insert(KeyHandle handle) = 0;
+  virtual bool InsertKey(KeyHandle handle) {
+    Insert(handle);
+    return true;
+  }
 
   // Same as Insert(), but in additional pass a hint to insert location for
   // the key. If hint points to nullptr, a new hint will be populated.
@@ -92,12 +97,17 @@ class MemTableRep {
   //
   // Currently only skip-list based memtable implement the interface. Other
   // implementations will fallback to Insert() by default.
-  //
+  virtual void InsertWithHint(KeyHandle handle, void** hint) {
+    // Ignore the hint by default.
+    Insert(handle);
+  }
+
+  // Same as ::InsertWithHint
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool InsertWithHint(KeyHandle handle, void** hint) {
-    // Ignore the hint by default.
-    return Insert(handle);
+  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) {
+    InsertWithHint(handle, hint);
+    return true;
   }
 
   // Like Insert(handle), but may be called concurrent with other calls
@@ -105,7 +115,15 @@ class MemTableRep {
   //
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool InsertConcurrently(KeyHandle handle);
+  virtual void InsertConcurrently(KeyHandle handle);
+
+  // Same as ::InsertConcurrently
+  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
+  // the <key, seq> already exists.
+  virtual bool InsertKeyConcurrently(KeyHandle handle) {
+    InsertConcurrently(handle);
+    return true;
+  }
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;

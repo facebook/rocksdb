@@ -28,17 +28,14 @@ class MockMemTableRep : public MemTableRep {
     return rep_->Allocate(len, buf);
   }
 
-  virtual bool Insert(KeyHandle handle) override {
-    return rep_->Insert(handle);
-  }
+  virtual void Insert(KeyHandle handle) override { rep_->Insert(handle); }
 
-  virtual bool InsertWithHint(KeyHandle handle, void** hint) override {
+  virtual void InsertWithHint(KeyHandle handle, void** hint) override {
     num_insert_with_hint_++;
     EXPECT_NE(nullptr, hint);
     last_hint_in_ = *hint;
-    bool res = rep_->InsertWithHint(handle, hint);
+    rep_->InsertWithHint(handle, hint);
     last_hint_out_ = *hint;
-    return res;
   }
 
   virtual bool Contains(const char* key) const override {

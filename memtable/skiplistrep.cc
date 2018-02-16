@@ -34,15 +34,27 @@ public:
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual bool Insert(KeyHandle handle) override {
+  virtual void Insert(KeyHandle handle) override {
+    skip_list_.Insert(static_cast<char*>(handle));
+  }
+
+  virtual bool InsertKey(KeyHandle handle) override {
     return skip_list_.Insert(static_cast<char*>(handle));
   }
 
-  virtual bool InsertWithHint(KeyHandle handle, void** hint) override {
+  virtual void InsertWithHint(KeyHandle handle, void** hint) override {
+    skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+  }
+
+  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
     return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
-  virtual bool InsertConcurrently(KeyHandle handle) override {
+  virtual void InsertConcurrently(KeyHandle handle) override {
+    skip_list_.InsertConcurrently(static_cast<char*>(handle));
+  }
+
+  virtual bool InsertKeyConcurrently(KeyHandle handle) override {
     return skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
