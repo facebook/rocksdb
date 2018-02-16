@@ -236,7 +236,7 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
   return comparator.CompareKeySeq(a, key);
 }
 
-bool MemTableRep::InsertConcurrently(KeyHandle handle) {
+void MemTableRep::InsertConcurrently(KeyHandle handle) {
 #ifndef ROCKSDB_LITE
   throw std::runtime_error("concurrent insert not supported");
 #else
@@ -478,12 +478,12 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      bool res = table->InsertWithHint(handle, &insert_hints_[prefix]);
+      bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
       if (!res) {
         return res;
       }
     } else {
-      bool res = table->Insert(handle);
+      bool res = table->InsertKey(handle);
       if (!res) {
         return res;
       }
@@ -519,7 +519,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    bool res = table->InsertConcurrently(handle);
+    bool res = table->InsertKeyConcurrently(handle);
     if (!res) {
       return res;
     }
