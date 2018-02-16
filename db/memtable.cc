@@ -289,8 +289,7 @@ class MemTableIterator : public InternalIterator {
 #ifndef NDEBUG
     // Assert that the MemTableIterator is never deleted while
     // Pinning is Enabled.
-    assert(!pinned_iters_mgr_ ||
-           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 #endif
     if (arena_mode_) {
       iter_->~Iterator();
@@ -589,11 +588,12 @@ struct Saver {
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
+  assert(s != nullptr);
   MergeContext* merge_context = s->merge_context;
   RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
+  assert(merge_context != nullptr && range_del_agg != nullptr);
 
   // entry format is:
   //    klength  varint32
