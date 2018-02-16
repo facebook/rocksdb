@@ -62,7 +62,7 @@ class WritePreparedTxn : public PessimisticTransaction {
                                 ColumnFamilyHandle* column_family) override;
 
  protected:
-  // Override the protected SetId to make it visible to the firend class
+  // Override the protected SetId to make it visible to the friend class
   // WritePreparedTxnDB
   inline void SetId(uint64_t id) override { Transaction::SetId(id); }
 
