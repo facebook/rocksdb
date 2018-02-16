@@ -24,6 +24,13 @@ namespace rocksdb {
 // pointer (if not NULL) when one of the following happens:
 // (1) a thread terminates
 // (2) a ThreadLocalPtr is destroyed
+//
+// Warning: this function is called while holding a global mutex. The same mutex
+// is used (at least in some cases) by most methods of ThreadLocalPtr, and it's
+// shared across all instances of ThreadLocalPtr. Thereforere extra care
+// is needed to avoid deadlocks. In particular, the handler shouldn't lock any
+// mutexes and shouldn't call any methods of any ThreadLocalPtr instances,
+// unless you know what you're doing.
 typedef void (*UnrefHandler)(void* ptr);
 
 // ThreadLocalPtr stores only values of pointer type.  Different from

@@ -344,12 +344,13 @@ void SuperVersionUnrefHandle(void* ptr) {
   // When latter happens, we are in ~ColumnFamilyData(), no get should happen as
   // well.
   SuperVersion* sv = static_cast<SuperVersion*>(ptr);
-  if (sv->Unref()) {
-    sv->db_mutex->Lock();
-    sv->Cleanup();
-    sv->db_mutex->Unlock();
-    delete sv;
-  }
+  bool was_last_ref __attribute__((__unused__));
+  was_last_ref = sv->Unref();
+  // Thread-local SuperVersions can't outlive ColumnFamilyData::super_version_.
+  // This is important because we can't do SuperVersion cleanup here.
+  // That would require locking DB mutex, which would deadlock because
+  // SuperVersionUnrefHandle is called with locked ThreadLocalPtr mutex.
+  assert(!was_last_ref);
 }
 }  // anonymous namespace
 
@@ -994,6 +995,12 @@ void ColumnFamilyData::InstallSuperVersion(
       RecalculateWriteStallConditions(mutable_cf_options);
 
   if (old_superversion != nullptr) {
+    // Reset SuperVersions cached in thread local storage.
+    // This should be done before old_superversion->Unref(). That's to ensure
+    // that local_sv_ never holds the last reference to SuperVersion, since
+    // it has no means to safely do SuperVersion cleanup.
+    ResetThreadLocalSuperVersions();
+
     if (old_superversion->mutable_cf_options.write_buffer_size !=
         mutable_cf_options.write_buffer_size) {
       mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
@@ -1009,9 +1016,6 @@ void ColumnFamilyData::InstallSuperVersion(
       sv_context->superversions_to_free.push_back(old_superversion);
     }
   }
-
-  // Reset SuperVersions cached in thread local storage
-  ResetThreadLocalSuperVersions();
 }
 
 void ColumnFamilyData::ResetThreadLocalSuperVersions() {
@@ -1023,10 +1027,12 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
       continue;
     }
     auto sv = static_cast<SuperVersion*>(ptr);
-    if (sv->Unref()) {
-      sv->Cleanup();
-      delete sv;
-    }
+    bool was_last_ref __attribute__((__unused__));
+    was_last_ref = sv->Unref();
+    // sv couldn't have been the last reference because
+    // ResetThreadLocalSuperVersions() is called before
+    // unref'ing super_version_.
+    assert(!was_last_ref);
   }
 }
 
