@@ -216,6 +216,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Struct to hold ownership of snapshot and read callback for cleanup.
   struct IteratorState;
 
+  std::map<uint32_t, const Comparator*>* GetCFComparatorMap() {
+    return cf_map_.load();
+  }
+  void UpdateCFComparatorMap(
+      const std::vector<ColumnFamilyHandle*>& handles) override;
+  void UpdateCFComparatorMap(const ColumnFamilyHandle* handle) override;
+
  protected:
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
@@ -394,6 +401,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   mutable port::RWMutex old_commit_map_mutex_;
   mutable port::RWMutex commit_cache_mutex_;
   mutable port::RWMutex snapshots_mutex_;
+  // A cache of the cf comparators
+  std::atomic<std::map<uint32_t, const Comparator*>*> cf_map_;
+  // GC of the object above
+  std::unique_ptr<std::map<uint32_t, const Comparator*>> cf_map_gc_;
 };
 
 class WritePreparedTxnReadCallback : public ReadCallback {
@@ -420,12 +431,14 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                              DBImpl* db_impl,
                                              SequenceNumber prep_seq,
                                              size_t prep_batch_cnt,
-                                             size_t data_batch_cnt = 0)
+                                             size_t data_batch_cnt = 0,
+                                             bool prep_heap_skipped = false)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
         prep_batch_cnt_(prep_batch_cnt),
         data_batch_cnt_(data_batch_cnt),
+        prep_heap_skipped_(prep_heap_skipped),
         includes_data_(data_batch_cnt_ > 0) {
     assert((prep_batch_cnt_ > 0) != (prep_seq == kMaxSequenceNumber));  // xor
     assert(prep_batch_cnt_ > 0 || data_batch_cnt_ > 0);
@@ -438,7 +451,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                          : commit_seq + data_batch_cnt_ - 1;
     if (prep_seq_ != kMaxSequenceNumber) {
       for (size_t i = 0; i < prep_batch_cnt_; i++) {
-        db_->AddCommitted(prep_seq_ + i, last_commit_seq);
+        db_->AddCommitted(prep_seq_ + i, last_commit_seq, prep_heap_skipped_);
       }
     }  // else there was no prepare phase
     if (includes_data_) {
@@ -471,6 +484,9 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   SequenceNumber prep_seq_;
   size_t prep_batch_cnt_;
   size_t data_batch_cnt_;
+  // An optimization that indicates that there is no need to update the prepare
+  // heap since the prepare sequence number was not added to it.
+  bool prep_heap_skipped_;
   // Either because it is commit without prepare or it has a
   // CommitTimeWriteBatch
   bool includes_data_;

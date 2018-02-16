@@ -104,6 +104,8 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   }
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Duplicate key overhead");
     SubBatchCounter counter(*GetCFComparatorMap());
     auto s = batch->Iterate(&counter);
     assert(s.ok());
@@ -145,16 +147,15 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "CommitBatchInternal 2nd write prepare_seq: %" PRIu64,
                     prepare_seq);
-  // TODO(myabandeh): Note: we skip AddPrepared here. This could be further
-  // optimized by skip erasing prepare_seq from prepared_txn_ in the following
-  // callback.
   // TODO(myabandeh): What if max advances the prepare_seq_ in the meanwhile and
   // readers assume the prepared data as committed? Almost zero probability.
 
   // Commit the batch by writing an empty batch to the 2nd queue that will
   // release the commit sequence number to readers.
+  const size_t ZERO_COMMITS = 0;
+  const bool PREP_HEAP_SKIPPED = true;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
-      this, db_impl_, prepare_seq, batch_cnt);
+      this, db_impl_, prepare_seq, batch_cnt, ZERO_COMMITS, PREP_HEAP_SKIPPED);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   const size_t ONE_BATCH = 1;
@@ -183,6 +184,31 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   return db_impl_->GetImpl(options, column_family, key, value, dont_care,
                            &callback);
 }
+
+void WritePreparedTxnDB::UpdateCFComparatorMap(
+    const std::vector<ColumnFamilyHandle*>& handles) {
+  auto cf_map = new std::map<uint32_t, const Comparator*>();
+  for (auto h : handles) {
+    auto id = h->GetID();
+    const Comparator* comparator = h->GetComparator();
+    (*cf_map)[id] = comparator;
+  }
+  cf_map_.store(cf_map);
+  cf_map_gc_.reset(cf_map);
+}
+
+void WritePreparedTxnDB::UpdateCFComparatorMap(
+    const ColumnFamilyHandle* h) {
+  auto old_cf_map_ptr = cf_map_.load();
+  assert(old_cf_map_ptr);
+  auto cf_map = new std::map<uint32_t, const Comparator*>(*old_cf_map_ptr);
+  auto id = h->GetID();
+  const Comparator* comparator = h->GetComparator();
+  (*cf_map)[id] = comparator;
+  cf_map_.store(cf_map);
+  cf_map_gc_.reset(cf_map);
+}
+
 
 std::vector<Status> WritePreparedTxnDB::MultiGet(
     const ReadOptions& options,
