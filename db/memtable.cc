@@ -236,7 +236,7 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
   return comparator.CompareKeySeq(a, key);
 }
 
-bool MemTableRep::InsertConcurrently(KeyHandle handle) {
+void MemTableRep::InsertConcurrently(KeyHandle handle) {
 #ifndef ROCKSDB_LITE
   throw std::runtime_error("concurrent insert not supported");
 #else
@@ -289,8 +289,7 @@ class MemTableIterator : public InternalIterator {
 #ifndef NDEBUG
     // Assert that the MemTableIterator is never deleted while
     // Pinning is Enabled.
-    assert(!pinned_iters_mgr_ ||
-           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 #endif
     if (arena_mode_) {
       iter_->~Iterator();
@@ -479,12 +478,12 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      bool res = table->InsertWithHint(handle, &insert_hints_[prefix]);
+      bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
       if (!res) {
         return res;
       }
     } else {
-      bool res = table->Insert(handle);
+      bool res = table->InsertKey(handle);
       if (!res) {
         return res;
       }
@@ -520,7 +519,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    bool res = table->InsertConcurrently(handle);
+    bool res = table->InsertKeyConcurrently(handle);
     if (!res) {
       return res;
     }
@@ -589,11 +588,12 @@ struct Saver {
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
+  assert(s != nullptr);
   MergeContext* merge_context = s->merge_context;
   RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
+  assert(merge_context != nullptr && range_del_agg != nullptr);
 
   // entry format is:
   //    klength  varint32
@@ -834,7 +834,8 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-  bool add_res __attribute__((__unused__)) = Add(seq, kTypeValue, key, value);
+  bool add_res __attribute__((__unused__));
+  add_res = Add(seq, kTypeValue, key, value);
   // We already checked unused != seq above. In that case, Add should not fail.
   assert(add_res);
 }

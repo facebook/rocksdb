@@ -20,6 +20,13 @@
 //
 // 64-bit hash for 64-bit platforms
 
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("alignment")))
+#elif defined(__GNUC__)
+__attribute__((__no_sanitize_undefined__))
+#endif
+#endif
 uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
 {
     const uint64_t m = 0xc6a4a7935bd1e995;

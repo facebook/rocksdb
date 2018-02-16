@@ -272,9 +272,8 @@ InternalIterator* TableCache::NewRangeTombstoneIterator(
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
     HistogramImpl* file_read_hist, bool skip_filters, int level) {
   Status s;
-  TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
-  table_reader = fd.table_reader;
+  TableReader* table_reader = fd.table_reader;
   if (table_reader == nullptr) {
     s = FindTable(env_options, icomparator, fd, &handle,
                   options.read_tier == kBlockCacheTier /* no_io */,

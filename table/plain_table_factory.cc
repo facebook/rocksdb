@@ -102,7 +102,7 @@ Status GetMemTableRepFactoryFromString(
   std::vector<std::string> opts_list = StringSplit(opts_str, ':');
   size_t len = opts_list.size();
 
-  if (opts_list.size() <= 0 || opts_list.size() > 2) {
+  if (opts_list.empty() || opts_list.size() > 2) {
     return Status::InvalidArgument("Can't parse memtable_factory option ",
                                    opts_str);
   }

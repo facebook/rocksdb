@@ -25,15 +25,15 @@
 namespace rocksdb {
 
 // Usage:
-//     LevelIterator iter;
+//     ForwardLevelIterator iter;
 //     iter.SetFileIndex(file_index);
 //     iter.Seek(target);
 //     iter.Next()
-class LevelIterator : public InternalIterator {
+class ForwardLevelIterator : public InternalIterator {
  public:
-  LevelIterator(const ColumnFamilyData* const cfd,
-                const ReadOptions& read_options,
-                const std::vector<FileMetaData*>& files)
+  ForwardLevelIterator(const ColumnFamilyData* const cfd,
+                       const ReadOptions& read_options,
+                       const std::vector<FileMetaData*>& files)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -42,7 +42,7 @@ class LevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr) {}
 
-  ~LevelIterator() {
+  ~ForwardLevelIterator() {
     // Reset current pointer
     if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
       pinned_iters_mgr_->PinIterator(file_iter_);
@@ -84,11 +84,11 @@ class LevelIterator : public InternalIterator {
     }
   }
   void SeekToLast() override {
-    status_ = Status::NotSupported("LevelIterator::SeekToLast()");
+    status_ = Status::NotSupported("ForwardLevelIterator::SeekToLast()");
     valid_ = false;
   }
   void Prev() override {
-    status_ = Status::NotSupported("LevelIterator::Prev()");
+    status_ = Status::NotSupported("ForwardLevelIterator::Prev()");
     valid_ = false;
   }
   bool Valid() const override {
@@ -105,7 +105,7 @@ class LevelIterator : public InternalIterator {
     valid_ = file_iter_->Valid();
   }
   void SeekForPrev(const Slice& internal_key) override {
-    status_ = Status::NotSupported("LevelIterator::SeekForPrev()");
+    status_ = Status::NotSupported("ForwardLevelIterator::SeekForPrev()");
     valid_ = false;
   }
   void Next() override {
@@ -561,7 +561,7 @@ void ForwardIterator::UpdateChildrenPinnedItersMgr() {
   }
 
   // Set PinnedIteratorsManager for L1+ levels iterators.
-  for (LevelIterator* child_iter : level_iters_) {
+  for (ForwardLevelIterator* child_iter : level_iters_) {
     if (child_iter) {
       child_iter->SetPinnedItersMgr(pinned_iters_mgr_);
     }
@@ -723,7 +723,7 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
       }
     } else {
       level_iters_.push_back(
-          new LevelIterator(cfd_, read_options_, level_files));
+          new ForwardLevelIterator(cfd_, read_options_, level_files));
     }
   }
 }

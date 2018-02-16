@@ -233,7 +233,7 @@ size_t BlockBasedFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 std::string BlockBasedFilterBlockReader::ToString() const {
-  std::string result, filter_meta;
+  std::string result;
   result.reserve(1024);
 
   std::string s_bo("Block offset"), s_hd("Hex dump"), s_fb("# filter blocks");
