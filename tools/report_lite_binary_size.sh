@@ -7,11 +7,11 @@ num_recent_commits=${1:-10}
 
 echo "Computing RocksDB lite build binary size for the most recent $num_recent_commits commits."
 
-for ((i=0; i<$num_recent_commits; i++))
+for ((i=0; i < num_recent_commits; i++))
 do
   git checkout master~$i
-  commit_hash=`git show -s --format=%H`
-  commit_time=`git show -s --format=%ct`
+  commit_hash=$(git show -s --format=%H)
+  commit_time=$(git show -s --format=%ct)
 
   # It would be nice to check if scuba already have a record for the commit,
   # but sandcastle don't seems to have scuba CLI installed.
@@ -19,19 +19,17 @@ do
   make clean
   make OPT=-DROCKSDB_LITE static_lib
 
-  if [ $? -eq 0 ]
+  if make OPT=-DROCKSDB_LITE static_lib
   then
     build_succeeded='true'
     strip librocksdb.a
-    binary_size=`ls -l librocksdb.a | cut -f5 -d" "`
+    binary_size=$(stat -c %s librocksdb.a)
   else
     build_succeeded='false'
     binary_size=0
   fi
-  
-  current_time=`date +%s`
 
-  current_time="\"time\": $current_time"
+  current_time="\"time\": $(date +%s)"
   commit_hash="\"hash\": \"$commit_hash\""
   commit_time="\"commit_time\": $commit_time"
   build_succeeded="\"build_succeeded\": \"$build_succeeded\""
