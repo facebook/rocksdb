@@ -404,7 +404,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
   Status s;
   char tag = 0;
   uint32_t column_family = 0;  // default
-  while ((s.ok() || UNLIKELY(s.IsTryAgain())) && !input.empty() && handler->Continue()) {
+  while ((s.ok() || UNLIKELY(s.IsTryAgain())) && !input.empty() &&
+         handler->Continue()) {
     if (LIKELY(!s.IsTryAgain())) {
       tag = 0;
       column_family = 0;  // default
