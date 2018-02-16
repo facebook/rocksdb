@@ -788,8 +788,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError(
         "Failed to pwrite for: " + file_data_->GetName(), lastError);
-    }
-    else {
+    } else {
       written = ret;
     }
 
@@ -834,8 +833,7 @@ Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset)
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
       "Failed to pwrite for: " + file_data_->GetName(), lastError);
-  }
-  else {
+  } else {
     assert(size_t(ret) == data.size());
     // For sequential write this would be simple
     // size extension by data.size()

@@ -48,6 +48,8 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
 
 namespace {
 
+static const size_t kSectorSize = 512; // Sector size used when physical sector size could not be obtained from device.
+
 // RAII helpers for HANDLEs
 const auto CloseHandleFunc = [](HANDLE h) { ::CloseHandle(h); };
 typedef std::unique_ptr<void, decltype(CloseHandleFunc)> UniqueCloseHandlePtr;
@@ -241,7 +243,8 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
       fileGuard.release();
     }
   } else {
-    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
+    result->reset(new WinRandomAccessFile(fname, hFile, 
+      std::max(GetSectorSize(fname), page_size_), options));
     fileGuard.release();
   }
   return s;
@@ -326,7 +329,7 @@ Status WinEnvIO::OpenWritableFile(const std::string& fname,
   } else {
     // Here we want the buffer allocation to be aligned by the SSD page size
     // and to be a multiple of it
-    result->reset(new WinWritableFile(fname, hFile, page_size_,
+    result->reset(new WinWritableFile(fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
       c_BufferCapacity, local_options));
   }
   return s;
@@ -370,7 +373,8 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   }
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
-  result->reset(new WinRandomRWFile(fname, hFile, page_size_, options));
+  result->reset(new WinRandomRWFile(fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
+   options));
   fileGuard.release();
 
   return s;
@@ -927,6 +931,62 @@ bool WinEnvIO::DirExists(const std::string& dname) {
     return 0 != (attrs.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
   }
   return false;
+}
+
+size_t WinEnvIO::GetSectorSize(const std::string& fname) {
+  size_t sector_size = kSectorSize;
+
+  if (PathIsRelativeA(fname.c_str())) {
+    return sector_size;
+  }
+
+  // obtain device handle
+  char devicename[7] = "\\\\.\\";
+  int erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+
+  if (erresult) {
+    assert(false);
+    return sector_size;
+  }
+
+  HANDLE hDevice = CreateFile(devicename, 0, 0,
+                    nullptr, OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL, nullptr);
+
+  if (hDevice == INVALID_HANDLE_VALUE) {
+    return sector_size;
+  }
+
+  STORAGE_PROPERTY_QUERY spropertyquery;
+  spropertyquery.PropertyId = StorageAccessAlignmentProperty;
+  spropertyquery.QueryType = PropertyStandardQuery;
+
+  BYTE output_buffer[sizeof(STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR)];
+  DWORD output_bytes = 0;
+
+  BOOL ret = DeviceIoControl(hDevice, IOCTL_STORAGE_QUERY_PROPERTY,
+              &spropertyquery, sizeof(spropertyquery), output_buffer,
+              sizeof(STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR), &output_bytes, nullptr);
+
+  if (ret) {
+    sector_size = ((STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR *)output_buffer)->BytesPerLogicalSector;
+  } else {
+    // many devices do not support StorageProcessAlignmentProperty. Any failure here and we
+    // fall back to logical alignment
+
+    DISK_GEOMETRY_EX geometry = { 0 };
+    ret = DeviceIoControl(hDevice, IOCTL_DISK_GET_DRIVE_GEOMETRY,
+           nullptr, 0, &geometry, sizeof(geometry), nullptr, nullptr);
+    if (ret) {
+      sector_size = geometry.Geometry.BytesPerSector;
+    }
+  }
+
+  if (hDevice != INVALID_HANDLE_VALUE) {
+    CloseHandle(hDevice);
+  }
+
+  return sector_size;
 }
 
 ////////////////////////////////////////////////////////////////////////

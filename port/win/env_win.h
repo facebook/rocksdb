@@ -174,6 +174,8 @@ public:
 
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
+  static size_t GetSectorSize(const std::string& fname);
+
 private:
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname);
