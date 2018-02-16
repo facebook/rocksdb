@@ -419,7 +419,7 @@ InternalIterator* MemTable::NewRangeTombstoneIterator(
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
   static murmur_hash hash;
-  return &locks_[hash(key) % locks_.size()];
+  return &locks_[hash(key) % locks_.size()].rw_mutex;
 }
 
 MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,

@@ -426,8 +426,14 @@ class MemTable {
   // which has been inserted into this memtable.
   std::atomic<uint64_t> min_prep_log_referenced_;
 
+  struct AlignedRWMutex {
+    port::RWMutex rw_mutex;
+    char padding[(CACHE_LINE_SIZE - sizeof(port::RWMutex) % CACHE_LINE_SIZE) %
+                 CACHE_LINE_SIZE];
+  };
+  static_assert(sizeof(AlignedRWMutex) % 64 == 0, "Expected 64-byte aligned");
   // rw locks for inplace updates
-  std::vector<port::RWMutex> locks_;
+  std::vector<AlignedRWMutex> locks_;
 
   const SliceTransform* const prefix_extractor_;
   std::unique_ptr<DynamicBloom> prefix_bloom_;
