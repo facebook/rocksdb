@@ -84,8 +84,12 @@ class ExternalSstFileIngestionJob {
   // Check if we need to flush the memtable before running the ingestion job
   // This will be true if the files we are ingesting are overlapping with any
   // key range in the memtable.
-  // REQUIRES: Mutex held
-  Status NeedsFlush(bool* flush_needed);
+  //
+  // @param super_version A referenced SuperVersion that will be held for the
+  //    duration of this function.
+  //
+  // Thread-safe
+  Status NeedsFlush(bool* flush_needed, SuperVersion* super_version);
 
   // Will execute the ingestion job and prepare edit() to be applied.
   // REQUIRES: Mutex held

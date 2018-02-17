@@ -883,7 +883,8 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 }
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
-    const std::vector<Range>& ranges, bool* overlap) {
+    const std::vector<Range>& ranges, SuperVersion* super_version,
+    bool* overlap) {
   assert(overlap != nullptr);
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
@@ -892,18 +893,18 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(
-      super_version_->mem->NewIterator(read_opts, &arena));
-  super_version_->imm->AddIterators(read_opts, &merge_iter_builder);
+      super_version->mem->NewIterator(read_opts, &arena));
+  super_version->imm->AddIterators(read_opts, &merge_iter_builder);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
   std::vector<InternalIterator*> memtable_range_del_iters;
   auto* active_range_del_iter =
-      super_version_->mem->NewRangeTombstoneIterator(read_opts);
+      super_version->mem->NewRangeTombstoneIterator(read_opts);
   if (active_range_del_iter != nullptr) {
     memtable_range_del_iters.push_back(active_range_del_iter);
   }
-  super_version_->imm->AddRangeTombstoneIterators(read_opts,
-                                                  &memtable_range_del_iters);
+  super_version->imm->AddRangeTombstoneIterators(read_opts,
+                                                 &memtable_range_del_iters);
   RangeDelAggregator range_del_agg(internal_comparator_, {} /* snapshots */,
                                    false /* collapse_deletions */);
   Status status;

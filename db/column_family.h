@@ -276,10 +276,13 @@ class ColumnFamilyData {
 
   // Check if the passed ranges overlap with any unflushed memtables
   // (immutable or mutable).
-  // REQUIRES: DB mutex held. This function holds mutex for a significant
-  //    amount of time, so should not be called for any core functionality.
+  //
+  // @param super_version A referenced SuperVersion that will be held for the
+  //    duration of this function.
+  //
+  // Thread-safe
   Status RangesOverlapWithMemtables(const std::vector<Range>& ranges,
-                                    bool* overlap);
+                                    SuperVersion* super_version, bool* overlap);
 
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.

@@ -2832,7 +2832,7 @@ Status DBImpl::IngestExternalFile(
     // Figure out if we need to flush the memtable first
     if (status.ok()) {
       bool need_flush = false;
-      status = ingestion_job.NeedsFlush(&need_flush);
+      status = ingestion_job.NeedsFlush(&need_flush, cfd->GetSuperVersion());
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {

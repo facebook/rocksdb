@@ -132,14 +132,16 @@ Status ExternalSstFileIngestionJob::Prepare(
   return status;
 }
 
-Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
+Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
+                                               SuperVersion* super_version) {
   std::vector<Range> ranges;
   ranges.reserve(files_to_ingest_.size());
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
     ranges.emplace_back(file_to_ingest.smallest_user_key,
                         file_to_ingest.largest_user_key);
   }
-  Status status = cfd_->RangesOverlapWithMemtables(ranges, flush_needed);
+  Status status =
+      cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
   if (status.ok() && *flush_needed &&
       !ingestion_options_.allow_blocking_flush) {
     status = Status::InvalidArgument("External file requires flush");
@@ -151,11 +153,12 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
 // nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
   Status status;
+  SuperVersion* super_version = cfd_->GetSuperVersion();
 #ifndef NDEBUG
   // We should never run the job with a memtable that is overlapping
   // with the files we are ingesting
   bool need_flush = false;
-  status = NeedsFlush(&need_flush);
+  status = NeedsFlush(&need_flush, super_version);
   assert(status.ok() && need_flush == false);
 #endif
 
@@ -170,7 +173,6 @@ Status ExternalSstFileIngestionJob::Run() {
   // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal
   const SequenceNumber last_seqno = versions_->LastSequence();
-  SuperVersion* super_version = cfd_->GetSuperVersion();
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
 
