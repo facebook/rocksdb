@@ -259,7 +259,7 @@ Status DBCloudImpl::Savepoint() {
       if (!s.ok()) {
         Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
             "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath "
-            "%s dest bucket %d dest path %s. %s",
+            "%s dest bucket %s dest path %s. %s",
             dbid.c_str(), cenv->GetSrcBucketPrefix().c_str(),
             cenv->GetSrcObjectPrefix().c_str(),
             cenv->GetDestBucketPrefix().c_str(),
@@ -426,7 +426,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     }
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "Local dbid %d configured src path %s src dbid registry",
+        "Local dbid %s configured src path %s src dbid registry",
         local_dbid.c_str(), src_object_path.c_str());
   }
   std::string dest_dbid;
@@ -468,7 +468,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     }
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "Local dbid %d configured path %s matches the dest dbid registry",
+        "Local dbid %s configured path %s matches the dest dbid registry",
         local_dbid.c_str(), dest_object_path.c_str());
   }
   // If we found a src_dbid, then it should be a prefix of local_dbid
