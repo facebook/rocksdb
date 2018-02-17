@@ -10,7 +10,6 @@
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-
 //
 // Creates a new file, appends data to a file or delete an existing file via
 // logging into a cloud stream (such as Kinesis).

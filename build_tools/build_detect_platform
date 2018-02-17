@@ -488,6 +488,15 @@ if [ "${USE_AWS}XXX" = "1XXX" ]; then
   COMMON_FLAGS="$COMMON_FLAGS $S3_CCFLAGS"
   PLATFORM_LDFLAGS="$S3_LDFLAGS $PLATFORM_LDFLAGS"
 fi
+#
+# Support the Kafka WAL storing if the env variable named USE_KAFKA
+# is set to 1. Setting it to any other value or not setting it at all means
+# that the Kafka WAL build is not triggered.
+#
+if [ "${USE_KAFKA}XXX" = "1XXX" ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DUSE_KAFKA"
+  PLATFORM_LDFLAGS="-lrdkafka++ $PLATFORM_LDFLAGS"
+fi
 
 if test -z "$PORTABLE"; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then

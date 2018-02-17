@@ -14,6 +14,7 @@
 #ifdef USE_AWS
 
 #include "cloud/aws/aws_file.h"
+#include "cloud/aws/aws_kafka.h"
 #include "cloud/aws/aws_kinesis.h"
 #include "cloud/aws/aws_log.h"
 #include "cloud/aws/aws_retry.h"
@@ -284,9 +285,27 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
               Status::IOError("Error in creating Kinesis controller");
         }
       }
+    } else if (cloud_env_options.log_type == kLogKafka) {
+#ifdef USE_KAFKA
+      KafkaController* kafka_controller = nullptr;
+
+      create_bucket_status_ = KafkaController::create(
+          this, info_log_, cloud_env_options, &kafka_controller);
+
+      cloud_log_controller_.reset(kafka_controller);
+#else
+      create_bucket_status_ = Status::NotSupported(
+          "In order to use Kafka, make sure you're compiling with "
+          "USE_KAFKA=1");
+
+      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+          "[aws] NewAwsEnv Unknown log type %d. %s",
+          cloud_env_options.log_type,
+          create_bucket_status_.ToString().c_str());
+#endif /* USE_KAFKA */
     } else {
       create_bucket_status_ =
-          Status::NotSupported("We currently only support Kinesis");
+          Status::NotSupported("We currently only support Kinesis and Kafka");
 
       Log(InfoLogLevel::ERROR_LEVEL, info_log,
           "[aws] NewAwsEnv Unknown log type %d. %s", cloud_env_options.log_type,

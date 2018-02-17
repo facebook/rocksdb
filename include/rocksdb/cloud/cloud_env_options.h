@@ -34,6 +34,12 @@ class AwsCloudAccessCredentials {
   std::string secret_key;
 };
 
+// Defines parameters required to connect to Kafka
+class KafkaLogOptions {
+ public:
+   std::string broker_list;
+};
+
 enum class CloudRequestOpType {
   kReadOp,
   kWriteOp,
@@ -61,6 +67,9 @@ class CloudEnvOptions {
 
   // Access credentials
   AwsCloudAccessCredentials credentials;
+
+  // Only used if keep_local_log_files is true and log_type is kKafka.
+  KafkaLogOptions kafka_log_options;
 
   //
   // If true,  then sst files are stored locally and uploaded to the cloud in
