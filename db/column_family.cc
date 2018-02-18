@@ -918,7 +918,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
     status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
   }
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
-    auto* vstorage = current_->storage_info();
+    auto* vstorage = super_version->current->storage_info();
     auto* ucmp = vstorage->InternalComparator()->user_comparator();
     InternalKey range_start(ranges[i].start, kMaxSequenceNumber,
                             kValueTypeForSeek);

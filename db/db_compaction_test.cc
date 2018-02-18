@@ -3339,7 +3339,7 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
     }
     // Start at `i` so right endpoint comes after left endpoint. One extra
     // iteration for nullptr, which means right side of interval is unbounded.
-    for (int j = i; j <= kNumEndpointKeys; ++j) {
+    for (int j = std::max(0, i - 1); j <= kNumEndpointKeys; ++j) {
       Slice end;
       Slice* end_ptr;
       if (j == kNumEndpointKeys) {
@@ -3360,7 +3360,8 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
       ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
                                       &get_prop_tmp));
       num_memtable_entries += get_prop_tmp;
-      if (i == 0 || j == kNumEndpointKeys || (i <= 4 && j >= 1)) {
+      if (begin_ptr == nullptr || end_ptr == nullptr ||
+          (i <= 4 && j >= 1 && (begin != "c" || end != "c"))) {
         // In this case `CompactRange`'s range overlapped in some way with the
         // memtable's range, so flush should've happened. Then "b" and "d" won't
         // be in the memtable.
