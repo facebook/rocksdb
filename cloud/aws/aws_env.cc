@@ -535,7 +535,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
           stax = HeadObject(GetSrcBucketPrefix(), srcname(fname), nullptr,
                             &remote_size, nullptr);
         }
-        if (!stax.ok() || remote_size != local_size) {
+        if (stax.IsNotFound() && !has_dest_bucket_) {
+          // It is legal for file to not be present in S3 if destination bucket
+          // is not set.
+        } else if (!stax.ok() || remote_size != local_size) {
           std::string msg = "[aws] HeadObject src " + fname + " local size " +
                             std::to_string(local_size) + " cloud size " +
                             std::to_string(remote_size) + " " + stax.ToString();
