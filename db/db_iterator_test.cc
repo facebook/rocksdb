@@ -81,6 +81,7 @@ TEST_P(DBIteratorTest, IteratorProperty) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "1", "2");
+  Delete(1, "2");
   ReadOptions ropt;
   ropt.pin_data = false;
   {
@@ -90,9 +91,15 @@ TEST_P(DBIteratorTest, IteratorProperty) {
     ASSERT_NOK(iter->GetProperty("non_existing.value", &prop_value));
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("0", prop_value);
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
+    ASSERT_EQ("1", prop_value);
     iter->Next();
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("Iterator is not valid.", prop_value);
+
+    // Get interval key at which the iteration stopped (tombstone in this case).
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
+    ASSERT_EQ("2", prop_value);
   }
   Close();
 }
