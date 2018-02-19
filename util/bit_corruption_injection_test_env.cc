@@ -106,6 +106,9 @@ class CorruptedRandomAccessFile : public RandomAccessFile {
       if (ret != tempResult.size()) {
         fprintf(stderr, "eek! persisting corruption to file didn't work, err: %d\n", errno);
       }
+      if (close(fd) < 0) {
+        fprintf(stderr, "couldn't close filehandle in CorruptedRandomAccessFile, err: %d\n", errno);
+      }
     }
     return s;
   }
