@@ -10,6 +10,8 @@
 // This custom env injects bit flips into file reads.
 
 #include "util/bit_corruption_injection_test_env.h"
+#include <unistd.h>
+#include <fcntl.h>
 #include <functional>
 #include <utility>
 
@@ -64,9 +66,10 @@ class CorruptedSequentialFile : public SequentialFile {
 class CorruptedRandomAccessFile : public RandomAccessFile {
  public:
    explicit CorruptedRandomAccessFile(uint64_t uber,
-                             unique_ptr<RandomAccessFile>&& f)
+                             unique_ptr<RandomAccessFile>&& f, const std::string& filename)
        : UBER_(uber),
-         target_(std::move(f)) {
+         target_(std::move(f)),
+         filename_(filename) {
            assert(target_ != nullptr);
    }
 
@@ -83,22 +86,34 @@ class CorruptedRandomAccessFile : public RandomAccessFile {
     }
     // Use the uber to flip bits
     Random r((uint32_t)Env::Default()->NowMicros());
+    bool modified = false;
     for (size_t i = 0; i < tempResult.size(); ++i) {
       bool flipThis = r.OneIn(UBER_);
       if (flipThis) {
         // This should flip top bit
         scratch[i] = (tempScratch[i] ^ (char) 0x80);
+        modified = true;
       } else {
         scratch[i] = tempScratch[i];
       }
     }
     *result = Slice(scratch, tempResult.size());
+    if (modified) {
+      // Now persist to the file on disk so that we can see if compactions will repeatedly fail.
+      // We assume that we are only using this env for Posix-backed systems.
+      int fd = open(filename_.c_str(), O_RDWR);
+      size_t ret = pwrite(fd, scratch, tempResult.size(), offset);
+      if (ret != tempResult.size()) {
+        fprintf(stderr, "eek! persisting corruption to file didn't work, err: %d\n", errno);
+      }
+    }
     return s;
   }
 
  private:
   uint64_t UBER_;
   unique_ptr<RandomAccessFile> target_;
+  std::string filename_;
 };
 
 std::vector<std::string> initExcludedFilePrefixes() {
@@ -161,7 +176,7 @@ Status BitCorruptionInjectionTestEnv::NewRandomAccessFile(
       }
   }
   CorruptedRandomAccessFile* retMe = new CorruptedRandomAccessFile(UBER_,
-    std::move(*r));
+    std::move(*r), f);
   r->reset(retMe);
   return s;
 }
