@@ -64,7 +64,7 @@ class DBIter final: public Iterator {
   enum Operation {
     kNext,
     kPrev,
-    kSeek, // Covers: Seek, SeekForPrev, SeekToFirst, SeekToLast
+    kSeek,  // Covers: Seek, SeekForPrev, SeekToFirst, SeekToLast
     KNone,
   };
 
@@ -1141,7 +1141,8 @@ void DBIter::FindPrevUserKey() {
 }
 
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
-  // Don't constrain during Seek operations (Seek, SeekForPrev, SeekToFirst, SeekToLast)
+  // Don't constrain during Seek operations (Seek, SeekForPrev, SeekToFirst,
+  // SeekToLast)
   if ((op_ != Operation::kSeek) && (max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;

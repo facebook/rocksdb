@@ -1277,7 +1277,8 @@ TEST_F(DBIteratorTest, SeekAfterSkippingManyInternalKeys) {
   ASSERT_EQ(db_iter->key().ToString(), "a");
   ASSERT_EQ(db_iter->value().ToString(), "val_a");
 
-  // This should fail as incomplete due to too many non-visible internal keys on the way to the next valid user key.
+  // This should fail as incomplete due to too many non-visible internal keys on
+  // the way to the next valid user key.
   db_iter->Next();
   ASSERT_TRUE(!db_iter->Valid());
   ASSERT_TRUE(db_iter->status().IsIncomplete());
@@ -1287,7 +1288,8 @@ TEST_F(DBIteratorTest, SeekAfterSkippingManyInternalKeys) {
   ASSERT_OK(db_iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
   ASSERT_EQ("b", prop_value);
 
-  // Explcitly Seek'ing to a valid key should work even though there are many skipped internal-keys.
+  // Explcitly Seek'ing to a valid key should work even though there are many
+  // skipped internal-keys.
   db_iter->Seek(prop_value);
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_OK(db_iter->status());
