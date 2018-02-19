@@ -65,7 +65,7 @@ class DBIter final: public Iterator {
     kNext,
     kPrev,
     kSeek,  // Covers: Seek, SeekForPrev, SeekToFirst, SeekToLast
-    KNone,
+    kNone,
   };
 
   // LocalStatistics contain Statistics counters that will be aggregated per
@@ -139,7 +139,7 @@ class DBIter final: public Iterator {
         allow_blob_(allow_blob),
         is_blob_(false),
         start_seqnum_(read_options.iter_start_seqnum),
-        op_(Operation::KNone) {
+        op_(kNone) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = cf_options.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -290,7 +290,11 @@ class DBIter final: public Iterator {
     num_internal_keys_skipped_ = 0;
   }
 
+  // Reset status only if the previous operation failed as Incomplete.
+  // Incomplete is currently returned only in Next/Prev if we are skipping
+  // many internal keys && ReadOptions.max_skippable_internal_keys is set.
   inline void ResetStatus() {
+    assert(op_ == kSeek);
     if (status_.IsIncomplete()) {
       status_ = Status::OK();
     }
@@ -362,7 +366,7 @@ inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
 void DBIter::Next() {
   assert(valid_);
 
-  op_ = Operation::kNext;
+  op_ = kNext;
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -706,7 +710,7 @@ void DBIter::MergeValuesNewToOld() {
 
 void DBIter::Prev() {
   assert(valid_);
-  op_ = Operation::kPrev;
+  op_ = kPrev;
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   if (direction_ == kForward) {
@@ -1141,9 +1145,10 @@ void DBIter::FindPrevUserKey() {
 }
 
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
-  // Don't constrain during Seek operations (Seek, SeekForPrev, SeekToFirst,
-  // SeekToLast)
-  if ((op_ != Operation::kSeek) && (max_skippable_internal_keys_ > 0) &&
+  // Return Incomplete status only during Next and Prev operations.
+  // Don't constrain during Seek* operations (Seek, SeekForPrev, SeekToFirst,
+  // SeekToLast).
+  if ((op_ != kSeek) && (max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;
     status_ = Status::Incomplete("Too many internal keys skipped.");
@@ -1172,7 +1177,7 @@ void DBIter::FindParseableKey(ParsedInternalKey* ikey, Direction direction) {
 
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
-  op_ = Operation::kSeek;
+  op_ = kSeek;
   ResetStatus();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -1222,7 +1227,7 @@ void DBIter::Seek(const Slice& target) {
 
 void DBIter::SeekForPrev(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
-  op_ = Operation::kSeek;
+  op_ = kSeek;
   ResetStatus();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -1272,7 +1277,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 }
 
 void DBIter::SeekToFirst() {
-  op_ = Operation::kSeek;
+  op_ = kSeek;
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
@@ -1318,7 +1323,7 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
-  op_ = Operation::kSeek;
+  op_ = kSeek;
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
