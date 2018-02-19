@@ -1142,11 +1142,7 @@ void DBIter::FindPrevUserKey() {
 
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   // Don't constrain during Seek operations (Seek, SeekForPrev, SeekToFirst, SeekToLast)
-  if (op_ == kSeek) {
-    return false;
-  }
-
-  if ((max_skippable_internal_keys_ > 0) &&
+  if ((op_ != Operation::kSeek) && (max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;
     status_ = Status::Incomplete("Too many internal keys skipped.");
