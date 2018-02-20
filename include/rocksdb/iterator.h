@@ -97,6 +97,8 @@ class Iterator : public Cleanable {
   // Property "rocksdb.iterator.super-version-number":
   //   LSM version used by the iterator. The same format as DB Property
   //   kCurrentSuperVersionNumber. See its comment for more information.
+  // Property "rocksdb.iterator.internal-key":
+  //   Get the internal key (e.g. tombstone) at which the iteration stopped.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
  private:
