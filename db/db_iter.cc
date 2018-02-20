@@ -61,6 +61,13 @@ class DBIter final: public Iterator {
     kReverse
   };
 
+  enum Operation {
+    kNext,
+    kPrev,
+    kSeek,  // Covers: Seek, SeekForPrev, SeekToFirst, SeekToLast
+    kNone,
+  };
+
   // LocalStatistics contain Statistics counters that will be aggregated per
   // each iterator instance and then will be sent to the global statistics when
   // the iterator is destroyed.
@@ -131,7 +138,8 @@ class DBIter final: public Iterator {
         read_callback_(read_callback),
         allow_blob_(allow_blob),
         is_blob_(false),
-        start_seqnum_(read_options.iter_start_seqnum) {
+        start_seqnum_(read_options.iter_start_seqnum),
+        op_(kNone) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = cf_options.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -217,6 +225,9 @@ class DBIter final: public Iterator {
         *prop = "Iterator is not valid.";
       }
       return Status::OK();
+    } else if (prop_name == "rocksdb.iterator.internal-key") {
+      *prop = saved_key_.GetUserKey().ToString();
+      return Status::OK();
     }
     return Status::InvalidArgument("Undentified property.");
   }
@@ -279,6 +290,16 @@ class DBIter final: public Iterator {
     num_internal_keys_skipped_ = 0;
   }
 
+  // Reset status only if the previous operation failed as Incomplete.
+  // Incomplete is currently returned only in Next/Prev if we are skipping
+  // many internal keys && ReadOptions.max_skippable_internal_keys is set.
+  inline void ResetStatus() {
+    assert(op_ == kSeek);
+    if (status_.IsIncomplete()) {
+      status_ = Status::OK();
+    }
+  }
+
   const SliceTransform* prefix_extractor_;
   bool arena_mode_;
   Env* const env_;
@@ -324,6 +345,7 @@ class DBIter final: public Iterator {
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
+  Operation op_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -344,6 +366,7 @@ inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
 void DBIter::Next() {
   assert(valid_);
 
+  op_ = kNext;
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -687,6 +710,7 @@ void DBIter::MergeValuesNewToOld() {
 
 void DBIter::Prev() {
   assert(valid_);
+  op_ = kPrev;
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   if (direction_ == kForward) {
@@ -1121,7 +1145,10 @@ void DBIter::FindPrevUserKey() {
 }
 
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
-  if ((max_skippable_internal_keys_ > 0) &&
+  // Return Incomplete status only during Next and Prev operations.
+  // Don't constrain during Seek* operations (Seek, SeekForPrev, SeekToFirst,
+  // SeekToLast).
+  if ((op_ != kSeek) && (max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;
     status_ = Status::Incomplete("Too many internal keys skipped.");
@@ -1150,6 +1177,8 @@ void DBIter::FindParseableKey(ParsedInternalKey* ikey, Direction direction) {
 
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
+  op_ = kSeek;
+  ResetStatus();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   saved_key_.Clear();
@@ -1198,6 +1227,8 @@ void DBIter::Seek(const Slice& target) {
 
 void DBIter::SeekForPrev(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
+  op_ = kSeek;
+  ResetStatus();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   saved_key_.Clear();
@@ -1246,6 +1277,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 }
 
 void DBIter::SeekToFirst() {
+  op_ = kSeek;
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
@@ -1256,6 +1288,7 @@ void DBIter::SeekToFirst() {
     return;
   }
   direction_ = kForward;
+  ResetStatus();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
@@ -1290,12 +1323,14 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
+  op_ = kSeek;
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   direction_ = kReverse;
+  ResetStatus();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();

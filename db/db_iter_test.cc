@@ -1252,6 +1252,52 @@ TEST_F(DBIteratorTest, DBIteratorSkipInternalKeys) {
   }
 }
 
+TEST_F(DBIteratorTest, SeekAfterSkippingManyInternalKeys) {
+  Options options;
+  ImmutableCFOptions cf_options = ImmutableCFOptions(options);
+  ReadOptions ro;
+  ro.max_skippable_internal_keys = 2;
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "val_a");
+  // Add more tombstones than max_skippable_internal_keys so that Next() fails.
+  internal_iter->AddDeletion("b");
+  internal_iter->AddDeletion("b");
+  internal_iter->AddDeletion("b");
+  internal_iter->AddDeletion("ba");
+  internal_iter->AddPut("c", "val_c");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ro, cf_options, BytewiseComparator(), internal_iter, 10,
+      options.max_sequential_skip_in_iterations, nullptr /*read_callback*/));
+
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+  // This should fail as incomplete due to too many non-visible internal keys on
+  // the way to the next valid user key.
+  db_iter->Next();
+  ASSERT_TRUE(!db_iter->Valid());
+  ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+  // Get the internal key at which Next() failed.
+  std::string prop_value;
+  ASSERT_OK(db_iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
+  ASSERT_EQ("b", prop_value);
+
+  // Explcitly Seek'ing to a valid key should work even though there are many
+  // skipped internal-keys.
+  db_iter->Seek(prop_value);
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
+
+  ASSERT_EQ(db_iter->key().ToString(), "c");
+  ASSERT_EQ(db_iter->value().ToString(), "val_c");
+}
+
 TEST_F(DBIteratorTest, DBIterator1) {
   ReadOptions ro;
   Options options;
