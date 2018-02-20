@@ -2190,6 +2190,48 @@ TEST_P(DBIteratorTest, SkipStatistics) {
   ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 }
 
+TEST_P(DBIteratorTest, SeekAfterHittingManyInternalKeys) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ReadOptions ropts;
+  ropts.max_skippable_internal_keys = 2;
+
+  Put("1", "val_1");
+  // Add more tombstones than max_skippable_internal_keys so that Next() fails.
+  Delete("2");
+  Delete("3");
+  Delete("4");
+  Delete("5");
+  Put("6", "val_6");
+
+  unique_ptr<Iterator> iter(NewIterator(ropts));
+  iter->SeekToFirst();
+
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "1");
+  ASSERT_EQ(iter->value().ToString(), "val_1");
+
+  // This should fail as incomplete due to too many non-visible internal keys on
+  // the way to the next valid user key.
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsIncomplete());
+
+  // Get the internal key at which Next() failed.
+  std::string prop_value;
+  ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
+  ASSERT_EQ("4", prop_value);
+
+  // Create a new iterator to seek to the internal key.
+  unique_ptr<Iterator> iter2(NewIterator(ropts));
+  iter2->Seek(prop_value);
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_OK(iter2->status());
+
+  ASSERT_EQ(iter2->key().ToString(), "6");
+  ASSERT_EQ(iter2->value().ToString(), "val_6");
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 
