@@ -275,8 +275,11 @@ Status WritePreparedTxn::RollbackInternal() {
                     prepare_seq);
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
+  const size_t ZERO_COMMITS = 0;
+  const bool PREP_HEAP_SKIPPED = true;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, prepare_seq, ONE_BATCH);
+      wpt_db_, db_impl_, prepare_seq, ONE_BATCH, ZERO_COMMITS,
+      PREP_HEAP_SKIPPED);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator

@@ -59,7 +59,8 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
                          /*skip_filters=*/false),
       std::move(file_), file_size, &table_reader, /*enable_prefetch=*/false);
 
-  table_reader_.reset(static_cast_with_check<BlockBasedTable, TableReader>(table_reader.release()));
+  table_reader_.reset(static_cast_with_check<BlockBasedTable, TableReader>(
+      table_reader.release()));
 }
 
 void ColumnAwareEncodingReader::GetKVPairsFromDataBlocks(

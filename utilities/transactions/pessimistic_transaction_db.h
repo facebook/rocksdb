@@ -134,6 +134,11 @@ class PessimisticTransactionDB : public TransactionDB {
  private:
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
+  friend class TransactionTest_DoubleEmptyWrite_Test;
+  friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
+  friend class TransactionTest_TwoPhaseLongPrepareTest_Test;
+  friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
+  friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
   TransactionLockMgr lock_mgr_;
 
   // Must be held when adding/dropping column families.
@@ -150,6 +155,10 @@ class PessimisticTransactionDB : public TransactionDB {
   // map from name to two phase transaction instance
   std::mutex name_map_mutex_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
+
+  // Signal that we are testing a crash scenario. Some asserts could be relaxed
+  // in such cases.
+  virtual void TEST_Crash() {}
 };
 
 // A PessimisticTransactionDB that writes the data to the DB after the commit.
