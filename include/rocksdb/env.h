@@ -851,12 +851,14 @@ class Logger {
     log_level_ = log_level;
   }
 
+ protected:
+  virtual Status CloseImpl();
+  bool closed_;
+
  private:
   // No copying allowed
   Logger(const Logger&);
   void operator=(const Logger&);
-  virtual Status CloseImpl();
-  bool closed_;
   InfoLogLevel log_level_;
 };
 
