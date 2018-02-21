@@ -231,9 +231,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
+  friend class
+      WritePreparedTransactionTest_ConflictDetectionAfterRecoveryTest_Test;
   friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
   friend class WritePreparedTransactionTestBase;
   friend class PreparedHeap_BasicsTest_Test;
+  friend class PreparedHeap_EmptyAtTheEnd_Test;
+  friend class PreparedHeap_Concurrent_Test;
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
@@ -250,17 +254,34 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         heap_;
     std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
         erased_heap_;
+    // True when testing crash recovery
+    bool TEST_CRASH_ = false;
+    friend class WritePreparedTxnDB;
 
    public:
+    ~PreparedHeap() {
+      if (!TEST_CRASH_) {
+        assert(heap_.empty());
+        assert(erased_heap_.empty());
+      }
+    }
     bool empty() { return heap_.empty(); }
     uint64_t top() { return heap_.top(); }
     void push(uint64_t v) { heap_.push(v); }
     void pop() {
       heap_.pop();
       while (!heap_.empty() && !erased_heap_.empty() &&
-             heap_.top() == erased_heap_.top()) {
-        heap_.pop();
+             // heap_.top() > erased_heap_.top() could happen if we have erased
+             // a non-existent entry. Ideally the user should not do that but we
+             // should be resiliant againt it.
+             heap_.top() >= erased_heap_.top()) {
+        if (heap_.top() == erased_heap_.top()) {
+          heap_.pop();
+        }
+        auto erased __attribute__((__unused__)) = erased_heap_.top();
         erased_heap_.pop();
+        // No duplicate prepare sequence numbers
+        assert(erased_heap_.empty() || erased_heap_.top() != erased);
       }
       while (heap_.empty() && !erased_heap_.empty()) {
         erased_heap_.pop();
@@ -272,6 +293,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           // Already popped, ignore it.
         } else if (heap_.top() == seq) {
           pop();
+          assert(heap_.empty() || heap_.top() != seq);
         } else {  // (heap_.top() > seq)
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
@@ -279,6 +301,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       }
     }
   };
+
+  void TEST_Crash() override { prepared_txns_.TEST_CRASH_ = true; }
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
@@ -305,7 +329,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // concurrently. The concurrent invocations of this function is equivalent to
   // a serial invocation in which the last invocation is the one with the
   // largetst new_max value.
-  void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
+  void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
+                            const SequenceNumber& new_max);
 
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
@@ -362,7 +387,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  // 10m entry, 80MB size
+  // 2m entry, 16MB size
   static const size_t DEF_COMMIT_CACHE_BITS = static_cast<size_t>(21);
   const size_t COMMIT_CACHE_BITS;
   const size_t COMMIT_CACHE_SIZE;

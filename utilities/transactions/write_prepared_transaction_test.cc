@@ -112,6 +112,73 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_TRUE(heap.empty());
 }
 
+// This is a scenario reconstructed from a buggy trace. Test that the bug does
+// not resurface again.
+TEST(PreparedHeap, EmptyAtTheEnd) {
+  WritePreparedTxnDB::PreparedHeap heap;
+  heap.push(40l);
+  ASSERT_EQ(40l, heap.top());
+  // Although not a recommended scenario, we must be resilient against erase
+  // without a prior push.
+  heap.erase(50l);
+  ASSERT_EQ(40l, heap.top());
+  heap.push(60l);
+  ASSERT_EQ(40l, heap.top());
+
+  heap.erase(60l);
+  ASSERT_EQ(40l, heap.top());
+  heap.erase(40l);
+  ASSERT_TRUE(heap.empty());
+
+  heap.push(40l);
+  ASSERT_EQ(40l, heap.top());
+  heap.erase(50l);
+  ASSERT_EQ(40l, heap.top());
+  heap.push(60l);
+  ASSERT_EQ(40l, heap.top());
+
+  heap.erase(40l);
+  // Test that the erase has not emptied the heap (we had a bug doing that)
+  ASSERT_FALSE(heap.empty());
+  ASSERT_EQ(60l, heap.top());
+  heap.erase(60l);
+  ASSERT_TRUE(heap.empty());
+}
+
+// Generate random order of PreparedHeap access and test that the heap will be
+// successfully emptied at the end.
+TEST(PreparedHeap, Concurrent) {
+  const size_t t_cnt = 10;
+  rocksdb::port::Thread t[t_cnt];
+  Random rnd(1103);
+  WritePreparedTxnDB::PreparedHeap heap;
+  port::RWMutex prepared_mutex;
+
+  for (size_t n = 0; n < 100; n++) {
+    for (size_t i = 0; i < t_cnt; i++) {
+      // This is not recommended usage but we should be resilient against it.
+      bool skip_push = rnd.OneIn(5);
+      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, skip_push, i]() {
+        auto seq = i;
+        std::this_thread::yield();
+        if (!skip_push) {
+          WriteLock wl(&prepared_mutex);
+          heap.push(seq);
+        }
+        std::this_thread::yield();
+        {
+          WriteLock wl(&prepared_mutex);
+          heap.erase(seq);
+        }
+      });
+    }
+    for (size_t i = 0; i < t_cnt; i++) {
+      t[i].join();
+    }
+    ASSERT_TRUE(heap.empty());
+  }
+}
+
 TEST(CommitEntry64b, BasicTest) {
   const size_t INDEX_BITS = static_cast<size_t>(21);
   const size_t INDEX_SIZE = static_cast<size_t>(1ull << INDEX_BITS);
@@ -952,6 +1019,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   delete txn0;
   delete txn1;
   wp_db->db_impl_->FlushWAL(true);
+  wp_db->TEST_Crash();
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   // After recovery, all the uncommitted txns (0 and 1) should be inserted into
@@ -995,6 +1063,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
 
   delete txn2;
   wp_db->db_impl_->FlushWAL(true);
+  wp_db->TEST_Crash();
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
@@ -1064,6 +1133,7 @@ TEST_P(WritePreparedTransactionTest, ConflictDetectionAfterRecoveryTest) {
 
   auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   db_impl->FlushWAL(true);
+  dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
 
   // It should still conflict after the recovery
@@ -1324,6 +1394,7 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
           delete txn;
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
           db_impl->FlushWAL(true);
+          dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
           ReOpenNoDelete();
           wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
           txn = db->GetTransactionByName("xid0");
