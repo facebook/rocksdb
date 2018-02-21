@@ -228,6 +228,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
  private:
   friend class WritePreparedTxn;
+  friend class WriteBatchWithIndex_SubBatchCnt_Test;
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.
