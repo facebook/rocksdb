@@ -302,9 +302,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
   };
 
-  void TEST_Crash() override {
-    prepared_txns_.TEST_CRASH_ = true;
-  }
+  void TEST_Crash() override { prepared_txns_.TEST_CRASH_ = true; }
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.

@@ -11,8 +11,8 @@
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-#include <algorithm>
 #include <inttypes.h>
+#include <algorithm>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -110,8 +110,8 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     assert(s.ok());
     batch_cnt = counter.BatchCount();
     // TODO(myabandeh): replace me with a stat
-    ROCKS_LOG_WARN(info_log_,
-                   "Duplicate key overhead: %" PRIu64 " batches", static_cast<uint64_t>(batch_cnt));
+    ROCKS_LOG_WARN(info_log_, "Duplicate key overhead: %" PRIu64 " batches",
+                   static_cast<uint64_t>(batch_cnt));
   }
   assert(batch_cnt);
 
@@ -337,7 +337,8 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     // We should not normally reach here
     ReadLock rl(&prepared_mutex_);
     // TODO(myabandeh): also add a stat
-    ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64, static_cast<uint64_t>(delayed_prepared_.size()));
+    ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
+                   static_cast<uint64_t>(delayed_prepared_.size()));
     if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
       // Then it is not committed yet
       ROCKS_LOG_DETAILS(
@@ -464,7 +465,9 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                                       bool prepare_skipped, uint8_t loop_cnt) {
-  ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64 "(prepare_skipped=%d)",
+  ROCKS_LOG_DETAILS(info_log_,
+                    "Txn %" PRIu64 " Committing with %" PRIu64
+                    "(prepare_skipped=%d)",
                     prepare_seq, commit_seq, prepare_skipped);
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start:pause");
@@ -542,7 +545,7 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
   return succ;
 }
 
-//void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
+// void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
 void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
                                               SequenceNumber& new_max) {
   ROCKS_LOG_DETAILS(info_log_,
@@ -724,7 +727,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
                snapshot_seq < evicted.prep_seq)) {
     // Then access the less efficient list of snapshots_
-  // TODO(myabandeh): also add a stat
+    // TODO(myabandeh): also add a stat
     ROCKS_LOG_WARN(info_log_, "snapshots_mutex_ overhead");
     ReadLock rl(&snapshots_mutex_);
     // Items could have moved from the snapshots_ to snapshot_cache_ before
@@ -758,8 +761,8 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   }
   // then snapshot_seq < commit_seq
   if (prep_seq <= snapshot_seq) {  // overlapping range
-  // TODO(myabandeh): also add a stat
     ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+    // TODO(myabandeh): also add a stat
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
     auto& vec = old_commit_map_[snapshot_seq];
