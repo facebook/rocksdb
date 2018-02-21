@@ -1,4 +1,12 @@
 # Rocksdb Change Log
+## 5.10.3 (02/21/2018)
+### Bug fixes
+* Fix build break regression using gcc-7
+* Direct I/O writable file should do fsync in Close()
+
+### New Features
+* Add rocksdb.iterator.internal-key property
+
 ## 5.10.1 (01/18/2018)
 ### Bug Fixes
 * Fix DB::Flush() keep waiting after flush finish under certain condition.
