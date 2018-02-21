@@ -301,6 +301,7 @@ class HdfsLogger : public Logger {
 
   virtual ~HdfsLogger() {
     if (!closed_) {
+      closed_ = true;
       HdfsCloseHelper();
     }
   }

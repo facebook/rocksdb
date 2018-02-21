@@ -69,6 +69,7 @@ class PosixLogger : public Logger {
         flush_pending_(false) {}
   virtual ~PosixLogger() {
     if (!closed_) {
+      closed_ = true;
       PosixCloseHelper();
     }
   }
