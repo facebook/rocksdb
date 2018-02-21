@@ -1133,8 +1133,7 @@ TEST_P(WritePreparedTransactionTest, ConflictDetectionAfterRecoveryTest) {
 
   auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   db_impl->FlushWAL(true);
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  wp_db->TEST_Crash();
+  dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
 
   // It should still conflict after the recovery
@@ -1395,9 +1394,9 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
           delete txn;
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
           db_impl->FlushWAL(true);
-          wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          wp_db->TEST_Crash();
+          dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
           ReOpenNoDelete();
+          wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
           txn = db->GetTransactionByName("xid0");
           ASSERT_FALSE(wp_db->delayed_prepared_empty_);
           ReadLock rl(&wp_db->prepared_mutex_);
