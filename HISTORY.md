@@ -5,6 +5,7 @@
 * Add `include_end` option to make the range end exclusive when `include_end == false` in `DeleteFilesInRange()`.
 * Add `CompactRangeOptions::allow_write_stall`, which makes `CompactRange` start working immediately, even if it causes user writes to stall. The default value is false, meaning we add delay to `CompactRange` calls until stalling can be avoided when possible. Note this delay is not present in previous RocksDB versions.
 * Creating checkpoint with empty directory now returns `Status::InvalidArgument`; previously, it returned `Status::IOError`.
+* RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
 
 ### New Features
 * Improve the performance of iterators doing long range scans by using readahead.
