@@ -329,7 +329,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // concurrently. The concurrent invocations of this function is equivalent to
   // a serial invocation in which the last invocation is the one with the
   // largetst new_max value.
-  void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
+  void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
+                            const SequenceNumber& new_max);
 
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);

@@ -545,9 +545,8 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
   return succ;
 }
 
-// void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
-void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
-                                              SequenceNumber& new_max) {
+void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
+                                              const SequenceNumber& new_max) {
   ROCKS_LOG_DETAILS(info_log_,
                     "AdvanceMaxEvictedSeq overhead %" PRIu64 " => %" PRIu64,
                     prev_max, new_max);
@@ -589,9 +588,11 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
   if (update_snapshots) {
     UpdateSnapshots(snapshots, new_snapshots_version);
   }
-  while (prev_max < new_max && !max_evicted_seq_.compare_exchange_weak(
-                                   prev_max, new_max, std::memory_order_acq_rel,
-                                   std::memory_order_relaxed)) {
+  auto updated_prev_max = prev_max;
+  while (updated_prev_max < new_max &&
+         !max_evicted_seq_.compare_exchange_weak(updated_prev_max, new_max,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_relaxed)) {
   };
 }
 
