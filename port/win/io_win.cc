@@ -158,22 +158,28 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
     return 0;
   }
 
-  // This function has to be re-worked for cases when
-  // ReFS file system introduced on Windows Server 2012 is used
-  BY_HANDLE_FILE_INFORMATION FileInfo;
-
-  BOOL result = GetFileInformationByHandle(hFile, &FileInfo);
+  FILE_ID_INFO FileInfo;
+  BOOL result = GetFileInformationByHandleEx(hFile, FileIdInfo, &FileInfo,
+    sizeof(FileInfo));
 
   TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
 
-  if (!result) {
+  if (result != TRUE) {
     return 0;
   }
 
+  static_assert(sizeof(uint64_t) == sizeof(FileInfo.VolumeSerialNumber),
+    "Wrong sizeof expectations");
+  // FileId.Identifier is an array of 16 BYTEs, we encode them as two uint64_t
+  static_assert(sizeof(uint64_t) * 2 == sizeof(FileInfo.FileId.Identifier),
+    "Wrong sizeof expectations");
+
   char* rid = id;
-  rid = EncodeVarint64(rid, uint64_t(FileInfo.dwVolumeSerialNumber));
-  rid = EncodeVarint64(rid, uint64_t(FileInfo.nFileIndexHigh));
-  rid = EncodeVarint64(rid, uint64_t(FileInfo.nFileIndexLow));
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.VolumeSerialNumber));
+  uint64_t* file_id = reinterpret_cast<uint64_t*>(&FileInfo.FileId.Identifier[0]);
+  rid = EncodeVarint64(rid, *file_id);
+  ++file_id;
+  rid = EncodeVarint64(rid, *file_id);
 
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
