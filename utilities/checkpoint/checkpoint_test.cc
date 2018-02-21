@@ -564,6 +564,15 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   delete txdb;
 }
 
+TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
+  for (std::string checkpoint_dir : {"", "/", "////"}) {
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_TRUE(checkpoint->CreateCheckpoint("").IsInvalidArgument());
+    delete checkpoint;
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
