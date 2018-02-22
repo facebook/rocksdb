@@ -172,7 +172,7 @@ Status DBImpl::FlushMemTableToOutputFile(
           immutable_db_options_.db_paths[0].path, file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
       if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
-        Status new_bg_error = Status::IOError("Max allowed space was reached");
+        Status new_bg_error = Status::NoSpace("Max allowed space was reached");
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
