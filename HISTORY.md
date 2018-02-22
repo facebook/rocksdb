@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.10.4 (02/22/2018)
+### New Features
+* Follow rsync-style naming convention for BackupEngine tempfiles. This enables some optimizations when run on GlusterFS.
+
 ## 5.10.3 (02/21/2018)
 ### Bug fixes
 * Fix build break regression using gcc-7
