@@ -8,7 +8,6 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <memory>
-#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
