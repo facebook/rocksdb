@@ -459,7 +459,7 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   }
   WriteBatchIndexEntry* non_const_entry =
       const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-  if (UNLIKELY(last_sub_batch_offset <= non_const_entry->offset)) {
+  if (LIKELY(last_sub_batch_offset <= non_const_entry->offset)) {
     last_sub_batch_offset = last_entry_offset;
     sub_batch_cnt++;
   }
