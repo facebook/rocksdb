@@ -164,7 +164,7 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
 
   TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
 
-  if (result != TRUE) {
+  if (!result) {
     return 0;
   }
 
