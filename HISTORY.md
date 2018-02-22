@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
 
+## 5.11.1 (02/22/2018)
+### New Features
+* Follow rsync-style naming convention for BackupEngine tempfiles. This enables some optimizations when run on GlusterFS.
+
 ## 5.11.0 (01/08/2018)
 ### Public API Change
 * Add `autoTune` and `getBytesPerSecond()` to RocksJava RateLimiter
