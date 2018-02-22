@@ -35,10 +35,8 @@ make && make install
 popd
 
 echo "Compiling RocksDB..."
-pushd /usr/local/rocksdb
-pwd
-make static_lib
+cd /usr/local/rocksdb
+sudo -u vagrant make static_lib
 cd examples/
-make all
-popd
-
+sudo -u make all
+sudo -u ./c_simple_example
