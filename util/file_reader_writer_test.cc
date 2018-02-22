@@ -26,9 +26,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
       size_ += data.size();
       return Status::OK();
     }
-    virtual Status Truncate(uint64_t size) override {
-      return Status::OK();
-    }
+    virtual Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
     Status Close() override {
       EXPECT_GE(size_, last_synced_ + kMb);
       EXPECT_LT(size_, last_synced_ + 2 * kMb);
@@ -39,17 +37,21 @@ TEST_F(WritableFileWriterTest, RangeSync) {
     Status Flush() override { return Status::OK(); }
     Status Sync() override { return Status::OK(); }
     Status Fsync() override { return Status::OK(); }
-    void SetIOPriority(Env::IOPriority pri) override {}
+    void SetIOPriority(Env::IOPriority /*pri*/) override {}
     uint64_t GetFileSize() override { return size_; }
-    void GetPreallocationStatus(size_t* block_size,
-                                size_t* last_allocated_block) override {}
-    size_t GetUniqueId(char* id, size_t max_size) const override { return 0; }
-    Status InvalidateCache(size_t offset, size_t length) override {
+    void GetPreallocationStatus(size_t* /*block_size*/,
+                                size_t* /*last_allocated_block*/) override {}
+    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+      return 0;
+    }
+    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
       return Status::OK();
     }
 
    protected:
-    Status Allocate(uint64_t offset, uint64_t len) override { return Status::OK(); }
+    Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
+      return Status::OK();
+    }
     Status RangeSync(uint64_t offset, uint64_t nbytes) override {
       EXPECT_EQ(offset % 4096, 0u);
       EXPECT_EQ(nbytes % 4096, 0u);
@@ -119,12 +121,14 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     Status Flush() override { return Status::OK(); }
     Status Sync() override { return Status::OK(); }
     Status Fsync() override { return Status::OK(); }
-    void SetIOPriority(Env::IOPriority pri) override {}
+    void SetIOPriority(Env::IOPriority /*pri*/) override {}
     uint64_t GetFileSize() override { return size_; }
-    void GetPreallocationStatus(size_t* block_size,
-                                size_t* last_allocated_block) override {}
-    size_t GetUniqueId(char* id, size_t max_size) const override { return 0; }
-    Status InvalidateCache(size_t offset, size_t length) override {
+    void GetPreallocationStatus(size_t* /*block_size*/,
+                                size_t* /*last_allocated_block*/) override {}
+    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+      return 0;
+    }
+    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
       return Status::OK();
     }
     bool use_direct_io() const override { return use_direct_io_; }
@@ -180,13 +184,13 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
 
     virtual bool use_direct_io() const override { return use_direct_io_; }
-    Status Append(const Slice& data) override {
+    Status Append(const Slice& /*data*/) override {
       if (io_error_) {
         return Status::IOError("Fake IO error");
       }
       return Status::OK();
     }
-    Status PositionedAppend(const Slice& data, uint64_t) override {
+    Status PositionedAppend(const Slice& /*data*/, uint64_t) override {
       if (io_error_) {
         return Status::IOError("Fake IO error");
       }

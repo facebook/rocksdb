@@ -236,7 +236,7 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
   return comparator.CompareKeySeq(a, key);
 }
 
-void MemTableRep::InsertConcurrently(KeyHandle handle) {
+void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
 #ifndef ROCKSDB_LITE
   throw std::runtime_error("concurrent insert not supported");
 #else

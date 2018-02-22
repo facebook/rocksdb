@@ -504,7 +504,7 @@ void runTest(int argc, const std::string& dbname, const bool use_ttl = false) {
 }
 }  // namespace
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* /*argv*/ []) {
   //TODO: Make this test like a general rocksdb unit-test
   rocksdb::port::InstallStackTraceHandler();
   runTest(argc, test::TmpDir() + "/merge_testdb");

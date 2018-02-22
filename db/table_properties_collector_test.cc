@@ -82,8 +82,9 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
      return Status::OK();
   }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& user_key, const Slice& /*value*/,
+                    EntryType type, SequenceNumber /*seq*/,
+                    uint64_t file_size) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {
       ++count_;
@@ -133,7 +134,7 @@ class RegularKeysStartWithABackwardCompatible
     return Status::OK();
   }
 
-  Status Add(const Slice& user_key, const Slice& value) override {
+  Status Add(const Slice& user_key, const Slice& /*value*/) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {
       ++count_;
@@ -161,8 +162,8 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  Status InternalAdd(const Slice& user_key, const Slice& value,
-                     uint64_t file_size) override {
+  Status InternalAdd(const Slice& user_key, const Slice& /*value*/,
+                     uint64_t /*file_size*/) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {
       ++count_;
@@ -193,7 +194,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
     }
   }
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t column_family_id) override {
+      uint32_t /*column_family_id*/) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }
@@ -203,7 +204,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
 
 class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
  public:
-  virtual bool Update(const Slice& key, const Slice& value) override {
+  virtual bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     return (++count_ % 3U == 0);
   }
 
@@ -220,8 +221,8 @@ class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
   }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& table_options,
-      const BlockBuilder& data_block_builder) const override {
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& /*data_block_builder*/) const override {
     return new FlushBlockEveryThreePolicy;
   }
 };
