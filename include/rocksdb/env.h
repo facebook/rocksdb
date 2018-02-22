@@ -822,7 +822,9 @@ class Logger {
       : closed_(false), log_level_(log_level) {}
   virtual ~Logger();
 
-  // Close the log file. Must be called before destructor
+  // Close the log file. Must be called before destructor. If the return
+  // status is NotSupported(), it means the implementation does cleanup in
+  // the destructor
   virtual Status Close();
 
   // Write a header to the log file with the specified format

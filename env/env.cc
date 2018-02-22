@@ -84,7 +84,7 @@ Status Logger::Close() {
   }
 }
 
-Status Logger::CloseImpl() { return Status::OK(); }
+Status Logger::CloseImpl() { return Status::NotSupported(); }
 
 FileLock::~FileLock() {
 }

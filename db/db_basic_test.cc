@@ -870,7 +870,7 @@ class TestEnv : public EnvWrapper {
       private:
         Status CloseHelper() {
           env->CloseCountInc();;
-          return Status::NotSupported();
+          return Status::IOError();
         }
         TestEnv *env;
     };
@@ -904,7 +904,7 @@ TEST_F(DBBasicTest, DBClose) {
 
   s = db->Close();
   ASSERT_EQ(env->GetCloseCount(), 1);
-  ASSERT_EQ(s, Status::NotSupported());
+  ASSERT_EQ(s, Status::IOError());
 
   delete db;
   ASSERT_EQ(env->GetCloseCount(), 1);
@@ -926,6 +926,9 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
+  ASSERT_EQ(env->GetCloseCount(), 2);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 3);
 
   delete options.env;
 }

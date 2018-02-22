@@ -705,7 +705,7 @@ class DBImpl : public DB {
   Status WriteRecoverableState();
 
   // Actual implementation of Close()
-  virtual Status CloseImpl();
+  Status CloseImpl();
 
  private:
   friend class DB;
