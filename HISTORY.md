@@ -1,20 +1,46 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
+
+## 5.12.0 (2/14/2018)
+### Public API Change
 * Iterator::SeekForPrev is now a pure virtual method. This is to prevent user who implement the Iterator interface fail to implement SeekForPrev by mistake.
 * Add `include_end` option to make the range end exclusive when `include_end == false` in `DeleteFilesInRange()`.
 * Add `CompactRangeOptions::allow_write_stall`, which makes `CompactRange` start working immediately, even if it causes user writes to stall. The default value is false, meaning we add delay to `CompactRange` calls until stalling can be avoided when possible. Note this delay is not present in previous RocksDB versions.
 * Creating checkpoint with empty directory now returns `Status::InvalidArgument`; previously, it returned `Status::IOError`.
-* RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
+* Adds a BlockBasedTableOption to turn off index block compression.
+* Close() method now returns a status when closing a db.
 
 ### New Features
 * Improve the performance of iterators doing long range scans by using readahead.
 * Add new function `DeleteFilesInRanges()` to delete files in multiple ranges at once for better performance.
+* FreeBSD build support for RocksDB and RocksJava.
+* Improved performance of long range scans with readahead.
+* Updated to and now continuously tested in Visual Studio 2017.
 
 ### Bug Fixes
 * Fix `DisableFileDeletions()` followed by `GetSortedWalFiles()` to not return obsolete WAL files that `PurgeObsoleteFiles()` is going to delete.
+* Fix Handle error return from WriteBuffer() during WAL file close and DB close.
+* Fix advance reservation of arena block addresses.
+* Fix handling of empty string as checkpoint directory.
+
+## 5.11.0 (01/08/2018)
+### Public API Change
+* Add `autoTune` and `getBytesPerSecond()` to RocksJava RateLimiter
+
+### New Features
+* Add a new histogram stat called rocksdb.db.flush.micros for memtable flush.
+* Add "--use_txn" option to use transactional API in db_stress.
+* Disable onboard cache for compaction output in Windows platform.
+* Improve the performance of iterators doing long range scans by using readahead.
+
+### Bug Fixes
+* Fix a stack-use-after-scope bug in ForwardIterator.
+* Fix builds on platforms including Linux, Windows, and PowerPC.
+* Fix buffer overrun in backup engine for DBs with huge number of files.
+* Fix a mislabel bug for bottom-pri compaction threads.
 * Fix DB::Flush() keep waiting after flush finish under certain condition.
-* Fix Handle error return from WriteBuffer() during WAL file close and DB close
 
 ## 5.10.0 (12/11/2017)
 ### Public API Change
