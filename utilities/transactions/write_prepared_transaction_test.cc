@@ -246,6 +246,31 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
     ASSERT_EQ(batch_cnt_at[i - 1], batch.SubBatchCnt());
   }
 
+  // Test the count is right with random batches
+  {
+    const size_t TOTAL_KEYS = 20;  // 20 ~= 10 to cause a few randoms
+    Random rnd(1131);
+    std::string keys[TOTAL_KEYS];
+    for (size_t k = 0; k < TOTAL_KEYS; k++) {
+      int len = static_cast<int>(rnd.Uniform(50));
+      keys[k] = test::RandomKey(&rnd, len);
+    }
+    for (size_t i = 0; i < 1000; i++) {  // 1000 random batches
+      WriteBatchWithIndex rndbatch(db->DefaultColumnFamily()->GetComparator(),
+                                   0, true, 0);
+      for (size_t k = 0; k < 10; k++) {  // 10 key per batch
+        size_t ki = static_cast<size_t>(rnd.Uniform(TOTAL_KEYS));
+        Slice key = Slice(keys[ki]);
+        std::string buffer;
+        Slice value = Slice(test::RandomString(&rnd, 16, &buffer));
+        rndbatch.Put(key, value);
+      }
+      SubBatchCounter batch_counter(comparators);
+      ASSERT_OK(rndbatch.GetWriteBatch()->Iterate(&batch_counter));
+      ASSERT_EQ(rndbatch.SubBatchCnt(), batch_counter.BatchCount());
+    }
+  }
+
   delete cf_handle;
   delete db;
 }
