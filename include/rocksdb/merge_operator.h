@@ -66,9 +66,11 @@ class MergeOperator {
   // internal corruption. This will be treated as an error by the library.
   //
   // Also make use of the *logger for error messages.
-  virtual bool FullMerge(const Slice& /*key*/, const Slice* /*existing_value*/,
-                         const std::deque<std::string>& /*operand_list*/,
-                         std::string* /*new_value*/, Logger* /*logger*/) const {
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const {
     // deprecated, please use FullMergeV2()
     assert(false);
     return false;
@@ -143,10 +145,9 @@ class MergeOperator {
   // If there is corruption in the data, handle it in the FullMergeV2() function
   // and return false there.  The default implementation of PartialMerge will
   // always return false.
-  virtual bool PartialMerge(const Slice& /*key*/, const Slice& /*left_operand*/,
-                            const Slice& /*right_operand*/,
-                            std::string* /*new_value*/,
-                            Logger* /*logger*/) const {
+  virtual bool PartialMerge(const Slice& key, const Slice& left_operand,
+                            const Slice& right_operand, std::string* new_value,
+                            Logger* logger) const {
     return false;
   }
 
@@ -195,7 +196,7 @@ class MergeOperator {
   // during a point lookup, thereby helping in limiting the number of levels to
   // read from.
   // Doesn't help with iterators.
-  virtual bool ShouldMerge(const std::vector<Slice>& /*operands*/) const {
+  virtual bool ShouldMerge(const std::vector<Slice>& operands) const {
     return false;
   }
 };

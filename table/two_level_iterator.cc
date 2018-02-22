@@ -54,7 +54,8 @@ class TwoLevelIterator : public InternalIterator {
     }
   }
   virtual void SetPinnedItersMgr(
-      PinnedIteratorsManager* /*pinned_iters_mgr*/) override {}
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+  }
   virtual bool IsKeyPinned() const override { return false; }
   virtual bool IsValuePinned() const override { return false; }
 

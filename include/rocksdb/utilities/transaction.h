@@ -233,9 +233,9 @@ class Transaction {
   // An overload of the the above method that receives a PinnableSlice
   // For backward compatiblity a default implementation is provided
   virtual Status GetForUpdate(const ReadOptions& options,
-                              ColumnFamilyHandle* /*column_family*/,
+                              ColumnFamilyHandle* column_family,
                               const Slice& key, PinnableSlice* pinnable_val,
-                              bool /*exclusive*/ = true) {
+                              bool exclusive = true) {
     if (pinnable_val == nullptr) {
       std::string* null_str = nullptr;
       return GetForUpdate(options, key, null_str);
@@ -440,8 +440,8 @@ class Transaction {
 
   virtual bool IsDeadlockDetect() const { return false; }
 
-  virtual std::vector<TransactionID> GetWaitingTxns(
-      uint32_t* /*column_family_id*/, std::string* /*key*/) const {
+  virtual std::vector<TransactionID> GetWaitingTxns(uint32_t* column_family_id,
+                                                    std::string* key) const {
     assert(false);
     return std::vector<TransactionID>();
   }
@@ -469,7 +469,7 @@ class Transaction {
   uint64_t GetId() { return id_; }
 
  protected:
-  explicit Transaction(const TransactionDB* /*db*/) {}
+  explicit Transaction(const TransactionDB* db) {}
   Transaction() : log_number_(0), txn_state_(STARTED) {}
 
   // the log in which the prepared section for this txn resides

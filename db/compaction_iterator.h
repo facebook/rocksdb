@@ -32,7 +32,7 @@ class CompactionIterator {
         : compaction_(compaction) {}
 
     virtual ~CompactionProxy() = default;
-    virtual int level(size_t /*compaction_input_level*/ = 0) const {
+    virtual int level(size_t compaction_input_level = 0) const {
       return compaction_->level();
     }
     virtual bool KeyNotExistsBeyondOutputLevel(

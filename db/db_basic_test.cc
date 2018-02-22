@@ -855,15 +855,14 @@ class TestEnv : public EnvWrapper {
     class TestLogger : public Logger {
       public:
         using Logger::Logv;
-        virtual void Logv(const char* /*format*/, va_list /*ap*/) override{};
-
-       private:
+        virtual void Logv(const char *format, va_list ap) override { };
+      private:
         virtual Status CloseImpl() override {
           return Status::NotSupported();
         }
     };
 
-    virtual Status NewLogger(const std::string& /*fname*/,
+    virtual Status NewLogger(const std::string& fname,
                              shared_ptr<Logger>* result) {
       result->reset(new TestLogger());
       return Status::OK();

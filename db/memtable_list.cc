@@ -154,7 +154,7 @@ bool MemTableListVersion::GetFromList(
 }
 
 Status MemTableListVersion::AddRangeTombstoneIterators(
-    const ReadOptions& read_opts, Arena* /*arena*/,
+    const ReadOptions& read_opts, Arena* arena,
     RangeDelAggregator* range_del_agg) {
   assert(range_del_agg != nullptr);
   for (auto& m : memlist_) {
@@ -300,7 +300,7 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                                         uint64_t /*file_number*/) {
+                                         uint64_t file_number) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
   assert(!mems.empty());

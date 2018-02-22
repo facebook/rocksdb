@@ -57,8 +57,7 @@ class DummyDB : public StackableDB {
   }
 
   using DB::GetOptions;
-  virtual Options GetOptions(
-      ColumnFamilyHandle* /*column_family*/) const override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return options_;
   }
 
@@ -66,7 +65,7 @@ class DummyDB : public StackableDB {
     return DBOptions(options_);
   }
 
-  virtual Status EnableFileDeletions(bool /*force*/) override {
+  virtual Status EnableFileDeletions(bool force) override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
     return Status::OK();
@@ -79,7 +78,7 @@ class DummyDB : public StackableDB {
   }
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                              bool /*flush_memtable*/ = true) override {
+                              bool flush_memtable = true) override {
     EXPECT_TRUE(!deletions_enabled_);
     vec = live_files_;
     *mfs = 100;
@@ -136,7 +135,7 @@ class DummyDB : public StackableDB {
   }
 
   // To avoid FlushWAL called on stacked db which is nullptr
-  virtual Status FlushWAL(bool /*sync*/) override { return Status::OK(); }
+  virtual Status FlushWAL(bool sync) override { return Status::OK(); }
 
   std::vector<std::string> live_files_;
   // pair<filename, alive?>
@@ -522,7 +521,7 @@ class BackupableDBTest : public testing::Test {
 
   void OpenDBAndBackupEngineShareWithChecksum(
       bool destroy_old_data = false, bool dummy = false,
-      bool /*share_table_files*/ = true, bool share_with_checksums = false) {
+      bool share_table_files = true, bool share_with_checksums = false) {
     backupable_options_->share_files_with_checksum = share_with_checksums;
     OpenDBAndBackupEngine(destroy_old_data, dummy, share_with_checksums);
   }

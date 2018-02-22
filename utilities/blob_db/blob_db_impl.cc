@@ -44,16 +44,14 @@ int kBlockBasedTableVersionFormat = 2;
 namespace rocksdb {
 namespace blob_db {
 
-void BlobDBFlushBeginListener::OnFlushBegin(DB* /*db*/,
-                                            const FlushJobInfo& /*info*/) {
+void BlobDBFlushBeginListener::OnFlushBegin(DB* db, const FlushJobInfo& info) {
   assert(blob_db_impl_ != nullptr);
   blob_db_impl_->SyncBlobFiles();
 }
 
 WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
-    unsigned long long /*log_number*/, const std::string& /*log_file_name*/,
-    const WriteBatch& /*batch*/, WriteBatch* /*new_batch*/,
-    bool* /*batch_changed*/) {
+    unsigned long long log_number, const std::string& log_file_name,
+    const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed) {
   return WalFilter::WalProcessingOption::kContinueProcessing;
 }
 
@@ -69,7 +67,7 @@ bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
 }
 
 void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
-    int /*level*/, const Slice& key,
+    int level, const Slice& key,
     CompactionEventListener::CompactionListenerValueType value_type,
     const Slice& existing_value, const SequenceNumber& sn, bool is_new) {
   assert(impl_->bdb_options_.enable_garbage_collection);
@@ -761,9 +759,9 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   return s;
 }
 
-Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
-                                const Slice& key, const Slice& value,
-                                uint64_t expiration, WriteBatch* batch) {
+Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
+                                const Slice& value, uint64_t expiration,
+                                WriteBatch* batch) {
   Status s;
   std::string index_entry;
   uint32_t column_family_id =

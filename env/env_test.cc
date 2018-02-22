@@ -1255,36 +1255,33 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       inc(0);
     }
 
-    Status Append(const Slice& /*data*/) override {
-      inc(1);
-      return Status::OK();
-    }
-    Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
+    Status Append(const Slice& data) override { inc(1); return Status::OK(); }
+    Status Truncate(uint64_t size) override { return Status::OK(); }
     Status Close() override { inc(2); return Status::OK(); }
     Status Flush() override { inc(3); return Status::OK(); }
     Status Sync() override { inc(4); return Status::OK(); }
     Status Fsync() override { inc(5); return Status::OK(); }
-    void SetIOPriority(Env::IOPriority /*pri*/) override { inc(6); }
+    void SetIOPriority(Env::IOPriority pri) override { inc(6); }
     uint64_t GetFileSize() override { inc(7); return 0; }
-    void GetPreallocationStatus(size_t* /*block_size*/,
-                                size_t* /*last_allocated_block*/) override {
+    void GetPreallocationStatus(size_t* block_size,
+                                size_t* last_allocated_block) override {
       inc(8);
     }
-    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+    size_t GetUniqueId(char* id, size_t max_size) const override {
       inc(9);
       return 0;
     }
-    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+    Status InvalidateCache(size_t offset, size_t length) override {
       inc(10);
       return Status::OK();
     }
 
    protected:
-    Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
+    Status Allocate(uint64_t offset, uint64_t len) override {
       inc(11);
       return Status::OK();
     }
-    Status RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/) override {
+    Status RangeSync(uint64_t offset, uint64_t nbytes) override {
       inc(12);
       return Status::OK();
     }

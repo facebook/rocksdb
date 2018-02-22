@@ -1143,18 +1143,17 @@ UpdateStatus DBTestBase::updateInPlaceSmallerVarintSize(char* prevValue,
   }
 }
 
-UpdateStatus DBTestBase::updateInPlaceLargerSize(char* /*prevValue*/,
-                                                 uint32_t* /*prevSize*/,
+UpdateStatus DBTestBase::updateInPlaceLargerSize(char* prevValue,
+                                                 uint32_t* prevSize,
                                                  Slice delta,
                                                  std::string* newValue) {
   *newValue = std::string(delta.size(), 'c');
   return UpdateStatus::UPDATED;
 }
 
-UpdateStatus DBTestBase::updateInPlaceNoAction(char* /*prevValue*/,
-                                               uint32_t* /*prevSize*/,
-                                               Slice /*delta*/,
-                                               std::string* /*newValue*/) {
+UpdateStatus DBTestBase::updateInPlaceNoAction(char* prevValue,
+                                               uint32_t* prevSize, Slice delta,
+                                               std::string* newValue) {
   return UpdateStatus::UPDATE_FAILED;
 }
 

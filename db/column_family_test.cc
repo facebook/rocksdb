@@ -1168,14 +1168,13 @@ TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
 #endif  // !ROCKSDB_LITE
 
 class TestComparator : public Comparator {
-  int Compare(const rocksdb::Slice& /*a*/,
-              const rocksdb::Slice& /*b*/) const override {
+  int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const override {
     return 0;
   }
   const char* Name() const override { return "Test"; }
-  void FindShortestSeparator(std::string* /*start*/,
-                             const rocksdb::Slice& /*limit*/) const override {}
-  void FindShortSuccessor(std::string* /*key*/) const override {}
+  void FindShortestSeparator(std::string* start,
+                             const rocksdb::Slice& limit) const override {}
+  void FindShortSuccessor(std::string* key) const override {}
 };
 
 static TestComparator third_comparator;

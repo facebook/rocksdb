@@ -396,9 +396,8 @@ class SstFileWriterCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
-                    EntryType /*type*/, SequenceNumber /*seq*/,
-                    uint64_t /*file_size*/) override {
+  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override {
     ++count_;
     return Status::OK();
   }
@@ -418,7 +417,7 @@ class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
   explicit SstFileWriterCollectorFactory(std::string prefix)
       : prefix_(prefix), num_created_(0) {}
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context /*context*/) override {
+      TablePropertiesCollectorFactory::Context context) override {
     num_created_++;
     return new SstFileWriterCollector(prefix_);
   }
@@ -1799,7 +1798,7 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 
 class TestIngestExternalFileListener : public EventListener {
  public:
-  void OnExternalFileIngested(DB* /*db*/,
+  void OnExternalFileIngested(DB* db,
                               const ExternalFileIngestionInfo& info) override {
     ingested_files.push_back(info);
   }

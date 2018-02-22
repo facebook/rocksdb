@@ -54,7 +54,9 @@ class WriteCallbackTestWriteCallback1 : public WriteCallback {
 
 class WriteCallbackTestWriteCallback2 : public WriteCallback {
  public:
-  Status Callback(DB* /*db*/) override { return Status::Busy(); }
+  Status Callback(DB *db) override {
+    return Status::Busy();
+  }
   bool AllowWriteBatching() override { return true; }
 };
 
@@ -72,7 +74,7 @@ class MockWriteCallback : public WriteCallback {
     was_called_.store(other.was_called_.load());
   }
 
-  Status Callback(DB* /*db*/) override {
+  Status Callback(DB* db) override {
     was_called_.store(true);
     if (should_fail_) {
       return Status::Busy();

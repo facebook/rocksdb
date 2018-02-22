@@ -602,13 +602,13 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
 
 // dummy placeholders used when HDFS is not available
 namespace rocksdb {
-Status HdfsEnv::NewSequentialFile(const std::string& /*fname*/,
-                                  unique_ptr<SequentialFile>* /*result*/,
-                                  const EnvOptions& /*options*/) {
-  return Status::NotSupported("Not compiled with hdfs support");
+ Status HdfsEnv::NewSequentialFile(const std::string& fname,
+                                   unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options) {
+   return Status::NotSupported("Not compiled with hdfs support");
  }
 
- Status NewHdfsEnv(Env** /*hdfs_env*/, const std::string& /*fsname*/) {
+ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
    return Status::NotSupported("Not compiled with hdfs support");
  }
 }

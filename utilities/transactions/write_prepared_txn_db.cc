@@ -239,7 +239,7 @@ struct WritePreparedTxnDB::IteratorState {
 };
 
 namespace {
-static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
+static void CleanupWritePreparedTxnDBIterator(void* arg1, void* arg2) {
   delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
@@ -436,7 +436,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
 }
 
 void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
-                                          uint64_t /*rollback_seq*/) {
+                                          uint64_t rollback_seq) {
   ROCKS_LOG_DETAILS(
       info_log_, "Txn %" PRIu64 " rolling back with rollback seq of " PRIu64 "",
       prep_seq, rollback_seq);

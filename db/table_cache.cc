@@ -30,7 +30,7 @@ namespace rocksdb {
 namespace {
 
 template <class T>
-static void DeleteEntry(const Slice& /*key*/, void* value) {
+static void DeleteEntry(const Slice& key, void* value) {
   T* typed_value = reinterpret_cast<T*>(value);
   delete typed_value;
 }
@@ -41,7 +41,7 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
-static void DeleteTableReader(void* arg1, void* /*arg2*/) {
+static void DeleteTableReader(void* arg1, void* arg2) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
   delete table_reader;
 }

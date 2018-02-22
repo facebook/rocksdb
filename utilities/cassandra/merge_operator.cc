@@ -42,8 +42,10 @@ bool CassandraValueMergeOperator::FullMergeV2(
 }
 
 bool CassandraValueMergeOperator::PartialMergeMulti(
-    const Slice& /*key*/, const std::deque<Slice>& operand_list,
-    std::string* new_value, Logger* /*logger*/) const {
+    const Slice& key,
+    const std::deque<Slice>& operand_list,
+    std::string* new_value,
+    Logger* logger) const {
   // Clear the *new_value for writing.
   assert(new_value);
   new_value->clear();
