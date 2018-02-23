@@ -18,8 +18,6 @@ rocksdb_compiler_flags = [
     "-DROCKSDB_SCHED_GETCPU_PRESENT",
     "-DROCKSDB_SUPPORT_THREAD_LOCAL",
     "-DOS_LINUX",
-    "-DROCKSDB_JEMALLOC",
-    "-DJEMALLOC_NO_DEMANGLE",
     # Flags to enable libs we include
     "-DSNAPPY",
     "-DZLIB",
