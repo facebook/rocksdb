@@ -36,7 +36,8 @@ popd
 
 echo "Compiling RocksDB..."
 cd /usr/local/rocksdb
+chown -R vagrant:vagrant /usr/local/rocksdb/
 sudo -u vagrant make static_lib
 cd examples/
-sudo -u make all
-sudo -u ./c_simple_example
+sudo -u vagrant make all
+sudo -u vagrant ./c_simple_example
