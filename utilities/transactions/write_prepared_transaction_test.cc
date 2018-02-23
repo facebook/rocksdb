@@ -179,6 +179,102 @@ TEST(PreparedHeap, Concurrent) {
   }
 }
 
+// Test that WriteBatchWithIndex correctly counts the number of sub-batches
+TEST(WriteBatchWithIndex, SubBatchCnt) {
+  ColumnFamilyOptions cf_options;
+  std::string cf_name = "two";
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  const std::string dbname = test::TmpDir() + "/transaction_testdb";
+  DestroyDB(dbname, options);
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ColumnFamilyHandle* cf_handle = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+  WriteOptions write_options;
+  size_t batch_cnt = 1;
+  size_t save_points = 0;
+  std::vector<size_t> batch_cnt_at;
+  WriteBatchWithIndex batch(db->DefaultColumnFamily()->GetComparator(), 0, true,
+                            0);
+  ASSERT_EQ(batch_cnt, batch.SubBatchCnt());
+  batch_cnt_at.push_back(batch_cnt);
+  batch.SetSavePoint();
+  save_points++;
+  batch.Put(Slice("key"), Slice("value"));
+  ASSERT_EQ(batch_cnt, batch.SubBatchCnt());
+  batch_cnt_at.push_back(batch_cnt);
+  batch.SetSavePoint();
+  save_points++;
+  batch.Put(Slice("key2"), Slice("value2"));
+  ASSERT_EQ(batch_cnt, batch.SubBatchCnt());
+  // duplicate the keys
+  batch_cnt_at.push_back(batch_cnt);
+  batch.SetSavePoint();
+  save_points++;
+  batch.Put(Slice("key"), Slice("value3"));
+  batch_cnt++;
+  ASSERT_EQ(batch_cnt, batch.SubBatchCnt());
+  // duplicate the 2nd key. It should not be counted duplicate since a
+  // sub-patch is cut after the last duplicate.
+  batch_cnt_at.push_back(batch_cnt);
+  batch.SetSavePoint();
+  save_points++;
+  batch.Put(Slice("key2"), Slice("value4"));
+  ASSERT_EQ(batch_cnt, batch.SubBatchCnt());
+  // duplicate the keys but in a different cf. It should not be counted as
+  // duplicate keys
+  batch_cnt_at.push_back(batch_cnt);
+  batch.SetSavePoint();
+  save_points++;
+  batch.Put(cf_handle, Slice("key"), Slice("value5"));
+  ASSERT_EQ(batch_cnt, batch.SubBatchCnt());
+
+  // Test that the number of sub-batches matches what we count with
+  // SubBatchCounter
+  std::map<uint32_t, const Comparator*> comparators;
+  comparators[0] = db->DefaultColumnFamily()->GetComparator();
+  comparators[cf_handle->GetID()] = cf_handle->GetComparator();
+  SubBatchCounter counter(comparators);
+  ASSERT_OK(batch.GetWriteBatch()->Iterate(&counter));
+  ASSERT_EQ(batch_cnt, counter.BatchCount());
+
+  // Test that RollbackToSavePoint will properly resets the number of
+  // sub-bathces
+  for (size_t i = save_points; i > 0; i--) {
+    batch.RollbackToSavePoint();
+    ASSERT_EQ(batch_cnt_at[i - 1], batch.SubBatchCnt());
+  }
+
+  // Test the count is right with random batches
+  {
+    const size_t TOTAL_KEYS = 20;  // 20 ~= 10 to cause a few randoms
+    Random rnd(1131);
+    std::string keys[TOTAL_KEYS];
+    for (size_t k = 0; k < TOTAL_KEYS; k++) {
+      int len = static_cast<int>(rnd.Uniform(50));
+      keys[k] = test::RandomKey(&rnd, len);
+    }
+    for (size_t i = 0; i < 1000; i++) {  // 1000 random batches
+      WriteBatchWithIndex rndbatch(db->DefaultColumnFamily()->GetComparator(),
+                                   0, true, 0);
+      for (size_t k = 0; k < 10; k++) {  // 10 key per batch
+        size_t ki = static_cast<size_t>(rnd.Uniform(TOTAL_KEYS));
+        Slice key = Slice(keys[ki]);
+        std::string buffer;
+        Slice value = Slice(test::RandomString(&rnd, 16, &buffer));
+        rndbatch.Put(key, value);
+      }
+      SubBatchCounter batch_counter(comparators);
+      ASSERT_OK(rndbatch.GetWriteBatch()->Iterate(&batch_counter));
+      ASSERT_EQ(rndbatch.SubBatchCnt(), batch_counter.BatchCount());
+    }
+  }
+
+  delete cf_handle;
+  delete db;
+}
+
 TEST(CommitEntry64b, BasicTest) {
   const size_t INDEX_BITS = static_cast<size_t>(21);
   const size_t INDEX_SIZE = static_cast<size_t>(1ull << INDEX_BITS);

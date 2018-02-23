@@ -8,7 +8,6 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <memory>
-#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
@@ -393,14 +392,21 @@ struct WriteBatchWithIndex::Rep {
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
         overwrite_key(_overwrite_key),
-        last_entry_offset(0) {}
+        last_entry_offset(0),
+        last_sub_batch_offset(0),
+        sub_batch_cnt(1) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
   WriteBatchEntrySkipList skip_list;
   bool overwrite_key;
   size_t last_entry_offset;
-  std::vector<size_t> obsolete_offsets;
+  // The starting offset of the last sub-batch. A sub-batch starts right before
+  // inserting a key that is a duplicate of a key in the last sub-batch. Zero,
+  // the default, means that no duplicate key is detected so far.
+  size_t last_sub_batch_offset;
+  // Total number of sub-batches in the write batch. Default is 1.
+  size_t sub_batch_cnt;
 
   // Remember current offset of internal write batch, which is used as
   // the starting offset of the next record.
@@ -452,7 +458,10 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   }
   WriteBatchIndexEntry* non_const_entry =
       const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-  obsolete_offsets.push_back(non_const_entry->offset);
+  if (LIKELY(last_sub_batch_offset <= non_const_entry->offset)) {
+    last_sub_batch_offset = last_entry_offset;
+    sub_batch_cnt++;
+  }
   non_const_entry->offset = last_entry_offset;
   return true;
 }
@@ -504,6 +513,8 @@ void WriteBatchWithIndex::Rep::ClearIndex() {
   new (&arena) Arena();
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
   last_entry_offset = 0;
+  last_sub_batch_offset = 0;
+  sub_batch_cnt = 1;
 }
 
 Status WriteBatchWithIndex::Rep::ReBuildIndex() {
@@ -582,9 +593,7 @@ WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
-bool WriteBatchWithIndex::HasDuplicateKeys() {
-  return rep->obsolete_offsets.size() > 0;
-}
+size_t WriteBatchWithIndex::SubBatchCnt() { return rep->sub_batch_cnt; }
 
 WBWIIterator* WriteBatchWithIndex::NewIterator() {
   return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch);
@@ -883,8 +892,8 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
   Status s = rep->write_batch.RollbackToSavePoint();
 
   if (s.ok()) {
-    // obsolete_offsets will be rebuilt by ReBuildIndex
-    rep->obsolete_offsets.clear();
+    rep->sub_batch_cnt = 1;
+    rep->last_sub_batch_offset = 0;
     s = rep->ReBuildIndex();
   }
 
