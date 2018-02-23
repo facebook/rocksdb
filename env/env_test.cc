@@ -1475,6 +1475,74 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   env_->DeleteFile(path);
 }
 
+class TestEnv : public EnvWrapper {
+  public:
+    explicit TestEnv() : EnvWrapper(Env::Default()),
+                close_count(0) { }
+
+    class TestLogger : public Logger {
+      public:
+        using Logger::Logv;
+        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
+        ~TestLogger() {
+          if (!closed_) {
+            CloseHelper();
+          }
+        }
+        virtual void Logv(const char *format, va_list ap) override { };
+      protected:
+        virtual Status CloseImpl() override {
+          return CloseHelper();
+        }
+      private:
+        Status CloseHelper() {
+          env->CloseCountInc();;
+          return Status::OK();
+        }
+        TestEnv *env;
+    };
+
+    void CloseCountInc() { close_count++; }
+
+    int GetCloseCount() { return close_count; }
+
+    virtual Status NewLogger(const std::string& fname,
+                             shared_ptr<Logger>* result) {
+      result->reset(new TestLogger(this));
+      return Status::OK();
+    }
+
+  private:
+    int close_count;
+};
+
+class EnvTest : public testing::Test {
+};
+
+TEST_F(EnvTest, Close) {
+  TestEnv *env = new TestEnv();
+  std::shared_ptr<Logger> logger;
+  Status s;
+
+  s = env->NewLogger("", &logger);
+  ASSERT_EQ(s, Status::OK());
+  logger.get()->Close();
+  ASSERT_EQ(env->GetCloseCount(), 1);
+  // Call Close() again. CloseHelper() should not be called again
+  logger.get()->Close();
+  ASSERT_EQ(env->GetCloseCount(), 1);
+  logger.reset();
+  ASSERT_EQ(env->GetCloseCount(), 1);
+
+  s = env->NewLogger("", &logger);
+  ASSERT_EQ(s, Status::OK());
+  logger.reset();
+  ASSERT_EQ(env->GetCloseCount(), 2);
+
+  delete env;
+}
+
+
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));

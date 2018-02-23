@@ -277,7 +277,7 @@ class HdfsLogger : public Logger {
   HdfsWritableFile* file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
 
-  virtual Status CloseImpl() {
+  Status HdfsCloseHelper() {
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsLogger closed %s\n",
                     file_->getName().c_str());
     Status s = file_->Close();
@@ -285,6 +285,11 @@ class HdfsLogger : public Logger {
       mylog = nullptr;
     }
     return s;
+  }
+
+ protected:
+  virtual Status CloseImpl() override {
+    return HdfsCloseHelper();
   }
 
  public:
@@ -295,6 +300,10 @@ class HdfsLogger : public Logger {
   }
 
   virtual ~HdfsLogger() {
+    if (!closed_) {
+      closed_ = true;
+      HdfsCloseHelper();
+    }
   }
 
   virtual void Logv(const char* format, va_list ap) {

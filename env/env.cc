@@ -73,17 +73,18 @@ RandomAccessFile::~RandomAccessFile() {
 WritableFile::~WritableFile() {
 }
 
-Logger::~Logger() { Close(); }
+Logger::~Logger() { }
 
 Status Logger::Close() {
   if (!closed_) {
     closed_ = true;
     return CloseImpl();
+  } else {
+    return Status::OK();
   }
-  return Status::OK();
 }
 
-Status Logger::CloseImpl() { return Status::OK(); }
+Status Logger::CloseImpl() { return Status::NotSupported(); }
 
 FileLock::~FileLock() {
 }
