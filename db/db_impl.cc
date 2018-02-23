@@ -278,7 +278,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   }
 }
 
-Status DBImpl::CloseImpl() {
+Status DBImpl::CloseHelper() {
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -404,7 +404,16 @@ Status DBImpl::CloseImpl() {
   return ret;
 }
 
-DBImpl::~DBImpl() { Close(); }
+Status DBImpl::CloseImpl() {
+  return CloseHelper();
+}
+
+DBImpl::~DBImpl() {
+  if (!closed_) {
+    closed_ = true;
+    CloseHelper();
+  }
+}
 
 void DBImpl::MaybeIgnoreError(Status* s) const {
   if (s->ok() || immutable_db_options_.paranoid_checks) {
