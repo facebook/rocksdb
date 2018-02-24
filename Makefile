@@ -401,6 +401,7 @@ TESTS = \
 	db_options_test \
 	db_range_del_test \
 	db_sst_test \
+	compaction_corruption_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
 	db_io_failure_test \
@@ -1157,6 +1158,9 @@ db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+compaction_corruption_test: db/compaction_corruption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

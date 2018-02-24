@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
@@ -94,6 +95,17 @@ class InternalIterator : public Cleanable {
   virtual Status GetProperty(std::string prop_name, std::string* prop) {
     return Status::NotSupported("");
   }
+
+  // About to break a million abstractions:
+  // Only for MergingIterator
+  virtual std::vector<InternalIterator *> CorruptedChildren(std::vector<int> &indices) {return {};}
+  // Only for TwoLevelIterator, so we can walk through the iterator and find
+  // the lowest level BlockIter
+  virtual InternalIterator *FirstLevelIter() {return nullptr;}
+  virtual InternalIterator *SecondLevelIter() {return nullptr;}
+  // Only for BlockIter
+  virtual Slice user_key() {return key();}
+  virtual bool IsBlockIter() {return false;}
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {

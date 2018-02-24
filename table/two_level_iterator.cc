@@ -83,6 +83,14 @@ class TwoLevelIterator : public InternalIterator {
            second_level_iter_.iter() && second_level_iter_.IsValuePinned();
   }
 
+  virtual InternalIterator *FirstLevelIter() override {
+    return first_level_iter_.iter();
+  }
+
+  virtual InternalIterator *SecondLevelIter() override {
+    return second_level_iter_.iter();
+  }
+
  private:
   void SaveError(const Status& s) {
     if (status_.ok() && !s.ok()) status_ = s;

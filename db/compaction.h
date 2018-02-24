@@ -243,6 +243,18 @@ class Compaction {
 
   uint64_t MaxInputFileCreationTime() const;
 
+  std::vector<Slice> BeginKeys() const {return beginKeys;}
+
+  std::vector<Slice> EndKeys() const {return endKeys;}
+
+  void AddBeginKey(Slice addKey) {
+    beginKeys.emplace_back(addKey);
+  }
+
+  void AddEndKey(Slice addKey) {
+    endKeys.emplace_back(addKey);
+  }
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -317,6 +329,12 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // Store the error ranges, get this from the subcompaction states right
+  // before you cleanup the compaction
+  // See CompactionJOb::SubcompactionState::beginKeys
+  std::vector<Slice> beginKeys;
+  std::vector<Slice> endKeys;
 };
 
 // Utility function

@@ -89,6 +89,13 @@ enum class BackgroundErrorReason {
   kMemTable,
 };
 
+// Used to pass to any EventListener that registers a handler for OnBackgroundError
+// It reports the corrupted key ranges encountered during a compaction
+struct BackgroundErrorInfo {
+  std::vector<Slice> beginKeys;
+  std::vector<Slice> endKeys;
+};
+
 enum class WriteStallCondition {
   kNormal,
   kDelayed,
@@ -390,6 +397,10 @@ class EventListener {
   // computations or blocking calls in this function.
   virtual void OnBackgroundError(BackgroundErrorReason /* reason */,
                                  Status* /* bg_error */) {}
+
+  virtual void OnSpecialBackgroundError(BackgroundErrorReason /* reason */,
+                                 Status* /* bg_error */,
+                                 BackgroundErrorInfo* /*key-ranges to recover*/) {}
 
   // A call-back function for RocksDB which will be called whenever a change
   // of superversion triggers a change of the stall conditions.

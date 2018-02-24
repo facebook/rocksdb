@@ -75,6 +75,13 @@ struct CompactionJob::SubcompactionState {
   // The return status of this subcompaction
   Status status;
 
+  // Used for storing corruption errors encountered during ProcessKeyValueCompaction
+  // so that we can pass them up to Background Listeners
+  // These two vector store the key ranges we need to recover. A single range is
+  // represented by a beginKey and its corresponding endKey in the other vector
+  std::vector<Slice> beginKeys;
+  std::vector<Slice> endKeys;
+
   // Files produced by this subcompaction
   struct Output {
     FileMetaData meta;
@@ -1000,6 +1007,112 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 
+  // Before we reset input, we want to get error information out
+  if (status.IsCorruption()) {
+    TEST_SYNC_POINT("CompactionJob::run()::EncounteredCorruption");
+    // Go through all the iters in this merging iterator and determine which one had the
+    // corruption
+    std::vector<int> indices;
+    std::vector<InternalIterator *> corruptedChildren = input.get()->CorruptedChildren(indices);
+    int i = 0;
+    for (InternalIterator * it : corruptedChildren) {
+      // For each iterator that has a corrupted status, fetch the key range of the
+      // corrupted data block. These are guaranteed to be TwoLevelIterators
+      InternalIterator *first_level_iter = nullptr;
+      first_level_iter = it->FirstLevelIter();
+      if (first_level_iter == nullptr) {
+        //Oops.....
+        fprintf(stderr, "why is first_level_iter a nullptr??\n");
+        continue;
+      }
+      if (!first_level_iter->IsBlockIter()) {
+        // Otherwise, second_level_iter is another TwoLevelIterator, and we do it again
+        InternalIterator *second_level_iter = nullptr;
+        second_level_iter = it->SecondLevelIter();
+        first_level_iter = second_level_iter->FirstLevelIter();
+        second_level_iter = second_level_iter->SecondLevelIter();
+        if (first_level_iter == nullptr) {
+          //Oops.....
+          fprintf(stderr, "one level of recursion in...\n");
+          continue;
+        }
+        if (!first_level_iter->IsBlockIter()) {
+          //Oops.. There shouldn't be another level here...
+          fprintf(stderr, "A two-level iterator with recurions > 2??\n");
+          continue;
+        }
+      }
+      assert(first_level_iter->IsBlockIter());
+
+      // Great! Then we are at the lowest level of the iterator
+      // To fetch the key range: start is the prev-prev key of first_level_iter
+      // and the prev key is the end of the range.
+      // This is because you don't discover that a data block iterator has a corrupt status
+      // until the next data block, when TwoLevelIterator::SaveError is called in
+      // TwoLevelIterator::SetSecondLevelIterator
+      if (first_level_iter->Valid()) {
+        first_level_iter->Prev();
+        if (first_level_iter->Valid()) {
+          sub_compact->endKeys.emplace_back(first_level_iter->user_key());
+          first_level_iter->Prev();
+          if (first_level_iter->Valid()) {
+            sub_compact->beginKeys.emplace_back(first_level_iter->user_key());
+          } else {
+            // OK, time to go to FileMetadata
+            // We use indices[i] to get the index of the file in the compaction.inputs_ struct
+            const Compaction *our_compaction = sub_compact->compaction;
+            int cur = 0;
+            FileMetaData *file_meta;
+            for (size_t j = 0; j < our_compaction->num_input_levels(); j++) {
+              for (size_t k = 0; k < our_compaction->num_input_files(j); k++) {
+                if (cur == indices[i]) {
+                  // Then this is the file we want
+                  file_meta = our_compaction->input(j,k);
+                  break;
+                }
+                cur++;
+              }
+            }
+            sub_compact->beginKeys.emplace_back(file_meta->smallest.user_key());
+          }
+        } else {
+          // OK, something is seriously wrong if this is invalid, because the NEXT entry
+          // is valid....
+          fprintf(stderr, "Why does the iterator become invalid in the middle?!\n");
+          continue;
+        }
+      } else {
+        //Then we are at the end of the index block.
+        first_level_iter->SeekToLast();
+        sub_compact->endKeys.emplace_back(first_level_iter->user_key());
+        // Now go back to get the start of the range
+        first_level_iter->Prev();
+        if (first_level_iter->Valid()) {
+          // Then there is a valid key
+          sub_compact->beginKeys.emplace_back(first_level_iter->user_key());
+        } else {
+          // Then we've hit the beginning of the index block, which means we need to get
+          // info from FileMetaData
+          const Compaction *our_compaction = sub_compact->compaction;
+          int cur = 0;
+          FileMetaData *file_meta;
+          for (size_t j = 0; j < our_compaction->num_input_levels(); j++) {
+            for (size_t k = 0; k < our_compaction->num_input_files(j); k++) {
+              if (cur == indices[i]) {
+                // Then this is the file we want
+                file_meta = our_compaction->input(j,k);
+                break;
+              }
+              cur++;
+            }
+          }
+          sub_compact->beginKeys.emplace_back(file_meta->smallest.user_key());
+        }
+      }
+      i++;
+    }
+  }
+
   sub_compact->c_iter.reset();
   input.reset();
   sub_compact->status = status;
@@ -1010,7 +1123,7 @@ void CompactionJob::RecordDroppedKeys(
     CompactionJobStats* compaction_job_stats) {
   if (c_iter_stats.num_record_drop_user > 0) {
     RecordTick(stats_, COMPACTION_KEY_DROP_USER,
-               c_iter_stats.num_record_drop_user);
+        c_iter_stats.num_record_drop_user);
   }
   if (c_iter_stats.num_record_drop_hidden > 0) {
     RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY,
@@ -1356,6 +1469,17 @@ Status CompactionJob::OpenCompactionOutputFile(
 void CompactionJob::CleanupCompaction() {
   for (SubcompactionState& sub_compact : compact_->sub_compact_states) {
     const auto& sub_status = sub_compact.status;
+
+    // If status is corrupted, make sure we preserve the corrupted range
+    // in the overarching Compaction object
+    if (sub_status.IsCorruption()) {
+      int i = 0;
+      for (Slice s : sub_compact.beginKeys) {
+        compact_->compaction->AddBeginKey(s);
+        compact_->compaction->AddEndKey(sub_compact.endKeys[i]);
+        i++;
+      }
+    }
 
     if (sub_compact.builder != nullptr) {
       // May happen if we get a shutdown call in the middle of compaction

@@ -40,7 +40,8 @@ void EventHelpers::NotifyTableFileCreationStarted(
 void EventHelpers::NotifyOnBackgroundError(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     BackgroundErrorReason reason, Status* bg_error,
-    InstrumentedMutex* db_mutex) {
+    InstrumentedMutex* db_mutex,
+    BackgroundErrorInfo *info) {
 #ifndef ROCKSDB_LITE
   if (listeners.size() == 0U) {
     return;
@@ -50,6 +51,9 @@ void EventHelpers::NotifyOnBackgroundError(
   db_mutex->Unlock();
   for (auto& listener : listeners) {
     listener->OnBackgroundError(reason, bg_error);
+    if (info != nullptr) {
+      listener->OnSpecialBackgroundError(reason, bg_error, info);
+    }
   }
   db_mutex->Lock();
 #endif  // ROCKSDB_LITE

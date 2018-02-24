@@ -1741,8 +1741,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->column_family_data(), c.get(), status,
         compaction_job_stats, job_context->job_id);
   }
-  // this will unref its input_version and column_family_data
-  c.reset();
 
   if (status.ok()) {
     // Done
@@ -1754,14 +1752,20 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
       Status new_bg_error = status;
       // may temporarily unlock and lock the mutex.
+      BackgroundErrorInfo beInfo;
+      beInfo.beginKeys = c->BeginKeys();
+      beInfo.endKeys = c->EndKeys();
       EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
                                             BackgroundErrorReason::kCompaction,
-                                            &new_bg_error, &mutex_);
+                                            &new_bg_error, &mutex_, &beInfo);
       if (!new_bg_error.ok()) {
         bg_error_ = new_bg_error;
       }
     }
   }
+
+  // this will unref its input_version and column_family_data
+  c.reset();
 
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;

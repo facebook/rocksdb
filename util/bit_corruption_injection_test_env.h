@@ -30,7 +30,7 @@ class BitCorruptionInjectionTestEnv;
 
 class BitCorruptionInjectionTestEnv : public EnvWrapper {
  public:
-  explicit BitCorruptionInjectionTestEnv(Env* base, uint64_t uber)
+  explicit BitCorruptionInjectionTestEnv(Env* base, int64_t uber)
       : EnvWrapper(base), UBER_(uber) {}
   virtual ~BitCorruptionInjectionTestEnv() {}
 
@@ -40,8 +40,10 @@ class BitCorruptionInjectionTestEnv : public EnvWrapper {
                              unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override;
 
+  int64_t SetUber(int64_t uber);
+
  private:
-   uint64_t UBER_;
+   int64_t UBER_;
    static std::vector<std::string> excludedFiles_;
 };
 

@@ -287,6 +287,20 @@ class MergingIterator : public InternalIterator {
            current_->IsValuePinned();
   }
 
+  // Used to determine which child had a corruption status
+  virtual std::vector<InternalIterator *> CorruptedChildren(std::vector<int> &indices) override {
+    std::vector<InternalIterator *> corruptedChildren;
+    int i = 0;
+    for (auto& child : children_) {
+      if (child.status().IsCorruption()) {
+        corruptedChildren.push_back(child.iter());
+        indices.push_back(i);
+      }
+      i++;
+    }
+    return corruptedChildren;
+  }
+
  private:
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps();

@@ -245,11 +245,16 @@ class BlockIter : public InternalIterator {
     status_ = s;
   }
 
+  virtual bool IsBlockIter() override {return true;}
   virtual bool Valid() const override { return current_ < restarts_; }
   virtual Status status() const override { return status_; }
   virtual Slice key() const override {
     assert(Valid());
     return key_.GetInternalKey();
+  }
+  virtual Slice user_key() override {
+    assert(Valid());
+    return key_.GetUserKey();
   }
   virtual Slice value() const override {
     assert(Valid());

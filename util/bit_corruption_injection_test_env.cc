@@ -10,6 +10,7 @@
 // This custom env injects bit flips into file reads.
 
 #include "util/bit_corruption_injection_test_env.h"
+#include "util/sync_point.h"
 #include <unistd.h>
 #include <fcntl.h>
 #include <functional>
@@ -17,81 +18,95 @@
 
 namespace rocksdb {
 
-// A wrapper around SequentialFile that will inject bit errors.
-class CorruptedSequentialFile : public SequentialFile {
- public:
-  explicit CorruptedSequentialFile(uint64_t uber,
-                            unique_ptr<SequentialFile>&& f)
-    : UBER_(uber),
-      target_(std::move(f)) {
-        assert(target_ != nullptr);
-  }
-  // Here is where we will inject bit errors randomly
-  Status Read(size_t n, Slice* result, char* scratch) {
-    // First do the read from the underlying SequentialFile
-    // We can't use result/scratch to call because they are const
-    std::unique_ptr<char[]> tempScratch(new char[n]);
-    rocksdb::Slice tempResult;
-    Status s = target_->Read(n, &tempResult, tempScratch.get());
-    if (!s.ok()) {
-      return s;
-    }
-    // Use the uber to flip bits
-    Random r((uint32_t)Env::Default()->NowMicros());
-    for (size_t i = 0; i < tempResult.size(); ++i) {
-      bool flipThis = r.OneIn(UBER_);
-      if (flipThis) {
-        // This should flip top bit
-        scratch[i] = (tempScratch[i] ^ (char) 0x80);
-      } else {
-        scratch[i] = tempScratch[i];
+  // A wrapper around SequentialFile that will inject bit errors.
+  class CorruptedSequentialFile : public SequentialFile {
+    public:
+      explicit CorruptedSequentialFile(uint64_t uber,
+          unique_ptr<SequentialFile>&& f)
+        : UBER_(uber),
+        target_(std::move(f)) {
+          assert(target_ != nullptr);
+        }
+      // Here is where we will inject bit errors randomly
+      Status Read(size_t n, Slice* result, char* scratch) {
+        // First do the read from the underlying SequentialFile
+        // We can't use result/scratch to call because they are const
+        std::unique_ptr<char[]> tempScratch(new char[n]);
+        rocksdb::Slice tempResult;
+        Status s = target_->Read(n, &tempResult, tempScratch.get());
+        if (!s.ok()) {
+          return s;
+        }
+        // Use the uber to flip bits
+        Random r((uint32_t)Env::Default()->NowMicros());
+        for (size_t i = 0; i < tempResult.size(); ++i) {
+          bool flipThis = r.OneIn(UBER_);
+          if (flipThis) {
+            // This should flip top bit
+            scratch[i] = (tempScratch[i] ^ (char) 0x80);
+          } else {
+            scratch[i] = tempScratch[i];
+          }
+        }
+        *result = Slice(scratch, tempResult.size());
+        return s;
       }
-    }
-    *result = Slice(scratch, tempResult.size());
-    return s;
-  }
 
-  Status Skip(uint64_t n) {
-    return target_->Skip(n);
-  }
+      Status Skip(uint64_t n) {
+        return target_->Skip(n);
+      }
 
- private:
-  // It doesn't really matter how many bits flip, because a ChecksumException
-  // will happen even if 1 bit is flipped.
-  uint64_t UBER_; // 1 in UBER_ *bytes* are corrupted.
-  unique_ptr<SequentialFile> target_;
-};
+    private:
+      // It doesn't really matter how many bits flip, because a ChecksumException
+      // will happen even if 1 bit is flipped.
+      uint64_t UBER_; // 1 in UBER_ *bytes* are corrupted.
+      unique_ptr<SequentialFile> target_;
+  };
 
-// A wrapper around RandomAccessFile that will inject bit errors.
-class CorruptedRandomAccessFile : public RandomAccessFile {
- public:
-   explicit CorruptedRandomAccessFile(uint64_t uber,
-                             unique_ptr<RandomAccessFile>&& f, const std::string& filename)
-       : UBER_(uber),
-         target_(std::move(f)),
-         filename_(filename) {
-           assert(target_ != nullptr);
-   }
 
-  // Here is where we will inject bit errors randomly
-  Status Read(uint64_t offset, size_t n,
-    Slice* result, char* scratch) const {
-    // First do the read from the underlying RandomAccessFile
-    // We can't use result/scratch to call because they are const
-    std::unique_ptr<char[]> tempScratch(new char[n]);
-    rocksdb::Slice tempResult;
-    Status s = target_->Read(offset, n, &tempResult, tempScratch.get());
-    if (!s.ok()) {
-      return s;
-    }
-    // Use the uber to flip bits
-    Random r((uint32_t)Env::Default()->NowMicros());
-    bool modified = false;
-    for (size_t i = 0; i < tempResult.size(); ++i) {
-      bool flipThis = r.OneIn(UBER_);
-      if (flipThis) {
-        // This should flip top bit
-        scratch[i] = (tempScratch[i] ^ (char) 0x80);
+  // A wrapper around RandomAccessFile that will inject bit errors.
+  class CorruptedRandomAccessFile : public RandomAccessFile {
+    public:
+      explicit CorruptedRandomAccessFile(int64_t uber,
+          unique_ptr<RandomAccessFile>&& f, const std::string& filename)
+        : UBER_(uber),
+        target_(std::move(f)),
+        filename_(filename) {
+          assert(target_ != nullptr);
+        }
+
+      // Here is where we will inject bit errors randomly
+      Status Read(uint64_t offset, size_t n,
+          Slice* result, char* scratch) const {
+        // First do the read from the underlying RandomAccessFile
+        // We can't use result/scratch to call because they are const
+        std::unique_ptr<char[]> tempScratch(new char[n]);
+        rocksdb::Slice tempResult;
+        Status s = target_->Read(offset, n, &tempResult, tempScratch.get());
+        if (!s.ok()) {
+          return s;
+        }
+        bool isTest = false;
+        TEST_SYNC_POINT_CALLBACK(
+            "CorruptedRandomAccessFile::Read():CheckIfCompactionTest", &isTest);
+        if (isTest) {
+          if (n < 100 || n == 814) {
+            //Try to avoid metadata blocks..
+            for (size_t i = 0; i < tempResult.size(); ++i) {
+              scratch[i] = tempScratch[i];
+            }
+            *result = Slice(scratch, tempResult.size());
+            return s;
+          }
+        }
+        // Use the uber to flip bits
+        Random r((uint32_t)Env::Default()->NowMicros());
+        bool modified = false;
+        for (size_t i = 0; i < tempResult.size(); ++i) {
+          bool flipThis = r.OneIn(UBER_);
+          if (flipThis) {
+            // This should flip top bit
+            scratch[i] = (tempScratch[i] ^ (char) 0x80);
         modified = true;
       } else {
         scratch[i] = tempScratch[i];
@@ -99,6 +114,7 @@ class CorruptedRandomAccessFile : public RandomAccessFile {
     }
     *result = Slice(scratch, tempResult.size());
     if (modified) {
+      TEST_SYNC_POINT("CorruptedRandomAccessFile::Read():SuccessfulCorruption");
       // Now persist to the file on disk so that we can see if compactions will repeatedly fail.
       // We assume that we are only using this env for Posix-backed systems.
       int fd = open(filename_.c_str(), O_RDWR);
@@ -114,7 +130,7 @@ class CorruptedRandomAccessFile : public RandomAccessFile {
   }
 
  private:
-  uint64_t UBER_;
+  int64_t UBER_;
   unique_ptr<RandomAccessFile> target_;
   std::string filename_;
 };
@@ -157,9 +173,11 @@ Status BitCorruptionInjectionTestEnv::NewSequentialFile(
         return s;
       }
   }
-  CorruptedSequentialFile* retMe = new CorruptedSequentialFile(UBER_,
-    std::move(*r));
-  r->reset(retMe);
+  if (UBER_ != -1) {
+    CorruptedSequentialFile* retMe = new CorruptedSequentialFile(UBER_,
+        std::move(*r));
+    r->reset(retMe);
+  }
   return s;
 }
 
@@ -178,13 +196,21 @@ Status BitCorruptionInjectionTestEnv::NewRandomAccessFile(
         return s;
       }
   }
-  CorruptedRandomAccessFile* retMe = new CorruptedRandomAccessFile(UBER_,
-    std::move(*r), f);
-  r->reset(retMe);
+  if (UBER_ != -1) {
+    CorruptedRandomAccessFile* retMe = new CorruptedRandomAccessFile(UBER_,
+        std::move(*r), f);
+    r->reset(retMe);
+  }
   return s;
 }
 
-Env* NewBitInjectionEnv(Env* base_env, uint64_t uber) {
+int64_t BitCorruptionInjectionTestEnv::SetUber(int64_t uber) {
+  int64_t oldUber = UBER_;
+  UBER_ = uber;
+  return oldUber;
+}
+
+Env* NewBitInjectionEnv(Env* base_env, int64_t uber) {
   return new BitCorruptionInjectionTestEnv(base_env, uber);
 }
 }  // namespace rocksdb
