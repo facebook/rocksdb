@@ -1038,7 +1038,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         }
         if (!first_level_iter->IsBlockIter()) {
           //Oops.. There shouldn't be another level here...
-          fprintf(stderr, "A two-level iterator with recurions > 2??\n");
+          fprintf(stderr, "A two-level iterator with recursions > 2??\n");
           continue;
         }
       }
@@ -1050,49 +1050,21 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       // This is because you don't discover that a data block iterator has a corrupt status
       // until the next data block, when TwoLevelIterator::SaveError is called in
       // TwoLevelIterator::SetSecondLevelIterator
-      if (first_level_iter->Valid()) {
-        first_level_iter->Prev();
-        if (first_level_iter->Valid()) {
-          sub_compact->endKeys.emplace_back(first_level_iter->user_key());
-          first_level_iter->Prev();
-          if (first_level_iter->Valid()) {
-            sub_compact->beginKeys.emplace_back(first_level_iter->user_key());
-          } else {
-            // OK, time to go to FileMetadata
-            // We use indices[i] to get the index of the file in the compaction.inputs_ struct
-            const Compaction *our_compaction = sub_compact->compaction;
-            int cur = 0;
-            FileMetaData *file_meta;
-            for (size_t j = 0; j < our_compaction->num_input_levels(); j++) {
-              for (size_t k = 0; k < our_compaction->num_input_files(j); k++) {
-                if (cur == indices[i]) {
-                  // Then this is the file we want
-                  file_meta = our_compaction->input(j,k);
-                  break;
-                }
-                cur++;
-              }
-            }
-            sub_compact->beginKeys.emplace_back(file_meta->smallest.user_key());
-          }
-        } else {
-          // OK, something is seriously wrong if this is invalid, because the NEXT entry
-          // is valid....
-          fprintf(stderr, "Why does the iterator become invalid in the middle?!\n");
-          continue;
-        }
-      } else {
+      if (!first_level_iter->Valid()) {
         //Then we are at the end of the index block.
         first_level_iter->SeekToLast();
+      } else {
+        first_level_iter->Prev();
+      }
+      if (first_level_iter->Valid()) {
         sub_compact->endKeys.emplace_back(first_level_iter->user_key());
-        // Now go back to get the start of the range
         first_level_iter->Prev();
         if (first_level_iter->Valid()) {
-          // Then there is a valid key
           sub_compact->beginKeys.emplace_back(first_level_iter->user_key());
         } else {
           // Then we've hit the beginning of the index block, which means we need to get
           // info from FileMetaData
+          // We use indices[i] to get the index of the file in the compaction.inputs_ struct
           const Compaction *our_compaction = sub_compact->compaction;
           int cur = 0;
           FileMetaData *file_meta;
@@ -1106,8 +1078,17 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
               cur++;
             }
           }
-          sub_compact->beginKeys.emplace_back(file_meta->smallest.user_key());
+          if (file_meta != nullptr) {
+            sub_compact->beginKeys.emplace_back(file_meta->smallest.user_key());
+          } else {
+            fprintf(stderr, "Uhm, couldn't find the FileMetaData for this file?!\n");
+          }
         }
+      } else {
+        // OK, something is seriously wrong if this is invalid, because the NEXT entry
+        // is valid....
+        fprintf(stderr, "Why does the iterator become invalid in the middle?!\n");
+        continue;
       }
       i++;
     }
