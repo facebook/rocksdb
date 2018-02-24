@@ -1214,11 +1214,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     if (get_context.State() != GetContext::kNotFound &&
         get_context.State() != GetContext::kMerge &&
         db_statistics_ != nullptr) {
-      for (auto ticker_pair : get_context.ticker_pairs_) {
-        if (ticker_pair.second != 0) {
-          RecordTick(db_statistics_, ticker_pair.first, ticker_pair.second);
-        }
-      }
+          get_context.ReportCounters();
     }
     switch (get_context.State()) {
       case GetContext::kNotFound:
@@ -1253,11 +1249,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 
   if (db_statistics_ != nullptr) {
-    for (auto ticker_pair : get_context.ticker_pairs_) {
-      if (ticker_pair.second != 0) {
-        RecordTick(db_statistics_, ticker_pair.first, ticker_pair.second);
-      }
-    }
+    get_context.ReportCounters();
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {

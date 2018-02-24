@@ -138,18 +138,32 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                  Tickers block_cache_miss_ticker,
                                  Tickers block_cache_hit_ticker,
                                  Statistics* statistics,
-                                 GetContext* get_context) {
+                                 GetContext* get_context,
+                                 const ImmutableCFOptions& ioptions) {
   auto cache_handle = block_cache->Lookup(key, statistics);
   if (cache_handle != nullptr) {
     PERF_COUNTER_ADD(block_cache_hit_count, 1);
     if (get_context != nullptr) {
       // overall cache hit
-      get_context->RecordCounters(BLOCK_CACHE_HIT, 1);
+      get_context->get_context_stats_.num_cache_hit ++;
       // total bytes read from cache
-      get_context->RecordCounters(BLOCK_CACHE_BYTES_READ,
-                                  block_cache->GetUsage(cache_handle));
+      get_context->get_context_stats_.num_cache_bytes_read +=
+                                  block_cache->GetUsage(cache_handle);
       // block-type specific cache hit
-      get_context->RecordCounters(block_cache_hit_ticker, 1);
+      switch(block_cache_hit_ticker) {
+        case BLOCK_CACHE_INDEX_HIT:
+          get_context->get_context_stats_.num_cache_index_hit++;
+          break;
+        case BLOCK_CACHE_DATA_HIT:
+          get_context->get_context_stats_.num_cache_data_hit++;
+          break;
+        case BLOCK_CACHE_FILTER_HIT:
+          get_context->get_context_stats_.num_cache_filter_hit++;
+          break;
+        default:
+          ROCKS_LOG_WARN(ioptions.info_log,
+                         "Invalid block_cache_hit_ticker used.");
+      }
     } else {
       // overall cache hit
       RecordTick(statistics, BLOCK_CACHE_HIT);
@@ -161,9 +175,22 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
   } else {
     if (get_context != nullptr) {
       // overall cache miss
-      get_context->RecordCounters(BLOCK_CACHE_MISS, 1);
+      get_context->get_context_stats_.num_cache_miss += 1;
       // block-type specific cache miss
-      get_context->RecordCounters(block_cache_miss_ticker, 1);
+      switch(block_cache_miss_ticker) {
+        case BLOCK_CACHE_INDEX_MISS:
+          get_context->get_context_stats_.num_cache_index_miss++;
+          break;
+        case BLOCK_CACHE_DATA_MISS:
+          get_context->get_context_stats_.num_cache_data_miss++;
+          break;
+        case BLOCK_CACHE_FILTER_MISS:
+          get_context->get_context_stats_.num_cache_filter_miss++;
+          break;
+        default:
+          ROCKS_LOG_WARN(ioptions.info_log,
+                         "Invalid block_cache_miss_ticker used.");
+      }
     } else {
       RecordTick(statistics, BLOCK_CACHE_MISS);
       RecordTick(statistics, block_cache_miss_ticker);
@@ -1142,7 +1169,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
         block_cache, block_cache_key,
         is_index ? BLOCK_CACHE_INDEX_MISS : BLOCK_CACHE_DATA_MISS,
         is_index ? BLOCK_CACHE_INDEX_HIT : BLOCK_CACHE_DATA_HIT, statistics,
-        get_context);
+        get_context, ioptions);
     if (block->cache_handle != nullptr) {
       block->value =
           reinterpret_cast<Block*>(block_cache->Value(block->cache_handle));
@@ -1197,24 +1224,26 @@ Status BlockBasedTable::GetDataBlockFromCache(
       block_cache->TEST_mark_as_data_block(block_cache_key, charge);
       if (s.ok()) {
         if (get_context != nullptr) {
-          get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, charge);
+          get_context->get_context_stats_.num_cache_add += 1;
+          get_context->get_context_stats_.num_cache_bytes_write += charge;
         } else {
           RecordTick(statistics, BLOCK_CACHE_ADD);
           RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);
         }
         if (is_index) {
           if (get_context != nullptr) {
-            get_context->RecordCounters(BLOCK_CACHE_INDEX_ADD, 1);
-            get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
+            get_context->get_context_stats_.num_cache_index_add += 1;
+            get_context->get_context_stats_.num_cache_index_bytes_insert +=
+                charge;
           } else {
             RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
             RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
           }
         } else {
           if (get_context != nullptr) {
-            get_context->RecordCounters(BLOCK_CACHE_DATA_ADD, 1);
-            get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT, charge);
+            get_context->get_context_stats_.num_cache_data_add += 1;
+            get_context->get_context_stats_.num_cache_data_bytes_insert +=
+                charge;
           } else {
             RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
             RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
@@ -1296,24 +1325,26 @@ Status BlockBasedTable::PutDataBlockToCache(
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       if (get_context != nullptr) {
-        get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
-        get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, charge);
+        get_context->get_context_stats_.num_cache_add += 1;
+        get_context->get_context_stats_.num_cache_bytes_write += charge;
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD);
         RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);
       }
       if (is_index) {
         if (get_context != nullptr) {
-          get_context->RecordCounters(BLOCK_CACHE_INDEX_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
+          get_context->get_context_stats_.num_cache_index_add += 1;
+          get_context->get_context_stats_.num_cache_index_bytes_insert +=
+              charge;
         } else {
           RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
           RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
         }
       } else {
         if (get_context != nullptr) {
-          get_context->RecordCounters(BLOCK_CACHE_DATA_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT, charge);
+          get_context->get_context_stats_.num_cache_data_add += 1;
+          get_context->get_context_stats_.num_cache_data_bytes_insert +=
+                                      charge;
         } else {
           RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
           RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
@@ -1440,7 +1471,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle =
       GetEntryFromCache(block_cache, key, BLOCK_CACHE_FILTER_MISS,
-                        BLOCK_CACHE_FILTER_HIT, statistics, get_context);
+                        BLOCK_CACHE_FILTER_HIT, statistics, get_context,
+                        rep_->ioptions);
 
   FilterBlockReader* filter = nullptr;
   if (cache_handle != nullptr) {
@@ -1461,10 +1493,11 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
               : Cache::Priority::LOW);
       if (s.ok()) {
         if (get_context != nullptr) {
-          get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, usage);
-          get_context->RecordCounters(BLOCK_CACHE_FILTER_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_FILTER_BYTES_INSERT, usage);
+          get_context->get_context_stats_.num_cache_add += 1;
+          get_context->get_context_stats_.num_cache_bytes_write += usage;
+          get_context->get_context_stats_.num_cache_filter_add += 1;
+          get_context->get_context_stats_.num_cache_filter_bytes_insert +=
+              usage;
         } else {
           RecordTick(statistics, BLOCK_CACHE_ADD);
           RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usage);
@@ -1512,7 +1545,8 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle =
       GetEntryFromCache(block_cache, key, BLOCK_CACHE_INDEX_MISS,
-                        BLOCK_CACHE_INDEX_HIT, statistics, get_context);
+                        BLOCK_CACHE_INDEX_HIT, statistics, get_context,
+                        rep_->ioptions);
 
   if (cache_handle == nullptr && no_io) {
     if (input_iter != nullptr) {
@@ -1548,8 +1582,8 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 
     if (s.ok()) {
       if (get_context != nullptr) {
-        get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
-        get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, charge);
+        get_context->get_context_stats_.num_cache_add += 1;
+        get_context->get_context_stats_.num_cache_bytes_write += charge;
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD);
         RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);

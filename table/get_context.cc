@@ -67,7 +67,6 @@ GetContext::GetContext(const Comparator* ucmp,
     *seq_ = kMaxSequenceNumber;
   }
   sample_ = should_sample_file_read();
-  InitTickers();
 }
 
 // Called from TableCache::Get and Table::Get when file/block in which
@@ -92,34 +91,58 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   }
 }
 
-void GetContext::RecordCounters(Tickers ticker, size_t val) {
-  for (auto it = ticker_pairs_.begin(); it != ticker_pairs_.end(); ++it) {
-    if (it->first == ticker) {
-      it->second += static_cast<uint64_t>(val);
-      return;
-    }
+void GetContext::ReportCounters() {
+  if (get_context_stats_.num_cache_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_HIT, get_context_stats_.num_cache_hit);
   }
-  ticker_pairs_.push_back(std::make_pair(ticker, static_cast<uint64_t>(val)));
-}
-
-void GetContext::InitTickers() {
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_HIT, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_HIT, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_HIT, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_HIT, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_MISS, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_MISS, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_MISS, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_BYTES_READ, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_MISS, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_ADD, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_BYTES_WRITE, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_ADD, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_INDEX_BYTES_INSERT, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_ADD, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_DATA_BYTES_INSERT, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_ADD, 0));
-  ticker_pairs_.push_back(std::make_pair<Tickers, uint64_t>(BLOCK_CACHE_FILTER_BYTES_INSERT, 0));
+  if (get_context_stats_.num_cache_index_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_HIT, get_context_stats_.num_cache_index_hit);
+  }
+  if (get_context_stats_.num_cache_data_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_HIT, get_context_stats_.num_cache_data_hit);
+  }
+  if (get_context_stats_.num_cache_filter_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_HIT, get_context_stats_.num_cache_filter_hit);
+  }
+  if (get_context_stats_.num_cache_index_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_MISS, get_context_stats_.num_cache_index_miss);
+  }
+  if (get_context_stats_.num_cache_filter_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_MISS, get_context_stats_.num_cache_filter_miss);
+  }
+  if (get_context_stats_.num_cache_data_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_MISS, get_context_stats_.num_cache_data_miss);
+  }
+  if (get_context_stats_.num_cache_bytes_read > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_BYTES_READ, get_context_stats_.num_cache_bytes_read);
+  }
+  if (get_context_stats_.num_cache_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_MISS, get_context_stats_.num_cache_miss);
+  }
+  if (get_context_stats_.num_cache_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_ADD, get_context_stats_.num_cache_add);
+  }
+  if (get_context_stats_.num_cache_bytes_write > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_BYTES_WRITE, get_context_stats_.num_cache_bytes_write);
+  }
+  if (get_context_stats_.num_cache_index_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_ADD, get_context_stats_.num_cache_index_add);
+  }
+  if (get_context_stats_.num_cache_index_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_BYTES_INSERT, get_context_stats_.num_cache_index_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_data_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_ADD, get_context_stats_.num_cache_data_add);
+  }
+  if (get_context_stats_.num_cache_data_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_BYTES_INSERT, get_context_stats_.num_cache_data_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_filter_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_ADD, get_context_stats_.num_cache_filter_add);
+  }
+  if (get_context_stats_.num_cache_filter_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_BYTES_INSERT, get_context_stats_.num_cache_filter_bytes_insert);
+  }
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
