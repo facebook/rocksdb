@@ -1456,8 +1456,18 @@ void CompactionJob::CleanupCompaction() {
     if (sub_status.IsCorruption()) {
       int i = 0;
       for (Slice s : sub_compact.beginKeys) {
-        compact_->compaction->AddBeginKey(s);
-        compact_->compaction->AddEndKey(sub_compact.endKeys[i]);
+        // Ugh, this is necessary because compact_ gets deleted, which
+        // causes these slices to be deleted, so we have to copy the slices over
+        char *herp = new char[s.size()]{};
+        memcpy(herp, s.data(), s.size());
+        Slice temp = Slice(herp, s.size());
+        compact_->compaction->AddBeginKey(temp);
+
+        Slice end = sub_compact.endKeys[i];
+        char *hello = new char[end.size()]{};
+        memcpy(hello, end.data(), end.size());
+        Slice temp2 = Slice(hello, end.size());
+        compact_->compaction->AddEndKey(temp2);
         i++;
       }
     }

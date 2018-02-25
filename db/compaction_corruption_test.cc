@@ -31,8 +31,14 @@ class BackgroundErrorListener : public EventListener {
          assert(info->beginKeys.size() >= 1);
          assert(info->endKeys.size() >= 1);
          assert(info->beginKeys.size() == info->endKeys.size());
-         assert(info->beginKeys[0] == DBTestBase::Key(0));
-         assert(info->endKeys[0] == Slice("l", 1));
+         // Either the first or the second data block is corrupted
+         // Because we set the block_size to 400, then we deterministically make
+         // the cutoff for the second data block at Key(5)
+         for (size_t i = 0; i < info->beginKeys.size(); i++) {
+          fprintf(stderr, "range: %s to %s\n", info->beginKeys[i].ToString().c_str(), info->endKeys[i].ToString().c_str());
+         }
+         assert(info->beginKeys[0] == DBTestBase::Key(0) || info->beginKeys[0] == DBTestBase::Key(5));
+         assert(info->endKeys[0] == Slice("l", 1) || info->endKeys[0] == DBTestBase::Key(5));
        }
 };
 
@@ -45,6 +51,10 @@ TEST_F(CompactionCorruptionTest, CancellingCompactionsWorks) {
   options.level0_file_num_compaction_trigger = 2;
   options.new_table_reader_for_compaction_inputs=true;
   options.env = new BitCorruptionInjectionTestEnv(rocksdb::Env::Default(), -1);
+
+  BlockBasedTableOptions table_options_ = BlockBasedTableOptions();
+  table_options_.block_size = 400;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options_));
 
   auto listener = std::make_shared<BackgroundErrorListener>();
   options.listeners.push_back(listener);
@@ -79,7 +89,7 @@ TEST_F(CompactionCorruptionTest, CancellingCompactionsWorks) {
   }
   ASSERT_OK(Flush());
 
-  reinterpret_cast<BitCorruptionInjectionTestEnv *>(options.env)->SetUber(400);
+  reinterpret_cast<BitCorruptionInjectionTestEnv *>(options.env)->SetUber(600);
   dbfull()->SetOptions({{"disable_auto_compactions", "false"}});
   dbfull()->TEST_WaitForCompact();
 
