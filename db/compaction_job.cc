@@ -1067,7 +1067,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           // We use indices[i] to get the index of the file in the compaction.inputs_ struct
           const Compaction *our_compaction = sub_compact->compaction;
           int cur = 0;
-          FileMetaData *file_meta;
+          FileMetaData *file_meta = nullptr;
           for (size_t j = 0; j < our_compaction->num_input_levels(); j++) {
             for (size_t k = 0; k < our_compaction->num_input_files(j); k++) {
               if (cur == indices[i]) {
