@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.11.2 (02/24/2018)
+### Bug Fixes
+* Fix bug in iterator readahead causing blocks to incorrectly be considered truncated (corrupted).
 
 ## 5.11.1 (02/22/2018)
 ### New Features
