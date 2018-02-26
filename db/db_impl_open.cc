@@ -356,11 +356,15 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
-    // Check file system type
-    bool directio_supported = env_->SupportsDirectIO(IdentityFileName(dbname_));
-    if (!directio_supported && immutable_db_options_.use_direct_reads) {
-      return Status::NotSupported(
-          "Direct I/O is not supported by the specified DB.");
+    // Verify compatibility of env_options_ and filesystem
+    {
+      unique_ptr<SequentialFile> idfile;
+      s = env_->NewSequentialFile(IdentityFileName(dbname_), &idfile,
+                                  env_options_);
+      if (!s.ok()) {
+        return Status::NotSupported(
+            "Found options incompatible with filesystem. Check your options.");
+      }
     }
   }
 

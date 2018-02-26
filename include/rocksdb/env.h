@@ -446,9 +446,6 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
-  // Checks if the filesystem represented by path supports direct I/O
-  virtual bool SupportsDirectIO(const std::string& path) { return true; }
-
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
