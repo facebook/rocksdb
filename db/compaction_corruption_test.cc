@@ -89,7 +89,7 @@ TEST_F(CompactionCorruptionTest, CancellingCompactionsWorks) {
   }
   ASSERT_OK(Flush());
 
-  reinterpret_cast<BitCorruptionInjectionTestEnv *>(options.env)->SetUber(600);
+  reinterpret_cast<BitCorruptionInjectionTestEnv *>(options.env)->SetUber(400);
   dbfull()->SetOptions({{"disable_auto_compactions", "false"}});
   dbfull()->TEST_WaitForCompact();
 

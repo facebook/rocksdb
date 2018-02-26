@@ -91,8 +91,60 @@ class TwoLevelIterator : public InternalIterator {
     return second_level_iter_.iter();
   }
 
+  virtual std::vector<Slice> BeginKeys() override {
+    return beginKeys;
+  }
+
+  virtual std::vector<Slice> EndKeys() override {
+    return endKeys;
+  }
+
  private:
   void SaveError(const Status& s) {
+    // If the status is corruption AND we are a lower-level block iter,
+    // we want to save this current key range so that later functions
+    // can pull these key ranges out
+    if (s.IsCorruption() && first_level_iter_.iter()->IsBlockIter()) {
+      // Great! Then we are at the lowest level of the iterator
+      // To fetch the key range: start is the prev-prev key of first_level_iter
+      // and the prev key is the end of the range.
+      // This is because you don't discover that a data block iterator has a corrupt status
+      // until the next data block, when TwoLevelIterator::SaveError is called in
+      // TwoLevelIterator::SetSecondLevelIterator
+      if (!first_level_iter_.Valid()) {
+        //Then we are at the end of the index block.
+        first_level_iter_.SeekToLast();
+      } else {
+        first_level_iter_.Prev();
+      }
+      if (first_level_iter_.Valid()) {
+        endKeys.emplace_back(first_level_iter_.iter()->user_key());
+        first_level_iter_.Prev();
+        if (first_level_iter_.Valid()) {
+          beginKeys.emplace_back(first_level_iter_.iter()->user_key());
+        } else {
+          // Then we've hit the beginning of the index block, which means we need to get
+          // info from FileMetaData
+          // We don't have that information at this layer, so we insert a place-holder string
+          // so that the CompactionJob can get the correct info
+          beginKeys.emplace_back(SPECIAL_SLICE);
+        }
+      } else {
+        // OK, something is seriously wrong if this is invalid, because the NEXT entry
+        // is valid....
+        fprintf(stderr, "Why does the iterator become invalid in the middle?!\n");
+      }
+      // OK, now reset the first-level iterator
+      if (!first_level_iter_.Valid()) {
+        first_level_iter_.SeekToFirst();
+      } else {
+        first_level_iter_.Next();
+      }
+      // If it's no longer valid now, then it's because we've hit the end
+      if (first_level_iter_.Valid()) {
+        first_level_iter_.Next();
+      }
+    }
     if (status_.ok() && !s.ok()) status_ = s;
   }
   void SkipEmptyDataBlocksForward();
@@ -109,6 +161,9 @@ class TwoLevelIterator : public InternalIterator {
   // If second_level_iter is non-nullptr, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the second_level_iter.
   std::string data_block_handle_;
+
+  std::vector<Slice> beginKeys;
+  std::vector<Slice> endKeys;
 };
 
 TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,

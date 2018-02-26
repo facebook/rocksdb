@@ -14,6 +14,8 @@
 
 namespace rocksdb {
 
+#define SPECIAL_SLICE Slice("DEADBEEF", 8)
+
 class PinnedIteratorsManager;
 
 class InternalIterator : public Cleanable {
@@ -106,6 +108,8 @@ class InternalIterator : public Cleanable {
   // Only for BlockIter
   virtual Slice user_key() {return key();}
   virtual bool IsBlockIter() {return false;}
+  virtual std::vector<Slice> BeginKeys() {return std::vector<Slice>();}
+  virtual std::vector<Slice> EndKeys() {return std::vector<Slice>();}
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {

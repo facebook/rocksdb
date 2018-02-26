@@ -1018,52 +1018,22 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     for (InternalIterator * it : corruptedChildren) {
       // For each iterator that has a corrupted status, fetch the key range of the
       // corrupted data block. These are guaranteed to be TwoLevelIterators
-      InternalIterator *first_level_iter = nullptr;
-      first_level_iter = it->FirstLevelIter();
-      if (first_level_iter == nullptr) {
-        //Oops.....
-        fprintf(stderr, "why is first_level_iter a nullptr??\n");
-        continue;
-      }
-      if (!first_level_iter->IsBlockIter()) {
+      InternalIterator *iter_with_ranges = nullptr;
+      if (!it->FirstLevelIter()->IsBlockIter()) {
         // Otherwise, second_level_iter is another TwoLevelIterator, and we do it again
-        InternalIterator *second_level_iter = nullptr;
-        second_level_iter = it->SecondLevelIter();
-        first_level_iter = second_level_iter->FirstLevelIter();
-        second_level_iter = second_level_iter->SecondLevelIter();
-        if (first_level_iter == nullptr) {
-          //Oops.....
-          fprintf(stderr, "one level of recursion in...\n");
-          continue;
-        }
-        if (!first_level_iter->IsBlockIter()) {
+        if (!it->SecondLevelIter()->FirstLevelIter()->IsBlockIter()) {
           //Oops.. There shouldn't be another level here...
           fprintf(stderr, "A two-level iterator with recursions > 2??\n");
           continue;
         }
-      }
-      assert(first_level_iter->IsBlockIter());
-
-      // Great! Then we are at the lowest level of the iterator
-      // To fetch the key range: start is the prev-prev key of first_level_iter
-      // and the prev key is the end of the range.
-      // This is because you don't discover that a data block iterator has a corrupt status
-      // until the next data block, when TwoLevelIterator::SaveError is called in
-      // TwoLevelIterator::SetSecondLevelIterator
-      if (!first_level_iter->Valid()) {
-        //Then we are at the end of the index block.
-        first_level_iter->SeekToLast();
+        iter_with_ranges = it->SecondLevelIter();
       } else {
-        first_level_iter->Prev();
+        iter_with_ranges = it;
       }
-      if (first_level_iter->Valid()) {
-        sub_compact->endKeys.emplace_back(first_level_iter->user_key());
-        first_level_iter->Prev();
-        if (first_level_iter->Valid()) {
-          sub_compact->beginKeys.emplace_back(first_level_iter->user_key());
-        } else {
-          // Then we've hit the beginning of the index block, which means we need to get
-          // info from FileMetaData
+      // OK, now go through the beginKeys vector to fill in any key ranges that start
+      // with SPECIAL_SLICE, because this means they need info from FileMetaData
+      for (size_t index = 0; index < iter_with_ranges->BeginKeys().size(); index++) {
+        if ((iter_with_ranges->BeginKeys())[index] == SPECIAL_SLICE) {
           // We use indices[i] to get the index of the file in the compaction.inputs_ struct
           const Compaction *our_compaction = sub_compact->compaction;
           int cur = 0;
@@ -1083,12 +1053,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           } else {
             fprintf(stderr, "Uhm, couldn't find the FileMetaData for this file?!\n");
           }
+        } else {
+          sub_compact->beginKeys.emplace_back(iter_with_ranges->BeginKeys()[index]);
         }
-      } else {
-        // OK, something is seriously wrong if this is invalid, because the NEXT entry
-        // is valid....
-        fprintf(stderr, "Why does the iterator become invalid in the middle?!\n");
-        continue;
+        sub_compact->endKeys.emplace_back(iter_with_ranges->EndKeys()[index]);
       }
       i++;
     }
