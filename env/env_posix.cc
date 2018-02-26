@@ -823,6 +823,7 @@ class PosixEnv : public Env {
   }
 
   virtual bool SupportsDirectIO(const std::string& path) override {
+#ifdef OS_LINUX
     struct statfs s;
     if (statfs(path.c_str(), &s)) {
       return false;
@@ -833,6 +834,9 @@ class PosixEnv : public Env {
       default:
         return true;
     }
+#else
+    return true;
+#endif
   }
 
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
