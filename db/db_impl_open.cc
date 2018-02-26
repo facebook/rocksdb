@@ -359,20 +359,23 @@ Status DBImpl::Recover(
     // Verify compatibility of env_options_ and filesystem
     {
       unique_ptr<RandomAccessFile> idfile;
+      EnvOptions optimized_env(env_options_);
+      optimized_env.use_direct_reads |=
+          immutable_db_options_.use_direct_io_for_flush_and_compaction;
       s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
-                                  env_options_);
+                                    optimized_env);
       if (!s.ok()) {
-        const char* errorMsg = s.ToString().c_str();
-        // Check if use_direct_reads is the root cause
+        const char* error_msg = s.ToString().c_str();
+        // Check if unsupported Direct I/O is the root cause
+        optimized_env.use_direct_reads = false;
         s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
-                                    env_->OptimizeForLogRead(env_options_));
+                                      optimized_env);
         if (s.ok()) {
           return Status::NotSupported(
               "Direct I/O is not supported by the specified DB.");
-        }
-        else {
+        } else {
           return Status::InvalidArgument(
-              "Found options incompatible with filesystem", errorMsg);
+              "Found options incompatible with filesystem", error_msg);
         }
       }
     }
