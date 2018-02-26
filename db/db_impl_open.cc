@@ -356,6 +356,12 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
+    // Check file system type
+    bool directio_supported = env_->SupportsDirectIO(IdentityFileName(dbname_));
+    if (!directio_supported && immutable_db_options_.use_direct_reads) {
+      return Status::NotSupported(
+          "Direct I/O is not supported by the specified DB.");
+    }
   }
 
   Status s = versions_->Recover(column_families, read_only);

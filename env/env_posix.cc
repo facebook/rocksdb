@@ -822,6 +822,19 @@ class PosixEnv : public Env {
     return dummy;
   }
 
+  virtual bool SupportsDirectIO(const std::string& path) override {
+    struct statfs s;
+    if (statfs(path.c_str(), &s)) {
+      return false;
+    }
+    switch (s.f_type) {
+      case TMPFS_MAGIC:
+        return false;
+      default:
+        return true;
+    }
+  }
+
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
                                  const DBOptions& db_options) const override {
     EnvOptions optimized = env_options;
