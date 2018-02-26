@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "rocksdb/status.h"
-#include "db/compaction.h"
 
 namespace rocksdb {
 
@@ -36,6 +35,10 @@ class SstFileManager {
   // thread-safe.
   virtual void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) = 0;
 
+  // Set the amount of buffer room each compaction should be able to leave.
+  // In other words, at its maximum disk space consumption, the compaction
+  // should still leave compaction_buffer_size available on the disk so that
+  // other background functions may continue, such as logging and flushing.
   virtual void SetCompactionBufferSize(uint64_t compaction_buffer_size) = 0;
 
   // Return true if the total size of SST files exceeded the maximum allowed
@@ -47,15 +50,6 @@ class SstFileManager {
   // Returns true if the total size of SST files as well as estimated size
   // of ongoing compactions exceeds the maximums allowed space usage.
   virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
-
-  // Returns true is there is enough (approximate) space for the specified
-  // compaction. Space is approximate because this function conservatively
-  // estimates how much space is currently being used by compactions (i.e.
-  // if a compaction has started, this function bumps the used space by
-  // the full compaction size).
-  virtual bool EnoughRoomForCompaction(Compaction *c) = 0;
-
-  virtual void OnCompactionCompletion(Compaction *c) = 0;
 
   // Return the total size of all tracked files.
   // thread-safe

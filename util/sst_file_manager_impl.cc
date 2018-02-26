@@ -124,6 +124,11 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction *c) {
   return true;
 }
 
+uint64_t SstFileManagerImpl::GetCompactionsReservedSize() {
+  MutexLock l(&mu_);
+  return cur_compactions_reserved_size_;
+}
+
 uint64_t SstFileManagerImpl::GetTotalSize() {
   MutexLock l(&mu_);
   return total_files_size_;

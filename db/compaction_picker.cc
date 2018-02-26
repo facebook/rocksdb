@@ -1083,6 +1083,7 @@ void LevelCompactionBuilder::PickFilesMarkedForCompaction() {
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
   bool skipped_l0_to_base = false;
+  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
   for (int i = 0; i < compaction_picker_->NumberLevels() - 1; i++) {
     start_level_score_ = vstorage_->CompactionScore(i);
     start_level_ = vstorage_->CompactionScoreLevel(i);

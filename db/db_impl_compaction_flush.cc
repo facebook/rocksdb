@@ -1493,7 +1493,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     if (made_progress ||
         (bg_compaction_scheduled_ == 0 &&
          bg_bottom_compaction_scheduled_ == 0) ||
-        HasPendingManualCompaction()) {
+        HasPendingManualCompaction() || unscheduled_compactions_ == 0) {
       // signal if
       // * made_progress -- need to wakeup DelayWrite
       // * bg_{bottom,}_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
@@ -1648,8 +1648,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           ++unscheduled_compactions_;
 
           c.reset();
-          // Sleep for 1 ms?
-          env_->SleepForMicroseconds(1000000);
+          // Don't need to sleep here, because BackgroundCallCompaction will sleep if !s.ok()
+          status = Status::Aborted();
         } else {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
@@ -1848,7 +1848,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   // this will unref its input_version and column_family_data
   c.reset();
 
-  if (status.ok()) {
+  if (status.ok() || status.IsAborted()) {
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down

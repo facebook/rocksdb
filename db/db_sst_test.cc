@@ -547,11 +547,18 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   options.level0_file_num_compaction_trigger = 2;
   DestroyAndReopen(options);
 
-  int cancelled_compaction=0;
+  int cancelled_compaction = 0;
+  int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction():CancelledCompaction",
       [&](void* arg) {
         cancelled_compaction++;
+        sfm->SetMaxAllowedSpaceUsage(0);
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
+      [&](void* arg) {
+        completed_compactions++;
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -575,6 +582,8 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   dbfull()->TEST_WaitForCompact();
 
   ASSERT_GT(cancelled_compaction, 0);
+  ASSERT_GT(completed_compactions, 0);
+  ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
