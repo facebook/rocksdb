@@ -530,9 +530,10 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
 
   Status result;
   // Check if this key is already locked
-  if (stripe->keys.find(key) != stripe->keys.end()) {
+  auto stripe_iter = stripe->keys.find(key);
+  if (stripe_iter != stripe->keys.end()) {
     // Lock already held
-    LockInfo& lock_info = stripe->keys.at(key);
+    LockInfo& lock_info = stripe_iter->second;
     assert(lock_info.txn_ids.size() == 1 || !lock_info.exclusive);
 
     if (lock_info.exclusive || txn_lock_info.exclusive) {

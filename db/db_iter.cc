@@ -217,6 +217,9 @@ class DBIter final: public Iterator {
         *prop = "Iterator is not valid.";
       }
       return Status::OK();
+    } else if (prop_name == "rocksdb.iterator.internal-key") {
+      *prop = saved_key_.GetUserKey().ToString();
+      return Status::OK();
     }
     return Status::InvalidArgument("Undentified property.");
   }

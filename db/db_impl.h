@@ -704,6 +704,9 @@ class DBImpl : public DB {
   // The writer must be the leader in write_thread_ and holding mutex_
   Status WriteRecoverableState();
 
+  // Actual implementation of Close()
+  Status CloseImpl();
+
  private:
   friend class DB;
   friend class InternalStats;
@@ -930,8 +933,7 @@ class DBImpl : public DB {
 
   uint64_t GetMaxTotalWalSize() const;
 
-  // Actual implementation of Close()
-  virtual Status CloseImpl();
+  Status CloseHelper();
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;

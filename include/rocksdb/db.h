@@ -175,8 +175,10 @@ class DB {
   // called before calling the desctructor so that the caller can get back a
   // status in case there are any errors. This will not fsync the WAL files.
   // If syncing is required, the caller must first call SyncWAL.
-  // Regardless of the return status, the DB must be freed
-  virtual Status Close() { return Status::OK(); }
+  // Regardless of the return status, the DB must be freed. If the return
+  // status is NotSupported(), then the DB implementation does cleanup in the
+  // destructor
+  virtual Status Close() { return Status::NotSupported(); }
 
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB

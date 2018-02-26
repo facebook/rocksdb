@@ -850,23 +850,43 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 
 class TestEnv : public EnvWrapper {
   public:
-    explicit TestEnv(Env* base) : EnvWrapper(base) { };
+    explicit TestEnv() : EnvWrapper(Env::Default()),
+                close_count(0) { }
 
     class TestLogger : public Logger {
       public:
         using Logger::Logv;
-        virtual void Logv(const char *format, va_list ap) override { };
-      private:
-        virtual Status CloseImpl() override {
-          return Status::NotSupported();
+        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
+        ~TestLogger() {
+          if (!closed_) {
+            CloseHelper();
+          }
         }
+        virtual void Logv(const char *format, va_list ap) override { };
+      protected:
+        virtual Status CloseImpl() override {
+          return CloseHelper();
+        }
+      private:
+        Status CloseHelper() {
+          env->CloseCountInc();;
+          return Status::IOError();
+        }
+        TestEnv *env;
     };
+
+    void CloseCountInc() { close_count++; }
+
+    int GetCloseCount() { return close_count; }
 
     virtual Status NewLogger(const std::string& fname,
                              shared_ptr<Logger>* result) {
-      result->reset(new TestLogger());
+      result->reset(new TestLogger(this));
       return Status::OK();
     }
+
+  private:
+    int close_count;
 };
 
 TEST_F(DBBasicTest, DBClose) {
@@ -875,19 +895,29 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
+  TestEnv *env = new TestEnv();
   options.create_if_missing = true;
-  options.env = new TestEnv(Env::Default());
+  options.env = env;
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
   s = db->Close();
-  ASSERT_EQ(s, Status::NotSupported());
+  ASSERT_EQ(env->GetCloseCount(), 1);
+  ASSERT_EQ(s, Status::IOError());
 
   delete db;
+  ASSERT_EQ(env->GetCloseCount(), 1);
+
+  // Do not call DB::Close() and ensure our logger Close() still gets called
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 2);
 
   // Provide our own logger and ensure DB::Close() does not close it
-  options.info_log.reset(new TestEnv::TestLogger());
+  options.info_log.reset(new TestEnv::TestLogger(env));
   options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
@@ -896,6 +926,10 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
+  ASSERT_EQ(env->GetCloseCount(), 2);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 3);
+
   delete options.env;
 }
 

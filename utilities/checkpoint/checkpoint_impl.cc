@@ -62,9 +62,10 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
   size_t final_nonslash_idx = checkpoint_dir.find_last_not_of('/');
   if (final_nonslash_idx == std::string::npos) {
-    // npos means it's only slashes, which means it's the root directory, but it
-    // shouldn't be because we verified above the directory doesn't exist.
-    assert(false);
+    // npos means it's only slashes or empty. Non-empty means it's the root
+    // directory, but it shouldn't be because we verified above the directory
+    // doesn't exist.
+    assert(checkpoint_dir.empty());
     return Status::InvalidArgument("invalid checkpoint directory name");
   }
 
