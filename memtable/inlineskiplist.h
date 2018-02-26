@@ -461,6 +461,7 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   Node* last_bigger = nullptr;
+  const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
     Node* next = x->Next(level);
     if (next != nullptr) {
@@ -469,10 +470,10 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     // Make sure we haven't overshot during our search
-    assert(x == head_ || KeyIsAfterNode(key, x));
+    assert(x == head_ || KeyIsAfterNode(key_decoded, x));
     int cmp = (next == nullptr || next == last_bigger)
                   ? 1
-                  : compare_(next->Key(), key);
+                  : compare_(next->Key(), key_decoded);
     if (cmp == 0 || (cmp > 0 && level == 0)) {
       return next;
     } else if (cmp < 0) {
@@ -502,6 +503,7 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
   Node* x = root;
   // KeyIsAfter(key, last_not_after) is definitely false
   Node* last_not_after = nullptr;
+  const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
     assert(x != nullptr);
     Node* next = x->Next(level);
@@ -509,8 +511,8 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
       PREFETCH(next->Next(level), 0, 1);
     }
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
-    assert(x == head_ || KeyIsAfterNode(key, x));
-    if (next != last_not_after && KeyIsAfterNode(key, next)) {
+    assert(x == head_ || KeyIsAfterNode(key_decoded, x));
+    if (next != last_not_after && KeyIsAfterNode(key_decoded, next)) {
       // Keep searching in this list
       assert(next != nullptr);
       x = next;
@@ -555,13 +557,14 @@ uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
 
   Node* x = head_;
   int level = GetMaxHeight() - 1;
+  const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
-    assert(x == head_ || compare_(x->Key(), key) < 0);
+    assert(x == head_ || compare_(x->Key(), key_decoded) < 0);
     Node* next = x->Next(level);
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
     }
-    if (next == nullptr || compare_(next->Key(), key) >= 0) {
+    if (next == nullptr || compare_(next->Key(), key_decoded) >= 0) {
       if (level == 0) {
         return count;
       } else {
