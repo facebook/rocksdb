@@ -362,8 +362,18 @@ Status DBImpl::Recover(
       s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
                                   env_options_);
       if (!s.ok()) {
-        return Status::InvalidArgument(
-            "Found options incompatible with filesystem", s.getState());
+        const char* errorMsg = s.ToString().c_str();
+        // Check if use_direct_reads is the root cause
+        s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
+                                    env_->OptimizeForLogRead(env_options_));
+        if (s.ok()) {
+          return Status::NotSupported(
+              "Direct I/O is not supported by the specified DB.");
+        }
+        else {
+          return Status::InvalidArgument(
+              "Found options incompatible with filesystem", errorMsg);
+        }
       }
     }
   }
