@@ -358,12 +358,12 @@ Status DBImpl::Recover(
     }
     // Verify compatibility of env_options_ and filesystem
     {
-      unique_ptr<SequentialFile> idfile;
-      s = env_->NewSequentialFile(IdentityFileName(dbname_), &idfile,
+      unique_ptr<RandomAccessFile> idfile;
+      s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
                                   env_options_);
       if (!s.ok()) {
-        return Status::NotSupported(
-            "Found options incompatible with filesystem. Check your options.");
+        return Status::InvalidArgument(
+            "Found options incompatible with filesystem", s.getState());
       }
     }
   }
