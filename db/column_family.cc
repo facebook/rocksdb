@@ -295,11 +295,13 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.hard_pending_compaction_bytes_limit;
   }
 
+  if (result.cf_paths.empty()) {
+    result.cf_paths = db_options.db_paths;
+  }
+
   if (result.level_compaction_dynamic_level_bytes) {
-    bool multiple_db_paths = (result.cf_paths.size() > 1U ||
-        (result.cf_paths.size() == 0U && db_options.db_paths.size() > 1U));
     if (result.compaction_style != kCompactionStyleLevel ||
-        multiple_db_paths) {
+        result.cf_paths.size() > 1U) {
       // 1. level_compaction_dynamic_level_bytes only makes sense for
       //    level-based compaction.
       // 2. we don't yet know how to make both of this feature and multiple
