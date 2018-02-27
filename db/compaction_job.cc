@@ -720,17 +720,19 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       kUseZstdTrainer ? cfd->ioptions()->compression_opts.zstd_max_train_bytes
                       : cfd->ioptions()->compression_opts.max_dict_bytes;
   const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
-  std::set<uint64_t> sample_begin_offsets;
+  std::set<size_t> sample_begin_offsets;
   if (bottommost_level_ && kSampleBytes > 0) {
     const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
-    const uint64_t kOutFileLen = mutable_cf_options->MaxFileSizeForLevel(
-        compact_->compaction->output_level());
+    const size_t kOutFileLen = static_cast<size_t>(
+      mutable_cf_options->MaxFileSizeForLevel(
+        compact_->compaction->output_level()));
     if (kOutFileLen != port::kMaxSizet) {
-      const uint64_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
+      const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
       Random64 generator{versions_->NewFileNumber()};
       for (size_t i = 0; i < kMaxSamples; ++i) {
-        sample_begin_offsets.insert(generator.Uniform(kOutFileNumSamples)
-                                    << kSampleLenShift);
+        sample_begin_offsets.insert(
+          static_cast<size_t>(generator.Uniform(kOutFileNumSamples))
+            << kSampleLenShift);
       }
     }
   }
@@ -839,14 +841,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         size_t data_end_offset = data_begin_offset + data_elmt.size();
         while (sample_begin_offset_iter != sample_begin_offsets.cend() &&
                *sample_begin_offset_iter < data_end_offset) {
-          uint64_t sample_end_offset =
+          size_t sample_end_offset =
               *sample_begin_offset_iter + (1 << kSampleLenShift);
           // Invariant: Because we advance sample iterator while processing the
           // data_elmt containing the sample's last byte, the current sample
           // cannot end before the current data_elmt.
           assert(data_begin_offset < sample_end_offset);
 
-          uint64_t data_elmt_copy_offset, data_elmt_copy_len;
+          size_t data_elmt_copy_offset, data_elmt_copy_len;
           if (*sample_begin_offset_iter <= data_begin_offset) {
             // The sample starts before data_elmt starts, so take bytes starting
             // at the beginning of data_elmt.
@@ -869,7 +871,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                 data_end_offset - (data_begin_offset + data_elmt_copy_offset);
           }
           dict_sample_data.append(&data_elmt.data()[data_elmt_copy_offset],
-                                  static_cast<size_t>(data_elmt_copy_len));
+                                  data_elmt_copy_len);
           if (sample_end_offset > data_end_offset) {
             // Didn't finish sample. Try to finish it with the next data_elmt.
             break;

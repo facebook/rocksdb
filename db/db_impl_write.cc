@@ -1369,22 +1369,24 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
 size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
   mutex_.AssertHeld();
-  uint64_t bsize = write_buffer_size / 10 + write_buffer_size;
+  size_t bsize = static_cast<size_t>(
+    write_buffer_size / 10 + write_buffer_size);
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
   if (mutable_db_options_.max_total_wal_size > 0) {
-    bsize = std::min<uint64_t>(bsize, mutable_db_options_.max_total_wal_size);
+    bsize = std::min<size_t>(bsize, static_cast<size_t>(
+      mutable_db_options_.max_total_wal_size));
   }
   if (immutable_db_options_.db_write_buffer_size > 0) {
-    bsize = std::min<uint64_t>(bsize, immutable_db_options_.db_write_buffer_size);
+    bsize = std::min<size_t>(bsize, immutable_db_options_.db_write_buffer_size);
   }
   if (immutable_db_options_.write_buffer_manager &&
       immutable_db_options_.write_buffer_manager->enabled()) {
-    bsize = std::min<uint64_t>(
+    bsize = std::min<size_t>(
         bsize, immutable_db_options_.write_buffer_manager->buffer_size());
   }
 
-  return static_cast<size_t>(bsize);
+  return bsize;
 }
 
 // Default implementations of convenience methods that subclasses of DB

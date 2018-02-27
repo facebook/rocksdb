@@ -89,11 +89,11 @@ void HistogramWindowingImpl::Merge(const HistogramWindowingImpl& other) {
         (cur_window + num_windows_ - i) % num_windows_;
     uint64_t other_window_index =
         (other_cur_window + other.num_windows_ - i) % other.num_windows_;
-    size_t window_index_ = static_cast<size_t>(window_index);
-    size_t other_window_index_ = static_cast<size_t>(other_window_index);
+    size_t windex = static_cast<size_t>(window_index);
+    size_t other_windex = static_cast<size_t>(other_window_index);
 
-    window_stats_[window_index_].Merge(
-      other.window_stats_[other_window_index_]);
+    window_stats_[windex].Merge(
+      other.window_stats_[other_windex]);
   }
 }
 
