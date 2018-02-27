@@ -134,8 +134,7 @@ Status ExternalSstFileIngestionJob::Prepare(
 
 Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
-  std::vector<Range> ranges;
-  ranges.reserve(files_to_ingest_.size());
+  autovector<Range> ranges;
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
     ranges.emplace_back(file_to_ingest.smallest_user_key,
                         file_to_ingest.largest_user_key);

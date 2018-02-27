@@ -281,7 +281,7 @@ class ColumnFamilyData {
   //    duration of this function.
   //
   // Thread-safe
-  Status RangesOverlapWithMemtables(const std::vector<Range>& ranges,
+  Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
                                     SuperVersion* super_version, bool* overlap);
 
   // A flag to tell a manual compaction is to compact all levels together

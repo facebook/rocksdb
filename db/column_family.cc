@@ -883,7 +883,7 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 }
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
-    const std::vector<Range>& ranges, SuperVersion* super_version,
+    const autovector<Range>& ranges, SuperVersion* super_version,
     bool* overlap) {
   assert(overlap != nullptr);
   *overlap = false;
