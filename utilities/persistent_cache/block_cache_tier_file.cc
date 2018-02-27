@@ -24,9 +24,10 @@ namespace rocksdb {
 //
 Status NewWritableCacheFile(Env* const env, const std::string& filepath,
                             std::unique_ptr<WritableFile>* file,
-                            const bool use_direct_writes = false) {
+                            const bool use_direct_io_for_flush_and_compaction = false) {
   EnvOptions opt;
-  opt.use_direct_writes = use_direct_writes;
+  opt.use_direct_writes = 
+    use_direct_io_for_flush_and_compaction;
   Status s = env->NewWritableFile(filepath, file, opt);
   return s;
 }

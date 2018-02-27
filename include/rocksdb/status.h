@@ -18,7 +18,12 @@
 #define STORAGE_ROCKSDB_INCLUDE_STATUS_H_
 
 #include <string>
+#include <utility>
 #include "rocksdb/slice.h"
+
+#ifdef ROCKSDB_COROUTINES
+#include "rocksdb/async/coro_promise.h"
+#endif // ROCKSDB_COROUTINES
 
 namespace rocksdb {
 
@@ -241,6 +246,21 @@ class Status {
   // Returns the string "OK" for success.
   std::string ToString() const;
 
+#ifdef ROCKSDB_COROUTINES
+  // Will be invoked automatically by the compiler
+  // via promise_type to facilitate a customization point
+  void SetCohandle(void* ch) {
+    ch_ = ch;
+  }
+
+  void* GetCohandle() const {
+    assert(ch_);
+    return ch_;
+  }
+private:
+  void* ch_ = nullptr;
+#endif // ROCKSDB_COROUTINES
+
  private:
   // A nullptr state_ (which is always the case for OK) means the message
   // is empty.
@@ -263,13 +283,22 @@ class Status {
   static const char* CopyState(const char* s);
 };
 
-inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_) {
+inline Status::Status(const Status& s) : 
+#ifdef ROCKSDB_COROUTINES
+  ch_(s.ch_),
+#endif // ROCKSDB_COROUTINES
+  code_(s.code_),
+  subcode_(s.subcode_) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status& Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
   // and the common case where both s and *this are ok.
   if (this != &s) {
+#ifdef ROCKSDB_COROUTINES
+    assert(!ch_);
+    ch_ = s.ch_;
+#endif // ROCKSDB_COROUTINES
     code_ = s.code_;
     subcode_ = s.subcode_;
     delete[] state_;
@@ -292,6 +321,10 @@ inline Status& Status::operator=(Status&& s)
 #endif
 {
   if (this != &s) {
+#ifdef ROCKSDB_COROUTINES
+    ch_ = s.ch_,
+    s.ch_ = nullptr;
+#endif // ROCKSDB_COROUTINES
     code_ = std::move(s.code_);
     s.code_ = kOk;
     subcode_ = std::move(s.subcode_);
@@ -311,6 +344,105 @@ inline bool Status::operator!=(const Status& rhs) const {
   return !(*this == rhs);
 }
 
+#ifdef ROCKSDB_COROUTINES
+
+struct StatusPromiseType : PromiseType<Status> {
+  Status get_return_object() {
+    Status s;
+    auto ch = std::experimental::coroutine_handle<StatusPromiseType>::from_promise(*this);
+    s.SetCohandle(ch.address());
+    return s;
+  }
+};
+
+#endif // ROCKSDB_COROUTINES
+
 }  // namespace rocksdb
+
+#ifdef ROCKSDB_COROUTINES
+
+namespace std {
+namespace experimental {
+// traits specialization for coroutines that return
+// Status which is most of them.
+  //
+// In coroutines, this return type does not really deliver the status
+// rather it preserves the signature of the function
+// and allows us to gain access to the callee handle
+// The actual return Status value is delivered when co_return
+// executes via return_value()/await_resume sequence exchange the
+// result_ value by means of the promise_type
+template<class ...ArgTypes>
+struct coroutine_traits<rocksdb::Status, ArgTypes...> {
+  using promise_type = rocksdb::StatusPromiseType;
+}; // coroutine_traits
+} // experimental
+} // std
+
+namespace rocksdb {
+// Overload operator co_await for the status so we do not have to make
+// Status itself awaitable
+struct AwaitableStatus {
+
+  using promise_type = StatusPromiseType;
+
+  std::experimental::coroutine_handle<promise_type> ch_;
+
+  AwaitableStatus() : ch_(nullptr) {}
+  explicit
+    AwaitableStatus(std::experimental::coroutine_handle<promise_type> ch) :
+    ch_(ch) {
+  }
+  AwaitableStatus(const AwaitableStatus&) = delete;
+  AwaitableStatus& operator=(const AwaitableStatus&) = delete;
+  AwaitableStatus(AwaitableStatus&& o) noexcept
+    : ch_(nullptr) {
+    *this = std::move(o);
+  }
+  AwaitableStatus& operator=(AwaitableStatus&& o) noexcept {
+    assert(!ch_);
+    ch_ = o.ch_;
+    o.ch_ = nullptr;
+    return *this;
+  }
+  ~AwaitableStatus() {
+    if (ch_) { ch_.destroy(); }
+  }
+  // Awaitable API
+  bool await_ready() {
+    return false;
+  }
+  // capture caller's handle on initial_suspend
+  // and resume the callee
+  void await_suspend(std::experimental::coroutine_handle<> CallerCoro) {
+    ch_.promise().cb_ = CallerCoro;
+    ch_.resume();
+  }
+  // Deliver the return value once we are resumed
+  // this becomes the result of the co_await
+  // resume occurs essentially on callback when
+  // the callee is in its final_suspend
+  rocksdb::Status await_resume() {
+    return ch_.promise().result_;
+  }
+};
+
+inline
+AwaitableStatus operator co_await(const rocksdb::Status& s) {
+  auto ch = std::experimental::coroutine_handle<AwaitableStatus::promise_type>::from_address(s.GetCohandle());
+  return AwaitableStatus(ch);
+}
+} // rocksdb
+
+#endif // ROCKSDB_COROUTINES
+
+// XXX:  Put it here for now, should be some place in port
+#ifdef ROCKSDB_COROUTINES
+  #define RDB_AWAIT  co_await
+  #define RDB_RETURN co_return
+#else
+#define RDB_AWAIT
+#define RDB_RETURN return
+#endif // ROCKSDB_COROUTINES
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

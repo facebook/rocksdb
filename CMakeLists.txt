@@ -163,6 +163,15 @@ target_include_directories(build_version PRIVATE
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
+
+   # Co-routines support
+   option(WITH_COROUTINES "build with coroutines support" OFF)
+   if(WITH_COROUTINES)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /await")
+    add_definitions(-DROCKSDB_COROUTINES)
+    message(STATUS "Coroutines enabled")
+   endif()
+
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
@@ -650,6 +659,8 @@ endif(HAVE_POWER8)
 
 if(WIN32)
   list(APPEND SOURCES
+    port/win/asyncthreadpoolimpl.cc
+    port/win/iocompletion.cc
     port/win/io_win.cc
     port/win/env_win.cc
     port/win/env_default.cc
@@ -966,6 +977,11 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
+
+   if(WITH_COROUTINES)
+    list(APPEND TESTS async/coroutine_random_access_test.cc)
+   endif()
+
 
   # Tests are excluded from Release builds
   set(TEST_EXES ${TESTS})

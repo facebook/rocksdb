@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/async/asyncthreadpool.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
@@ -354,6 +355,9 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter = nullptr;
 
+  // A thread-pool that is capable of handling async IO operations
+  std::shared_ptr<async::AsyncThreadPool>  async_threadpool = nullptr;
+
   // Use to track SST files and control their file deletion rate.
   //
   // Features:
@@ -599,6 +603,12 @@ struct DBOptions {
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;
+
+  // If true, random reads will be performed
+  // in async manner. ReadOptions must also have
+  // async_reads = true set and a callback for
+  // the DB::Get()/DB::MultiGet
+  bool use_async_reads = false;
 
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;

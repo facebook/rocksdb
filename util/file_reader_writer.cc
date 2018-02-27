@@ -148,6 +148,88 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
+#ifdef ROCKSDB_COROUTINES
+Status RandomAccessFileReader::RequestRead(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+  Status s;
+  uint64_t elapsed = 0;
+  {
+    StopWatch sw(env_, stats_, hist_type_,
+      (stats_ != nullptr) ? &elapsed : nullptr);
+    IOSTATS_TIMER_GUARD(read_nanos);
+    if (use_direct_io()) {
+#ifndef ROCKSDB_LITE
+      size_t alignment = file_->GetRequiredBufferAlignment();
+      size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
+      size_t offset_advance = offset - aligned_offset;
+      size_t read_size = Roundup(offset + n, alignment) - aligned_offset;
+      AlignedBuffer buf;
+      buf.Alignment(alignment);
+      buf.AllocateNewBuffer(read_size);
+      while (buf.CurrentSize() < read_size) {
+        size_t allowed;
+        if (rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(
+            buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
+            Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
+        } else {
+          assert(buf.CurrentSize() == 0);
+          allowed = read_size;
+        }
+        Slice tmp;
+        // This is the await async point. The next statement most likely runs
+        // on a different thread
+        s = RDB_AWAIT file_->RequestRead(aligned_offset + buf.CurrentSize(), allowed, &tmp,
+          buf.Destination());
+        buf.Size(buf.CurrentSize() + tmp.size());
+        if (!s.ok() || tmp.size() < allowed) {
+          break;
+        }
+      }
+      size_t res_len = 0;
+      if (s.ok() && offset_advance < buf.CurrentSize()) {
+        res_len = buf.Read(scratch, offset_advance,
+          std::min(buf.CurrentSize() - offset_advance, n));
+      }
+      *result = Slice(scratch, res_len);
+#endif  // !ROCKSDB_LITE
+    } else {
+      size_t pos = 0;
+      const char* res_scratch = nullptr;
+      while (pos < n) {
+        size_t allowed;
+        if (for_compaction_ && rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
+            Env::IOPriority::IO_LOW, stats_,
+            RateLimiter::OpType::kRead);
+        } else {
+          allowed = n;
+        }
+        Slice tmp_result;
+        s = RDB_AWAIT file_->RequestRead(offset + pos, allowed, &tmp_result, scratch + pos);
+        if (res_scratch == nullptr) {
+          // we can't simply use `scratch` because reads of mmap'd files return
+          // data in a different buffer.
+          res_scratch = tmp_result.data();
+        } else {
+          // make sure chunks are inserted contiguously into `res_scratch`.
+          assert(tmp_result.data() == res_scratch + pos);
+        }
+        pos += tmp_result.size();
+        if (!s.ok() || tmp_result.size() < allowed) {
+          break;
+        }
+      }
+      *result = Slice(res_scratch, s.ok() ? pos : 0);
+    }
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+  }
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    file_read_hist_->Add(elapsed);
+  }
+  RDB_RETURN s;
+}
+#endif // ROCKSDB_COROUTINES
+
 Status WritableFileWriter::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
