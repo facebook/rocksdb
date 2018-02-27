@@ -132,11 +132,15 @@ Status ExternalSstFileIngestionJob::Prepare(
   return status;
 }
 
-Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
-  SuperVersion* super_version = cfd_->GetSuperVersion();
+Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
+                                               SuperVersion* super_version) {
+  autovector<Range> ranges;
+  for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
+    ranges.emplace_back(file_to_ingest.smallest_user_key,
+                        file_to_ingest.largest_user_key);
+  }
   Status status =
-      IngestedFilesOverlapWithMemtables(super_version, flush_needed);
-
+      cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
   if (status.ok() && *flush_needed &&
       !ingestion_options_.allow_blocking_flush) {
     status = Status::InvalidArgument("External file requires flush");
@@ -148,11 +152,12 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
 // nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
   Status status;
+  SuperVersion* super_version = cfd_->GetSuperVersion();
 #ifndef NDEBUG
   // We should never run the job with a memtable that is overlapping
   // with the files we are ingesting
   bool need_flush = false;
-  status = NeedsFlush(&need_flush);
+  status = NeedsFlush(&need_flush, super_version);
   assert(status.ok() && need_flush == false);
 #endif
 
@@ -167,7 +172,6 @@ Status ExternalSstFileIngestionJob::Run() {
   // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal
   const SequenceNumber last_seqno = versions_->LastSequence();
-  SuperVersion* super_version = cfd_->GetSuperVersion();
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
 
@@ -372,54 +376,6 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
   file_to_ingest->table_properties = *props;
 
-  return status;
-}
-
-Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
-    SuperVersion* sv, bool* overlap) {
-  *overlap = false;
-  // Create an InternalIterator over all memtables
-  Arena arena;
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(), &arena);
-  merge_iter_builder.AddIterator(sv->mem->NewIterator(ro, &arena));
-  sv->imm->AddIterators(ro, &merge_iter_builder);
-  ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
-
-  std::vector<InternalIterator*> memtable_range_del_iters;
-  auto* active_range_del_iter = sv->mem->NewRangeTombstoneIterator(ro);
-  if (active_range_del_iter != nullptr) {
-    memtable_range_del_iters.push_back(active_range_del_iter);
-  }
-  sv->imm->AddRangeTombstoneIterators(ro, &memtable_range_del_iters);
-  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
-                                   {} /* snapshots */,
-                                   false /* collapse_deletions */);
-  Status status;
-  {
-    std::unique_ptr<InternalIterator> memtable_range_del_iter(
-        NewMergingIterator(&cfd_->internal_comparator(),
-                           memtable_range_del_iters.empty()
-                               ? nullptr
-                               : &memtable_range_del_iters[0],
-                           static_cast<int>(memtable_range_del_iters.size())));
-    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
-  }
-  if (status.ok()) {
-    for (IngestedFileInfo& f : files_to_ingest_) {
-      status = IngestedFileOverlapWithIteratorRange(&f, memtable_iter.get(),
-                                                    overlap);
-      if (!status.ok() || *overlap == true) {
-        break;
-      }
-      if (range_del_agg.IsRangeOverlapped(f.smallest_user_key,
-                                          f.largest_user_key)) {
-        *overlap = true;
-        break;
-      }
-    }
-  }
   return status;
 }
 
