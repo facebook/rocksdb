@@ -114,6 +114,15 @@ Status BlockBasedTableFactory::SanitizeOptions(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
   }
+  if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
+    return Status::InvalidArgument("Enable block_align, but compression "
+        "enabled");
+  }
+  if (table_options_.block_align &&
+      (table_options_.block_size & (table_options_.block_size - 1))) {
+    return Status::InvalidArgument(
+        "Block alignment requested but block size is not a power of 2");
+  }
   return Status::OK();
 }
 

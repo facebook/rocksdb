@@ -3203,6 +3203,7 @@ TEST_F(BlockBasedTableTest, BlockAlignTest) {
   test::StringSink* sink = new test::StringSink();
   unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
   Options options;
+  options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const ImmutableCFOptions ioptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -3281,6 +3282,24 @@ TEST_F(BlockBasedTableTest, BlockAlignTest) {
   table_reader.reset();
 }
 
+TEST_F(BlockBasedTableTest, BadOptions) {
+  rocksdb::Options options;
+  options.compression = kNoCompression;
+  rocksdb::BlockBasedTableOptions bbto;
+  bbto.block_size = 4000;
+  bbto.block_align = true;
+
+  const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyDB(kDBPath, options);
+  rocksdb::DB* db;
+  ASSERT_NOK(rocksdb::DB::Open(options, kDBPath, &db));
+
+  bbto.block_size = 4096;
+  options.compression = kSnappyCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_NOK(rocksdb::DB::Open(options, kDBPath, &db));
+}
 
 }  // namespace rocksdb
 
