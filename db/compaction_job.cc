@@ -1386,7 +1386,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
 
   sub_compact->builder.reset(NewTableBuilder(
-      *cfd->ioptions(), cfd->internal_comparator(),
+      *cfd->ioptions(), *cfd->GetCurrentMutableCFOptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
       cfd->ioptions()->compression_opts,

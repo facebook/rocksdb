@@ -39,6 +39,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   //    dictionary, or nullptr.
   BlockBasedTableBuilder(
       const ImmutableCFOptions& ioptions,
+      const MutableCFOptions& moptions,
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*

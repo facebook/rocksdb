@@ -23,7 +23,8 @@ Status PlainTableFactory::NewTableReader(
     unique_ptr<TableReader>* table,
     bool /*prefetch_index_and_filter_in_cache*/) const {
   return PlainTableReader::Open(
-      table_reader_options.ioptions, table_reader_options.env_options,
+      table_reader_options.ioptions, table_reader_options.moptions,
+      table_reader_options.env_options,
       table_reader_options.internal_comparator, std::move(file), file_size,
       table, table_options_.bloom_bits_per_key, table_options_.hash_table_ratio,
       table_options_.index_sparseness, table_options_.huge_page_tlb_size,
@@ -38,7 +39,7 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   // tables
   //
   return new PlainTableBuilder(
-      table_builder_options.ioptions,
+      table_builder_options.ioptions, table_builder_options.moptions,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_options_.user_key_len, table_options_.encoding_type,
       table_options_.index_sparseness, table_options_.bloom_bits_per_key,

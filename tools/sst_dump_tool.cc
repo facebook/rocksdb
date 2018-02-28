@@ -47,7 +47,7 @@ SstFileReader::SstFileReader(const std::string& file_path,
                              bool verify_checksum,
                              bool output_hex)
     :file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum),
-    output_hex_(output_hex), ioptions_(options_),
+    output_hex_(output_hex), ioptions_(options_), moptions_(ColumnFamilyOptions(options_)),
     internal_comparator_(BytewiseComparator()) {
   fprintf(stdout, "Process %s\n", file_path.c_str());
   init_result_ = GetTableReader(file_name_);
@@ -128,14 +128,14 @@ Status SstFileReader::NewTableReader(
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, soptions_, internal_comparator_,
+        TableReaderOptions(ioptions_, moptions_, soptions_, internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
-      TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+      TableReaderOptions(ioptions_, moptions_, soptions_, internal_comparator_),
       std::move(file_), file_size, &table_reader_);
 }
 
@@ -192,6 +192,8 @@ int SstFileReader::ShowAllCompressionSizes(
   ReadOptions read_options;
   Options opts;
   const ImmutableCFOptions imoptions(opts);
+  const ColumnFamilyOptions cfo(opts);
+  const MutableCFOptions moptions(cfo);
   rocksdb::InternalKeyComparator ikc(opts.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       block_based_table_factories;
@@ -203,7 +205,7 @@ int SstFileReader::ShowAllCompressionSizes(
       CompressionOptions compress_opt;
       std::string column_family_name;
       int unknown_level = -1;
-      TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
+      TableBuilderOptions tb_opts(imoptions, moptions, ikc, &block_based_table_factories,
                                   i.first, compress_opt,
                                   nullptr /* compression_dict */,
                                   false /* skip_filters */, column_family_name,

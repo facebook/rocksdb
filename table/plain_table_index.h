@@ -112,10 +112,12 @@ class PlainTableIndex {
 class PlainTableIndexBuilder {
  public:
   PlainTableIndexBuilder(Arena* arena, const ImmutableCFOptions& ioptions,
+                         const MutableCFOptions& moptions,
                          size_t index_sparseness, double hash_table_ratio,
                          size_t huge_page_tlb_size)
       : arena_(arena),
         ioptions_(ioptions),
+        moptions_(moptions),
         record_list_(kRecordsPerGroup),
         is_first_record_(true),
         due_index_(false),
@@ -125,7 +127,7 @@ class PlainTableIndexBuilder {
         index_sparseness_(index_sparseness),
         index_size_(0),
         sub_index_size_(0),
-        prefix_extractor_(ioptions.prefix_extractor),
+        prefix_extractor_(moptions.prefix_extractor),
         hash_table_ratio_(hash_table_ratio),
         huge_page_tlb_size_(huge_page_tlb_size) {}
 
@@ -202,6 +204,7 @@ class PlainTableIndexBuilder {
 
   Arena* arena_;
   const ImmutableCFOptions ioptions_;
+  const MutableCFOptions& moptions_;
   HistogramImpl keys_per_prefix_hist_;
   IndexRecordList record_list_;
   bool is_first_record_;

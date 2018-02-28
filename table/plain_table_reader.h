@@ -70,6 +70,7 @@ struct PlainTableReaderFileInfo {
 class PlainTableReader: public TableReader {
  public:
   static Status Open(const ImmutableCFOptions& ioptions,
+                     const MutableCFOptions& moptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
@@ -101,6 +102,7 @@ class PlainTableReader: public TableReader {
   }
 
   PlainTableReader(const ImmutableCFOptions& ioptions,
+                   const MutableCFOptions& moptions,
                    unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
@@ -153,6 +155,7 @@ class PlainTableReader: public TableReader {
   std::unique_ptr<char[]> bloom_block_alloc_;
 
   const ImmutableCFOptions& ioptions_;
+  const MutableCFOptions& moptions_;
   uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 

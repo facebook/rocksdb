@@ -4606,6 +4606,29 @@ TEST_F(DBTest, FileCreationRandomFailure) {
   }
 }
 
+TEST_F(DBTest, DynamicBloomFilterOptions) {
+  Options options;
+  options.create_if_missing = true;
+  const SliceTransform* old_slice = NewFixedPrefixTransform(4);
+  options.prefix_extractor.reset(old_slice);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("aabc", "v1"));
+  ASSERT_OK(Put("aabd", "v2"));
+  ASSERT_OK(Put("abcc", "v3"));
+
+  ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->Name(), old_slice->Name());
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "{capped:8;}"}}));
+  const SliceTransform* new_slice = NewFixedPrefixTransform(2);
+  options.prefix_extractor.reset(new_slice);
+  Reopen(options);
+  ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->Name(), new_slice->Name());
+
+  ASSERT_EQ("v1", Get("aabc"));
+  ASSERT_EQ("v2", Get("aabd"));
+  ASSERT_EQ("v3", Get("abcc"));
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMiscOptions) {
   // Test max_sequential_skip_in_iterations

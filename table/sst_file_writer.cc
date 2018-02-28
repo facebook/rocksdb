@@ -189,7 +189,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
 
   TableBuilderOptions table_builder_options(
-      r->ioptions, r->internal_comparator, &int_tbl_prop_collector_factories,
+      r->ioptions, r->mutable_cf_options, r->internal_comparator, &int_tbl_prop_collector_factories,
       compression_type, r->ioptions.compression_opts,
       nullptr /* compression_dict */, r->skip_filters, r->column_family_name,
       unknown_level);

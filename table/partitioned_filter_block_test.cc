@@ -121,9 +121,10 @@ class PartitionedFilterBlockTest : public testing::Test {
     } while (status.IsIncomplete());
     const Options options;
     const ImmutableCFOptions ioptions(options);
+    const MutableCFOptions moptions(options);
     const EnvOptions env_options;
     table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
-        ioptions, env_options, table_options_, icomp, false)));
+        ioptions, moptions, env_options, table_options_, icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
         nullptr, *icomp.user_comparator(), table.get());

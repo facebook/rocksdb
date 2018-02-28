@@ -36,6 +36,7 @@ class InternalIterator;
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
+             const MutableCFOptions& moptions,
              const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
@@ -138,6 +139,7 @@ class TableCache {
                         bool for_compaction = false);
 
   const ImmutableCFOptions& ioptions_;
+  const MutableCFOptions& moptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;

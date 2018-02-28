@@ -640,6 +640,7 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 }
 
 Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
+                             const MutableCFOptions& moptions,
                              const EnvOptions& env_options,
                              const BlockBasedTableOptions& table_options,
                              const InternalKeyComparator& internal_comparator,
@@ -688,7 +689,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
-  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
+  Rep* rep = new BlockBasedTable::Rep(ioptions, moptions, env_options, table_options,
                                       internal_comparator, skip_filters);
   rep->file = std::move(file);
   rep->footer = footer;
@@ -697,7 +698,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
   rep->internal_prefix_transform.reset(
-      new InternalKeySliceTransform(rep->ioptions.prefix_extractor));
+      new InternalKeySliceTransform(rep->moptions.prefix_extractor));
   SetupCacheKeyPrefix(rep, file_size);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
@@ -1248,14 +1249,14 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   switch (filter_type) {
     case Rep::FilterType::kPartitionedFilter: {
       return new PartitionedFilterBlockReader(
-          rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+          rep->prefix_filtering ? rep->moptions.prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), nullptr,
           rep->ioptions.statistics, rep->internal_comparator, this);
     }
 
     case Rep::FilterType::kBlockFilter:
       return new BlockBasedFilterBlockReader(
-          rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+          rep->prefix_filtering ? rep->moptions.prefix_extractor : nullptr,
           rep->table_options, rep->whole_key_filtering, std::move(block),
           rep->ioptions.statistics);
 
@@ -1264,7 +1265,7 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
           rep->filter_policy->GetFilterBitsReader(block.data);
       assert(filter_bits_reader != nullptr);
       return new FullFilterBlockReader(
-          rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+          rep->prefix_filtering ? rep->moptions.prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), filter_bits_reader,
           rep->ioptions.statistics);
     }
@@ -1687,14 +1688,14 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
     return true;
   }
 
-  assert(rep_->ioptions.prefix_extractor != nullptr);
+  assert(rep_->moptions.prefix_extractor != nullptr);
   auto user_key = ExtractUserKey(internal_key);
-  if (!rep_->ioptions.prefix_extractor->InDomain(user_key) ||
+  if (!rep_->moptions.prefix_extractor->InDomain(user_key) ||
       rep_->table_properties->prefix_extractor_name.compare(
-          rep_->ioptions.prefix_extractor->Name()) != 0) {
+          rep_->moptions.prefix_extractor->Name()) != 0) {
     return true;
   }
-  auto prefix = rep_->ioptions.prefix_extractor->Transform(user_key);
+  auto prefix = rep_->moptions.prefix_extractor->Transform(user_key);
 
   bool may_match = true;
   Status s;
@@ -1983,14 +1984,14 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options),
         !skip_filters && !read_options.total_order_seek &&
-            rep_->ioptions.prefix_extractor != nullptr);
+            rep_->moptions.prefix_extractor != nullptr);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options),
         !skip_filters && !read_options.total_order_seek &&
-            rep_->ioptions.prefix_extractor != nullptr);
+            rep_->moptions.prefix_extractor != nullptr);
   }
 }
 
@@ -2037,12 +2038,12 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
   if (filter->whole_key_filtering()) {
     may_match = filter->KeyMayMatch(user_key, kNotValid, no_io, const_ikey_ptr);
   } else if (!read_options.total_order_seek &&
-             rep_->ioptions.prefix_extractor &&
+             rep_->moptions.prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
-                 rep_->ioptions.prefix_extractor->Name()) == 0 &&
-             rep_->ioptions.prefix_extractor->InDomain(user_key) &&
+                 rep_->moptions.prefix_extractor->Name()) == 0 &&
+             rep_->moptions.prefix_extractor->InDomain(user_key) &&
              !filter->PrefixMayMatch(
-                 rep_->ioptions.prefix_extractor->Transform(user_key),
+                 rep_->moptions.prefix_extractor->Transform(user_key),
                  kNotValid, false, const_ikey_ptr)) {
     may_match = false;
   }
@@ -2315,7 +2316,7 @@ Status BlockBasedTable::CreateIndexReader(
   const InternalKeyComparator* icomparator = &rep_->internal_comparator;
   const Footer& footer = rep_->footer;
   if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
-      rep_->ioptions.prefix_extractor == nullptr) {
+      rep_->moptions.prefix_extractor == nullptr) {
     ROCKS_LOG_WARN(rep_->ioptions.info_log,
                    "BlockBasedTableOptions::kHashSearch requires "
                    "options.prefix_extractor to be set."
@@ -2542,7 +2543,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         s = block_fetcher.ReadBlockContents();
         if (!s.ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(
-              rep_->ioptions.prefix_extractor, table_options,
+              rep_->moptions.prefix_extractor, table_options,
               table_options.whole_key_filtering, std::move(block),
               rep_->ioptions.statistics));
         }
