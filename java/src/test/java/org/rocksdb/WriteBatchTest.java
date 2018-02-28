@@ -47,7 +47,7 @@ public class WriteBatchTest {
       throws UnsupportedEncodingException, RocksDBException {
     try (WriteBatch batch = new WriteBatch()) {
       batch.put("foo".getBytes("US-ASCII"), "bar".getBytes("US-ASCII"));
-      batch.remove("box".getBytes("US-ASCII"));
+      batch.delete("box".getBytes("US-ASCII"));
       batch.put("baz".getBytes("US-ASCII"), "boo".getBytes("US-ASCII"));
 
       WriteBatchTestInternalHelper.setSequence(batch, 100);
@@ -84,7 +84,7 @@ public class WriteBatchTest {
           "Put(b, vb)@201")
           .equals(new String(getContents(b1), "US-ASCII")));
       assertThat(b1.count()).isEqualTo(2);
-      b2.remove("foo".getBytes("US-ASCII"));
+      b2.delete("foo".getBytes("US-ASCII"));
       WriteBatchTestInternalHelper.append(b1, b2);
       assertThat(("Put(a, va)@200" +
           "Put(b, vb)@202" +
@@ -103,7 +103,7 @@ public class WriteBatchTest {
       batch.put("k2".getBytes("US-ASCII"), "v2".getBytes("US-ASCII"));
       batch.put("k3".getBytes("US-ASCII"), "v3".getBytes("US-ASCII"));
       batch.putLogData("blob1".getBytes("US-ASCII"));
-      batch.remove("k2".getBytes("US-ASCII"));
+      batch.delete("k2".getBytes("US-ASCII"));
       batch.putLogData("blob2".getBytes("US-ASCII"));
       batch.merge("foo".getBytes("US-ASCII"), "bar".getBytes("US-ASCII"));
       assertThat(batch.count()).isEqualTo(5);
@@ -131,7 +131,7 @@ public class WriteBatchTest {
 
       batch.setSavePoint();
 
-      batch.remove("k2".getBytes("US-ASCII"));
+      batch.delete("k2".getBytes("US-ASCII"));
       batch.put("k3".getBytes("US-ASCII"), "v3-2".getBytes("US-ASCII"));
 
       assertThat(getFromWriteBatch(batch, "k2")).isNull();

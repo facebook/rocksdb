@@ -64,7 +64,10 @@ public interface WriteBatchInterface {
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database
+     *
+     * @deprecated Use {@link #delete(byte[])}
      */
+    @Deprecated
     void remove(byte[] key) throws RocksDBException;
 
     /**
@@ -72,8 +75,27 @@ public interface WriteBatchInterface {
      *
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param key Key to delete within database
+     *
+     * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
      */
+    @Deprecated
     void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
+        throws RocksDBException;
+
+    /**
+     * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param key Key to delete within database
+     */
+    void delete(byte[] key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+     * @param key Key to delete within database
+     */
+    void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
         throws RocksDBException;
 
     /**

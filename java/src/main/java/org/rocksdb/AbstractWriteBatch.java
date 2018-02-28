@@ -42,14 +42,27 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
+  @Deprecated
   public void remove(byte[] key) throws RocksDBException {
-    remove(nativeHandle_, key, key.length);
+    delete(nativeHandle_, key, key.length);
   }
 
   @Override
+  @Deprecated
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
       throws RocksDBException {
-    remove(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+  }
+
+  @Override
+  public void delete(byte[] key) throws RocksDBException {
+    delete(nativeHandle_, key, key.length);
+  }
+
+  @Override
+  public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
+      throws RocksDBException {
+    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
@@ -101,10 +114,10 @@ public abstract class AbstractWriteBatch extends RocksObject
       final byte[] value, final int valueLen, final long cfHandle)
       throws RocksDBException;
 
-  abstract void remove(final long handle, final byte[] key,
+  abstract void delete(final long handle, final byte[] key,
       final int keyLen) throws RocksDBException;
 
-  abstract void remove(final long handle, final byte[] key,
+  abstract void delete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
 
   abstract void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,

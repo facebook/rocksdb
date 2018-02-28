@@ -180,10 +180,10 @@ void Java_org_rocksdb_WriteBatch_merge__J_3BI_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    remove
+ * Method:    delete
  * Signature: (J[BI)V
  */
-void Java_org_rocksdb_WriteBatch_remove__J_3BI(
+void Java_org_rocksdb_WriteBatch_delete__J_3BI(
     JNIEnv* env, jobject jobj, jlong jwb_handle,
     jbyteArray jkey, jint jkey_len) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
@@ -200,10 +200,10 @@ void Java_org_rocksdb_WriteBatch_remove__J_3BI(
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    remove
+ * Method:    delete
  * Signature: (J[BIJ)V
  */
-void Java_org_rocksdb_WriteBatch_remove__J_3BIJ(
+void Java_org_rocksdb_WriteBatch_delete__J_3BIJ(
     JNIEnv* env, jobject jobj, jlong jwb_handle,
     jbyteArray jkey, jint jkey_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);

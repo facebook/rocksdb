@@ -75,7 +75,7 @@ public class WriteBatchWithIndexTest {
         assertThat(it.value()).isEqualTo(v2Other);
 
         //remove k1 and make sure we can read back the write
-        wbwi.remove(k1);
+        wbwi.delete(k1);
         it.seek(k1);
         assertThat(it.key()).isNotEqualTo(k1);
 
@@ -138,7 +138,7 @@ public class WriteBatchWithIndexTest {
       //add a deletion record
       final String k4 = "key4";
       final byte[] k4b = k4.getBytes();
-      wbwi.remove(k4b);
+      wbwi.delete(k4b);
 
       final WBWIRocksIterator.WriteEntry[] expected = {
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
@@ -226,7 +226,7 @@ public class WriteBatchWithIndexTest {
 
         wbwi.setSavePoint();
 
-        wbwi.remove("k2".getBytes());
+        wbwi.delete("k2".getBytes());
         wbwi.put("k3".getBytes(), "v3-2".getBytes());
 
         assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k2"))
@@ -327,7 +327,7 @@ public class WriteBatchWithIndexTest {
       assertThat(wbwi.getFromBatch(dbOptions, k3)).isEqualTo(v3);
       assertThat(wbwi.getFromBatch(dbOptions, k4)).isNull();
 
-      wbwi.remove(k2);
+      wbwi.delete(k2);
 
       assertThat(wbwi.getFromBatch(dbOptions, k2)).isNull();
     }
@@ -370,7 +370,7 @@ public class WriteBatchWithIndexTest {
         assertThat(wbwi.getFromBatchAndDB(db, readOptions, k3)).isEqualTo(v3);
         assertThat(wbwi.getFromBatchAndDB(db, readOptions, k4)).isEqualTo(v4);
 
-        wbwi.remove(k4);
+        wbwi.delete(k4);
 
         assertThat(wbwi.getFromBatchAndDB(db, readOptions, k4)).isNull();
       }

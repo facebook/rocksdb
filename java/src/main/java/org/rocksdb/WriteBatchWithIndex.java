@@ -244,9 +244,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
-  @Override final native void remove(final long handle, final byte[] key,
+  @Override final native void delete(final long handle, final byte[] key,
       final int keyLen) throws RocksDBException;
-  @Override final native void remove(final long handle, final byte[] key,
+  @Override final native void delete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
