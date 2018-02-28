@@ -5,6 +5,7 @@
 
 ### New Features
 * Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.
+* If `ColumnFamilyOptions::max_subcompactions` is set greater than one, we now parallelize large manual level-based compactions.
 
 ## 5.12.0 (2/14/2018)
 ### Public API Change
