@@ -1194,6 +1194,9 @@ Env* NewTimedEnv(Env* base_env);
 
 Env* NewBitInjectionEnv(Env* base_env, int64_t uber);
 
+// Updates uber in a BitInjectionEnv
+int64_t BitInjectionEnvSetUber(Env* bit_injection_env, int64_t newUber);
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_

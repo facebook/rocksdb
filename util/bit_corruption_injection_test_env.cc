@@ -213,4 +213,9 @@ int64_t BitCorruptionInjectionTestEnv::SetUber(int64_t uber) {
 Env* NewBitInjectionEnv(Env* base_env, int64_t uber) {
   return new BitCorruptionInjectionTestEnv(base_env, uber);
 }
+
+int64_t BitInjectionEnvSetUber(Env* bit_injection_env, int64_t newUber) {
+  BitCorruptionInjectionTestEnv *env = reinterpret_cast<BitCorruptionInjectionTestEnv *>(bit_injection_env);
+  return env->SetUber(newUber);
+}
 }  // namespace rocksdb
