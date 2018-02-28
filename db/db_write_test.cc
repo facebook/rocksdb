@@ -88,7 +88,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   Reopen(options);
   for (int i = 0; i < 2; i++) {
     // Forcibly fail WAL write for the first Put only. Subsequent Puts should
-    // fail due to read-only mode.
+    // fail due to read-only mode
     mock_env->SetFilesystemActive(i != 0);
     ASSERT_FALSE(Put("key" + ToString(i), "value").ok());
   }
