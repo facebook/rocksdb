@@ -52,17 +52,33 @@ void WinLogger::DebugWriter(const char* str, int len) {
 }
 
 WinLogger::~WinLogger() { 
-  close();
+  CloseInternal();
 }
 
-void WinLogger::close() {
+Status WinLogger::CloseImpl() {
+  return CloseInternal();
+}
+
+Status WinLogger::CloseInternal() {
+  Status s;
   if (INVALID_HANDLE_VALUE != file_) {
-    BOOL ret;
-    ret = FlushFileBuffers(file_);
-    assert(ret == TRUE);
-    CloseHandle(file_);
+    BOOL ret = FlushFileBuffers(file_);
+    if (ret == 0) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError("Failed to flush LOG on Close() ", 
+        lastError);
+    }
+    ret = CloseHandle(file_);
+    // On error the return value is zero
+    if (ret == 0 && s.ok()) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError("Failed to flush LOG on Close() ", 
+        lastError);
+    }
     file_ = INVALID_HANDLE_VALUE;
+    closed_ = true;
   }
+  return s;
 }
 
 void WinLogger::Flush() {
