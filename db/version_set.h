@@ -613,6 +613,8 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  uint64_t GetSstFilesSize();
+
  private:
   Env* env_;
   friend class VersionSet;
