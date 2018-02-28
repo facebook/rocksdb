@@ -1,5 +1,7 @@
 #include ../make_config.mk
 
+INSTALL_PATH ?= /usr/local
+
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
@@ -22,7 +24,6 @@ ifeq ($(LIBNAME),)
 	endif
 endif
 
-
 LIBRARY = ${LIBNAME}.a
 
 INSTALL_FILES = $(INSTALL_PATH)/include/rocksdb \
@@ -30,7 +31,6 @@ INSTALL_FILES = $(INSTALL_PATH)/include/rocksdb \
 
 .PHONY: clean librocksdb
 
-INSTALL_PATH ?= /usr/local
 
 all: simple_example column_families_example compact_files_example c_simple_example optimistic_transaction_example transaction_example compaction_filter_example options_file_example
 
