@@ -24,7 +24,7 @@ public interface WriteBatchInterface {
      * @param key the specified key to be inserted.
      * @param value the value associated with the specified key.
      */
-    void put(byte[] key, byte[] value);
+    void put(byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>Store the mapping "key-&gt;value" within given column
@@ -36,7 +36,7 @@ public interface WriteBatchInterface {
      * @param value the value associated with the specified key.
      */
     void put(ColumnFamilyHandle columnFamilyHandle,
-                    byte[] key, byte[] value);
+                    byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>Merge "value" with the existing value of "key" in the database.
@@ -46,7 +46,7 @@ public interface WriteBatchInterface {
      * @param value the value to be merged with the current value for
      * the specified key.
      */
-    void merge(byte[] key, byte[] value);
+    void merge(byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>Merge "value" with the existing value of "key" in given column family.
@@ -58,14 +58,14 @@ public interface WriteBatchInterface {
      * the specified key.
      */
     void merge(ColumnFamilyHandle columnFamilyHandle,
-                      byte[] key, byte[] value);
+                      byte[] key, byte[] value) throws RocksDBException;
 
     /**
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database
      */
-    void remove(byte[] key);
+    void remove(byte[] key) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -73,7 +73,8 @@ public interface WriteBatchInterface {
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param key Key to delete within database
      */
-    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key);
+    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
+        throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
@@ -89,7 +90,7 @@ public interface WriteBatchInterface {
      * @param endKey
      *          Last key to delete within database (excluded)
      */
-    void deleteRange(byte[] beginKey, byte[] endKey);
+    void deleteRange(byte[] beginKey, byte[] endKey) throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
@@ -106,7 +107,8 @@ public interface WriteBatchInterface {
      * @param endKey
      *          Last key to delete within database (excluded)
      */
-    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey);
+    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey,
+            byte[] endKey) throws RocksDBException;
 
     /**
      * Append a blob of arbitrary size to the records in this batch. The blob will
@@ -122,7 +124,7 @@ public interface WriteBatchInterface {
      *
      * @param blob binary object to be inserted
      */
-    void putLogData(byte[] blob);
+    void putLogData(byte[] blob) throws RocksDBException;
 
     /**
      * Clear all updates buffered in this batch

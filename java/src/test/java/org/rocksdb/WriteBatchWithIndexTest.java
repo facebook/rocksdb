@@ -14,7 +14,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -183,7 +182,7 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
-  public void zeroByteTests() {
+  public void zeroByteTests() throws RocksDBException {
     try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
       final byte[] zeroByteValue = new byte[]{0, 0};
       //add zero byte value
@@ -207,8 +206,7 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
-  public void savePoints()
-      throws UnsupportedEncodingException, RocksDBException {
+  public void savePoints() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {

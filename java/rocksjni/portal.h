@@ -337,6 +337,20 @@ class RocksDBExceptionJni :
   /**
    * Create and throw a Java RocksDBException with the provided status
    *
+   * If s->ok() == true, then this function will not throw any exception.
+   *
+   * @param env A pointer to the Java environment
+   * @param s The status for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, std::unique_ptr<Status>& s) {
+    return rocksdb::RocksDBExceptionJni::ThrowNew(env, *(s.get()));
+  }
+
+  /**
+   * Create and throw a Java RocksDBException with the provided status
+   *
    * If s.ok() == true, then this function will not throw any exception.
    *
    * @param env A pointer to the Java environment
@@ -3356,18 +3370,17 @@ class JniUtil {
      * Helper for operations on a key and value
      * for example WriteBatch->Put
      *
-     * TODO(AR) could be extended to cover returning rocksdb::Status
-     * from `op` and used for RocksDB->Put etc.
+     * TODO(AR) could be used for RocksDB->Put etc.
      */
-    static void kv_op(
-        std::function<void(rocksdb::Slice, rocksdb::Slice)> op,
+    static std::unique_ptr<rocksdb::Status> kv_op(
+        std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
         JNIEnv* env, jobject jobj,
         jbyteArray jkey, jint jkey_len,
         jbyteArray jentry_value, jint jentry_value_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
-        return;
+        return nullptr;
       }
 
       jbyte* value = env->GetByteArrayElements(jentry_value, nullptr);
@@ -3376,14 +3389,14 @@ class JniUtil {
         if(key != nullptr) {
           env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
         }
-        return;
+        return nullptr;
       }
 
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
       rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
           jentry_value_len);
 
-      op(key_slice, value_slice);
+      auto status = op(key_slice, value_slice);
 
       if(value != nullptr) {
         env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
@@ -3391,32 +3404,35 @@ class JniUtil {
       if(key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
+
+      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
     }
 
     /*
      * Helper for operations on a key
      * for example WriteBatch->Delete
      *
-     * TODO(AR) could be extended to cover returning rocksdb::Status
-     * from `op` and used for RocksDB->Delete etc.
+     * TODO(AR) could be used for RocksDB->Delete etc.
      */
-    static void k_op(
-        std::function<void(rocksdb::Slice)> op,
+    static std::unique_ptr<rocksdb::Status> k_op(
+        std::function<rocksdb::Status(rocksdb::Slice)> op,
         JNIEnv* env, jobject jobj,
         jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
-        return;
+        return nullptr;
       }
 
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-      op(key_slice);
+      auto status = op(key_slice);
 
       if(key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
+
+      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
     }
 
     /*

@@ -44,7 +44,7 @@ public class WriteBatchTest {
 
   @Test
   public void multipleBatchOperations()
-      throws UnsupportedEncodingException {
+      throws UnsupportedEncodingException, RocksDBException {
     try (WriteBatch batch = new WriteBatch()) {
       batch.put("foo".getBytes("US-ASCII"), "bar".getBytes("US-ASCII"));
       batch.remove("box".getBytes("US-ASCII"));
@@ -64,7 +64,7 @@ public class WriteBatchTest {
 
   @Test
   public void testAppendOperation()
-      throws UnsupportedEncodingException {
+      throws UnsupportedEncodingException, RocksDBException {
     try (final WriteBatch b1 = new WriteBatch();
          final WriteBatch b2 = new WriteBatch()) {
       WriteBatchTestInternalHelper.setSequence(b1, 200);
@@ -97,7 +97,7 @@ public class WriteBatchTest {
 
   @Test
   public void blobOperation()
-      throws UnsupportedEncodingException {
+      throws UnsupportedEncodingException, RocksDBException {
     try (final WriteBatch batch = new WriteBatch()) {
       batch.put("k1".getBytes("US-ASCII"), "v1".getBytes("US-ASCII"));
       batch.put("k2".getBytes("US-ASCII"), "v2".getBytes("US-ASCII"));

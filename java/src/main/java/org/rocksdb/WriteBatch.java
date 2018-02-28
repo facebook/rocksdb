@@ -88,9 +88,9 @@ public class WriteBatch extends AbstractWriteBatch {
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
   @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen);
+      final int keyLen) throws RocksDBException;
   @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle);
+      final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen);
@@ -98,7 +98,7 @@ public class WriteBatch extends AbstractWriteBatch {
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle,
-      final byte[] blob, final int blobLen);
+      final byte[] blob, final int blobLen) throws RocksDBException;
   @Override final native void clear0(final long handle);
   @Override final native void setSavePoint0(final long handle);
   @Override final native void rollbackToSavePoint0(final long handle);
