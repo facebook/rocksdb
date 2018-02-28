@@ -579,7 +579,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
   }
   ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForCompact();
+  dbfull()->TEST_WaitForCompact(true);
 
   ASSERT_GT(cancelled_compaction, 0);
   ASSERT_GT(completed_compactions, 0);
