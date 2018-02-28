@@ -38,9 +38,9 @@ class ExternalSSTFileBasicTest : public DBTestBase {
   }
 
   Status GenerateAndAddExternalFile(
-      const Options options, std::vector<int> keys,
-      const std::vector<ValueType>& value_types, int file_id,
-      std::map<std::string, std::string>* true_data) {
+      const Options options, const IngestExternalFileOptions ingest_options,
+      std::vector<int> keys, const std::vector<ValueType>& value_types,
+      int file_id, std::map<std::string, std::string>* true_data) {
     assert(value_types.size() == 1 || keys.size() == value_types.size());
     std::string file_path = sst_files_dir_ + ToString(file_id);
     SstFileWriter sst_file_writer(EnvOptions(), options);
@@ -79,19 +79,37 @@ class ExternalSSTFileBasicTest : public DBTestBase {
     s = sst_file_writer.Finish();
 
     if (s.ok()) {
-      IngestExternalFileOptions ifo;
-      ifo.allow_global_seqno = true;
-      s = db_->IngestExternalFile({file_path}, ifo);
+      s = db_->IngestExternalFile({file_path}, ingest_options);
     }
     return s;
   }
 
   Status GenerateAndAddExternalFile(
-      const Options options, std::vector<int> keys, const ValueType value_type,
+      const Options options,
+      std::vector<int> keys, const ValueType value_type,
       int file_id, std::map<std::string, std::string>* true_data) {
-    return GenerateAndAddExternalFile(options, keys,
+    IngestExternalFileOptions ingest_options;
+    return GenerateAndAddExternalFile(options, ingest_options, keys,
                                       std::vector<ValueType>(1, value_type),
                                       file_id, true_data);
+  }
+
+  Status GenerateAndAddExternalFile(
+      const Options options, const IngestExternalFileOptions ingest_options,
+      std::vector<int> keys, const ValueType value_type,
+      int file_id, std::map<std::string, std::string>* true_data) {
+    return GenerateAndAddExternalFile(options, ingest_options, keys,
+                                      std::vector<ValueType>(1, value_type),
+                                      file_id, true_data);
+  }
+
+  Status GenerateAndAddExternalFile(
+      const Options options,
+      std::vector<int> keys, const std::vector<ValueType>& value_types,
+      int file_id, std::map<std::string, std::string>* true_data) {
+    IngestExternalFileOptions ingest_options;
+    return GenerateAndAddExternalFile(options, ingest_options, keys,
+                                      value_types, file_id, true_data);
   }
 
   ~ExternalSSTFileBasicTest() { test::DestroyDir(env_, sst_files_dir_); }
@@ -628,6 +646,78 @@ TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+}
+
+TEST_F(ExternalSSTFileBasicTest, IngestFileWithoutAggressiveOverlapChecking) {
+  do {
+    Options options = CurrentOptions();
+    DestroyAndReopen(options);
+    IngestExternalFileOptions ingest_options;
+    ingest_options.allow_aggressive_overlap_checking = false;
+    std::map<std::string, std::string> true_data;
+
+    int file_id = 1;
+
+    ASSERT_OK(GenerateAndAddExternalFile(options, ingest_options,
+                                         {0, 3}, ValueType::kTypeValue,
+                                         file_id++, &true_data));
+    // File dont overwrite any files, No seqno needed
+    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
+    ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
+
+    ASSERT_OK(GenerateAndAddExternalFile(options, ingest_options,
+                                         {4, 7}, ValueType::kTypeValue,
+                                         file_id++, &true_data));
+    // File dont overwrite any files, No seqno needed
+    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
+    ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+
+    ASSERT_OK(GenerateAndAddExternalFile(options, ingest_options,
+                                         {2, 5}, ValueType::kTypeValue,
+                                         file_id++, &true_data));
+    // File overwrite some files, a seqno will be assigned
+    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
+    if (options.num_levels >= 2) {
+      ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 2));
+      ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+    }
+
+    ASSERT_OK(GenerateAndAddExternalFile(options, ingest_options,
+                                         {3, 4}, ValueType::kTypeValue,
+                                         file_id++, &true_data));
+    // File overwrite some keys, a seqno will be assigned
+    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
+    if (options.num_levels >= 3) {
+      ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 3));
+      ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 2));
+      ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+    }
+
+    ASSERT_OK(GenerateAndAddExternalFile(options, ingest_options,
+                                         {5, 6}, ValueType::kTypeValue,
+                                         file_id++, &true_data));
+    // File overwrite some keys, a seqno will be assigned
+    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
+    if (options.num_levels >= 3) {
+      ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 3));
+      ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 2));
+      ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+    }
+
+    ASSERT_OK(GenerateAndAddExternalFile(options, ingest_options,
+                                         {8, 9}, ValueType::kTypeValue,
+                                         file_id++, &true_data));
+    // File dont overwrite any keys, No seqno needed
+    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
+    if (options.num_levels >= 3) {
+      ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 3));
+      ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 2));
+      ASSERT_EQ(3, NumTableFilesAtLevel(options.num_levels - 1));
+    }
+
+    size_t kcnt = 0;
+    VerifyDBFromMap(true_data, &kcnt, false);
+  } while (ChangeCompactOptions());
 }
 
 #endif  // ROCKSDB_LITE

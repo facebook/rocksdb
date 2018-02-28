@@ -405,6 +405,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
+    if (!ingestion_options_.allow_aggressive_overlap_checking) {
+      if (IngestedFileOverlapWithFiles(file_to_ingest, lvl)) {
+        overlap_with_db = true;
+        break;
+      } else {
+        target_level = lvl;
+        continue;
+      }
+    }
+
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = IngestedFileOverlapWithLevel(sv, file_to_ingest, lvl,
@@ -549,7 +559,11 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
     // Files can always fit in L0
     return true;
   }
+  return !IngestedFileOverlapWithFiles(file_to_ingest, level);
+}
 
+bool ExternalSstFileIngestionJob::IngestedFileOverlapWithFiles(
+    const IngestedFileInfo* file_to_ingest, int level) {
   auto* vstorage = cfd_->current()->storage_info();
   Slice file_smallest_user_key(file_to_ingest->smallest_user_key);
   Slice file_largest_user_key(file_to_ingest->largest_user_key);
@@ -558,17 +572,17 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
                                &file_largest_user_key)) {
     // File overlap with another files in this level, we cannot
     // add it to this level
-    return false;
+    return true;
   }
   if (cfd_->RangeOverlapWithCompaction(file_smallest_user_key,
                                        file_largest_user_key, level)) {
     // File overlap with a running compaction output that will be stored
     // in this level, we cannot add this file to this level
-    return false;
+    return true;
   }
 
   // File did not overlap with level files, our compaction output
-  return true;
+  return false;
 }
 
 Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
