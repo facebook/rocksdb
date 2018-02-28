@@ -5153,7 +5153,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  std::thread manual_compaction_thread([this]() {
+  port::Thread manual_compaction_thread([this]() {
     CompactRangeOptions croptions;
     croptions.exclusive_manual_compaction = true;
     ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
@@ -5743,7 +5743,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     return flushes_done.load() > 10;
   };
 
-  std::thread flushing_thread([&] {
+  port::Thread flushing_thread([&] {
     for (int i = 0; !done(); ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), Slice("hi"),
                          Slice(std::to_string(i).c_str())));
@@ -5753,12 +5753,12 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     }
   });
 
-  std::vector<std::thread> thread_spawning_threads(10);
+  std::vector<port::Thread> thread_spawning_threads(10);
   for (auto& t: thread_spawning_threads) {
-    t = std::thread([&] {
+    t = port::Thread([&] {
       while (!done()) {
         {
-          std::thread tmp_thread([&] {
+          port::Thread tmp_thread([&] {
             auto it = db_->NewIterator(ReadOptions());
             delete it;
           });
