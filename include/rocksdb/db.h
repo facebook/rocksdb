@@ -93,8 +93,8 @@ static const int kMinorVersion = __ROCKSDB_MINOR__;
 
 // A range of keys
 struct Range {
-  Slice start;          // Included in the range
-  Slice limit;          // Not included in the range
+  Slice start;
+  Slice limit;
 
   Range() { }
   Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
