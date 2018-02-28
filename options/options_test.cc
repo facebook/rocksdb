@@ -1216,37 +1216,79 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
 }
 
 TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
-  DBOptions db_opt;
-  db_opt.max_open_files = 12345;
-  db_opt.max_background_flushes = 301;
-  db_opt.max_total_wal_size = 1024;
-  ColumnFamilyOptions cf_opt;
+  for (int case_id = 0; case_id < 5; case_id++) {
+    DBOptions db_opt;
+    db_opt.max_open_files = 12345;
+    db_opt.max_background_flushes = 301;
+    db_opt.max_total_wal_size = 1024;
+    ColumnFamilyOptions cf_opt;
 
-  std::string options_file_content =
-      "# This is a testing option string.\n"
-      "# Currently we only support \"#\" styled comment.\n"
-      "\n"
-      "[Version]\n"
-      "  rocksdb_version=3.14.0\n"
-      "  options_file_version=1\n"
-      "[DBOptions]\n"
-      "  max_open_files=12345\n"
-      "  max_background_flushes=301\n"
-      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
-      "  unknown_db_option1=321\n"
-      "  unknown_db_option2=false\n"
-      "[CFOptions \"default\"]\n"
-      "  unknown_cf_option1=hello\n"
-      "[CFOptions \"something_else\"]\n"
-      "  unknown_cf_option2=world\n"
-      "  # if a section is blank, we will use the default\n";
+    std::string version_string;
+    bool should_ignore = true;
+    if (case_id == 0) {
+      // same version
+      should_ignore = false;
+      version_string =
+          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) + ".0";
+    } else if (case_id == 1) {
+      // higher minor version
+      should_ignore = true;
+      version_string =
+          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR + 1) + ".0";
+    } else if (case_id == 2) {
+      // higher major version.
+      should_ignore = true;
+      version_string = ToString(ROCKSDB_MAJOR + 1) + ".0.0";
+    } else if (case_id == 3) {
+      // lower minor version
+#if ROCKSDB_MINOR == 0
+      continue;
+#else
+      version_string =
+          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR - 1) + ".0";
+      should_ignore = false;
+#endif
+    } else {
+      // lower major version
+      should_ignore = false;
+      version_string =
+          ToString(ROCKSDB_MAJOR - 1) + "." + ToString(ROCKSDB_MINOR) + ".0";
+    }
 
-  const std::string kTestFileName = "test-rocksdb-options.ini";
-  env_->WriteToNewFile(kTestFileName, options_file_content);
-  RocksDBOptionsParser parser;
-  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
-  ASSERT_OK(parser.Parse(kTestFileName, env_.get(),
-                         true /* ignore_unknown_options */));
+    std::string options_file_content =
+        "# This is a testing option string.\n"
+        "# Currently we only support \"#\" styled comment.\n"
+        "\n"
+        "[Version]\n"
+        "  rocksdb_version=" +
+        version_string +
+        "\n"
+        "  options_file_version=1\n"
+        "[DBOptions]\n"
+        "  max_open_files=12345\n"
+        "  max_background_flushes=301\n"
+        "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+        "  unknown_db_option1=321\n"
+        "  unknown_db_option2=false\n"
+        "[CFOptions \"default\"]\n"
+        "  unknown_cf_option1=hello\n"
+        "[CFOptions \"something_else\"]\n"
+        "  unknown_cf_option2=world\n"
+        "  # if a section is blank, we will use the default\n";
+
+    const std::string kTestFileName = "test-rocksdb-options.ini";
+    env_->DeleteFile(kTestFileName);
+    env_->WriteToNewFile(kTestFileName, options_file_content);
+    RocksDBOptionsParser parser;
+    ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+    if (should_ignore) {
+      ASSERT_OK(parser.Parse(kTestFileName, env_.get(),
+                             true /* ignore_unknown_options */));
+    } else {
+      ASSERT_NOK(parser.Parse(kTestFileName, env_.get(),
+                              true /* ignore_unknown_options */));
+    }
+  }
 }
 
 TEST_F(OptionsParserTest, ParseVersion) {

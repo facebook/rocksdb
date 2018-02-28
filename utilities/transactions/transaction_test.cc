@@ -85,6 +85,7 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
   txn0->Put(Slice("foo0"), Slice("bar0a"));
   ASSERT_OK(txn0->Prepare());
   delete txn0;
+  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   txn0 = db->GetTransactionByName("xid2");
   ASSERT_OK(txn0->Commit());
@@ -950,6 +951,8 @@ TEST_P(TransactionTest, TwoPhaseNameTest) {
   s = txn1->SetName("name4");
   ASSERT_EQ(s, Status::InvalidArgument());
 
+  txn1->Rollback();
+  txn2->Rollback();
   delete txn1;
   delete txn2;
 }
@@ -1173,6 +1176,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   db->FlushWAL(false);
   delete txn;
   // kill and reopen
+  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   s = ReOpenNoDelete();
   ASSERT_OK(s);
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -1361,6 +1365,7 @@ TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
     if (i % 29 == 0) {
       // crash
       env->SetFilesystemActive(false);
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
       ReOpenNoDelete();
     } else if (i % 37 == 0) {
       // close
@@ -1463,6 +1468,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 
   // kill and reopen
   env->SetFilesystemActive(false);
+  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
 
   // commit old txn
@@ -1844,6 +1850,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
 
   // kill and reopen
   env->SetFilesystemActive(false);
+  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
 
   s = db->Get(read_options, "first", &value);

@@ -228,8 +228,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
  private:
   friend class WritePreparedTxn;
-  // Returns true if there has been duplicate keys in the batch.
-  bool HasDuplicateKeys();
+  friend class WriteBatchWithIndex_SubBatchCnt_Test;
+  // Returns the number of sub-batches inside the write batch. A sub-batch
+  // starts right before inserting a key that is a duplicate of a key in the
+  // last sub-batch.
+  size_t SubBatchCnt();
 
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,

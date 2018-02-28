@@ -2616,10 +2616,7 @@ CheckPointCommand::CheckPointCommand(
     : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_CHECKPOINT_DIR})) {
   auto itr = options.find(ARG_CHECKPOINT_DIR);
-  if (itr == options.end()) {
-    exec_state_ = LDBCommandExecuteResult::Failed(
-        "--" + ARG_CHECKPOINT_DIR + ": missing checkpoint directory");
-  } else {
+  if (itr != options.end()) {
     checkpoint_dir_ = itr->second;
   }
 }
