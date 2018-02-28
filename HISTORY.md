@@ -5,6 +5,7 @@
 
 ### New Features
 * SstFileManager now can cancel compactions if they will result in max space errors. SstFileManager users can also use SetCompactionBufferSize to specify how much space must be leftover during a compaction for auxiliary file functions such as logging and flushing.
+* Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.
 
 ## 5.12.0 (2/14/2018)
 ### Public API Change

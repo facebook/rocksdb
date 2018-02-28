@@ -166,7 +166,6 @@ unsigned int __stdcall  WindowsThread::Data::ThreadProc(void* arg) {
   auto ptr = reinterpret_cast<std::shared_ptr<Data>*>(arg);
   std::unique_ptr<std::shared_ptr<Data>> data(ptr);
   (*data)->func_();
-  _endthreadex(0);
   return 0;
 }
 } // namespace port

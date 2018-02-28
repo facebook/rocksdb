@@ -93,8 +93,8 @@ static const int kMinorVersion = __ROCKSDB_MINOR__;
 
 // A range of keys
 struct Range {
-  Slice start;          // Included in the range
-  Slice limit;          // Not included in the range
+  Slice start;
+  Slice limit;
 
   Range() { }
   Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
@@ -174,7 +174,8 @@ class DB {
   // Close the DB by releasing resources, closing files etc. This should be
   // called before calling the desctructor so that the caller can get back a
   // status in case there are any errors. This will not fsync the WAL files.
-  // If syncing is required, the caller must first call SyncWAL.
+  // If syncing is required, the caller must first call SyncWAL(), or Write()
+  // using an empty write batch with WriteOptions.sync=true.
   // Regardless of the return status, the DB must be freed. If the return
   // status is NotSupported(), then the DB implementation does cleanup in the
   // destructor

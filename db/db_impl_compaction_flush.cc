@@ -291,7 +291,17 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   bool exclusive = options.exclusive_manual_compaction;
 
   bool flush_needed = true;
-  if (!options.allow_write_stall) {
+  if (begin != nullptr && end != nullptr) {
+    // TODO(ajkr): We could also optimize away the flush in certain cases where
+    // one/both sides of the interval are unbounded. But it requires more
+    // changes to RangesOverlapWithMemtables.
+    Range range(*begin, *end);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    cfd->RangesOverlapWithMemtables({range}, super_version, &flush_needed);
+    CleanupSuperVersion(super_version);
+  }
+
+  if (!options.allow_write_stall && flush_needed) {
     InstrumentedMutexLock l(&mutex_);
     uint64_t orig_active_memtable_id = cfd->mem()->GetID();
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;

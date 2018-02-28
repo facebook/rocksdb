@@ -274,6 +274,16 @@ class ColumnFamilyData {
                                   const Slice& largest_user_key,
                                   int level) const;
 
+  // Check if the passed ranges overlap with any unflushed memtables
+  // (immutable or mutable).
+  //
+  // @param super_version A referenced SuperVersion that will be held for the
+  //    duration of this function.
+  //
+  // Thread-safe
+  Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
+                                    SuperVersion* super_version, bool* overlap);
+
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.
   static const int kCompactAllLevels;

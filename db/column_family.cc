@@ -31,6 +31,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "table/block_based_table_factory.h"
+#include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
 
@@ -879,6 +880,68 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
     int level) const {
   return compaction_picker_->RangeOverlapWithCompaction(
       smallest_user_key, largest_user_key, level);
+}
+
+Status ColumnFamilyData::RangesOverlapWithMemtables(
+    const autovector<Range>& ranges, SuperVersion* super_version,
+    bool* overlap) {
+  assert(overlap != nullptr);
+  *overlap = false;
+  // Create an InternalIterator over all unflushed memtables
+  Arena arena;
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
+  merge_iter_builder.AddIterator(
+      super_version->mem->NewIterator(read_opts, &arena));
+  super_version->imm->AddIterators(read_opts, &merge_iter_builder);
+  ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
+
+  std::vector<InternalIterator*> memtable_range_del_iters;
+  auto* active_range_del_iter =
+      super_version->mem->NewRangeTombstoneIterator(read_opts);
+  if (active_range_del_iter != nullptr) {
+    memtable_range_del_iters.push_back(active_range_del_iter);
+  }
+  super_version->imm->AddRangeTombstoneIterators(read_opts,
+                                                 &memtable_range_del_iters);
+  RangeDelAggregator range_del_agg(internal_comparator_, {} /* snapshots */,
+                                   false /* collapse_deletions */);
+  Status status;
+  {
+    std::unique_ptr<InternalIterator> memtable_range_del_iter(
+        NewMergingIterator(&internal_comparator_,
+                           memtable_range_del_iters.empty()
+                               ? nullptr
+                               : &memtable_range_del_iters[0],
+                           static_cast<int>(memtable_range_del_iters.size())));
+    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
+  }
+  for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
+    auto* vstorage = super_version->current->storage_info();
+    auto* ucmp = vstorage->InternalComparator()->user_comparator();
+    InternalKey range_start(ranges[i].start, kMaxSequenceNumber,
+                            kValueTypeForSeek);
+    memtable_iter->Seek(range_start.Encode());
+    status = memtable_iter->status();
+    ParsedInternalKey seek_result;
+    if (status.ok()) {
+      if (memtable_iter->Valid() &&
+          !ParseInternalKey(memtable_iter->key(), &seek_result)) {
+        status = Status::Corruption("DB have corrupted keys");
+      }
+    }
+    if (status.ok()) {
+      if (memtable_iter->Valid() &&
+          ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {
+        *overlap = true;
+      } else if (range_del_agg.IsRangeOverlapped(ranges[i].start,
+                                                 ranges[i].limit)) {
+        *overlap = true;
+      }
+    }
+  }
+  return status;
 }
 
 const int ColumnFamilyData::kCompactAllLevels = -1;
