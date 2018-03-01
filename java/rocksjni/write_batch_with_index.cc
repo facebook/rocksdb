@@ -202,6 +202,48 @@ void Java_org_rocksdb_WriteBatchWithIndex_delete__J_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    singleDelete
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BI(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
+    jint jkey_len) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+  auto single_delete = [&wbwi] (rocksdb::Slice key) {
+    return wbwi->SingleDelete(key);
+  };
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(single_delete,
+      env, jobj, jkey, jkey_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    singleDelete
+ * Signature: (J[BIJ)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BIJ(
+  JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
+  jint jkey_len, jlong jcf_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  assert(cf_handle != nullptr);
+  auto single_delete = [&wbwi, &cf_handle] (rocksdb::Slice key) {
+    return wbwi->SingleDelete(cf_handle, key);
+  };
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(single_delete,
+      env, jobj, jkey, jkey_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    deleteRange
  * Signature: (J[BI[BI)V
  */
@@ -309,6 +351,54 @@ void Java_org_rocksdb_WriteBatchWithIndex_rollbackToSavePoint0(
   }
 
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    popSavePoint
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_popSavePoint(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  auto s = wbwi->PopSavePoint();
+
+  if (s.ok()) {
+    return;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    setMaxBytes
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_setMaxBytes(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jmax_bytes) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  wbwi->SetMaxBytes(static_cast<size_t>(jmax_bytes));
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    getWriteBatch
+ * Signature: (J)Lorg/rocksdb/WriteBatch;
+ */
+jobject Java_org_rocksdb_WriteBatchWithIndex_getWriteBatch(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  auto* wb = wbwi->GetWriteBatch();
+
+  // TODO(AR) is the `wb` object owned by us?
+  return rocksdb::WriteBatchJni::construct(env, wb);
 }
 
 /*
@@ -583,33 +673,15 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
 
   jlong results[3];
 
-  //set the type of the write entry
-  switch (we.type) {
-    case rocksdb::kPutRecord:
-      results[0] = 0x1;
-      break;
+  // set the type of the write entry
+  results[0] = rocksdb::WriteTypeJni::toJavaWriteType(we.type);
 
-    case rocksdb::kMergeRecord:
-      results[0] = 0x2;
-      break;
-
-    case rocksdb::kDeleteRecord:
-      results[0] = 0x4;
-      break;
-
-    case rocksdb::kLogDataRecord:
-      results[0] = 0x8;
-      break;
-
-    default:
-      results[0] = 0x0;
-  }
-
-  // key_slice and value_slice will be freed by org.rocksdb.DirectSlice#close
+  // NOTE: key_slice and value_slice will be freed by org.rocksdb.DirectSlice#close
 
   auto* key_slice = new rocksdb::Slice(we.key.data(), we.key.size());
   results[1] = reinterpret_cast<jlong>(key_slice);
   if (we.type == rocksdb::kDeleteRecord
+      || we.type == rocksdb::kSingleDeleteRecord
       || we.type == rocksdb::kLogDataRecord) {
     // set native handle of value slice to null if no value available
     results[2] = 0;

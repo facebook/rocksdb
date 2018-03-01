@@ -122,6 +122,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.WriteBatchTestInternalHelper
         org.rocksdb.WriteBatchWithIndex
         org.rocksdb.WriteOptions
+        org.rocksdb.util.CapturingWriteBatchHandler
+        org.rocksdb.util.WriteBatchGetter
 )
 
 include(FindJava)
@@ -249,6 +251,8 @@ add_jar(
   src/test/java/org/rocksdb/RocksMemoryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/WriteBatchTest.java
+  src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/test/java/org/rocksdb/util/WriteBatchGetter.java
   INCLUDE_JARS ${JAVA_TESTCLASSPATH}
 )
 

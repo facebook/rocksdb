@@ -65,6 +65,18 @@ public abstract class AbstractWriteBatch extends RocksObject
     delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
+
+  @Override
+  public void singleDelete(byte[] key) throws RocksDBException {
+    singleDelete(nativeHandle_, key, key.length);
+  }
+
+  @Override
+  public void singleDelete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
+      throws RocksDBException {
+    singleDelete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+  }
+
   @Override
   public void deleteRange(byte[] beginKey, byte[] endKey)
       throws RocksDBException {
@@ -98,6 +110,21 @@ public abstract class AbstractWriteBatch extends RocksObject
     rollbackToSavePoint0(nativeHandle_);
   }
 
+  @Override
+  public void popSavePoint() throws RocksDBException {
+    popSavePoint(nativeHandle_);
+  }
+
+  @Override
+  public void setMaxBytes(final long maxBytes) {
+    setMaxBytes(nativeHandle_, maxBytes);
+  }
+
+  @Override
+  public WriteBatch getWriteBatch() {
+    return getWriteBatch(nativeHandle_);
+  }
+
   abstract int count0(final long handle);
 
   abstract void put(final long handle, final byte[] key, final int keyLen,
@@ -120,6 +147,12 @@ public abstract class AbstractWriteBatch extends RocksObject
   abstract void delete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
 
+  abstract void singleDelete(final long handle, final byte[] key,
+                       final int keyLen) throws RocksDBException;
+
+  abstract void singleDelete(final long handle, final byte[] key,
+                       final int keyLen, final long cfHandle) throws RocksDBException;
+
   abstract void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen) throws RocksDBException;
 
@@ -134,4 +167,10 @@ public abstract class AbstractWriteBatch extends RocksObject
   abstract void setSavePoint0(final long handle);
 
   abstract void rollbackToSavePoint0(final long handle);
+
+  abstract void popSavePoint(final long handle) throws RocksDBException;
+
+  abstract void setMaxBytes(final long handle, long maxBytes);
+
+  abstract WriteBatch getWriteBatch(final long handle);
 }
