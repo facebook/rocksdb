@@ -138,6 +138,9 @@ public:
   virtual Status LinkFile(const std::string& src,
     const std::string& target);
 
+  virtual Status AreFilesSame(const std::string& first,
+    const std::string& second, bool* res);
+
   virtual Status LockFile(const std::string& lockFname,
     FileLock** lock);
 
@@ -247,6 +250,9 @@ public:
 
   Status LinkFile(const std::string& src,
     const std::string& target) override;
+
+  Status AreFilesSame(const std::string& first,
+    const std::string& second, bool* res) override;
 
   Status LockFile(const std::string& lockFname,
     FileLock** lock) override;
