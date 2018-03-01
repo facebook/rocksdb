@@ -794,9 +794,9 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
     }
     db_impl->TEST_FlushMemTable(true);
   }
-  for (auto txn: txns) {
-      ASSERT_OK(txn->Commit());
-      delete txn;
+  for (auto txn : txns) {
+    ASSERT_OK(txn->Commit());
+    delete txn;
   }
   // At the end there should be no log left containing prepare data
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);

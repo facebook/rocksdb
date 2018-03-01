@@ -65,7 +65,7 @@ void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
 
   auto rit = logs_with_prep_.rbegin();
   bool updated = false;
-  // Most probabely the last log is the one that is being marked for 
+  // Most probabely the last log is the one that is being marked for
   // having a prepare section; so search from the end.
   for (; rit != logs_with_prep_.rend() && rit->log >= log; ++rit) {
     if (rit->log == log) {

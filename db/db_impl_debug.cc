@@ -190,9 +190,7 @@ size_t DBImpl::TEST_PreparedSectionCompletedSize() {
   return prepared_section_completed_.size();
 }
 
-size_t DBImpl::TEST_LogsWithPrepSize() {
-  return logs_with_prep_.size();
-}
+size_t DBImpl::TEST_LogsWithPrepSize() { return logs_with_prep_.size(); }
 
 uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
   return FindMinPrepLogReferencedByMemTable();
