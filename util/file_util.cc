@@ -82,21 +82,32 @@ Status CreateFile(Env* env, const std::string& destination,
   return dest_writer->Append(Slice(contents));
 }
 
-Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname, uint32_t path_id) {
-  // TODO(tec): support sst_file_manager for multiple path_ids
 #ifndef ROCKSDB_LITE
-  auto sfm =
+Status DeleteDBFile(const ImmutableDBOptions* db_options,
+                    const std::string& fname, uint32_t path_id, FileType type) {
+  SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
-  if (sfm && path_id == 0) {
+
+  if (sfm != nullptr &&
+      ((type == kTableFile && path_id == 0) || type == kLogFile)) {
+    // Pass files to SstFileManager if
+    // - SstFileManager is enabled
+    // - File type is
+    //   - SST file that live in Path id 0
+    //   - WAL file
+
     return sfm->ScheduleFileDeletion(fname);
-  } else {
-    return db_options->env->DeleteFile(fname);
   }
-#else
-  // SstFileManager is not supported in ROCKSDB_LITE
+
   return db_options->env->DeleteFile(fname);
-#endif
 }
+#else
+Status DeleteDBFile(const ImmutableDBOptions* db_options,
+                    const std::string& fname, uint32_t path_id, FileType type) {
+  // SstFileManager is not supported in ROCKSDB_LITE
+  // Delete file immediately
+  return db_options->env->DeleteFile(fname);
+}
+#endif
 
 }  // namespace rocksdb
