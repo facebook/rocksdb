@@ -432,8 +432,8 @@ class DBImpl : public DB {
 
   uint64_t TEST_FindMinLogContainingOutstandingPrep();
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();
-  uint64_t TEST_PreparedSectionCompletedSize();
-  uint64_t TEST_LogsWithPrepSize();
+  size_t TEST_PreparedSectionCompletedSize();
+  size_t TEST_LogsWithPrepSize();
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
