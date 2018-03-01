@@ -778,7 +778,7 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
   Random rnd(47);
   std::vector<Transaction*> txns;
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-  // At the begining there should be no log containing prepare data
+  // At the beginning there should be no log containing prepare data
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
   for (size_t i = 0; i < 100; i++) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
