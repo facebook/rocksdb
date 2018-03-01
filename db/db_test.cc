@@ -5393,18 +5393,38 @@ TEST_F(DBTest, HardLimit) {
 #ifndef ROCKSDB_LITE
 class WriteStallListener : public EventListener {
  public:
-  WriteStallListener() : condition_(WriteStallCondition::kNormal) {}
+  WriteStallListener() : cond_(&mutex_), 
+    condition_(WriteStallCondition::kNormal) {}
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
     MutexLock l(&mutex_);
     condition_ = info.condition.cur;
+    if (expected_set_ && 
+      condition_ == expected_) {
+        cond_.Signal();
+    }
   }
   bool CheckCondition(WriteStallCondition expected) {
     MutexLock l(&mutex_);
-    return expected == condition_;
+    if (expected != condition_) {
+      expected_ = expected;
+      expected_set_ = true;
+      while (expected != condition_) {
+        // We bail out on timeout 500 milliseconds
+        const uint64_t timeout_us = 500000;
+        if (cond_.TimedWait(timeout_us)) {
+          expected_set_ = false;
+          return false;
+        }
+      }
+    }
+    return true;
   }
  private:
-  port::Mutex mutex_;
+  port::Mutex   mutex_;
+  port::CondVar cond_;
   WriteStallCondition condition_;
+  WriteStallCondition expected_;
+  bool                expected_set_;
 };
 
 TEST_F(DBTest, SoftLimit) {
