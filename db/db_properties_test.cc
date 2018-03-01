@@ -1386,7 +1386,8 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
 
 TEST_F(DBPropertiesTest, SstFilesSize) {
   struct TestListener : public EventListener {
-    void OnCompactionCompleted(DB* db, const CompactionJobInfo& /*info*/) {
+    void OnCompactionCompleted(DB* db,
+                               const CompactionJobInfo& /*info*/) override {
       assert(callback_triggered == false);
       assert(size_before_compaction > 0);
       callback_triggered = true;
@@ -1408,7 +1409,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
     uint64_t size_before_compaction = 0;
     bool callback_triggered = false;
   };
-  std::shared_ptr<TestListener> listener(new TestListener());
+  std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
   Options options;
   options.disable_auto_compactions = true;

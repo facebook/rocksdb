@@ -738,14 +738,14 @@ bool InternalStats::HandleBaseLevel(uint64_t* value, DBImpl* db,
   return true;
 }
 
-bool InternalStats::HandleTotalSstFilesSize(uint64_t* value, DBImpl* db,
-                                            Version* version) {
+bool InternalStats::HandleTotalSstFilesSize(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
   *value = cfd_->GetTotalSstFilesSize();
   return true;
 }
 
-bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* db,
-                                           Version* version) {
+bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
   *value = cfd_->GetLiveSstFilesSize();
   return true;
 }
