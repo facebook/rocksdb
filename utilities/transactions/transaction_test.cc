@@ -770,6 +770,42 @@ TEST_P(TransactionTest, CommitTimeBatchFailTest) {
   delete txn1;
 }
 
+TEST_P(TransactionTest, LogMarkLeakTest) {
+  TransactionOptions txn_options;
+  WriteOptions write_options;
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
+  Random rnd(47);
+  std::vector<Transaction*> txns;
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  // At the beginning there should be no log containing prepare data
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+  for (size_t i = 0; i < 100; i++) {
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->SetName("xid" + ToString(i)));
+    ASSERT_OK(txn->Put(Slice("foo" + ToString(i)), Slice("bar")));
+    ASSERT_OK(txn->Prepare());
+    ASSERT_GT(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+    if (rnd.OneIn(5)) {
+      txns.push_back(txn);
+    } else {
+      ASSERT_OK(txn->Commit());
+      delete txn;
+    }
+    db_impl->TEST_FlushMemTable(true);
+  }
+  for (auto txn : txns) {
+    ASSERT_OK(txn->Commit());
+    delete txn;
+  }
+  // At the end there should be no log left containing prepare data
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+  // Make sure that the underlying data structures are properly truncated and
+  // cause not leak
+  ASSERT_EQ(db_impl->TEST_PreparedSectionCompletedSize(), 0);
+  ASSERT_EQ(db_impl->TEST_LogsWithPrepSize(), 0);
+}
+
 TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
   for (bool cwb4recovery : {true, false}) {
     ReOpen();
