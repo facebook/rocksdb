@@ -332,13 +332,13 @@ class HdfsEnv : public Env {
     return notsup;
   }
 
-  virtual void Schedule(void (*/*function*/)(void* arg), void* /*arg*/,
+  virtual void Schedule(void (* /*function*/)(void* arg), void* /*arg*/,
                         Priority /*pri*/ = LOW, void* /*tag*/ = nullptr,
-                        void (*/*unschedFunction*/)(void* arg) = 0) override {}
+                        void (* /*unschedFunction*/)(void* arg) = 0) override {}
 
   virtual int UnSchedule(void* /*tag*/, Priority /*pri*/) override { return 0; }
 
-  virtual void StartThread(void (*/*function*/)(void* arg),
+  virtual void StartThread(void (* /*function*/)(void* arg),
                            void* /*arg*/) override {}
 
   virtual void WaitForJoin() override {}
