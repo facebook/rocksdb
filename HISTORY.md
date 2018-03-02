@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
+* Remove CompactionEventListener.
 
 ### New Features
 * Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.

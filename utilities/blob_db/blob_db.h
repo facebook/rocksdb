@@ -108,15 +108,14 @@ class BlobDB : public StackableDB {
 
   using rocksdb::StackableDB::Delete;
   virtual Status Delete(const WriteOptions& options,
-                        const Slice& key) override = 0;
-  virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override {
     if (column_family != DefaultColumnFamily()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
-    return Delete(options, key);
+    assert(db_ != nullptr);
+    return db_->Delete(options, column_family, key);
   }
 
   virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
