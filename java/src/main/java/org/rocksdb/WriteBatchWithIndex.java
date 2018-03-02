@@ -256,10 +256,14 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
-  @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen);
-  @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle);
+  @Override final native void delete(final long handle, final byte[] key,
+      final int keyLen) throws RocksDBException;
+  @Override final native void delete(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
+  @Override final native void singleDelete(final long handle, final byte[] key,
+      final int keyLen) throws RocksDBException;
+  @Override final native void singleDelete(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen);
@@ -267,10 +271,14 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle, final byte[] blob,
-      final int blobLen);
+      final int blobLen) throws RocksDBException;
   @Override final native void clear0(final long handle);
   @Override final native void setSavePoint0(final long handle);
   @Override final native void rollbackToSavePoint0(final long handle);
+  @Override final native void popSavePoint(final long handle) throws RocksDBException;
+  @Override final native void setMaxBytes(final long nativeHandle,
+      final long maxBytes);
+  @Override final native WriteBatch getWriteBatch(final long handle);
 
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);
