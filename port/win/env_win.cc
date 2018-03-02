@@ -385,13 +385,34 @@ Status WinEnvIO::NewDirectory(const std::string& name,
   Status s;
   // Must be nullptr on failure
   result->reset();
-  // Must fail if directory does not exist
+
   if (!DirExists(name)) {
-    s = IOError("Directory does not exist: " + name, EEXIST);
-  } else {
-    IOSTATS_TIMER_GUARD(open_nanos);
-    result->reset(new WinDirectory);
+    s = IOErrorFromWindowsError(
+      "open folder: " + name, ERROR_DIRECTORY);
+    return s;
   }
+
+  HANDLE handle = INVALID_HANDLE_VALUE;
+  // 0 - for access means read metadata
+  {
+    IOSTATS_TIMER_GUARD(open_nanos);
+    handle = ::CreateFileA(name.c_str(), 0,
+      FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+      NULL,
+      OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS, // make opening folders possible
+      NULL);
+  }
+
+  if (INVALID_HANDLE_VALUE == handle) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "open folder: " + name, lastError);
+    return s;
+  }
+
+  result->reset(new WinDirectory(handle));
+
   return s;
 }
 

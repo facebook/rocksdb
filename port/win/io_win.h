@@ -421,10 +421,19 @@ class WinRandomRWFile : private WinFileData,
 };
 
 class WinDirectory : public Directory {
+  HANDLE handle_;
  public:
-  WinDirectory() {}
-
+  explicit
+  WinDirectory(HANDLE h) noexcept : 
+    handle_(h) {
+    assert(handle_ != INVALID_HANDLE_VALUE);
+  }
+  ~WinDirectory() {
+    ::CloseHandle(handle_);
+  }
   virtual Status Fsync() override;
+
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
 class WinFileLock : public FileLock {

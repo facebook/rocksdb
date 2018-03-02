@@ -1046,6 +1046,9 @@ Status WinRandomRWFile::Close() {
 
 Status WinDirectory::Fsync() { return Status::OK(); }
 
+size_t WinDirectory::GetUniqueId(char* id, size_t max_size) const {
+  return GetUniqueIdFromFile(handle_, id, max_size);
+}
 //////////////////////////////////////////////////////////////////////////
 /// WinFileLock
 
