@@ -65,6 +65,18 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   }
 
   /**
+   * <p>Private WriteBatchWithIndex constructor which is used to construct
+   * WriteBatchWithIndex instances from C++ side. As the reference to this
+   * object is also managed from C++ side the handle will be disowned.</p>
+   *
+   * @param nativeHandle address of native instance.
+   */
+  WriteBatchWithIndex(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
+  }
+
+  /**
    * Create an iterator of a column family. User can call
    * {@link org.rocksdb.RocksIteratorInterface#seek(byte[])} to
    * search to the next entry of or after a key. Keys will be iterated in the
