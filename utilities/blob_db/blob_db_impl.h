@@ -140,9 +140,9 @@ class BlobDBImpl : public BlobDB {
 
   using BlobDB::NewIterators;
   virtual Status NewIterators(
-      const ReadOptions& read_options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) override {
+      const ReadOptions& /*read_options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/,
+      std::vector<Iterator*>* /*iterators*/) override {
     return Status::NotSupported("Not implemented");
   }
 

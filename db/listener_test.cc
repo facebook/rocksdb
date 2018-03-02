@@ -46,11 +46,11 @@ class EventListenerTest : public DBTestBase {
 };
 
 struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
-  virtual rocksdb::Status AddUserKey(const rocksdb::Slice& key,
-                                     const rocksdb::Slice& value,
-                                     rocksdb::EntryType type,
-                                     rocksdb::SequenceNumber seq,
-                                     uint64_t file_size) override {
+  virtual rocksdb::Status AddUserKey(const rocksdb::Slice& /*key*/,
+                                     const rocksdb::Slice& /*value*/,
+                                     rocksdb::EntryType /*type*/,
+                                     rocksdb::SequenceNumber /*seq*/,
+                                     uint64_t /*file_size*/) override {
     return Status::OK();
   }
   virtual rocksdb::Status Finish(
@@ -73,7 +73,7 @@ struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
 class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
  public:
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override {
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     return new TestPropertiesCollector;
   }
   const char* Name() const override { return "TestTablePropertiesCollector"; }
@@ -425,7 +425,7 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
 
 class TestCompactionReasonListener : public EventListener {
  public:
-  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     std::lock_guard<std::mutex> lock(mutex_);
     compaction_reasons_.push_back(ci.compaction_reason);
   }
@@ -807,7 +807,8 @@ class BackgroundErrorListener : public EventListener {
  public:
   BackgroundErrorListener(SpecialEnv* env) : env_(env), counter_(0) {}
 
-  void OnBackgroundError(BackgroundErrorReason reason, Status* bg_error) override {
+  void OnBackgroundError(BackgroundErrorReason /*reason*/,
+                         Status* bg_error) override {
     if (counter_ == 0) {
       // suppress the first error and disable write-dropping such that a retry
       // can succeed.

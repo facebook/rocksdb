@@ -586,7 +586,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                size_t charge,
                                void (*deleter)(const Slice& key, void* value),
                                Cache::Handle** out_handle,
-                               Cache::Priority priority) {
+                               Cache::Priority /*priority*/) {
   CleanupContext context;
   HashTable::accessor accessor;
   char* key_data = new char[key.size()];

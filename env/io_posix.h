@@ -202,7 +202,7 @@ class PosixMmapFile : public WritableFile {
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
-  virtual Status Truncate(uint64_t size) override { return Status::OK(); }
+  virtual Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
   virtual Status Close() override;
   virtual Status Append(const Slice& data) override;
   virtual Status Flush() override;

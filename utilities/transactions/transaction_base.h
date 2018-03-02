@@ -180,7 +180,7 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  virtual void SetLockTimeout(int64_t timeout) override { /* Do nothing */
+  virtual void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
   }
 
   const Snapshot* GetSnapshot() const override {
