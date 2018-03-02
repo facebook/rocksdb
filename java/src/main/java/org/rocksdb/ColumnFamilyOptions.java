@@ -54,6 +54,18 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * <p>Constructor to be used by
+   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)},
+   * {@link ColumnFamilyDescriptor#columnFamilyOptions()}
+   * and also called via JNI.</p>
+   *
+   * @param handle native handle to ColumnFamilyOptions instance.
+   */
+  ColumnFamilyOptions(final long handle) {
+    super(handle);
+  }
+
+  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
@@ -786,17 +798,6 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public boolean forceConsistencyChecks() {
     return forceConsistencyChecks(nativeHandle_);
-  }
-
-  /**
-   * <p>Constructor to be used by
-   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
-   * and also called via JNI.
-   *
-   * @param handle native handle to ColumnFamilyOptions instance.
-   */
-  public ColumnFamilyOptions(final long handle) {
-    super(handle);
   }
 
   private static native long getColumnFamilyOptionsFromProps(
