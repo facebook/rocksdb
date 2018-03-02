@@ -14,7 +14,6 @@
 #include <limits>
 #include <list>
 #include <map>
-#include <queue>
 #include <set>
 #include <string>
 #include <utility>
@@ -433,6 +432,8 @@ class DBImpl : public DB {
 
   uint64_t TEST_FindMinLogContainingOutstandingPrep();
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();
+  size_t TEST_PreparedSectionCompletedSize();
+  size_t TEST_LogsWithPrepSize();
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
@@ -1298,27 +1299,33 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // minimum log number still containing prepared data.
+  // REQUIRES: logs_with_prep_mutex_ held
+  //
+  // sorted list of log numbers still containing prepared data.
   // this is used by FindObsoleteFiles to determine which
   // flushed logs we must keep around because they still
-  // contain prepared data which has not been flushed or rolled back
-  std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
-      min_log_with_prep_;
+  // contain prepared data which has not been committed or rolled back
+  struct LogCnt {
+    uint64_t log;  // the log number
+    uint64_t cnt;  // number of prepared sections in the log
+  };
+  std::vector<LogCnt> logs_with_prep_;
+  std::mutex logs_with_prep_mutex_;
 
-  // to be used in conjunction with min_log_with_prep_.
+  // REQUIRES: prepared_section_completed_mutex_ held
+  //
+  // to be used in conjunction with logs_with_prep_.
   // once a transaction with data in log L is committed or rolled back
-  // rather than removing the value from the heap we add that value
-  // to prepared_section_completed_ which maps LOG -> instance_count
-  // since a log could contain multiple prepared sections
+  // rather than updating logs_with_prep_ directly we keep track of that
+  // in prepared_section_completed_ which maps LOG -> instance_count. This helps
+  // avoiding contention between a commit thread and the prepare threads.
   //
   // when trying to determine the minimum log still active we first
-  // consult min_log_with_prep_. while that root value maps to
-  // a value > 0 in prepared_section_completed_ we decrement the
-  // instance_count for that log and pop the root value in
-  // min_log_with_prep_. This will work the same as a min_heap
-  // where we are deleteing arbitrary elements and the up heaping.
+  // consult logs_with_prep_. while that root value maps to
+  // an equal value in prepared_section_completed_ we erase the log from
+  // both logs_with_prep_ and prepared_section_completed_.
   std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
-  std::mutex prep_heap_mutex_;
+  std::mutex prepared_section_completed_mutex_;
 
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
