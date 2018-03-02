@@ -1,4 +1,4 @@
-#include ../make_config.mk
+include make_config.mk
 
 INSTALL_PATH ?= /usr/local
 
