@@ -20,6 +20,12 @@ public class WriteOptions extends RocksObject {
 
   }
 
+  // TODO(AR) consider ownership
+  WriteOptions(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
+  }
+
   /**
    * If true, the write will be flushed from the operating system
    * buffer cache (by calling WritableFile::Sync()) before the write
