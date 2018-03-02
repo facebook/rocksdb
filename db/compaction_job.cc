@@ -762,24 +762,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     input->SeekToFirst();
   }
 
-  // we allow only 1 compaction event listener. Used by blob storage
-  CompactionEventListener* comp_event_listener = nullptr;
-#ifndef ROCKSDB_LITE
-  for (auto& celitr : cfd->ioptions()->listeners) {
-    comp_event_listener = celitr->GetCompactionEventListener();
-    if (comp_event_listener != nullptr) {
-      break;
-    }
-  }
-#endif  // ROCKSDB_LITE
-
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, false, range_del_agg.get(),
-      sub_compact->compaction, compaction_filter, comp_event_listener,
-      shutting_down_, preserve_deletes_seqnum_));
+      sub_compact->compaction, compaction_filter, shutting_down_,
+      preserve_deletes_seqnum_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&
