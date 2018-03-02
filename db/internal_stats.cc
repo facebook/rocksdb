@@ -233,6 +233,7 @@ static const std::string estimate_live_data_size = "estimate-live-data-size";
 static const std::string min_log_number_to_keep = "min-log-number-to-keep";
 static const std::string base_level = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
+static const std::string live_sst_files_size = "live-sst-files-size";
 static const std::string estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
 static const std::string aggregated_table_properties =
@@ -307,6 +308,8 @@ const std::string DB::Properties::kMinLogNumberToKeep =
     rocksdb_prefix + min_log_number_to_keep;
 const std::string DB::Properties::kTotalSstFilesSize =
                       rocksdb_prefix + total_sst_files_size;
+const std::string DB::Properties::kLiveSstFilesSize =
+    rocksdb_prefix + live_sst_files_size;
 const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level;
 const std::string DB::Properties::kEstimatePendingCompactionBytes =
     rocksdb_prefix + estimate_pending_comp_bytes;
@@ -405,6 +408,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleBaseLevel, nullptr}},
         {DB::Properties::kTotalSstFilesSize,
          {false, nullptr, &InternalStats::HandleTotalSstFilesSize, nullptr}},
+        {DB::Properties::kLiveSstFilesSize,
+         {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr}},
@@ -733,9 +738,15 @@ bool InternalStats::HandleBaseLevel(uint64_t* value, DBImpl* db,
   return true;
 }
 
-bool InternalStats::HandleTotalSstFilesSize(uint64_t* value, DBImpl* db,
-                                            Version* version) {
+bool InternalStats::HandleTotalSstFilesSize(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
   *value = cfd_->GetTotalSstFilesSize();
+  return true;
+}
+
+bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
+  *value = cfd_->GetLiveSstFilesSize();
   return true;
 }
 

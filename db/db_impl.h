@@ -1367,8 +1367,8 @@ class DBImpl : public DB {
     return Env::WLTH_SHORT;
   }
 
-  // When set, we use a separate queue for writes that dont write to memtable. In
-  // 2PC these are the writes at Prepare phase.
+  // When set, we use a separate queue for writes that dont write to memtable.
+  // In 2PC these are the writes at Prepare phase.
   const bool two_write_queues_;
   const bool manual_wal_flush_;
   // Increase the sequence number after writing each batch, whether memtable is

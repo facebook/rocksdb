@@ -5,6 +5,7 @@
 
 ### New Features
 * Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.
+* Add "rocksdb.live-sst-files-size" DB property to return total bytes of all SST files belong to the latest LSM tree.
 
 ## 5.12.0 (2/14/2018)
 ### Public API Change
