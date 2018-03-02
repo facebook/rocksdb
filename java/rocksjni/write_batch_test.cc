@@ -87,8 +87,32 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
         state.append(")");
         count++;
         break;
+      case rocksdb::kTypeSingleDeletion:
+        state.append("SingleDelete(");
+        state.append(ikey.user_key.ToString());
+        state.append(")");
+        count++;
+        break;
+      case rocksdb::kTypeRangeDeletion:
+        state.append("DeleteRange(");
+        state.append(ikey.user_key.ToString());
+        state.append(", ");
+        state.append(iter->value().ToString());
+        state.append(")");
+        count++;
+        break;
+      case rocksdb::kTypeLogData:
+        state.append("LogData(");
+        state.append(ikey.user_key.ToString());
+        state.append(")");
+        count++;
+        break;
       default:
         assert(false);
+        state.append("Err:Expected(");
+        state.append(std::to_string(ikey.type));
+        state.append(")");
+        count++;
         break;
     }
     state.append("@");
@@ -96,8 +120,12 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   }
   if (!s.ok()) {
     state.append(s.ToString());
-  } else if (count != rocksdb::WriteBatchInternal::Count(b)) {
-    state.append("CountMismatch()");
+  } else if (rocksdb::WriteBatchInternal::Count(b) != count) {
+    state.append("Err:CountMismatch(expected=");
+    state.append(std::to_string(rocksdb::WriteBatchInternal::Count(b)));
+    state.append(", actual=");
+    state.append(std::to_string(count));
+    state.append(")");
   }
   delete mem->Unref();
 
