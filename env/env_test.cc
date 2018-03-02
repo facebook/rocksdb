@@ -164,7 +164,7 @@ TEST_F(EnvPosixTest, AreFilesSame) {
   ASSERT_OK(env->AreFilesSame(same_file_name, same_file_link_name, &result));
   ASSERT_TRUE(result);
 }
-#endif OS_WIN
+#endif
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
