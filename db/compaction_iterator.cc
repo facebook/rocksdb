@@ -169,11 +169,11 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                  : CompactionFilter::ValueType::kBlobIndex;
     // Hack: pass internal key to BlobIndexCompactionFilter since it needs
     // to get sequence number.
-    Slice& key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
+    Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
     {
       StopWatchNano timer(env_, true);
       filter = compaction_filter_->FilterV2(
-          compaction_->level(), key, value_type, value_,
+          compaction_->level(), filter_key, value_type, value_,
           &compaction_filter_value_, compaction_filter_skip_until_.rep());
       iter_stats_.total_filter_time +=
           env_ != nullptr ? timer.ElapsedNanos() : 0;

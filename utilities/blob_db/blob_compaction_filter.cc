@@ -11,6 +11,8 @@
 namespace rocksdb {
 namespace blob_db {
 
+namespace {
+
 // CompactionFilter to delete expired blob index from base DB.
 class BlobIndexCompactionFilter : public CompactionFilter {
  public:
@@ -90,6 +92,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
   mutable uint64_t evicted_count_ = 0;
   mutable uint64_t evicted_size_ = 0;
 };
+
+}  // anonymous namespace
 
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactory::CreateCompactionFilter(

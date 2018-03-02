@@ -1259,7 +1259,9 @@ void BlobDBImpl::ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
   blob_file->MarkObsolete(obsolete_seq);
   obsolete_files_.push_back(blob_file);
   assert(total_blob_size_.load() >= blob_file->GetFileSize());
-  total_blob_size_ -= blob_file->GetFileSize();
+  if (update_size) {
+    total_blob_size_ -= blob_file->GetFileSize();
+  }
 }
 
 bool BlobDBImpl::VisibleToActiveSnapshot(
