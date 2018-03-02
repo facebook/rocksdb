@@ -606,7 +606,10 @@ Status WinEnvIO::LinkFile(const std::string& src,
 
 Status WinEnvIO::AreFilesSame(const std::string& first,
   const std::string& second, bool* res) {
-
+// For MinGW builds
+#if (_WIN32_WINNT == _WIN32_WINNT_VISTA)
+  Status s = Status::NotSupported();
+#else
   assert(res != nullptr);
   Status s;
   if (res == nullptr) {
@@ -672,7 +675,7 @@ Status WinEnvIO::AreFilesSame(const std::string& first,
   } else {
     *res = false;
   }
-
+#endif
   return s;
 }
 

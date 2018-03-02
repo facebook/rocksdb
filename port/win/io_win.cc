@@ -157,7 +157,29 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
   }
+#if (_WIN32_WINNT == _WIN32_WINNT_VISTA)
+  // MINGGW as defined by CMake file.
+  // yuslepukhin: I hate the guts of the above macros.
+  // This impl does not guarantee uniqueness everywhere
+  // is reasonably good
+  BY_HANDLE_FILE_INFORMATION FileInfo;
 
+  BOOL result = GetFileInformationByHandle(hFile, &FileInfo);
+
+  TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
+
+  if (!result) {
+    return 0;
+  }
+
+  char* rid = id;
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.dwVolumeSerialNumber));
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.nFileIndexHigh));
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.nFileIndexLow));
+
+  assert(rid >= id);
+  return static_cast<size_t>(rid - id);
+#else
   FILE_ID_INFO FileInfo;
   BOOL result = GetFileInformationByHandleEx(hFile, FileIdInfo, &FileInfo,
     sizeof(FileInfo));
@@ -183,6 +205,7 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
 
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
