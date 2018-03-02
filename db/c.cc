@@ -32,6 +32,7 @@
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -470,6 +471,20 @@ rocksdb_t* rocksdb_open(
     char** errptr) {
   DB* db;
   if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
+    return nullptr;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+rocksdb_t* rocksdb_open_with_ttl(
+    const rocksdb_options_t* options,
+    const char* name,
+    int ttl,
+    char** errptr) {
+  rocksdb::DBWithTTL* db;
+  if (SaveError(errptr, rocksdb::DBWithTTL::Open(options->rep, std::string(name), &db, ttl))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
