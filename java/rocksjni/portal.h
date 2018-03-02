@@ -175,6 +175,107 @@ class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
   }
 };
 
+// The portal class for org.rocksdb.Status.Code
+class CodeJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.Status.Code
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/Status$Code");
+  }
+
+  /**
+   * Get the Java Method: Status.Code#getValue
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getValueMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "getValue", "()b");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+// The portal class for org.rocksdb.Status.SubCode
+class SubCodeJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.Status.SubCode
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/Status$SubCode");
+  }
+
+  /**
+   * Get the Java Method: Status.SubCode#getValue
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getValueMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "getValue", "()b");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  static rocksdb::Status::SubCode toCppSubCode(const jbyte jsub_code) {
+    switch (jsub_code) {
+      case 0x0:
+        return rocksdb::Status::SubCode::kNone;
+      case 0x1:
+        return rocksdb::Status::SubCode::kMutexTimeout;
+      case 0x2:
+        return rocksdb::Status::SubCode::kLockTimeout;
+      case 0x3:
+        return rocksdb::Status::SubCode::kLockLimit;
+      case 0x4:
+        return rocksdb::Status::SubCode::kNoSpace;
+      case 0x5:
+        return rocksdb::Status::SubCode::kDeadlock;
+      case 0x6:
+        return rocksdb::Status::SubCode::kStaleFile;
+      case 0x7:
+        return rocksdb::Status::SubCode::kMemoryLimit;
+
+      case 0x7F:
+      default:
+        return rocksdb::Status::SubCode::kNone;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.Status
 class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
  public:
@@ -189,6 +290,69 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/Status");
+  }
+
+  /**
+   * Get the Java Method: Status#getCode
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getCodeMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "getCode", "()Lorg/rocksdb/Status$Code;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Status#getSubCode
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getSubCodeMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "getSubCode", "()Lorg/rocksdb/Status$SubCode;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Status#getState
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getStateMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "getState", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
   }
 
   /**
@@ -307,6 +471,158 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0x7F;  // undefined
     }
   }
+
+  // Returns the equivalent rocksdb::Status for the Java org.rocksdb.Status
+  static std::unique_ptr<rocksdb::Status> toCppStatus(JNIEnv* env, const jobject jstatus) {
+    jmethodID mid_code = getCodeMethod(env);
+    if (mid_code == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+    jobject jcode = env->CallObjectMethod(jstatus, mid_code);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+    
+    jmethodID mid_code_value = rocksdb::CodeJni::getValueMethod(env);
+    if (mid_code_value == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+    jbyte jcode_value = env->CallByteMethod(jcode, mid_code_value);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      if (jcode != nullptr) {
+        env->DeleteLocalRef(jcode);
+      }
+      return nullptr;
+    }
+
+    jmethodID mid_subCode = getSubCodeMethod(env);
+    if (mid_subCode == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+    jobject jsubCode = env->CallObjectMethod(jstatus, mid_subCode);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      if (jcode != nullptr) {
+        env->DeleteLocalRef(jcode);
+      }
+      return nullptr;
+    }
+
+    jbyte jsubCode_value = 0x0;  // None
+    if (jsubCode != nullptr) {
+      jmethodID mid_subCode_value = rocksdb::SubCodeJni::getValueMethod(env);
+      if (mid_subCode_value == nullptr) {
+        // exception occurred
+        return nullptr;
+      }
+      jsubCode_value =env->CallByteMethod(jsubCode, mid_subCode_value);
+      if (env->ExceptionCheck()) {
+        // exception occurred
+        if (jcode != nullptr) {
+          env->DeleteLocalRef(jcode);
+        }
+        return nullptr;
+      }
+    }
+
+    jmethodID mid_state = getStateMethod(env);
+    if (mid_state == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+    jobject jstate = env->CallObjectMethod(jstatus, mid_state);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      if (jsubCode != nullptr) {
+        env->DeleteLocalRef(jsubCode);
+      }
+      if (jcode != nullptr) {
+        env->DeleteLocalRef(jcode);
+      }
+      return nullptr;
+    }
+
+    std::unique_ptr<rocksdb::Status> status;
+    switch (jcode_value) {
+      case 0x0:
+        //Ok
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::OK()));
+        break;
+      case 0x1:
+        //NotFound
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::NotFound(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x2:
+        //Corruption
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::Corruption(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x3:
+        //NotSupported
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::NotSupported(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x4:
+        //InvalidArgument
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::InvalidArgument(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x5:
+        //IOError
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::IOError(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x6:
+        //MergeInProgress
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::MergeInProgress(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x7:
+        //Incomplete
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::Incomplete(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x8:
+        //ShutdownInProgress
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::ShutdownInProgress(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x9:
+        //TimedOut
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::TimedOut(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0xA:
+        //Aborted
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::Aborted(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0xB:
+        //Busy
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::Busy(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0xC:
+        //Expired
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::Expired(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0xD:
+        //TryAgain
+        status = std::unique_ptr<rocksdb::Status>(new rocksdb::Status(rocksdb::Status::TryAgain(rocksdb::SubCodeJni::toCppSubCode(jsubCode_value))));
+        break;
+      case 0x7F:
+      default:
+        return nullptr;
+    }
+
+    // delete all local refs
+    if (jstate != nullptr) {
+      env->DeleteLocalRef(jstate);
+    }
+    if (jsubCode != nullptr) {
+      env->DeleteLocalRef(jsubCode);
+    }
+    if (jcode != nullptr) {
+      env->DeleteLocalRef(jcode);
+    }
+
+    return status;
+  }
 };
 
 // The portal class for org.rocksdb.RocksDBException
@@ -336,6 +652,20 @@ class RocksDBExceptionJni :
    */
   static bool ThrowNew(JNIEnv* env, const std::string& msg) {
     return JavaException::ThrowNew(env, msg);
+  }
+
+  /**
+   * Create and throw a Java RocksDBException with the provided status
+   *
+   * If s->ok() == true, then this function will not throw any exception.
+   *
+   * @param env A pointer to the Java environment
+   * @param s The status for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, std::unique_ptr<Status>& s) {
+    return rocksdb::RocksDBExceptionJni::ThrowNew(env, *(s.get()));
   }
 
   /**
@@ -513,6 +843,54 @@ class RocksDBExceptionJni :
     }
 
     return true;
+  }
+
+  /**
+   * Get the Java Method: RocksDBException#getStatus
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getStatusMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "getStatus", "()Lorg/rocksdb/Status;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  static std::unique_ptr<rocksdb::Status> toCppStatus(
+      JNIEnv* env, jthrowable jrocksdb_exception) {
+    if(!env->IsInstanceOf(jrocksdb_exception, getJClass(env))) {
+      // not an instance of RocksDBException
+      return nullptr;
+    }
+
+    // get the java status object
+    jmethodID mid = getStatusMethod(env);
+    if(mid == nullptr) {
+      // exception occurred accessing class or method
+      return nullptr;
+    }
+
+    jobject jstatus = env->CallObjectMethod(jrocksdb_exception, mid);
+    if(env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+
+    if(jstatus == nullptr) {
+      return nullptr;   // no status available
+    }
+
+    return rocksdb::StatusJni::toCppStatus(env, jstatus);
   }
 };
 
@@ -702,6 +1080,36 @@ class WriteBatchJni : public RocksDBNativeClass<
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/WriteBatch");
   }
+
+  /**
+   * Create a new Java org.rocksdb.WriteBatch object
+   *
+   * @param env A pointer to the Java environment
+   * @param wb A pointer to rocksdb::WriteBatch object
+   *
+   * @return A reference to a Java org.rocksdb.WriteBatch object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env, const WriteBatch* wb) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(J)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jwb = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(wb));
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jwb;
+  }
 };
 
 // The portal class for org.rocksdb.WriteBatch.Handler
@@ -731,6 +1139,26 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    * @return The Java Method ID or nullptr if the class or method id could not
    *     be retieved
    */
+  static jmethodID getPutCfMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "put", "(I[B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#put
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
   static jmethodID getPutMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
@@ -739,6 +1167,26 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
     }
 
     static jmethodID mid = env->GetMethodID(jclazz, "put", "([B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#merge
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMergeCfMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "merge", "(I[B[B)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -771,6 +1219,26 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
    * @return The Java Method ID or nullptr if the class or method id could not
    *     be retieved
    */
+  static jmethodID getDeleteCfMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "delete", "(I[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#delete
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
   static jmethodID getDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
@@ -779,6 +1247,66 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
     }
 
     static jmethodID mid = env->GetMethodID(jclazz, "delete", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#singleDelete
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getSingleDeleteCfMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "singleDelete", "(I[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#singleDelete
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getSingleDeleteMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "singleDelete", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#deleteRange
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getDeleteRangeCfMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "deleteRange", "(I[B[B)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -824,6 +1352,126 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
   }
 
   /**
+   * Get the Java Method: WriteBatch.Handler#putBlobIndex
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getPutBlobIndexCfMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "putBlobIndex", "(I[B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#markBeginPrepare
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMarkBeginPrepareMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "markBeginPrepare", "()V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#markEndPrepare
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMarkEndPrepareMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "markEndPrepare", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#markNoop
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMarkNoopMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "markNoop", "(Z)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#markRollback
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMarkRollbackMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "markRollback", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: WriteBatch.Handler#markCommit
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getMarkCommitMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "markCommit", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
    * Get the Java Method: WriteBatch.Handler#shouldContinue
    *
    * @param env A pointer to the Java environment
@@ -841,6 +1489,75 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
     static jmethodID mid = env->GetMethodID(jclazz, "shouldContinue", "()Z");
     assert(mid != nullptr);
     return mid;
+  }
+};
+
+class WriteBatchSavePointJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.WriteBatch.SavePoint
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/WriteBatch$SavePoint");
+  }
+
+  /**
+   * Get the Java Method: HistogramData constructor
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getConstructorMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJ)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Create a new Java org.rocksdb.WriteBatch.SavePoint object
+   *
+   * @param env A pointer to the Java environment
+   * @param savePoint A pointer to rocksdb::WriteBatch::SavePoint object
+   *
+   * @return A reference to a Java org.rocksdb.WriteBatch.SavePoint object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env, const SavePoint &save_point) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = getConstructorMethodId(env);
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jsave_point = env->NewObject(jclazz, mid,
+        static_cast<jlong>(save_point.size),
+        static_cast<jlong>(save_point.count),
+        static_cast<jlong>(save_point.content_flags));
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jsave_point;
   }
 };
 
@@ -1819,53 +2536,76 @@ class WBWIRocksIteratorJni : public JavaClass {
 // The portal class for org.rocksdb.WBWIRocksIterator.WriteType
 class WriteTypeJni : public JavaClass {
  public:
-    /**
-     * Get the PUT enum field value of WBWIRocksIterator.WriteType
-     *
-     * @param env A pointer to the Java environment
-     *
-     * @return A reference to the enum field value or a nullptr if
-     *     the enum field value could not be retrieved
-     */
-    static jobject PUT(JNIEnv* env) {
-      return getEnum(env, "PUT");
-    }
+  /**
+   * Get the PUT enum field value of WBWIRocksIterator.WriteType
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A reference to the enum field value or a nullptr if
+   *     the enum field value could not be retrieved
+   */
+  static jobject PUT(JNIEnv* env) {
+    return getEnum(env, "PUT");
+  }
 
-    /**
-     * Get the MERGE enum field value of WBWIRocksIterator.WriteType
-     *
-     * @param env A pointer to the Java environment
-     *
-     * @return A reference to the enum field value or a nullptr if
-     *     the enum field value could not be retrieved
-     */
-    static jobject MERGE(JNIEnv* env) {
-      return getEnum(env, "MERGE");
-    }
+  /**
+   * Get the MERGE enum field value of WBWIRocksIterator.WriteType
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A reference to the enum field value or a nullptr if
+   *     the enum field value could not be retrieved
+   */
+  static jobject MERGE(JNIEnv* env) {
+    return getEnum(env, "MERGE");
+  }
 
-    /**
-     * Get the DELETE enum field value of WBWIRocksIterator.WriteType
-     *
-     * @param env A pointer to the Java environment
-     *
-     * @return A reference to the enum field value or a nullptr if
-     *     the enum field value could not be retrieved
-     */
-    static jobject DELETE(JNIEnv* env) {
-      return getEnum(env, "DELETE");
-    }
+  /**
+   * Get the DELETE enum field value of WBWIRocksIterator.WriteType
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A reference to the enum field value or a nullptr if
+   *     the enum field value could not be retrieved
+   */
+  static jobject DELETE(JNIEnv* env) {
+    return getEnum(env, "DELETE");
+  }
 
-    /**
-     * Get the LOG enum field value of WBWIRocksIterator.WriteType
-     *
-     * @param env A pointer to the Java environment
-     *
-     * @return A reference to the enum field value or a nullptr if
-     *     the enum field value could not be retrieved
-     */
-    static jobject LOG(JNIEnv* env) {
-      return getEnum(env, "LOG");
+  /**
+   * Get the LOG enum field value of WBWIRocksIterator.WriteType
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A reference to the enum field value or a nullptr if
+   *     the enum field value could not be retrieved
+   */
+  static jobject LOG(JNIEnv* env) {
+    return getEnum(env, "LOG");
+  }
+  
+  // Returns the equivalent org.rocksdb.WBWIRocksIterator.WriteType for the
+  // provided C++ rocksdb::WriteType enum
+  static jbyte toJavaWriteType(const rocksdb::WriteType& writeType) {
+    switch (writeType) {
+      case rocksdb::WriteType::kPutRecord:
+        return 0x0;
+      case rocksdb::WriteType::kMergeRecord:
+        return 0x1;
+      case rocksdb::WriteType::kDeleteRecord:
+        return 0x2;
+      case rocksdb::WriteType::kSingleDeleteRecord:
+        return 0x3;
+      case rocksdb::WriteType::kDeleteRangeRecord:
+        return 0x4;
+      case rocksdb::WriteType::kLogDataRecord:
+        return 0x5;
+      case rocksdb::WriteType::kXIDRecord:
+        return 0x6;
+      default:
+        return 0x7F;  // undefined
     }
+  }
 
  private:
   /**
@@ -3632,6 +4372,27 @@ class JniUtil {
         std::function<T(const char*, const size_t)> string_fn,
         jboolean* has_exception) {
       const jsize jbyte_string_len = env->GetArrayLength(jbyte_string_ary);
+      return byteString<T>(env, jbyte_string_ary, jbyte_string_len, string_fn,
+          has_exception);
+    }
+
+    /**
+     * Given a Java String which is expressed as a Java Byte Array byte[],
+     * the passed function `string_fn` will be called on the String
+     * and the result returned
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jbyte_string_ary (IN) A Java String expressed in bytes
+     * @param jbyte_string_len (IN) The length of the Java String
+     *     expressed in bytes
+     * @param string_fn (IN) A transform function to call on the String
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     */
+    template <typename T> static T byteString(JNIEnv* env,
+        jbyteArray jbyte_string_ary, const jsize jbyte_string_len,
+        std::function<T(const char*, const size_t)> string_fn,
+        jboolean* has_exception) {
       jbyte* jbyte_string =
           env->GetByteArrayElements(jbyte_string_ary, nullptr);
       if(jbyte_string == nullptr) {
@@ -3709,71 +4470,101 @@ class JniUtil {
       return jbyte_strings;
     }
 
+    /**
+     * Copies bytes from a rocksdb::Slice to a jByteArray
+     *
+     * @param env A pointer to the java environment
+     * @param bytes The bytes to copy
+     *
+     * @return the Java byte[] or nullptr if an exception occurs
+     */
+    static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
+      const jsize jlen = static_cast<jsize>(bytes.size());
+
+      jbyteArray jbytes = env->NewByteArray(jlen);
+      if(jbytes == nullptr) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      env->SetByteArrayRegion(jbytes, 0, jlen,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes.data())));
+      if(env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jbytes);
+        return nullptr;
+      }
+
+      return jbytes;
+    }
+
     /*
      * Helper for operations on a key and value
      * for example WriteBatch->Put
      *
-     * TODO(AR) could be extended to cover returning rocksdb::Status
-     * from `op` and used for RocksDB->Put etc.
+     * TODO(AR) could be used for RocksDB->Put etc.
      */
-    static void kv_op(
-        std::function<void(rocksdb::Slice, rocksdb::Slice)> op,
+    static std::unique_ptr<rocksdb::Status> kv_op(
+        std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
         JNIEnv* env, jobject jobj,
         jbyteArray jkey, jint jkey_len,
-        jbyteArray jentry_value, jint jentry_value_len) {
+        jbyteArray jvalue, jint jvalue_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
-        return;
+        return nullptr;
       }
 
-      jbyte* value = env->GetByteArrayElements(jentry_value, nullptr);
+      jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
         if(key != nullptr) {
           env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
         }
-        return;
+        return nullptr;
       }
 
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
       rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
-          jentry_value_len);
+          jvalue_len);
 
-      op(key_slice, value_slice);
+      auto status = op(key_slice, value_slice);
 
       if(value != nullptr) {
-        env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+        env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
       }
       if(key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
+
+      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
     }
 
     /*
      * Helper for operations on a key
      * for example WriteBatch->Delete
      *
-     * TODO(AR) could be extended to cover returning rocksdb::Status
-     * from `op` and used for RocksDB->Delete etc.
+     * TODO(AR) could be used for RocksDB->Delete etc.
      */
-    static void k_op(
-        std::function<void(rocksdb::Slice)> op,
+    static std::unique_ptr<rocksdb::Status> k_op(
+        std::function<rocksdb::Status(rocksdb::Slice)> op,
         JNIEnv* env, jobject jobj,
         jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
-        return;
+        return nullptr;
       }
 
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-      op(key_slice);
+      auto status = op(key_slice);
 
       if(key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
+
+      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
     }
 
     /*
