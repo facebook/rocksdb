@@ -1642,6 +1642,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         if (!enough_room) {
           // Then don't do the compaction
           c->ReleaseCompactionFiles(status);
+          c->column_family_data()->current()->storage_info()->ComputeCompactionScore(
+              *(c->immutable_cf_options()),
+              *(c->mutable_cf_options()));
 
           ROCKS_LOG_BUFFER(log_buffer, "Cancelled compaction because not enough room");
           AddToCompactionQueue(cfd);
@@ -1649,7 +1652,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
           c.reset();
           // Don't need to sleep here, because BackgroundCallCompaction will sleep if !s.ok()
-          status = Status::Aborted();
+          status = Status::CompactionTooLarge();
         } else {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
@@ -1848,7 +1851,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   // this will unref its input_version and column_family_data
   c.reset();
 
-  if (status.ok() || status.IsAborted()) {
+  if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
