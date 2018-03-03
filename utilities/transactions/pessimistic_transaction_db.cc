@@ -142,8 +142,8 @@ Status PessimisticTransactionDB::Initialize(
     }
 
     s = real_trx->RebuildFromWriteBatch(recovered_trx->batch_);
-    // WritePrepared txns do not insert empty prepare entries but WriteCommitted
-    // do
+    // WriteCommitted set this to to disable this check that is specific to
+    // WritePrepared txns
     assert(recovered_trx->batch_cnt_ == 0 ||
            real_trx->GetWriteBatch()->SubBatchCnt() ==
                recovered_trx->batch_cnt_);

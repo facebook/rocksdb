@@ -1516,7 +1516,9 @@ class MemTableInserter : public WriteBatch::Handler {
     if (recovering_log_number_ != 0) {
       assert(db_->allow_2pc());
       size_t batch_cnt =
-          static_cast<size_t>(sequence_ - rebuilding_trx_seq_ + 1);
+          write_after_commit_
+              ? 0  // 0 will disable further checks
+              : static_cast<size_t>(sequence_ - rebuilding_trx_seq_ + 1);
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_, rebuilding_trx_seq_,
                                       batch_cnt);
