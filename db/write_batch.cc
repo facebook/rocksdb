@@ -1135,16 +1135,19 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type) {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
+      }
       MaybeAdvanceSeq();
       return seek_status;
     }
@@ -1215,6 +1218,11 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       }
     }
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
+    }
     // Since all Puts are logged in trasaction logs (if enabled), always bump
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
@@ -1248,56 +1256,80 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
+      }
       MaybeAdvanceSeq();
       return seek_status;
     }
 
-    return DeleteImpl(column_family_id, key, Slice(), kTypeDeletion);
+    auto ret_status = DeleteImpl(column_family_id, key, Slice(), kTypeDeletion);
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
+    }
+    return ret_status;
   }
 
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
+                                         key);
+      }
       MaybeAdvanceSeq();
       return seek_status;
     }
 
-    return DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
+    auto ret_status =
+        DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
+    }
+    return ret_status;
   }
 
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,
                                const Slice& end_key) override {
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
+                                        begin_key, end_key);
+      }
       MaybeAdvanceSeq();
       return seek_status;
     }
@@ -1315,22 +1347,34 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
-    return DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
+    auto ret_status =
+        DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
+                                      begin_key, end_key);
+    }
+    return ret_status;
   }
 
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     assert(!concurrent_memtable_writes_);
-    if (rebuilding_trx_ != nullptr) {
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
-      if (write_after_commit_) {
-        return Status::OK();
-      }
+      return Status::OK();
       // else insert the values to the memtable right away
     }
 
     Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      if (rebuilding_trx_ != nullptr) {
+        assert(!write_after_commit_);
+        WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
+                                  value);
+      }
       MaybeAdvanceSeq();
       return seek_status;
     }
@@ -1412,6 +1456,11 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
+    // optimize for non-recovery mode
+    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
+    }
     MaybeAdvanceSeq();
     CheckMemtableFull();
     return ret_status;
@@ -1466,7 +1515,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (recovering_log_number_ != 0) {
       assert(db_->allow_2pc());
-      size_t batch_cnt = static_cast<size_t>(sequence_ - rebuilding_trx_seq_);
+      size_t batch_cnt =
+          static_cast<size_t>(sequence_ - rebuilding_trx_seq_ + 1);
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_, rebuilding_trx_seq_,
                                       batch_cnt);

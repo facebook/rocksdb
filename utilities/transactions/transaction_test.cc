@@ -5327,11 +5327,59 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ReOpen();
     TransactionOptions txn_options;
     WriteOptions write_options;
-    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    ReadOptions ropt;
+    Transaction* txn0;
+    PinnableSlice pinnable_val;
+    Status s;
+    ASSERT_OK(db->Put(write_options, "foo0", "init"));
+    ASSERT_OK(db->Put(write_options, "foo1", "init"));
+
+    // one entry
+    txn0 = db->BeginTransaction(write_options, txn_options);
     ASSERT_OK(txn0->SetName("xid"));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
+    ASSERT_OK(txn0->Prepare());
+    delete txn0;
+    // This will check the asserts inside recovery code
+    db->FlushWAL(true);
+    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    ASSERT_OK(ReOpenNoDelete());
+    txn0 = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn0 != nullptr);
+    ASSERT_OK(txn0->Commit());
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0a"));
+
+    // two entries, no duplicate
+    txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0b")));
-    ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar0c")));
+    ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar1b")));
+    ASSERT_OK(txn0->Prepare());
+    delete txn0;
+    // This will check the asserts inside recovery code
+    db->FlushWAL(true);
+    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    ASSERT_OK(ReOpenNoDelete());
+    txn0 = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn0 != nullptr);
+    ASSERT_OK(txn0->Commit());
+    delete txn0;
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0b"));
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar1b"));
+
+    // one duplicate with ::Put
+    txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0c")));
+    ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar1c")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0d")));
     ASSERT_OK(txn0->Prepare());
     delete txn0;
@@ -5342,6 +5390,74 @@ TEST_P(TransactionTest, DuplicateKeys) {
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
+    delete txn0;
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0d"));
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar1c"));
+
+    // Duplicate with ::Put, ::Delete
+    txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0e")));
+    ASSERT_OK(txn0->Delete(Slice("foo0")));
+    ASSERT_OK(txn0->Prepare());
+    delete txn0;
+    // This will check the asserts inside recovery code
+    db->FlushWAL(true);
+    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    ASSERT_OK(ReOpenNoDelete());
+    txn0 = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn0 != nullptr);
+    ASSERT_OK(txn0->Commit());
+    delete txn0;
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_TRUE(pinnable_val == ("bar1c"));  // value before txn
+
+    // Duplicate with ::Put, ::SingleDelete
+    txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0e")));
+    ASSERT_OK(txn0->SingleDelete(Slice("foo0")));
+    ASSERT_OK(txn0->Prepare());
+    delete txn0;
+    // This will check the asserts inside recovery code
+    db->FlushWAL(true);
+    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    ASSERT_OK(ReOpenNoDelete());
+    txn0 = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn0 != nullptr);
+    ASSERT_OK(txn0->Commit());
+    delete txn0;
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_TRUE(s.IsNotFound());
+
+    // Duplicate with ::Put, ::Merge
+    txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0f")));
+    ASSERT_OK(txn0->Merge(Slice("foo0"), Slice("bar0g")));
+    ASSERT_OK(txn0->Prepare());
+    delete txn0;
+    // This will check the asserts inside recovery code
+    db->FlushWAL(true);
+    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    ASSERT_OK(ReOpenNoDelete());
+    txn0 = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn0 != nullptr);
+    ASSERT_OK(txn0->Commit());
+    delete txn0;
+    pinnable_val.Reset();
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0f,bar0g"));
   }
 }
 
