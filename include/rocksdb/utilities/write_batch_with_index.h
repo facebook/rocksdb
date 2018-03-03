@@ -227,6 +227,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override;
 
  private:
+  friend class PessimisticTransactionDB;
   friend class WritePreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
   // Returns the number of sub-batches inside the write batch. A sub-batch

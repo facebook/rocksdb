@@ -5321,6 +5321,28 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(txn0->Commit());
     delete txn0;
   }
+
+  // Test sucessfull recovery after a crash
+  {
+    ReOpen();
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0b")));
+    ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar0c")));
+    ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0d")));
+    ASSERT_OK(txn0->Prepare());
+    delete txn0;
+    // This will check the asserts inside recovery code
+    db->FlushWAL(true);
+    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    ASSERT_OK(ReOpenNoDelete());
+    txn0 = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn0 != nullptr);
+    ASSERT_OK(txn0->Commit());
+  }
 }
 
 }  // namespace rocksdb
