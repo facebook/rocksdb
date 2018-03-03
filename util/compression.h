@@ -722,24 +722,31 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
 #endif
 }
 
+#ifdef XPRESS
+inline bool XPRESS_Compress(const char* input, size_t length,
+                            std::string* output) {
+  return port::xpress::Compress(input, length, output);
+}
+#else
 inline bool XPRESS_Compress(const char* /*input*/, size_t /*length*/,
                             std::string* /*output*/) {
-#ifdef XPRESS
-  return port::xpress::Compress(input, length, output);
-#else
   return false;
-#endif
 }
+#endif
 
+#ifdef XPRESS
+inline char* XPRESS_Uncompress(const char* input_data,
+                               size_t input_length,
+                               int* decompress_size) {
+  return port::xpress::Decompress(input_data, input_length, decompress_size);
+}
+#else
 inline char* XPRESS_Uncompress(const char* /*input_data*/,
                                size_t /*input_length*/,
                                int* /*decompress_size*/) {
-#ifdef XPRESS
-  return port::xpress::Decompress(input_data, input_length, decompress_size);
-#else
   return nullptr;
-#endif
 }
+#endif
 
 
 // @param compression_dict Data for presetting the compression library's
