@@ -101,6 +101,27 @@ class TransactionTestBase : public ::testing::Test {
     return s;
   }
 
+  Status ReOpenNoDelete(const std::vector<ColumnFamilyDescriptor>& cfs,
+                        std::vector<ColumnFamilyHandle*>* handles) {
+    for (auto h : *handles) {
+      delete h;
+    }
+    handles->clear();
+    delete db;
+    db = nullptr;
+    env->AssertNoOpenFile();
+    env->DropUnsyncedFileData();
+    env->ResetState();
+    Status s;
+    if (use_stackable_db_ == false) {
+      s = TransactionDB::Open(options, txn_db_options, dbname, cfs, handles,
+                              &db);
+    } else {
+      s = OpenWithStackableDB();
+    }
+    return s;
+  }
+
   Status ReOpen() {
     delete db;
     DestroyDB(dbname, options);
