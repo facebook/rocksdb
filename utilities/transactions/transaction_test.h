@@ -101,7 +101,7 @@ class TransactionTestBase : public ::testing::Test {
     return s;
   }
 
-  Status ReOpenNoDelete(const std::vector<ColumnFamilyDescriptor>& cfs,
+  Status ReOpenNoDelete(std::vector<ColumnFamilyDescriptor>& cfs,
                         std::vector<ColumnFamilyHandle*>* handles) {
     for (auto h : *handles) {
       delete h;
@@ -117,7 +117,7 @@ class TransactionTestBase : public ::testing::Test {
       s = TransactionDB::Open(options, txn_db_options, dbname, cfs, handles,
                               &db);
     } else {
-      s = OpenWithStackableDB();
+      s = OpenWithStackableDB(cfs, handles);
     }
     return s;
   }
@@ -130,6 +130,25 @@ class TransactionTestBase : public ::testing::Test {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
+    }
+    return s;
+  }
+
+  Status OpenWithStackableDB(std::vector<ColumnFamilyDescriptor>& cfs,
+                             std::vector<ColumnFamilyHandle*>* handles) {
+    std::vector<size_t> compaction_enabled_cf_indices;
+    TransactionDB::PrepareWrap(&options, &cfs,
+                               &compaction_enabled_cf_indices);
+    DB* root_db;
+    Options options_copy(options);
+    const bool use_seq_per_batch =
+        txn_db_options.write_policy == WRITE_PREPARED;
+    Status s = DBImpl::Open(options_copy, dbname, cfs, handles,
+                            &root_db, use_seq_per_batch);
+    if (s.ok()) {
+      s = TransactionDB::WrapStackableDB(
+          new StackableDB(root_db), txn_db_options,
+          compaction_enabled_cf_indices, *handles, &db);
     }
     return s;
   }
