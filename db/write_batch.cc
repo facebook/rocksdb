@@ -1197,12 +1197,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status seek_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
+        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+            column_family_id, key, sequence_);
       }
-      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-          column_family_id, key, sequence_);
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1320,12 +1321,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status seek_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-      }
-      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
           column_family_id, key, sequence_);
+      }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1350,13 +1352,14 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status seek_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                          key);
-      }
-      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
           column_family_id, key, sequence_);
+      }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1384,15 +1387,16 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status seek_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                         begin_key, end_key);
-      }
       // TODO(myabandeh): when transctional DeleteRange support is added, check
       // if end_key must also be added.
-      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
           column_family_id, begin_key, sequence_);
+      }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1433,13 +1437,14 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status seek_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+      bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                   value);
-      }
-      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
           column_family_id, key, sequence_);
+      }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
