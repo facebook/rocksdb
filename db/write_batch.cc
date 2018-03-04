@@ -978,6 +978,57 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
+// During recovery if the memtable is flushed we cannot rely on its help on
+// duplicate key detection and as key insert will not be attempted. This class
+// will be used as a emulator of memtable to tell if insertion of a key/seq
+// would have resulted in duplication.
+class DuplicateDetector {
+ public:
+  DuplicateDetector(DBImpl* db) : db_(db) {}
+  bool IsDuplicateKeySeq(uint32_t cf, const Slice& key, SequenceNumber seq) {
+    assert(seq >= batch_seq_);
+    if (batch_seq_ != seq) {  // it is a new batch
+      keys_.clear();
+    }
+    batch_seq_ = seq;
+    CFKeys& cf_keys = keys_[cf];
+    if (cf_keys.size() == 0) {  // just inserted
+      InitWithComp(cf);
+    }
+    auto it = cf_keys.insert(key);
+    if (it.second == false) {  // second is false if a element already existed.
+      keys_.clear();
+      InitWithComp(cf);
+      keys_[cf].insert(key);
+      return true;
+    }
+    return false;
+  }
+
+ private:
+  SequenceNumber batch_seq_ = 0;
+  DBImpl* db_;
+  // A comparator to be used in std::set
+  struct SetComparator {
+    explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
+    explicit SetComparator(const Comparator* user_comparator)
+        : user_comparator_(user_comparator ? user_comparator
+                                           : BytewiseComparator()) {}
+    bool operator()(const Slice& lhs, const Slice& rhs) const {
+      return user_comparator_->Compare(lhs, rhs) < 0;
+    }
+
+   private:
+    const Comparator* user_comparator_;
+  };
+  using CFKeys = std::set<Slice, SetComparator>;
+  std::map<uint32_t, CFKeys> keys_;
+  void InitWithComp(const uint32_t cf) {
+    auto cmp = db_->GetColumnFamilyHandle(cf)->GetComparator();
+    keys_[cf] = CFKeys(SetComparator(cmp));
+  }
+};
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;
@@ -1008,6 +1059,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool seq_per_batch_;
   // Whether the memtable write will be done only after the commit
   bool write_after_commit_;
+  DuplicateDetector duplicate_detector_;
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -1045,7 +1097,8 @@ class MemTableInserter : public WriteBatch::Handler {
         // Write after commit currently uses one seq per key (instead of per
         // batch). So seq_per_batch being false indicates write_after_commit
         // approach.
-        write_after_commit_(!seq_per_batch) {
+        write_after_commit_(!seq_per_batch),
+        duplicate_detector_(db_) {
     assert(cf_mems_);
   }
 
@@ -1133,45 +1186,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return true;
   }
 
-  SequenceNumber batch_seq_ = 0;
-  struct SetComparator {
-    explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
-    explicit SetComparator(const Comparator* user_comparator)
-        : user_comparator_(user_comparator ? user_comparator
-                                           : BytewiseComparator()) {}
-    bool operator()(const Slice& lhs, const Slice& rhs) const {
-      return user_comparator_->Compare(lhs, rhs) < 0;
-    }
-
-   private:
-    const Comparator* user_comparator_;
-  };
-  using CFKeys = std::set<Slice, SetComparator>;
-  std::map<uint32_t, CFKeys> keys_;
-  void InitWithComp(const uint32_t cf) {
-    auto cmp = db_->GetColumnFamilyHandle(cf)->GetComparator();
-    keys_[cf] = CFKeys(SetComparator(cmp));
-  }
-  bool IsDuplicateKeySeq(uint32_t cf, const Slice& key, SequenceNumber seq) {
-    assert(seq >= batch_seq_);
-    if (batch_seq_ != seq) { // it is a new batch
-      keys_.clear();
-    }
-    batch_seq_ = seq;
-    CFKeys& cf_keys = keys_[cf];
-    if (cf_keys.size() == 0) {  // just inserted
-      InitWithComp(cf);
-    }
-    auto it = cf_keys.insert(key);
-    if (it.second == false) {  // second is false if a element already existed.
-      keys_.clear();
-      InitWithComp(cf);
-      keys_[cf].insert(key);
-      return true;
-    }
-    return false;
-  }
-
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type) {
     // optimize for non-recovery mode
@@ -1187,7 +1201,8 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
       }
-      const bool batch_boundry = IsDuplicateKeySeq(column_family_id, key, sequence_);
+      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+          column_family_id, key, sequence_);
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1309,7 +1324,8 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
       }
-      const bool batch_boundry = IsDuplicateKeySeq(column_family_id, key, sequence_);
+      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+          column_family_id, key, sequence_);
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1339,7 +1355,8 @@ class MemTableInserter : public WriteBatch::Handler {
         WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                          key);
       }
-      const bool batch_boundry = IsDuplicateKeySeq(column_family_id, key, sequence_);
+      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+          column_family_id, key, sequence_);
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1372,9 +1389,10 @@ class MemTableInserter : public WriteBatch::Handler {
         WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                         begin_key, end_key);
       }
-      // TODO(myabandeh): when transctional DeleteRange support is added, check if end_key must also be added.
-      const bool batch_boundry =
-          IsDuplicateKeySeq(column_family_id, begin_key, sequence_);
+      // TODO(myabandeh): when transctional DeleteRange support is added, check
+      // if end_key must also be added.
+      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+          column_family_id, begin_key, sequence_);
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
@@ -1420,7 +1438,8 @@ class MemTableInserter : public WriteBatch::Handler {
         WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                   value);
       }
-      const bool batch_boundry = IsDuplicateKeySeq(column_family_id, key, sequence_);
+      const bool batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+          column_family_id, key, sequence_);
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
