@@ -788,16 +788,21 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   db_impl_->CancelAllBackgroundWork(true /*wait*/);
 }
 
+void SubBatchCounter::InitWithComp(const uint32_t cf) {
+    auto cmp = comparators_[cf];
+    keys_[cf] = CFKeys(SetComparator(cmp));
+}
+
 void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
   CFKeys& cf_keys = keys_[cf];
   if (cf_keys.size() == 0) {  // just inserted
-    auto cmp = comparators_[cf];
-    keys_[cf] = CFKeys(SetComparator(cmp));
+    InitWithComp(cf);
   }
   auto it = cf_keys.insert(key);
   if (it.second == false) {  // second is false if a element already existed.
     batches_++;
     keys_.clear();
+    InitWithComp(cf);
     keys_[cf].insert(key);
   }
 }

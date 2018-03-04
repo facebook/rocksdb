@@ -5129,6 +5129,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     batch.Put(cf_handle, Slice("key"), Slice("value"));
     // The first three bytes are the same, do it must be counted as duplicate
     batch.Put(cf_handle, Slice("key2"), Slice("value2"));
+    // check for 2nd duplicate key in cf with non-default comparator
+    batch.Put(cf_handle, Slice("key2b"), Slice("value2b"));
     ASSERT_OK(db->Write(write_options, &batch));
 
     // The value must be the most recent value for all the keys equal to "key",
@@ -5136,7 +5138,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ReadOptions ropt;
     PinnableSlice pinnable_val;
     ASSERT_OK(db->Get(ropt, cf_handle, "key", &pinnable_val));
-    ASSERT_TRUE(pinnable_val == ("value2"));
+    ASSERT_TRUE(pinnable_val == ("value2b"));
 
     // Test duplicate keys with rollback
     TransactionOptions txn_options;
@@ -5146,7 +5148,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(txn0->Merge(cf_handle, Slice("key4"), Slice("value4")));
     ASSERT_OK(txn0->Rollback());
     ASSERT_OK(db->Get(ropt, cf_handle, "key5", &pinnable_val));
-    ASSERT_TRUE(pinnable_val == ("value2"));
+    ASSERT_TRUE(pinnable_val == ("value2b"));
     delete txn0;
 
     delete cf_handle;
@@ -5378,6 +5380,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete txn0;
     // This will check the asserts inside recovery code
     db->FlushWAL(true);
+    // Flush only cf 1
+    reinterpret_cast<DBImpl*>(db->GetRootDB())
+        ->TEST_FlushMemTable(true, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5413,6 +5418,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete txn0;
     // This will check the asserts inside recovery code
     db->FlushWAL(true);
+    // Flush only cf 1
+    reinterpret_cast<DBImpl*>(db->GetRootDB())
+        ->TEST_FlushMemTable(true, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5443,6 +5451,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete txn0;
     // This will check the asserts inside recovery code
     db->FlushWAL(true);
+    // Flush only cf 1
+    reinterpret_cast<DBImpl*>(db->GetRootDB())
+        ->TEST_FlushMemTable(true, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5467,6 +5478,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete txn0;
     // This will check the asserts inside recovery code
     db->FlushWAL(true);
+    // Flush only cf 1
+    reinterpret_cast<DBImpl*>(db->GetRootDB())
+        ->TEST_FlushMemTable(true, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5491,6 +5505,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete txn0;
     // This will check the asserts inside recovery code
     db->FlushWAL(true);
+    // Flush only cf 1
+    reinterpret_cast<DBImpl*>(db->GetRootDB())
+        ->TEST_FlushMemTable(true, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
