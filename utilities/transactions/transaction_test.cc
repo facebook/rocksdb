@@ -5528,6 +5528,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
       delete h;
     }
     delete db;
+    db = nullptr;
   }
 }
 
