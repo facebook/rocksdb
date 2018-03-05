@@ -182,6 +182,8 @@ class BlobDBImpl : public BlobDB {
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
+  std::shared_ptr<BlobFile> TEST_GetOpenNonTTLFile() const;
+
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
 
   Status TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
@@ -193,7 +195,11 @@ class BlobDBImpl : public BlobDB {
   Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
                                  GCStats* gc_stats);
 
-  void TEST_RunGC();
+  Status TEST_GarbageCollectionScan();
+
+  void TEST_WaitForGarbageCollection();
+
+  int TEST_GetNumGarbageCollectionJobs() const;
 
   void TEST_DeleteObsoleteFiles();
 
@@ -201,6 +207,7 @@ class BlobDBImpl : public BlobDB {
 #endif  //  !NDEBUG
 
  private:
+  struct GarbageCollectionJob;
   class GarbageCollectionWriteCallback;
   class BlobInserter;
 
@@ -307,8 +314,8 @@ class BlobDBImpl : public BlobDB {
   // Iterate through keys and values on Blob and write into
   // separate file the remaining blobs and delete/update pointers
   // in LSM atomically
-  Status GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
-                            GCStats* gcstats);
+  Status GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& blob_file,
+                            GCStats* gc_stats);
 
   // checks if there is no snapshot which is referencing the
   // blobs
@@ -327,6 +334,20 @@ class BlobDBImpl : public BlobDB {
   // even eviction will not make enough room for the new blob.
   Status CheckSizeAndEvictBlobFiles(uint64_t blob_size,
                                     bool force_evict = false);
+
+  // Scan base DB and collect stats to decide the set of files for garbage
+  // collection. Schedule garbage collection job accordingly.
+  Status GarbageCollectionScan();
+
+  // Run garbage collection job.
+  static void BackgroundGarbageCollection(void* arg);
+
+  // Unschedule garbage collection job and cleanup.
+  static void UnscheduleGarbageCollection(void* arg);
+
+  // Mark file being garbage colllect and run garbage collection job.
+  // Signal threads waiting for garbage collection after the job ends.
+  Status GarbageCollectBlobFile(const std::shared_ptr<BlobFile>& blob_file);
 
   // name of the database directory
   std::string dbname_;
@@ -359,6 +380,13 @@ class BlobDBImpl : public BlobDB {
   // Writers has to hold write_mutex_ before writing.
   mutable port::Mutex write_mutex_;
 
+  // Guard num_garbage_collection_job_.
+  mutable port::Mutex gc_mutex_;
+
+  // Condition variable to check if there are any pending garbage collection
+  // job running.
+  port::CondVar gc_cv_;
+
   // counter for blob file number
   std::atomic<uint64_t> next_file_number_;
 
@@ -381,6 +409,9 @@ class BlobDBImpl : public BlobDB {
   // timer based queue to execute tasks
   TimerQueue tqueue_;
 
+  // Random number generator to randomize background task start time.
+  Random64 random_;
+
   // number of files opened for random access/GET
   // counter is used to monitor and close excess RA files.
   std::atomic<uint32_t> open_file_count_;
@@ -401,6 +432,10 @@ class BlobDBImpl : public BlobDB {
   // REQUIRES: access with metex_ lock held.
   uint64_t evict_expiration_up_to_;
 
+  // REQUIRES: access with gc_mutex_ lock held.
+  int num_garbage_collection_jobs_;
+
+  // List of obsolete files pending deletion.
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
 
   uint32_t debug_level_;

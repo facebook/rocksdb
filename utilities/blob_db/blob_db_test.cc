@@ -659,6 +659,438 @@ TEST_F(BlobDBTest, MultipleWriters) {
   VerifyDB(data);
 }
 
+TEST_F(BlobDBTest, GarbageCollection_nonTTL) {
+  Random rnd(439);
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.statistics = statistics;
+  Open(bdb_options, options);
+  std::map<std::string, std::string> data;
+
+  // Create a non-TTL file with more than 50% deleted keys.
+  for (int i = 0; i < 100; i++) {
+    PutRandom("key" + ToString(i), &rnd, &data);
+  }
+  for (int i = 0; i < 51; i++) {
+    Delete("key" + ToString(i), &data);
+  }
+  auto blob_file1 = blob_db_impl()->TEST_GetOpenNonTTLFile();
+  ASSERT_TRUE(blob_file1 != nullptr);
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file1));
+
+  // Create a non-TTL file with less than 50% deleted keys.
+  for (int i = 0; i < 100; i++) {
+    PutRandom("key" + ToString(i + 100), &rnd, &data);
+  }
+  for (int i = 0; i < 49; i++) {
+    Delete("key" + ToString(i + 100), &data);
+  }
+  auto blob_file2 = blob_db_impl()->TEST_GetOpenNonTTLFile();
+  ASSERT_TRUE(blob_file2 != nullptr);
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file2));
+
+  // Create a non-TTL file with all keys deleted.
+  for (int i = 0; i < 100; i++) {
+    PutRandom("key" + ToString(i + 200), &rnd, &data);
+  }
+  for (int i = 0; i < 100; i++) {
+    Delete("key" + ToString(i + 200), &data);
+  }
+  auto blob_file3 = blob_db_impl()->TEST_GetOpenNonTTLFile();
+  ASSERT_TRUE(blob_file3 != nullptr);
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file3));
+
+  VerifyDB(data);
+
+  // Run garbage collection scan. blob_file1 should get garbage collected,
+  // and blob_file2 should not. A third blob file is created to replace
+  // blob_file1.
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  // Check GC counters.
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(2, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(151, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(49, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+  // File should mark as obsolete after GC.
+  ASSERT_TRUE(blob_file1->Obsolete());
+  ASSERT_FALSE(blob_file2->Obsolete());
+  ASSERT_TRUE(blob_file3->Obsolete());
+  // Verify number files.
+  ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+  // Verify file generated from GC copy over metadata, and is properly closed.
+  auto blob_file4 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_FALSE(blob_file4->HasTTL());
+  ASSERT_TRUE(blob_file4->Immutable());
+
+  VerifyDB(data);
+}
+
+TEST_F(BlobDBTest, GarbageCollection_TTL) {
+  Random rnd(439);
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.ttl_range_secs = 60;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  options.statistics = statistics;
+  Open(bdb_options, options);
+  std::map<std::string, std::string> data;
+
+  mock_env_->set_current_time(0);
+  // Create a non-TTL file with more than 50% deleted keys.
+  for (int i = 0; i < 100; i++) {
+    PutRandomWithTTL("key" + ToString(i), 30, &rnd, &data);
+  }
+  for (int i = 0; i < 51; i++) {
+    Delete("key" + ToString(i), &data);
+  }
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file1 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file1));
+
+  // Create a non-TTL file with less than 50% deleted keys.
+  for (int i = 0; i < 100; i++) {
+    PutRandomWithTTL("key" + ToString(i + 100), 90, &rnd, &data);
+  }
+  for (int i = 0; i < 49; i++) {
+    Delete("key" + ToString(i + 100), &data);
+  }
+  ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file2 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_TRUE(blob_file2 != nullptr);
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file2));
+
+  // Create a non-TTL file with all keys deleted.
+  for (int i = 0; i < 100; i++) {
+    PutRandomWithTTL("key" + ToString(i + 200), 150, &rnd, &data);
+  }
+  for (int i = 0; i < 100; i++) {
+    Delete("key" + ToString(i + 200), &data);
+  }
+  ASSERT_EQ(3, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file3 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_TRUE(blob_file3 != nullptr);
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file3));
+
+  VerifyDB(data);
+
+  // Run garbage collection scan. blob_file1 should get garbage collected,
+  // and blob_file2 should not. A third blob file is created to replace
+  // blob_file1.
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  // Check GC counters.
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(2, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(151, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(49, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+  // File should mark as obsolete after GC.
+  ASSERT_TRUE(blob_file1->Obsolete());
+  ASSERT_FALSE(blob_file2->Obsolete());
+  ASSERT_TRUE(blob_file3->Obsolete());
+  // Verify number files.
+  ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+  // Verify file generated from GC copy over metadata.
+  auto blob_file4 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_TRUE(blob_file4->HasTTL());
+  ASSERT_EQ(0, blob_file4->GetExpirationRange().first);
+  ASSERT_EQ(60, blob_file4->GetExpirationRange().second);
+  ASSERT_TRUE(blob_file4->Immutable());
+
+  VerifyDB(data);
+}
+
+// Verify garbage collection select candidate files based on file state.
+TEST_F(BlobDBTest, GarbageCollection_CandidateFiles) {
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.statistics = statistics;
+  Open(bdb_options, options);
+  std::map<std::string, std::string> data;
+
+  // Create an immutable file.
+  ASSERT_OK(Put("key1", "value1"));
+  Delete("key1");
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file1 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file1));
+
+  // Create an obsolete file.
+  ASSERT_OK(Put("key2", "value2"));
+  Delete("key2");
+  ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file2 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file2));
+  blob_file2->MarkObsolete(blob_db_->GetLatestSequenceNumber());
+
+  // Create an file and mark it as pending GC.
+  ASSERT_OK(Put("key3", "value3"));
+  Delete("key3");
+  ASSERT_EQ(3, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file3 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file3));
+  blob_file3->MarkPendingGarbageCollection();
+
+  // Create an file and mark it as running GC.
+  ASSERT_OK(Put("key4", "value4"));
+  Delete("key4");
+  ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file4 = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file4));
+  blob_file4->MarkPendingGarbageCollection();
+  blob_file4->MarkRunningGarbageCollection();
+
+  // Create an mutable file.
+  ASSERT_OK(Put("key5", "value5"));
+  Delete("key5");
+  ASSERT_EQ(5, blob_db_impl()->TEST_GetBlobFiles().size());
+
+  // Trigger garbage collection
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+  // Only file 1 will be garbage collected.
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles()[0]->BlobFileNumber());
+  ASSERT_EQ(3, blob_db_impl()->TEST_GetBlobFiles()[1]->BlobFileNumber());
+  ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles()[2]->BlobFileNumber());
+  ASSERT_EQ(5, blob_db_impl()->TEST_GetBlobFiles()[3]->BlobFileNumber());
+
+  VerifyDB({});
+}
+
+TEST_F(BlobDBTest, GarbageCollection_GarbageCollectAgain) {
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.statistics = statistics;
+  Open(bdb_options, options);
+
+  std::map<std::string, std::string> data;
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("key" + ToString(i), "v", &data));
+  }
+  for (int i = 0; i < 60; i++) {
+    Delete("key" + ToString(i), &data);
+  }
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file1 = blob_db_impl()->TEST_GetBlobFiles()[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file1));
+
+  // Run garbage collection and it will generate a new blob file.
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  ASSERT_TRUE(blob_file1->Obsolete());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(60, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(40, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+  statistics->Reset();
+
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file2 = blob_db_impl()->TEST_GetBlobFiles()[0];
+  ASSERT_TRUE(blob_file2->Immutable());
+  ASSERT_FALSE(blob_file2->Obsolete());
+
+  for (int i = 60; i < 90; i++) {
+    Delete("key" + ToString(i), &data);
+  }
+
+  // Run garbage collection again on the second blob file.
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  ASSERT_TRUE(blob_file2->Obsolete());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(30, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(10, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+
+  VerifyDB(data);
+}
+
+TEST_F(BlobDBTest, GarbageCollectionShouldNotReschedule) {
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.statistics = statistics;
+  Open(bdb_options, options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"BlobDBTest::GarbageCollectionShouldNotReschedule:1",
+        "BlobDBImpl::GarbageCollectBlobFile:BeforeRunning"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("foo", "bar"));
+  Delete("foo");
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+
+  // Run garbage collection and block the actual garbage collection job.
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetNumGarbageCollectionJobs());
+  // Scan again. The same file should not schedule for GC again.
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetNumGarbageCollectionJobs());
+
+  TEST_SYNC_POINT("BlobDBTest::GarbageCollectionShouldNotReschedule:1");
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  // The second call to GarbageCollectionScan don't have any candidate files,
+  // and it won't bump BLOB_DB_GC_NUM_SCAN.
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+
+  VerifyDB({});
+}
+
+// Schedule garbage collection job. Before the job runs trigger FIFO eviction.
+// Garbage collection job should cancel.
+TEST_F(BlobDBTest, GarbageCollectionJobRunAfterFileEvicted) {
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.max_db_size = 200;
+  bdb_options.is_fifo = true;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  options.statistics = statistics;
+  Open(bdb_options, options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"BlobDBTest::GarbageCollectionJobRunAfterFileEvicted",
+        "BlobDBImpl::GarbageCollectBlobFile:BeforeCheckingFileState"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create a blob file and schedule it for garbage collect.
+  std::string value('v', 100);
+  ASSERT_OK(PutWithTTL("key1", value, 60));
+  Delete("key1");
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  // Job scheduled.
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetNumGarbageCollectionJobs());
+
+  // Trigger FIFO eviction by inserting a second key.
+  ASSERT_OK(PutWithTTL("key2", value, 60));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_FIFO_NUM_FILES_EVICTED));
+  ASSERT_TRUE(blob_file->Obsolete());
+
+  TEST_SYNC_POINT("BlobDBTest::GarbageCollectionJobRunAfterFileEvicted");
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  // Verify the garbage collection job did not run.
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+
+  VerifyDB({{"key2", value}});
+}
+
+// Schedule and run garbage collection job. Before the job finishes, trigger
+// FIFO eviction. FIFO eviction should fail.
+TEST_F(BlobDBTest, GarbageCollectionJobRunBeforeFileSelectedForEvict) {
+  auto statistics = CreateDBStatistics();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = 256 << 20;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_deletion_size_threshold = 0.5;
+  bdb_options.max_db_size = 200;
+  bdb_options.is_fifo = true;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  options.statistics = statistics;
+  Open(bdb_options, options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"BlobDBImpl::GarbageCollectBlobFile:BeforeRunning",
+        "BlobDBTest::GarbageCollectionJobRunBeforeFileSelectedForEvict:1"},
+       {"BlobDBTest::GarbageCollectionJobRunBeforeFileSelectedForEvict:2",
+        "BlobDBImpl::GCFileAndUpdateLSM:BeforeObsoleteFile"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create a blob file and schedule it for garbage collect.
+  std::string value('v', 100);
+  ASSERT_OK(PutWithTTL("key1", value, 60));
+  Delete("key1");
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  auto blob_file = blob_db_impl()->TEST_GetBlobFiles().back();
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+  ASSERT_OK(blob_db_impl()->TEST_GarbageCollectionScan());
+  // Job scheduled.
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetNumGarbageCollectionJobs());
+
+  // Wait till job start running.
+  TEST_SYNC_POINT(
+      "BlobDBTest::GarbageCollectionJobRunBeforeFileSelectedForEvict:1");
+
+  // Trigger FIFO eviction. The file won't be able to evict.
+  ASSERT_TRUE(PutWithTTL("key2", value, 60).IsNoSpace());
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_FIFO_NUM_FILES_EVICTED));
+
+  // Garbage collection job should be able to finish.
+  TEST_SYNC_POINT(
+      "BlobDBTest::GarbageCollectionJobRunBeforeFileSelectedForEvict:2");
+  blob_db_impl()->TEST_WaitForGarbageCollection();
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_SCAN));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_FILES));
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES));
+  ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_OVERWRITTEN));
+  ASSERT_EQ(0, statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED));
+}
+
 TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
   Random rnd(301);
   BlobDBOptions bdb_options;
@@ -812,7 +1244,7 @@ TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
       ASSERT_TRUE(blob_files[i]->Immutable());
     }
   }
-  blob_db_impl()->TEST_RunGC();
+  // blob_db_impl()->TEST_RunGC();
   // The oldest simple blob file (i.e. blob_files[1]) has been selected for GC.
   auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
   ASSERT_EQ(1, obsolete_files.size());

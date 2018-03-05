@@ -63,10 +63,14 @@ class TimerQueue {
   //  Returns the ID of the new timer. You can use this ID to cancel the
   // timer
   uint64_t add(int64_t milliseconds,
-               std::function<std::pair<bool, int64_t>(bool)> handler) {
+               std::function<std::pair<bool, int64_t>(bool)> handler,
+               int64_t start_time = 0) {
     WorkItem item;
     Clock::time_point tp = Clock::now();
-    item.end = tp + std::chrono::milliseconds(milliseconds);
+    if (start_time == 0) {
+      start_time = milliseconds;
+    }
+    item.end = tp + std::chrono::milliseconds(start_time);
     item.period = milliseconds;
     item.handler = std::move(handler);
 
