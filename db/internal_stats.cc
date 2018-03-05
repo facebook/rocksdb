@@ -447,7 +447,7 @@ bool InternalStats::GetStringProperty(const DBPropertyInfo& property_info,
 }
 
 bool InternalStats::GetMapProperty(const DBPropertyInfo& property_info,
-                                   const Slice& property,
+                                   const Slice& /*property*/,
                                    std::map<std::string, std::string>* value) {
   assert(value != nullptr);
   assert(property_info.handle_map != nullptr);
@@ -499,7 +499,7 @@ bool InternalStats::HandleCompressionRatioAtLevelPrefix(std::string* value,
   return true;
 }
 
-bool InternalStats::HandleLevelStats(std::string* value, Slice suffix) {
+bool InternalStats::HandleLevelStats(std::string* value, Slice /*suffix*/) {
   char buf[1000];
   const auto* vstorage = cfd_->current()->storage_info();
   snprintf(buf, sizeof(buf),
@@ -532,35 +532,36 @@ bool InternalStats::HandleCFMapStats(
   return true;
 }
 
-bool InternalStats::HandleCFStats(std::string* value, Slice suffix) {
+bool InternalStats::HandleCFStats(std::string* value, Slice /*suffix*/) {
   DumpCFStats(value);
   return true;
 }
 
 bool InternalStats::HandleCFStatsNoFileHistogram(std::string* value,
-                                                 Slice suffix) {
+                                                 Slice /*suffix*/) {
   DumpCFStatsNoFileHistogram(value);
   return true;
 }
 
-bool InternalStats::HandleCFFileHistogram(std::string* value, Slice suffix) {
+bool InternalStats::HandleCFFileHistogram(std::string* value,
+                                          Slice /*suffix*/) {
   DumpCFFileHistogram(value);
   return true;
 }
 
-bool InternalStats::HandleDBStats(std::string* value, Slice suffix) {
+bool InternalStats::HandleDBStats(std::string* value, Slice /*suffix*/) {
   DumpDBStats(value);
   return true;
 }
 
-bool InternalStats::HandleSsTables(std::string* value, Slice suffix) {
+bool InternalStats::HandleSsTables(std::string* value, Slice /*suffix*/) {
   auto* current = cfd_->current();
   *value = current->DebugString(true, true);
   return true;
 }
 
 bool InternalStats::HandleAggregatedTableProperties(std::string* value,
-                                                    Slice suffix) {
+                                                    Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
   auto s = cfd_->current()->GetAggregatedTableProperties(&tp);
   if (!s.ok()) {
@@ -587,34 +588,34 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* value,
   return true;
 }
 
-bool InternalStats::HandleNumImmutableMemTable(uint64_t* value, DBImpl* db,
-                                               Version* version) {
+bool InternalStats::HandleNumImmutableMemTable(uint64_t* value, DBImpl* /*db*/,
+                                               Version* /*version*/) {
   *value = cfd_->imm()->NumNotFlushed();
   return true;
 }
 
 bool InternalStats::HandleNumImmutableMemTableFlushed(uint64_t* value,
-                                                      DBImpl* db,
-                                                      Version* version) {
+                                                      DBImpl* /*db*/,
+                                                      Version* /*version*/) {
   *value = cfd_->imm()->NumFlushed();
   return true;
 }
 
-bool InternalStats::HandleMemTableFlushPending(uint64_t* value, DBImpl* db,
-                                               Version* version) {
+bool InternalStats::HandleMemTableFlushPending(uint64_t* value, DBImpl* /*db*/,
+                                               Version* /*version*/) {
   // Return number of mem tables that are ready to flush (made immutable)
   *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
   return true;
 }
 
 bool InternalStats::HandleNumRunningFlushes(uint64_t* value, DBImpl* db,
-                                            Version* version) {
+                                            Version* /*version*/) {
   *value = db->num_running_flushes();
   return true;
 }
 
-bool InternalStats::HandleCompactionPending(uint64_t* value, DBImpl* db,
-                                            Version* version) {
+bool InternalStats::HandleCompactionPending(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
   // 1 if the system already determines at least one compaction is needed.
   // 0 otherwise,
   const auto* vstorage = cfd_->current()->storage_info();
@@ -623,70 +624,74 @@ bool InternalStats::HandleCompactionPending(uint64_t* value, DBImpl* db,
 }
 
 bool InternalStats::HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
-                                                Version* version) {
+                                                Version* /*version*/) {
   *value = db->num_running_compactions_;
   return true;
 }
 
-bool InternalStats::HandleBackgroundErrors(uint64_t* value, DBImpl* db,
-                                           Version* version) {
+bool InternalStats::HandleBackgroundErrors(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
   // Accumulated number of  errors in background flushes or compactions.
   *value = GetBackgroundErrorCount();
   return true;
 }
 
-bool InternalStats::HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* db,
-                                                Version* version) {
+bool InternalStats::HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* /*db*/,
+                                                Version* /*version*/) {
   // Current size of the active memtable
   *value = cfd_->mem()->ApproximateMemoryUsage();
   return true;
 }
 
-bool InternalStats::HandleCurSizeAllMemTables(uint64_t* value, DBImpl* db,
-                                              Version* version) {
+bool InternalStats::HandleCurSizeAllMemTables(uint64_t* value, DBImpl* /*db*/,
+                                              Version* /*version*/) {
   // Current size of the active memtable + immutable memtables
   *value = cfd_->mem()->ApproximateMemoryUsage() +
            cfd_->imm()->ApproximateUnflushedMemTablesMemoryUsage();
   return true;
 }
 
-bool InternalStats::HandleSizeAllMemTables(uint64_t* value, DBImpl* db,
-                                           Version* version) {
+bool InternalStats::HandleSizeAllMemTables(uint64_t* value, DBImpl* /*db*/,
+                                           Version* /*version*/) {
   *value = cfd_->mem()->ApproximateMemoryUsage() +
            cfd_->imm()->ApproximateMemoryUsage();
   return true;
 }
 
-bool InternalStats::HandleNumEntriesActiveMemTable(uint64_t* value, DBImpl* db,
-                                                   Version* version) {
+bool InternalStats::HandleNumEntriesActiveMemTable(uint64_t* value,
+                                                   DBImpl* /*db*/,
+                                                   Version* /*version*/) {
   // Current number of entires in the active memtable
   *value = cfd_->mem()->num_entries();
   return true;
 }
 
-bool InternalStats::HandleNumEntriesImmMemTables(uint64_t* value, DBImpl* db,
-                                                 Version* version) {
+bool InternalStats::HandleNumEntriesImmMemTables(uint64_t* value,
+                                                 DBImpl* /*db*/,
+                                                 Version* /*version*/) {
   // Current number of entries in the immutable memtables
   *value = cfd_->imm()->current()->GetTotalNumEntries();
   return true;
 }
 
-bool InternalStats::HandleNumDeletesActiveMemTable(uint64_t* value, DBImpl* db,
-                                                   Version* version) {
+bool InternalStats::HandleNumDeletesActiveMemTable(uint64_t* value,
+                                                   DBImpl* /*db*/,
+                                                   Version* /*version*/) {
   // Current number of entires in the active memtable
   *value = cfd_->mem()->num_deletes();
   return true;
 }
 
-bool InternalStats::HandleNumDeletesImmMemTables(uint64_t* value, DBImpl* db,
-                                                 Version* version) {
+bool InternalStats::HandleNumDeletesImmMemTables(uint64_t* value,
+                                                 DBImpl* /*db*/,
+                                                 Version* /*version*/) {
   // Current number of entries in the immutable memtables
   *value = cfd_->imm()->current()->GetTotalNumDeletes();
   return true;
 }
 
-bool InternalStats::HandleEstimateNumKeys(uint64_t* value, DBImpl* db,
-                                          Version* version) {
+bool InternalStats::HandleEstimateNumKeys(uint64_t* value, DBImpl* /*db*/,
+                                          Version* /*version*/) {
   // Estimate number of entries in the column family:
   // Use estimated entries in tables + total entries in memtables.
   const auto* vstorage = cfd_->current()->storage_info();
@@ -702,37 +707,38 @@ bool InternalStats::HandleEstimateNumKeys(uint64_t* value, DBImpl* db,
 }
 
 bool InternalStats::HandleNumSnapshots(uint64_t* value, DBImpl* db,
-                                       Version* version) {
+                                       Version* /*version*/) {
   *value = db->snapshots().count();
   return true;
 }
 
 bool InternalStats::HandleOldestSnapshotTime(uint64_t* value, DBImpl* db,
-                                             Version* version) {
+                                             Version* /*version*/) {
   *value = static_cast<uint64_t>(db->snapshots().GetOldestSnapshotTime());
   return true;
 }
 
-bool InternalStats::HandleNumLiveVersions(uint64_t* value, DBImpl* db,
-                                          Version* version) {
+bool InternalStats::HandleNumLiveVersions(uint64_t* value, DBImpl* /*db*/,
+                                          Version* /*version*/) {
   *value = cfd_->GetNumLiveVersions();
   return true;
 }
 
-bool InternalStats::HandleCurrentSuperVersionNumber(uint64_t* value, DBImpl* db,
-                                                    Version* version) {
+bool InternalStats::HandleCurrentSuperVersionNumber(uint64_t* value,
+                                                    DBImpl* /*db*/,
+                                                    Version* /*version*/) {
   *value = cfd_->GetSuperVersionNumber();
   return true;
 }
 
 bool InternalStats::HandleIsFileDeletionsEnabled(uint64_t* value, DBImpl* db,
-                                                 Version* version) {
+                                                 Version* /*version*/) {
   *value = db->IsFileDeletionsEnabled();
   return true;
 }
 
-bool InternalStats::HandleBaseLevel(uint64_t* value, DBImpl* db,
-                                    Version* version) {
+bool InternalStats::HandleBaseLevel(uint64_t* value, DBImpl* /*db*/,
+                                    Version* /*version*/) {
   const auto* vstorage = cfd_->current()->storage_info();
   *value = vstorage->base_level();
   return true;
@@ -751,34 +757,35 @@ bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* /*db*/,
 }
 
 bool InternalStats::HandleEstimatePendingCompactionBytes(uint64_t* value,
-                                                         DBImpl* db,
-                                                         Version* version) {
+                                                         DBImpl* /*db*/,
+                                                         Version* /*version*/) {
   const auto* vstorage = cfd_->current()->storage_info();
   *value = vstorage->estimated_compaction_needed_bytes();
   return true;
 }
 
-bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value, DBImpl* db,
+bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value,
+                                                  DBImpl* /*db*/,
                                                   Version* version) {
   *value = (version == nullptr) ? 0 : version->GetMemoryUsageByTableReaders();
   return true;
 }
 
-bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
-                                               Version* version) {
+bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* /*db*/,
+                                               Version* /*version*/) {
   const auto* vstorage = cfd_->current()->storage_info();
   *value = vstorage->EstimateLiveDataSize();
   return true;
 }
 
 bool InternalStats::HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db,
-                                             Version* version) {
+                                             Version* /*version*/) {
   *value = db->MinLogNumberToKeep();
   return true;
 }
 
 bool InternalStats::HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
-                                                 Version* version) {
+                                                 Version* /*version*/) {
   const WriteController& wc = db->write_controller();
   if (!wc.NeedsDelay()) {
     *value = 0;
@@ -789,7 +796,7 @@ bool InternalStats::HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
 }
 
 bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
-                                         Version* version) {
+                                         Version* /*version*/) {
   *value = db->write_controller().IsStopped() ? 1 : 0;
   return true;
 }

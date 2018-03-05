@@ -97,7 +97,7 @@ class MemTableRep {
   //
   // Currently only skip-list based memtable implement the interface. Other
   // implementations will fallback to Insert() by default.
-  virtual void InsertWithHint(KeyHandle handle, void** hint) {
+  virtual void InsertWithHint(KeyHandle handle, void** /*hint*/) {
     // Ignore the hint by default.
     Insert(handle);
   }
@@ -149,8 +149,8 @@ class MemTableRep {
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg, const char* entry));
 
-  virtual uint64_t ApproximateNumEntries(const Slice& start_ikey,
-                                         const Slice& end_key) {
+  virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
+                                         const Slice& /*end_key*/) {
     return 0;
   }
 

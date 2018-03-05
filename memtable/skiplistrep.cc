@@ -282,7 +282,7 @@ public:
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const SliceTransform* transform, Logger* /*logger*/) {
   return new SkipListRep(compare, allocator, transform, lookahead_);
 }
 

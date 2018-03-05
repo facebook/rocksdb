@@ -78,7 +78,8 @@ class InternalIterator : public Cleanable {
   // but for Iterators that need to communicate with PinnedIteratorsManager
   // they will implement this function and use the passed pointer to communicate
   // with PinnedIteratorsManager.
-  virtual void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {}
+  virtual void SetPinnedItersMgr(PinnedIteratorsManager* /*pinned_iters_mgr*/) {
+  }
 
   // If true, this means that the Slice returned by key() is valid as long as
   // PinnedIteratorsManager::ReleasePinnedData is not called and the
@@ -95,7 +96,7 @@ class InternalIterator : public Cleanable {
   // Iterator is not deleted.
   virtual bool IsValuePinned() const { return false; }
 
-  virtual Status GetProperty(std::string prop_name, std::string* prop) {
+  virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
 

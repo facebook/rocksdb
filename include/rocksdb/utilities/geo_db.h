@@ -80,7 +80,7 @@ class GeoDB : public StackableDB {
   // GeoDB owns the pointer `DB* db` now. You should not delete it or
   // use it after the invocation of GeoDB
   // GeoDB(DB* db, const GeoDBOptions& options) : StackableDB(db) {}
-  GeoDB(DB* db, const GeoDBOptions& options) : StackableDB(db) {}
+  GeoDB(DB* db, const GeoDBOptions& /*options*/) : StackableDB(db) {}
   virtual ~GeoDB() {}
 
   // Insert a new object into the location database. The object is

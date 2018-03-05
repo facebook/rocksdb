@@ -202,7 +202,7 @@ Status WritePreparedTxn::RollbackInternal() {
       return s;
     }
 
-    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& /*val*/) override {
       return Rollback(cf, key);
     }
 
@@ -214,7 +214,8 @@ Status WritePreparedTxn::RollbackInternal() {
       return Rollback(cf, key);
     }
 
-    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    Status MergeCF(uint32_t cf, const Slice& key,
+                   const Slice& /*val*/) override {
       return Rollback(cf, key);
     }
 

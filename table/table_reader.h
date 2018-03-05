@@ -43,7 +43,7 @@ class TableReader {
                                         bool skip_filters = false) = 0;
 
   virtual InternalIterator* NewRangeTombstoneIterator(
-      const ReadOptions& read_options) {
+      const ReadOptions& /*read_options*/) {
     return nullptr;
   }
 
@@ -62,7 +62,7 @@ class TableReader {
   virtual std::shared_ptr<const TableProperties> GetTableProperties() const = 0;
 
   // Prepare work that can be done before the real Get()
-  virtual void Prepare(const Slice& target) {}
+  virtual void Prepare(const Slice& /*target*/) {}
 
   // Report an approximation of how much memory has been used.
   virtual size_t ApproximateMemoryUsage() const = 0;
@@ -94,7 +94,7 @@ class TableReader {
   }
 
   // convert db file to a human readable form
-  virtual Status DumpTable(WritableFile* out_file) {
+  virtual Status DumpTable(WritableFile* /*out_file*/) {
     return Status::NotSupported("DumpTable() not supported");
   }
 

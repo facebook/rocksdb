@@ -498,9 +498,9 @@ TEST_F(DBTest2, WalFilterTest) {
       apply_option_at_record_index_(apply_option_for_record_index),
       current_record_index_(0) {}
 
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-      WriteBatch* new_batch,
-      bool* batch_changed) const override {
+    virtual WalProcessingOption LogRecord(
+        const WriteBatch& /*batch*/, WriteBatch* /*new_batch*/,
+        bool* /*batch_changed*/) const override {
       WalFilter::WalProcessingOption option_to_return;
 
       if (current_record_index_ == apply_option_at_record_index_) {
@@ -874,11 +874,10 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
       cf_name_id_map_ = cf_name_id_map;
     }
 
-    virtual WalProcessingOption LogRecordFound(unsigned long long log_number,
-      const std::string& log_file_name,
-      const WriteBatch& batch,
-      WriteBatch* new_batch,
-      bool* batch_changed) override {
+    virtual WalProcessingOption LogRecordFound(
+        unsigned long long log_number, const std::string& /*log_file_name*/,
+        const WriteBatch& batch, WriteBatch* /*new_batch*/,
+        bool* /*batch_changed*/) override {
       class LogRecordBatchHandler : public WriteBatch::Handler {
       private:
         const std::map<uint32_t, uint64_t> & cf_log_number_map_;
@@ -1231,7 +1230,7 @@ class CompactionStallTestListener : public EventListener {
  public:
   CompactionStallTestListener() : compacted_files_cnt_(0) {}
 
-  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.cf_name, "default");
     ASSERT_EQ(ci.base_input_level, 0);
     ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);

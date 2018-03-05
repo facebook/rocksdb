@@ -95,13 +95,13 @@ Status ReadBlockFromFile(
 
 // Delete the resource that is held by the iterator.
 template <class ResourceType>
-void DeleteHeldResource(void* arg, void* ignored) {
+void DeleteHeldResource(void* arg, void* /*ignored*/) {
   delete reinterpret_cast<ResourceType*>(arg);
 }
 
 // Delete the entry resided in the cache.
 template <class Entry>
-void DeleteCachedEntry(const Slice& key, void* value) {
+void DeleteCachedEntry(const Slice& /*key*/, void* value) {
   auto entry = reinterpret_cast<Entry*>(value);
   delete entry;
 }
@@ -207,8 +207,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   }
 
   // return a two-level iterator: first level is on the partition index
-  virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool dont_care = true) override {
+  virtual InternalIterator* NewIterator(BlockIter* /*iter*/ = nullptr,
+                                        bool /*dont_care*/ = true) override {
     // Filters are already checked before seeking the index
     if (!partition_map_.empty()) {
       return NewTwoLevelIterator(
@@ -319,7 +319,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   PartitionIndexReader(BlockBasedTable* table,
                        const InternalKeyComparator* icomparator,
                        std::unique_ptr<Block>&& index_block, Statistics* stats,
-                       const int level)
+                       const int /*level*/)
       : IndexReader(icomparator, stats),
         table_(table),
         index_block_(std::move(index_block)) {
@@ -363,7 +363,7 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool dont_care = true) override {
+                                        bool /*dont_care*/ = true) override {
     return index_block_->NewIterator(icomparator_, iter, true);
   }
 
@@ -399,7 +399,7 @@ class HashIndexReader : public IndexReader {
                        const BlockHandle& index_handle,
                        InternalIterator* meta_index_iter,
                        IndexReader** index_reader,
-                       bool hash_index_allow_collision,
+                       bool /*hash_index_allow_collision*/,
                        const PersistentCacheOptions& cache_options) {
     std::unique_ptr<Block> index_block;
     auto s = ReadBlockFromFile(
@@ -1109,7 +1109,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
 Status BlockBasedTable::PutDataBlockToCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
     Cache* block_cache, Cache* block_cache_compressed,
-    const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
+    const ReadOptions& /*read_options*/, const ImmutableCFOptions& ioptions,
     CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
     const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
     Cache::Priority priority, GetContext* get_context) {
@@ -2774,7 +2774,7 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 
 namespace {
 
-void DeleteCachedFilterEntry(const Slice& key, void* value) {
+void DeleteCachedFilterEntry(const Slice& /*key*/, void* value) {
   FilterBlockReader* filter = reinterpret_cast<FilterBlockReader*>(value);
   if (filter->statistics() != nullptr) {
     RecordTick(filter->statistics(), BLOCK_CACHE_FILTER_BYTES_EVICT,
@@ -2783,7 +2783,7 @@ void DeleteCachedFilterEntry(const Slice& key, void* value) {
   delete filter;
 }
 
-void DeleteCachedIndexEntry(const Slice& key, void* value) {
+void DeleteCachedIndexEntry(const Slice& /*key*/, void* value) {
   IndexReader* index_reader = reinterpret_cast<IndexReader*>(value);
   if (index_reader->statistics() != nullptr) {
     RecordTick(index_reader->statistics(), BLOCK_CACHE_INDEX_BYTES_EVICT,

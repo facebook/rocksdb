@@ -55,7 +55,7 @@ class ForwardIterator : public InternalIterator {
                   ColumnFamilyData* cfd, SuperVersion* current_sv = nullptr);
   virtual ~ForwardIterator();
 
-  void SeekForPrev(const Slice& target) override {
+  void SeekForPrev(const Slice& /*target*/) override {
     status_ = Status::NotSupported("ForwardIterator::SeekForPrev()");
     valid_ = false;
   }

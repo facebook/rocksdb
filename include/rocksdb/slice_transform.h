@@ -58,7 +58,7 @@ class SliceTransform {
   virtual bool InDomain(const Slice& key) const = 0;
 
   // This is currently not used and remains here for backward compatibility.
-  virtual bool InRange(const Slice& dst) const { return false; }
+  virtual bool InRange(const Slice& /*dst*/) const { return false; }
 
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.
   //
@@ -83,7 +83,7 @@ class SliceTransform {
   //    "abcd,e", the file can be filtered out and the key will be invisible.
   //
   // i.e., an implementation always returning false is safe.
-  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+  virtual bool SameResultWhenAppended(const Slice& /*prefix*/) const {
     return false;
   }
 };
