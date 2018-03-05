@@ -1754,7 +1754,8 @@ void SortFileByOverlappingRatio(
 
 void VersionStorageInfo::UpdateFilesByCompactionPri(
     CompactionPri compaction_pri) {
-  if (compaction_style_ == kCompactionStyleFIFO ||
+  if (compaction_style_ == kCompactionStyleNone ||
+      compaction_style_ == kCompactionStyleFIFO ||
       compaction_style_ == kCompactionStyleUniversal) {
     // don't need this
     return;
