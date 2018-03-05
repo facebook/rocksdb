@@ -978,13 +978,14 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
+namespace {
 // During recovery if the memtable is flushed we cannot rely on its help on
 // duplicate key detection and as key insert will not be attempted. This class
 // will be used as a emulator of memtable to tell if insertion of a key/seq
 // would have resulted in duplication.
 class DuplicateDetector {
  public:
-  DuplicateDetector(DBImpl* db) : db_(db) {}
+  explicit DuplicateDetector(DBImpl* db) : db_(db) {}
   bool IsDuplicateKeySeq(uint32_t cf, const Slice& key, SequenceNumber seq) {
     assert(seq >= batch_seq_);
     if (batch_seq_ != seq) {  // it is a new batch
@@ -1028,6 +1029,7 @@ class DuplicateDetector {
     keys_[cf] = CFKeys(SetComparator(cmp));
   }
 };
+}  // anonymous namespace
 
 class MemTableInserter : public WriteBatch::Handler {
 
@@ -1201,8 +1203,8 @@ class MemTableInserter : public WriteBatch::Handler {
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
-        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-            column_family_id, key, sequence_);
+        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
+                                                              key, sequence_);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1325,8 +1327,8 @@ class MemTableInserter : public WriteBatch::Handler {
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-          column_family_id, key, sequence_);
+        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
+                                                              key, sequence_);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1357,8 +1359,8 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                          key);
-      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-          column_family_id, key, sequence_);
+        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
+                                                              key, sequence_);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1394,8 +1396,8 @@ class MemTableInserter : public WriteBatch::Handler {
                                         begin_key, end_key);
       // TODO(myabandeh): when transctional DeleteRange support is added, check
       // if end_key must also be added.
-      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-          column_family_id, begin_key, sequence_);
+        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
+            column_family_id, begin_key, sequence_);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1442,8 +1444,8 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                   value);
-      batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-          column_family_id, key, sequence_);
+        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
+                                                              key, sequence_);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
