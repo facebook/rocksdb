@@ -550,9 +550,18 @@ class DBImpl : public DB {
     WriteBatch* batch_;
     // The seq number of the first key in the batch
     SequenceNumber seq_;
+    // Number of sub-batched. A new sub-batch is created if we txn attempts to
+    // inserts a duplicate key,seq to memtable. This is currently used in
+    // WritePrparedTxn
+    size_t batch_cnt_;
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch, SequenceNumber seq)
-        : log_number_(log), name_(name), batch_(batch), seq_(seq) {}
+                                  WriteBatch* batch, SequenceNumber seq,
+                                  size_t batch_cnt)
+        : log_number_(log),
+          name_(name),
+          batch_(batch),
+          seq_(seq),
+          batch_cnt_(batch_cnt) {}
 
     ~RecoveredTransaction() { delete batch_; }
   };
@@ -574,9 +583,10 @@ class DBImpl : public DB {
   }
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch, SequenceNumber seq) {
+                                  WriteBatch* batch, SequenceNumber seq,
+                                  size_t batch_cnt) {
     recovered_transactions_[name] =
-        new RecoveredTransaction(log, name, batch, seq);
+        new RecoveredTransaction(log, name, batch, seq, batch_cnt);
     MarkLogAsContainingPrepSection(log);
   }
 

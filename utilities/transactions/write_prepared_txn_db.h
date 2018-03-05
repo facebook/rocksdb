@@ -541,6 +541,7 @@ struct SubBatchCounter : public WriteBatch::Handler {
   size_t batches_;
   size_t BatchCount() { return batches_; }
   void AddKey(const uint32_t cf, const Slice& key);
+  void InitWithComp(const uint32_t cf);
   Status MarkNoop(bool) override { return Status::OK(); }
   Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
   Status MarkCommit(const Slice&) override { return Status::OK(); }
