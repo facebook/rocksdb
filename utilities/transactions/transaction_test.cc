@@ -5365,6 +5365,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
+    delete txn0;
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar0a"));
