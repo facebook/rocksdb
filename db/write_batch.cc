@@ -978,6 +978,7 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
+// TODO(myabandeh): move it to util
 namespace {
 // During recovery if the memtable is flushed we cannot rely on its help on
 // duplicate key detection and as key insert will not be attempted. This class
@@ -1202,6 +1203,8 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
+        // The CF is probabely flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
                                                               key, sequence_);
@@ -1279,6 +1282,8 @@ class MemTableInserter : public WriteBatch::Handler {
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the the rebuilding transaction object.
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
     }
     // Since all Puts are logged in trasaction logs (if enabled), always bump
@@ -1326,6 +1331,8 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
+        // The CF is probabely flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
                                                               key, sequence_);
@@ -1338,6 +1345,8 @@ class MemTableInserter : public WriteBatch::Handler {
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the the rebuilding transaction object.
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
     return ret_status;
@@ -1357,6 +1366,8 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
+        // The CF is probabely flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                          key);
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
@@ -1371,6 +1382,8 @@ class MemTableInserter : public WriteBatch::Handler {
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the the rebuilding transaction object.
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
     }
     return ret_status;
@@ -1392,10 +1405,12 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
+        // The CF is probabely flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                         begin_key, end_key);
-      // TODO(myabandeh): when transctional DeleteRange support is added, check
-      // if end_key must also be added.
+        // TODO(myabandeh): when transctional DeleteRange support is added,
+        // check if end_key must also be added.
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
             column_family_id, begin_key, sequence_);
       }
@@ -1421,6 +1436,8 @@ class MemTableInserter : public WriteBatch::Handler {
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the the rebuilding transaction object.
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
     }
@@ -1442,6 +1459,8 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
+        // The CF is probabely flushed and hence no need for insert but we still
+        // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                   value);
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
@@ -1531,6 +1550,8 @@ class MemTableInserter : public WriteBatch::Handler {
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // If the ret_status is TryAgain then let the next try to add the ky to
+      // the the rebuilding transaction object.
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
     }
     MaybeAdvanceSeq();

@@ -137,14 +137,13 @@ class TransactionTestBase : public ::testing::Test {
   Status OpenWithStackableDB(std::vector<ColumnFamilyDescriptor>& cfs,
                              std::vector<ColumnFamilyHandle*>* handles) {
     std::vector<size_t> compaction_enabled_cf_indices;
-    TransactionDB::PrepareWrap(&options, &cfs,
-                               &compaction_enabled_cf_indices);
+    TransactionDB::PrepareWrap(&options, &cfs, &compaction_enabled_cf_indices);
     DB* root_db;
     Options options_copy(options);
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED;
-    Status s = DBImpl::Open(options_copy, dbname, cfs, handles,
-                            &root_db, use_seq_per_batch);
+    Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
+                            use_seq_per_batch);
     if (s.ok()) {
       s = TransactionDB::WrapStackableDB(
           new StackableDB(root_db), txn_db_options,

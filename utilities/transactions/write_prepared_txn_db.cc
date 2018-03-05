@@ -789,8 +789,8 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
 }
 
 void SubBatchCounter::InitWithComp(const uint32_t cf) {
-    auto cmp = comparators_[cf];
-    keys_[cf] = CFKeys(SetComparator(cmp));
+  auto cmp = comparators_[cf];
+  keys_[cf] = CFKeys(SetComparator(cmp));
 }
 
 void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
