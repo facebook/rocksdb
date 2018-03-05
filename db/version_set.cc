@@ -2907,7 +2907,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 }
 
 void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
-                                   VersionBuilder* builder, Version* v,
+                                   VersionBuilder* builder, Version* /*v*/,
                                    VersionEdit* edit, InstrumentedMutex* mu) {
   mu->AssertHeld();
   assert(!edit->IsColumnFamilyManipulation());

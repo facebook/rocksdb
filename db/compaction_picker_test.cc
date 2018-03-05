@@ -20,7 +20,9 @@ namespace rocksdb {
 class CountingLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override { log_count++; }
+  virtual void Logv(const char* /*format*/, va_list /*ap*/) override {
+    log_count++;
+  }
   size_t log_count;
 };
 

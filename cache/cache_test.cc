@@ -40,9 +40,9 @@ static int DecodeValue(void* v) {
 const std::string kLRU = "lru";
 const std::string kClock = "clock";
 
-void dumbDeleter(const Slice& key, void* value) {}
+void dumbDeleter(const Slice& /*key*/, void* /*value*/) {}
 
-void eraseDeleter(const Slice& key, void* value) {
+void eraseDeleter(const Slice& /*key*/, void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
   cache->Erase("foo");
 }
@@ -470,7 +470,7 @@ class Value {
 };
 
 namespace {
-void deleter(const Slice& key, void* value) {
+void deleter(const Slice& /*key*/, void* value) {
   delete static_cast<Value *>(value);
 }
 }  // namespace

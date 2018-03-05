@@ -886,7 +886,7 @@ class DB {
 
   // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
   // afterwards.
-  virtual Status FlushWAL(bool sync) {
+  virtual Status FlushWAL(bool /*sync*/) {
     return Status::NotSupported("FlushWAL not implemented");
   }
   // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
@@ -1140,13 +1140,14 @@ class DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 
-  virtual Status SuggestCompactRange(ColumnFamilyHandle* column_family,
-                                     const Slice* begin, const Slice* end) {
+  virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
+                                     const Slice* /*begin*/,
+                                     const Slice* /*end*/) {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
-  virtual Status PromoteL0(ColumnFamilyHandle* column_family,
-                           int target_level) {
+  virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
+                           int /*target_level*/) {
     return Status::NotSupported("PromoteL0() is not implemented.");
   }
 
