@@ -5527,6 +5527,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     for (auto h : handles) {
       delete h;
     }
+    delete db;
   }
 }
 
