@@ -135,6 +135,7 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
   friend class TransactionTest_DoubleEmptyWrite_Test;
+  friend class TransactionTest_DuplicateKeys_Test;
   friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
   friend class TransactionTest_TwoPhaseLongPrepareTest_Test;
   friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;

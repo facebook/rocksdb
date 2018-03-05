@@ -475,7 +475,8 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
   CommitEntry64b evicted_64b;
   CommitEntry evicted;
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted_64b, &evicted);
-  if (to_be_evicted) {
+  if (LIKELY(to_be_evicted)) {
+    assert(evicted.prep_seq != prepare_seq);
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
     ROCKS_LOG_DETAILS(info_log_,
                       "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
@@ -491,7 +492,11 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
   }
   bool succ =
       ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
-  if (!succ) {
+  if (UNLIKELY(!succ)) {
+    ROCKS_LOG_ERROR(info_log_,
+                    "ExchangeCommitEntry failed on [%" PRIu64 "] %" PRIu64
+                    ",%" PRIu64 " retrying...",
+                    indexed_seq, prepare_seq, commit_seq);
     // A very rare event, in which the commit entry is updated before we do.
     // Here we apply a very simple solution of retrying.
     if (loop_cnt > 100) {
@@ -783,16 +788,21 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   db_impl_->CancelAllBackgroundWork(true /*wait*/);
 }
 
+void SubBatchCounter::InitWithComp(const uint32_t cf) {
+  auto cmp = comparators_[cf];
+  keys_[cf] = CFKeys(SetComparator(cmp));
+}
+
 void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
   CFKeys& cf_keys = keys_[cf];
   if (cf_keys.size() == 0) {  // just inserted
-    auto cmp = comparators_[cf];
-    keys_[cf] = CFKeys(SetComparator(cmp));
+    InitWithComp(cf);
   }
   auto it = cf_keys.insert(key);
   if (it.second == false) {  // second is false if a element already existed.
     batches_++;
     keys_.clear();
+    InitWithComp(cf);
     keys_[cf].insert(key);
   }
 }
