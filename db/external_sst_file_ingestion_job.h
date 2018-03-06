@@ -149,6 +149,11 @@ class ExternalSstFileIngestionJob {
   bool IngestedFileFitInLevel(const IngestedFileInfo* file_to_ingest,
                               int level);
 
+  // Check if `file_to_ingest` overlap with files in level `level`
+  // REQUIRES: Mutex held
+  bool IngestedFileOverlapWithFiles(const IngestedFileInfo* file_to_ingest,
+                                    int level);
+
   Env* env_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;

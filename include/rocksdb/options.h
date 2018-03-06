@@ -1231,6 +1231,13 @@ struct IngestExternalFileOptions {
   // with allow_ingest_behind=true since the dawn of time.
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
+  // Aggressive overlap checking needs to seek the existing files to check if an
+  // ingested file really overlaps with the existing data. This is generally
+  // desirable because it can put the ingested file to the under level if
+  // possible. However, aggressive overlap checking may be slow especially when
+  // a lot of files are overlapped. Set this to false if you just want to check
+  // overlap with file endpoints, which is suboptimal but more lightweight.
+  bool allow_aggressive_overlap_checking = true;
 };
 
 }  // namespace rocksdb
