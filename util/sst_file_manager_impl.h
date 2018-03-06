@@ -11,9 +11,9 @@
 
 #include "port/port.h"
 
+#include "db/compaction.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/delete_scheduler.h"
-#include "db/compaction.h"
 
 namespace rocksdb {
 
@@ -66,10 +66,11 @@ class SstFileManagerImpl : public SstFileManager {
   // estimates how much space is currently being used by compactions (i.e.
   // if a compaction has started, this function bumps the used space by
   // the full compaction size).
-  bool EnoughRoomForCompaction(Compaction *c);
+  bool EnoughRoomForCompaction(Compaction* c);
 
-  // Bookkeeping so total_file_sizes_ goes back to normal after compaction finishes
-  void OnCompactionCompletion(Compaction *c);
+  // Bookkeeping so total_file_sizes_ goes back to normal after compaction
+  // finishes
+  void OnCompactionCompletion(Compaction* c);
 
   uint64_t GetCompactionsReservedSize();
 

@@ -288,9 +288,7 @@ class HdfsLogger : public Logger {
   }
 
  protected:
-  virtual Status CloseImpl() override {
-    return HdfsCloseHelper();
-  }
+  virtual Status CloseImpl() override { return HdfsCloseHelper(); }
 
  public:
   HdfsLogger(HdfsWritableFile* f, uint64_t (*gettid)())

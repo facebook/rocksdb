@@ -126,7 +126,8 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
 
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-          bg_flush_scheduled_ || (wait_unscheduled && unscheduled_compactions_)) &&
+          bg_flush_scheduled_ ||
+          (wait_unscheduled && unscheduled_compactions_)) &&
          bg_error_.ok()) {
     bg_cv_.Wait();
   }

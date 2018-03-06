@@ -166,7 +166,8 @@ class Status {
   static Status CompactionTooLarge(SubCode msg = kNone) {
     return Status(kCompactionTooLarge, msg);
   }
-  static Status CompactionTooLarge(const Slice& msg, const Slice& msg2 = Slice()) {
+  static Status CompactionTooLarge(const Slice& msg,
+                                   const Slice& msg2 = Slice()) {
     return Status(kCompactionTooLarge, msg, msg2);
   }
 

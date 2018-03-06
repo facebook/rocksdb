@@ -850,29 +850,29 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 
 class TestEnv : public EnvWrapper {
   public:
-    explicit TestEnv() : EnvWrapper(Env::Default()),
-                close_count(0) { }
+   explicit TestEnv() : EnvWrapper(Env::Default()), close_count(0) {}
 
-    class TestLogger : public Logger {
-      public:
-        using Logger::Logv;
-        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
-        ~TestLogger() {
-          if (!closed_) {
-            CloseHelper();
-          }
-        }
-        virtual void Logv(const char *format, va_list ap) override { };
-      protected:
-        virtual Status CloseImpl() override {
-          return CloseHelper();
-        }
-      private:
-        Status CloseHelper() {
-          env->CloseCountInc();;
-          return Status::IOError();
-        }
-        TestEnv *env;
+   class TestLogger : public Logger {
+    public:
+     using Logger::Logv;
+     TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+     ~TestLogger() {
+       if (!closed_) {
+         CloseHelper();
+       }
+     }
+     virtual void Logv(const char* format, va_list ap) override{};
+
+    protected:
+     virtual Status CloseImpl() override { return CloseHelper(); }
+
+    private:
+     Status CloseHelper() {
+       env->CloseCountInc();
+       ;
+       return Status::IOError();
+     }
+     TestEnv* env;
     };
 
     void CloseCountInc() { close_count++; }
@@ -885,7 +885,7 @@ class TestEnv : public EnvWrapper {
       return Status::OK();
     }
 
-  private:
+   private:
     int close_count;
 };
 
@@ -895,7 +895,7 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv *env = new TestEnv();
+  TestEnv* env = new TestEnv();
   options.create_if_missing = true;
   options.env = env;
   Status s = DB::Open(options, dbname, &db);

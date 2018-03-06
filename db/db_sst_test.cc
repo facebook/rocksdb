@@ -550,16 +550,13 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   int cancelled_compaction = 0;
   int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction():CancelledCompaction",
-      [&](void* arg) {
+      "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
         cancelled_compaction++;
         sfm->SetMaxAllowedSpaceUsage(0);
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
-      [&](void* arg) {
-        completed_compactions++;
-      });
+      [&](void* arg) { completed_compactions++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
@@ -572,7 +569,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   uint64_t total_file_size = 0;
   auto files_in_db = GetAllSSTFiles(&total_file_size);
   // Set the maximum allowed space usage to the current total size
-  sfm->SetMaxAllowedSpaceUsage(2*total_file_size + 1);
+  sfm->SetMaxAllowedSpaceUsage(2 * total_file_size + 1);
 
   // Generate another file to trigger compaction.
   for (int i = 0; i < 10; i++) {
@@ -616,8 +613,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
       });
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction():CancelledCompaction",
-      [&](void* arg) {
+      "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
         bool* enough_room = static_cast<bool*>(arg);
         *enough_room = true;
       });

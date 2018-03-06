@@ -50,12 +50,12 @@ Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
   return Status::OK();
 }
 
-void SstFileManagerImpl::OnCompactionCompletion(Compaction *c) {
+void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   for (size_t i = 0; i < c->num_input_levels(); i++) {
     for (size_t j = 0; j < c->num_input_files(i); j++) {
-      FileMetaData *filemeta = c->input(i, j);
+      FileMetaData* filemeta = c->input(i, j);
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }
@@ -82,7 +82,8 @@ void SstFileManagerImpl::SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) {
   max_allowed_space_ = max_allowed_space;
 }
 
-void SstFileManagerImpl::SetCompactionBufferSize(uint64_t compaction_buffer_size) {
+void SstFileManagerImpl::SetCompactionBufferSize(
+    uint64_t compaction_buffer_size) {
   MutexLock l(&mu_);
   compaction_buffer_size_ = compaction_buffer_size;
 }
@@ -100,24 +101,25 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
   if (max_allowed_space_ <= 0) {
     return false;
   }
-  return
-    total_files_size_ + cur_compactions_reserved_size_ >= max_allowed_space_;
+  return total_files_size_ + cur_compactions_reserved_size_ >=
+         max_allowed_space_;
 }
 
-bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction *c) {
+bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction* c) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
   for (size_t i = 0; i < c->num_input_levels(); i++) {
     for (size_t j = 0; j < c->num_input_files(i); j++) {
-      FileMetaData *filemeta = c->input(i, j);
+      FileMetaData* filemeta = c->input(i, j);
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }
 
   if (max_allowed_space_ != 0 &&
       (size_added_by_compaction + cur_compactions_reserved_size_ +
-        total_files_size_ + compaction_buffer_size_ > max_allowed_space_)) {
+           total_files_size_ + compaction_buffer_size_ >
+       max_allowed_space_)) {
     return false;
   }
   // Update cur_compactions_reserved_size_ so concurrent compaction
