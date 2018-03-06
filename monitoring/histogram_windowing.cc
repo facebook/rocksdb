@@ -60,7 +60,7 @@ void HistogramWindowingImpl::Add(uint64_t value){
   stats_.Add(value);
 
   // Current window update
-  window_stats_[current_window()].Add(value);
+  window_stats_[static_cast<size_t>(current_window())].Add(value);
 }
 
 void HistogramWindowingImpl::Merge(const Histogram& other) {
@@ -89,8 +89,11 @@ void HistogramWindowingImpl::Merge(const HistogramWindowingImpl& other) {
         (cur_window + num_windows_ - i) % num_windows_;
     uint64_t other_window_index =
         (other_cur_window + other.num_windows_ - i) % other.num_windows_;
+    size_t windex = static_cast<size_t>(window_index);
+    size_t other_windex = static_cast<size_t>(other_window_index);
 
-    window_stats_[window_index].Merge(other.window_stats_[other_window_index]);
+    window_stats_[windex].Merge(
+      other.window_stats_[other_windex]);
   }
 }
 
@@ -129,8 +132,9 @@ void HistogramWindowingImpl::Data(HistogramData * const data) const {
 
 void HistogramWindowingImpl::TimerTick() {
   uint64_t curr_time = env_->NowMicros();
+  size_t curr_window_ = static_cast<size_t>(current_window());
   if (curr_time - last_swap_time() > micros_per_window_ &&
-      window_stats_[current_window()].num() >= min_num_per_window_) {
+      window_stats_[curr_window_].num() >= min_num_per_window_) {
     SwapHistoryBucket();
   }
 }
@@ -149,7 +153,8 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
                                                     0 : curr_window + 1;
 
     // subtract next buckets from totals and swap to next buckets
-    HistogramStat& stats_to_drop = window_stats_[next_window];
+    HistogramStat& stats_to_drop = 
+      window_stats_[static_cast<size_t>(next_window)];
 
     if (!stats_to_drop.Empty()) {
       for (size_t b = 0; b < stats_.num_buckets_; b++){
