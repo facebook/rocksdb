@@ -279,7 +279,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   auto& file = table_->rep_->file;
   prefetch_buffer.reset(new FilePrefetchBuffer());
-  s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
+  s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
+    static_cast<size_t>(prefetch_len));
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
