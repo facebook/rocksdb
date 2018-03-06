@@ -135,6 +135,37 @@ TEST_F(EnvPosixTest, RunImmediately) {
   }
 }
 
+#ifdef OS_WIN
+TEST_F(EnvPosixTest, AreFilesSame) {
+  {
+    bool tmp;
+    if (env_->AreFilesSame("", "", &tmp).IsNotSupported()) {
+      fprintf(stderr,
+              "skipping EnvBasicTestWithParam.AreFilesSame due to "
+              "unsupported Env::AreFilesSame\n");
+      return;
+    }
+  }
+
+  const EnvOptions soptions;
+  auto* env = Env::Default();
+  std::string same_file_name = test::TmpDir(env) + "/same_file";
+  std::string same_file_link_name = same_file_name + "_link";
+
+  std::unique_ptr<WritableFile> same_file;
+  ASSERT_OK(env->NewWritableFile(same_file_name,
+    &same_file, soptions));
+  same_file->Append("random_data");
+  ASSERT_OK(same_file->Flush());
+  same_file.reset();
+
+  ASSERT_OK(env->LinkFile(same_file_name, same_file_link_name));
+  bool result = false;
+  ASSERT_OK(env->AreFilesSame(same_file_name, same_file_link_name, &result));
+  ASSERT_TRUE(result);
+}
+#endif
+
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);

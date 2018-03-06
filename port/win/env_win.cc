@@ -35,6 +35,10 @@
 
 #include <rpc.h>  // for uuid generation
 #include <windows.h>
+#include <shlwapi.h>
+#include "strsafe.h"
+
+#include <algorithm>
 
 namespace rocksdb {
 
@@ -44,9 +48,14 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
 
 namespace {
 
+static const size_t kSectorSize = 512; // Sector size used when physical sector size could not be obtained from device.
+
 // RAII helpers for HANDLEs
 const auto CloseHandleFunc = [](HANDLE h) { ::CloseHandle(h); };
 typedef std::unique_ptr<void, decltype(CloseHandleFunc)> UniqueCloseHandlePtr;
+
+const auto FindCloseFunc = [](HANDLE h) { ::FindClose(h); };
+typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
@@ -61,7 +70,7 @@ namespace port {
 
 WinEnvIO::WinEnvIO(Env* hosted_env)
   :   hosted_env_(hosted_env),
-      page_size_(4 * 1012),
+      page_size_(4 * 1024),
       allocation_granularity_(page_size_),
       perf_counter_frequency_(0),
       GetSystemTimePreciseAsFileTime_(NULL) {
@@ -93,8 +102,11 @@ WinEnvIO::~WinEnvIO() {
 Status WinEnvIO::DeleteFile(const std::string& fname) {
   Status result;
 
-  if (_unlink(fname.c_str())) {
-    result = IOError("Failed to delete: " + fname, errno);
+  BOOL ret = DeleteFileA(fname.c_str());
+  if(!ret) {
+    auto lastError = GetLastError();
+    result = IOErrorFromWindowsError("Failed to delete: " + fname,
+      lastError);
   }
 
   return result;
@@ -231,7 +243,8 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
       fileGuard.release();
     }
   } else {
-    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
+    result->reset(new WinRandomAccessFile(fname, hFile, 
+      std::max(GetSectorSize(fname), page_size_), options));
     fileGuard.release();
   }
   return s;
@@ -265,8 +278,7 @@ Status WinEnvIO::OpenWritableFile(const std::string& fname,
 
   if (local_options.use_mmap_writes) {
     desired_access |= GENERIC_READ;
-  }
-  else {
+  } else {
     // Adding this solely for tests to pass (fault_injection_test,
     // wal_manager_test).
     shared_mode |= (FILE_SHARE_WRITE | FILE_SHARE_DELETE);
@@ -317,7 +329,7 @@ Status WinEnvIO::OpenWritableFile(const std::string& fname,
   } else {
     // Here we want the buffer allocation to be aligned by the SSD page size
     // and to be a multiple of it
-    result->reset(new WinWritableFile(fname, hFile, page_size_,
+    result->reset(new WinWritableFile(fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
       c_BufferCapacity, local_options));
   }
   return s;
@@ -361,7 +373,8 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   }
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
-  result->reset(new WinRandomRWFile(fname, hFile, page_size_, options));
+  result->reset(new WinRandomRWFile(fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
+   options));
   fileGuard.release();
 
   return s;
@@ -372,67 +385,128 @@ Status WinEnvIO::NewDirectory(const std::string& name,
   Status s;
   // Must be nullptr on failure
   result->reset();
-  // Must fail if directory does not exist
+
   if (!DirExists(name)) {
-    s = IOError("Directory does not exist: " + name, EEXIST);
-  } else {
-    IOSTATS_TIMER_GUARD(open_nanos);
-    result->reset(new WinDirectory);
+    s = IOErrorFromWindowsError(
+      "open folder: " + name, ERROR_DIRECTORY);
+    return s;
   }
+
+  HANDLE handle = INVALID_HANDLE_VALUE;
+  // 0 - for access means read metadata
+  {
+    IOSTATS_TIMER_GUARD(open_nanos);
+    handle = ::CreateFileA(name.c_str(), 0,
+      FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+      NULL,
+      OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS, // make opening folders possible
+      NULL);
+  }
+
+  if (INVALID_HANDLE_VALUE == handle) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "open folder: " + name, lastError);
+    return s;
+  }
+
+  result->reset(new WinDirectory(handle));
+
   return s;
 }
 
 Status WinEnvIO::FileExists(const std::string& fname) {
-  // F_OK == 0
-  const int F_OK_ = 0;
-  return _access(fname.c_str(), F_OK_) == 0 ? Status::OK()
-    : Status::NotFound();
+  Status s;
+  // TODO: This does not follow symbolic links at this point
+  // which is consistent with _access() impl on windows
+  // but can be added
+  WIN32_FILE_ATTRIBUTE_DATA attrs;
+  if (FALSE == GetFileAttributesExA(fname.c_str(), GetFileExInfoStandard,
+    &attrs)) {
+    auto lastError = GetLastError();
+    switch (lastError) {
+    case ERROR_ACCESS_DENIED:
+    case ERROR_NOT_FOUND:
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+      s = Status::NotFound();
+      break;
+    default:
+      s = IOErrorFromWindowsError("Unexpected error for: " + fname,
+        lastError);
+      break;
+    }
+  }
+  return s;
 }
 
 Status WinEnvIO::GetChildren(const std::string& dir,
   std::vector<std::string>* result) {
 
+  Status status;
   result->clear();
   std::vector<std::string> output;
 
-  Status status;
+  WIN32_FIND_DATA data;
+  std::string pattern(dir);
+  pattern.append("\\").append("*");
 
-  auto CloseDir = [](DIR* p) { closedir(p); };
-  std::unique_ptr<DIR, decltype(CloseDir)> dirp(opendir(dir.c_str()),
-    CloseDir);
+  HANDLE handle = ::FindFirstFileExA(pattern.c_str(),
+    FindExInfoBasic, // Do not want alternative name
+    &data,
+    FindExSearchNameMatch,
+    NULL, // lpSearchFilter
+    0);
 
-  if (!dirp) {
-    switch (errno) {
-      case EACCES:
-      case ENOENT:
-      case ENOTDIR:
-        return Status::NotFound();
-      default:
-        return IOError(dir, errno);
+  if (handle == INVALID_HANDLE_VALUE) {
+    auto lastError = GetLastError();
+    switch (lastError) {
+    case ERROR_NOT_FOUND:
+    case ERROR_ACCESS_DENIED:
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+      status = Status::NotFound();
+      break;
+    default:
+      status = IOErrorFromWindowsError(
+        "Failed to GetChhildren for: " + dir, lastError);
     }
-  } else {
-    if (result->capacity() > 0) {
-      output.reserve(result->capacity());
-    }
-
-    struct dirent* ent = readdir(dirp.get());
-    while (ent) {
-      output.push_back(ent->d_name);
-      ent = readdir(dirp.get());
-    }
+    return status;
   }
 
-  output.swap(*result);
+  UniqueFindClosePtr fc(handle, FindCloseFunc);
 
+  if (result->capacity() > 0) {
+    output.reserve(result->capacity());
+  }
+
+  // For safety
+  data.cFileName[MAX_PATH - 1] = 0;
+
+  while (true) {
+    output.emplace_back(data.cFileName);
+    BOOL ret =- ::FindNextFileA(handle, &data);
+    // If the function fails the return value is zero
+    // and non-zero otherwise. Not TRUE or FALSE.
+    if (ret == FALSE) {
+      // Posix does not care why we stopped
+      break;
+    }
+    data.cFileName[MAX_PATH - 1] = 0;
+  }
+  output.swap(*result);
   return status;
 }
 
 Status WinEnvIO::CreateDir(const std::string& name) {
   Status result;
 
-  if (_mkdir(name.c_str()) != 0) {
-    auto code = errno;
-    result = IOError("Failed to create dir: " + name, code);
+  BOOL ret = CreateDirectoryA(name.c_str(), NULL);
+  if (!ret) {
+    auto lastError = GetLastError();
+    result = IOErrorFromWindowsError(
+        "Failed to create a directory: " + name, lastError);
   }
 
   return result;
@@ -441,28 +515,26 @@ Status WinEnvIO::CreateDir(const std::string& name) {
 Status  WinEnvIO::CreateDirIfMissing(const std::string& name) {
   Status result;
 
-  if (DirExists(name)) {
-    return result;
-  }
-
-  if (_mkdir(name.c_str()) != 0) {
-    if (errno == EEXIST) {
+  BOOL ret = CreateDirectoryA(name.c_str(), NULL);
+  if (!ret) {
+    auto lastError = GetLastError();
+    if (lastError != ERROR_ALREADY_EXISTS) {
+      result = IOErrorFromWindowsError(
+        "Failed to create a directory: " + name, lastError);
+    } else if (!DirExists(name)) {
       result =
         Status::IOError("`" + name + "' exists but is not a directory");
-    } else {
-      auto code = errno;
-      result = IOError("Failed to create dir: " + name, code);
     }
   }
-
   return result;
 }
 
 Status WinEnvIO::DeleteDir(const std::string& name) {
   Status result;
-  if (_rmdir(name.c_str()) != 0) {
-    auto code = errno;
-    result = IOError("Failed to remove dir: " + name, code);
+  BOOL ret = RemoveDirectoryA(name.c_str());
+  if (!ret) {
+    auto lastError = GetLastError();
+    result = IOErrorFromWindowsError("Failed to remove dir: " + name, lastError);
   }
   return result;
 }
@@ -553,6 +625,81 @@ Status WinEnvIO::LinkFile(const std::string& src,
   return result;
 }
 
+Status WinEnvIO::AreFilesSame(const std::string& first,
+  const std::string& second, bool* res) {
+// For MinGW builds
+#if (_WIN32_WINNT == _WIN32_WINNT_VISTA)
+  Status s = Status::NotSupported();
+#else
+  assert(res != nullptr);
+  Status s;
+  if (res == nullptr) {
+    s = Status::InvalidArgument("res");
+    return s;
+  }
+
+  // 0 - for access means read metadata
+  HANDLE file_1 = ::CreateFileA(first.c_str(), 0, 
+                      FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                      NULL, 
+                      OPEN_EXISTING,
+                      FILE_FLAG_BACKUP_SEMANTICS, // make opening folders possible
+                      NULL);
+
+  if (INVALID_HANDLE_VALUE == file_1) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "open file: " + first, lastError);
+    return s;
+  }
+  UniqueCloseHandlePtr g_1(file_1, CloseHandleFunc);
+
+  HANDLE file_2 = ::CreateFileA(second.c_str(), 0,
+                     FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                     NULL, OPEN_EXISTING,
+                     FILE_FLAG_BACKUP_SEMANTICS, // make opening folders possible
+                     NULL);
+
+  if (INVALID_HANDLE_VALUE == file_2) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "open file: " + second, lastError);
+    return s;
+  }
+  UniqueCloseHandlePtr g_2(file_2, CloseHandleFunc);
+
+  FILE_ID_INFO FileInfo_1;
+  BOOL result = GetFileInformationByHandleEx(file_1, FileIdInfo, &FileInfo_1,
+    sizeof(FileInfo_1));
+
+  if (!result) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "stat file: " + first, lastError);
+    return s;
+  }
+
+   FILE_ID_INFO FileInfo_2;
+   result = GetFileInformationByHandleEx(file_2, FileIdInfo, &FileInfo_2,
+    sizeof(FileInfo_2));
+
+  if (!result) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "stat file: " + second, lastError);
+    return s;
+  }
+
+  if (FileInfo_1.VolumeSerialNumber == FileInfo_2.VolumeSerialNumber) {
+    *res = (0 == memcmp(FileInfo_1.FileId.Identifier, FileInfo_2.FileId.Identifier, 
+      sizeof(FileInfo_1.FileId.Identifier)));
+  } else {
+    *res = false;
+  }
+#endif
+  return s;
+}
+
 Status  WinEnvIO::LockFile(const std::string& lockFname,
   FileLock** lock) {
   assert(lock != nullptr);
@@ -596,12 +743,12 @@ Status WinEnvIO::UnlockFile(FileLock* lock) {
 }
 
 Status WinEnvIO::GetTestDirectory(std::string* result) {
+
   std::string output;
 
   const char* env = getenv("TEST_TMPDIR");
   if (env && env[0] != '\0') {
     output = env;
-    CreateDir(output);
   } else {
     env = getenv("TMP");
 
@@ -610,9 +757,8 @@ Status WinEnvIO::GetTestDirectory(std::string* result) {
     } else {
       output = "c:\\tmp";
     }
-
-    CreateDir(output);
   }
+  CreateDir(output);
 
   output.append("\\testrocksdb-");
   output.append(std::to_string(_getpid()));
@@ -722,26 +868,29 @@ Status WinEnvIO::GetHostName(char* name, uint64_t len) {
 
 Status WinEnvIO::GetAbsolutePath(const std::string& db_path,
   std::string* output_path) {
+
   // Check if we already have an absolute path
-  // that starts with non dot and has a semicolon in it
-  if ((!db_path.empty() && (db_path[0] == '/' || db_path[0] == '\\')) ||
-    (db_path.size() > 2 && db_path[0] != '.' &&
-    ((db_path[1] == ':' && db_path[2] == '\\') ||
-    (db_path[1] == ':' && db_path[2] == '/')))) {
+  // For test compatibility we will consider starting slash as an
+  // absolute path
+  if ((!db_path.empty() && (db_path[0] == '\\' || db_path[0] == '/')) ||
+    !PathIsRelativeA(db_path.c_str())) {
     *output_path = db_path;
     return Status::OK();
   }
 
   std::string result;
-  result.resize(_MAX_PATH);
+  result.resize(MAX_PATH);
 
-  char* ret = _getcwd(&result[0], _MAX_PATH);
-  if (ret == nullptr) {
-    return Status::IOError("Failed to get current working directory",
-      strerror(errno));
+  // Hopefully no changes the current directory while we do this
+  // however _getcwd also suffers from the same limitation
+  DWORD len = GetCurrentDirectoryA(MAX_PATH, &result[0]);
+  if (len == 0) {
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError("Failed to get current working directory",
+      lastError);
   }
 
-  result.resize(strlen(result.data()));
+  result.resize(len);
 
   result.swap(*output_path);
   return Status::OK();
@@ -806,6 +955,62 @@ bool WinEnvIO::DirExists(const std::string& dname) {
     return 0 != (attrs.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
   }
   return false;
+}
+
+size_t WinEnvIO::GetSectorSize(const std::string& fname) {
+  size_t sector_size = kSectorSize;
+
+  if (PathIsRelativeA(fname.c_str())) {
+    return sector_size;
+  }
+
+  // obtain device handle
+  char devicename[7] = "\\\\.\\";
+  int erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+
+  if (erresult) {
+    assert(false);
+    return sector_size;
+  }
+
+  HANDLE hDevice = CreateFile(devicename, 0, 0,
+                    nullptr, OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL, nullptr);
+
+  if (hDevice == INVALID_HANDLE_VALUE) {
+    return sector_size;
+  }
+
+  STORAGE_PROPERTY_QUERY spropertyquery;
+  spropertyquery.PropertyId = StorageAccessAlignmentProperty;
+  spropertyquery.QueryType = PropertyStandardQuery;
+
+  BYTE output_buffer[sizeof(STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR)];
+  DWORD output_bytes = 0;
+
+  BOOL ret = DeviceIoControl(hDevice, IOCTL_STORAGE_QUERY_PROPERTY,
+              &spropertyquery, sizeof(spropertyquery), output_buffer,
+              sizeof(STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR), &output_bytes, nullptr);
+
+  if (ret) {
+    sector_size = ((STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR *)output_buffer)->BytesPerLogicalSector;
+  } else {
+    // many devices do not support StorageProcessAlignmentProperty. Any failure here and we
+    // fall back to logical alignment
+
+    DISK_GEOMETRY_EX geometry = { 0 };
+    ret = DeviceIoControl(hDevice, IOCTL_DISK_GET_DRIVE_GEOMETRY,
+           nullptr, 0, &geometry, sizeof(geometry), nullptr, nullptr);
+    if (ret) {
+      sector_size = geometry.Geometry.BytesPerSector;
+    }
+  }
+
+  if (hDevice != INVALID_HANDLE_VALUE) {
+    CloseHandle(hDevice);
+  }
+
+  return sector_size;
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -1012,6 +1217,11 @@ Status WinEnv::RenameFile(const std::string& src,
 Status WinEnv::LinkFile(const std::string& src,
   const std::string& target) {
   return winenv_io_.LinkFile(src, target);
+}
+
+Status WinEnv::AreFilesSame(const std::string& first,
+  const std::string& second, bool* res) {
+  return winenv_io_.AreFilesSame(first, second, res);
 }
 
 Status WinEnv::LockFile(const std::string& lockFname,
