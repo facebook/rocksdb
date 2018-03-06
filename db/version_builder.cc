@@ -199,7 +199,7 @@ class VersionBuilder::Rep {
     }
   }
 
-  void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
+  void CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
                                   int level) {
 #ifdef NDEBUG
     if (!base_vstorage_->force_consistency_checks()) {

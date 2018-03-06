@@ -142,6 +142,11 @@ Status PessimisticTransactionDB::Initialize(
     }
 
     s = real_trx->RebuildFromWriteBatch(recovered_trx->batch_);
+    // WriteCommitted set this to to disable this check that is specific to
+    // WritePrepared txns
+    assert(recovered_trx->batch_cnt_ == 0 ||
+           real_trx->GetWriteBatch()->SubBatchCnt() ==
+               recovered_trx->batch_cnt_);
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
       break;

@@ -288,7 +288,7 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
                                                   ParsedInternalKey* parsed_key,
                                                   Slice* internal_key,
                                                   uint32_t* bytes_read,
-                                                  bool* seekable) {
+                                                  bool* /*seekable*/) {
   uint32_t user_key_size = 0;
   Status s;
   if (fixed_user_key_len_ != kPlainTableVariableLength) {

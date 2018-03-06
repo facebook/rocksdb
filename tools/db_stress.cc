@@ -40,6 +40,7 @@ int main() {
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <queue>
 #include <thread>
 
 #include "db/db_impl.h"

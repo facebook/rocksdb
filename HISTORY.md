@@ -2,10 +2,15 @@
 ## Unreleased
 ### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
+* Remove CompactionEventListener.
 
 ### New Features
 * Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.
 * If `ColumnFamilyOptions::max_subcompactions` is set greater than one, we now parallelize large manual level-based compactions.
+* Add "rocksdb.live-sst-files-size" DB property to return total bytes of all SST files belong to the latest LSM tree.
+
+### Bug Fixes
+* Fix a leak in prepared_section_completed_ where the zeroed entries would not removed from the map.
 
 ## 5.12.0 (2/14/2018)
 ### Public API Change

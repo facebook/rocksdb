@@ -39,7 +39,7 @@ class SimCacheTest : public DBTestBase {
     return options;
   }
 
-  void InitTable(const Options& options) {
+  void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks * 2; i++) {
       ASSERT_OK(Put(ToString(i), value.c_str()));

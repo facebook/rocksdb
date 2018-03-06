@@ -447,8 +447,8 @@ MockEnv::~MockEnv() {
 
   // Partial implementation of the Env interface.
 Status MockEnv::NewSequentialFile(const std::string& fname,
-                                     unique_ptr<SequentialFile>* result,
-                                     const EnvOptions& soptions) {
+                                  unique_ptr<SequentialFile>* result,
+                                  const EnvOptions& /*soptions*/) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
@@ -464,8 +464,8 @@ Status MockEnv::NewSequentialFile(const std::string& fname,
 }
 
 Status MockEnv::NewRandomAccessFile(const std::string& fname,
-                                       unique_ptr<RandomAccessFile>* result,
-                                       const EnvOptions& soptions) {
+                                    unique_ptr<RandomAccessFile>* result,
+                                    const EnvOptions& /*soptions*/) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
@@ -482,7 +482,7 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
 
 Status MockEnv::NewRandomRWFile(const std::string& fname,
                                 unique_ptr<RandomRWFile>* result,
-                                const EnvOptions& soptions) {
+                                const EnvOptions& /*soptions*/) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
@@ -525,8 +525,8 @@ Status MockEnv::NewWritableFile(const std::string& fname,
   return Status::OK();
 }
 
-Status MockEnv::NewDirectory(const std::string& name,
-                                unique_ptr<Directory>* result) {
+Status MockEnv::NewDirectory(const std::string& /*name*/,
+                             unique_ptr<Directory>* result) {
   result->reset(new MockEnvDirectory());
   return Status::OK();
 }
