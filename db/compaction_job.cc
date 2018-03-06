@@ -723,14 +723,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::set<size_t> sample_begin_offsets;
   if (bottommost_level_ && kSampleBytes > 0) {
     const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
-    const size_t kOutFileLen = mutable_cf_options->MaxFileSizeForLevel(
-        compact_->compaction->output_level());
+    const size_t kOutFileLen = static_cast<size_t>(
+      mutable_cf_options->MaxFileSizeForLevel(
+        compact_->compaction->output_level()));
     if (kOutFileLen != port::kMaxSizet) {
       const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
       Random64 generator{versions_->NewFileNumber()};
       for (size_t i = 0; i < kMaxSamples; ++i) {
-        sample_begin_offsets.insert(generator.Uniform(kOutFileNumSamples)
-                                    << kSampleLenShift);
+        sample_begin_offsets.insert(
+          static_cast<size_t>(generator.Uniform(kOutFileNumSamples))
+            << kSampleLenShift);
       }
     }
   }
@@ -762,24 +764,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     input->SeekToFirst();
   }
 
-  // we allow only 1 compaction event listener. Used by blob storage
-  CompactionEventListener* comp_event_listener = nullptr;
-#ifndef ROCKSDB_LITE
-  for (auto& celitr : cfd->ioptions()->listeners) {
-    comp_event_listener = celitr->GetCompactionEventListener();
-    if (comp_event_listener != nullptr) {
-      break;
-    }
-  }
-#endif  // ROCKSDB_LITE
-
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, false, range_del_agg.get(),
-      sub_compact->compaction, compaction_filter, comp_event_listener,
-      shutting_down_, preserve_deletes_seqnum_));
+      sub_compact->compaction, compaction_filter, shutting_down_,
+      preserve_deletes_seqnum_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&

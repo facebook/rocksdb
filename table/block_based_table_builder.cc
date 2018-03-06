@@ -208,8 +208,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
         whole_key_filtering_(whole_key_filtering),
         prefix_filtering_(prefix_filtering) {}
 
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override {
+  virtual Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
+                             uint64_t /*file_size*/) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
@@ -589,7 +589,7 @@ Status BlockBasedTableBuilder::status() const {
   return rep_->status;
 }
 
-static void DeleteCachedBlock(const Slice& key, void* value) {
+static void DeleteCachedBlock(const Slice& /*key*/, void* value) {
   Block* block = reinterpret_cast<Block*>(value);
   delete block;
 }

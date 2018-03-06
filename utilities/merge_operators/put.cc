@@ -22,11 +22,10 @@ namespace { // anonymous namespace
 // From the client-perspective, semantics are the same.
 class PutOperator : public MergeOperator {
  public:
-  virtual bool FullMerge(const Slice& key,
-                         const Slice* existing_value,
+  virtual bool FullMerge(const Slice& /*key*/, const Slice* /*existing_value*/,
                          const std::deque<std::string>& operand_sequence,
                          std::string* new_value,
-                         Logger* logger) const override {
+                         Logger* /*logger*/) const override {
     // Put basically only looks at the current/latest value
     assert(!operand_sequence.empty());
     assert(new_value != nullptr);
@@ -34,20 +33,18 @@ class PutOperator : public MergeOperator {
     return true;
   }
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override {
+  virtual bool PartialMerge(const Slice& /*key*/, const Slice& /*left_operand*/,
+                            const Slice& right_operand, std::string* new_value,
+                            Logger* /*logger*/) const override {
     new_value->assign(right_operand.data(), right_operand.size());
     return true;
   }
 
   using MergeOperator::PartialMergeMulti;
-  virtual bool PartialMergeMulti(const Slice& key,
+  virtual bool PartialMergeMulti(const Slice& /*key*/,
                                  const std::deque<Slice>& operand_list,
-                                 std::string* new_value, Logger* logger) const
-      override {
+                                 std::string* new_value,
+                                 Logger* /*logger*/) const override {
     new_value->assign(operand_list.back().data(), operand_list.back().size());
     return true;
   }
@@ -58,10 +55,10 @@ class PutOperator : public MergeOperator {
 };
 
 class PutOperatorV2 : public PutOperator {
-  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
-                         const std::deque<std::string>& operand_sequence,
-                         std::string* new_value,
-                         Logger* logger) const override {
+  virtual bool FullMerge(const Slice& /*key*/, const Slice* /*existing_value*/,
+                         const std::deque<std::string>& /*operand_sequence*/,
+                         std::string* /*new_value*/,
+                         Logger* /*logger*/) const override {
     assert(false);
     return false;
   }

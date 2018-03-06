@@ -153,6 +153,7 @@ LIB_SOURCES =                                                   \
   util/transaction_test_util.cc                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
+  utilities/blob_db/blob_compaction_filter.cc                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
   utilities/blob_db/blob_file.cc                                \
@@ -182,6 +183,7 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
+  utilities/merge_operators/bytesxor.cc                         \
   utilities/option_change_migration/option_change_migration.cc  \
   utilities/options/options_util.cc                             \
   utilities/persistent_cache/block_cache_tier.cc                \
@@ -396,6 +398,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/lru_cache.cc                                  \
   java/rocksjni/memtablejni.cc                                \
   java/rocksjni/merge_operator.cc                             \
+  java/rocksjni/optimistic_transaction_db.cc                   \
+  java/rocksjni/optimistic_transaction_options.cc             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/options_util.cc                               \
   java/rocksjni/ratelimiterjni.cc                             \
@@ -412,7 +416,13 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \
+  java/rocksjni/transaction.cc                                \
+  java/rocksjni/transaction_db.cc                             \
+  java/rocksjni/transaction_options.cc                        \
+  java/rocksjni/transaction_db_options.cc                     \
   java/rocksjni/transaction_log.cc                            \
+  java/rocksjni/transaction_notifier.cc                       \
+  java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \

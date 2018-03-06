@@ -576,6 +576,10 @@ class DB {
     //  WARNING: may slow down online queries if there are too many files.
     static const std::string kTotalSstFilesSize;
 
+    //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
+    //      files belong to the latest LSM tree.
+    static const std::string kLiveSstFilesSize;
+
     //  "rocksdb.base-level" - returns number of level to which L0 data will be
     //      compacted.
     static const std::string kBaseLevel;
@@ -651,6 +655,7 @@ class DB {
   //  "rocksdb.estimate-live-data-size"
   //  "rocksdb.min-log-number-to-keep"
   //  "rocksdb.total-sst-files-size"
+  //  "rocksdb.live-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
@@ -881,7 +886,7 @@ class DB {
 
   // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
   // afterwards.
-  virtual Status FlushWAL(bool sync) {
+  virtual Status FlushWAL(bool /*sync*/) {
     return Status::NotSupported("FlushWAL not implemented");
   }
   // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
@@ -1135,13 +1140,14 @@ class DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 
-  virtual Status SuggestCompactRange(ColumnFamilyHandle* column_family,
-                                     const Slice* begin, const Slice* end) {
+  virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
+                                     const Slice* /*begin*/,
+                                     const Slice* /*end*/) {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
-  virtual Status PromoteL0(ColumnFamilyHandle* column_family,
-                           int target_level) {
+  virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
+                           int /*target_level*/) {
     return Status::NotSupported("PromoteL0() is not implemented.");
   }
 

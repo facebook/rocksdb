@@ -461,13 +461,15 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
+  // Compaction will delete and regenerate a file from L1 in second db path. It
+  // should still be cleaned up via delete scheduler.
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();
-  ASSERT_EQ(bg_delete_file, 8);
+  ASSERT_EQ(bg_delete_file, 9);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }

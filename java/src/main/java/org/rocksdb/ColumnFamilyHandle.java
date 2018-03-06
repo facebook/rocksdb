@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * ColumnFamilyHandle class to hold handles to underlying rocksdb
  * ColumnFamily Pointers.
@@ -22,6 +25,63 @@ public class ColumnFamilyHandle extends RocksObject {
   }
 
   /**
+   * Gets the name of the Column Family.
+   *
+   * @return The name of the Column Family.
+   */
+  public byte[] getName() {
+    return getName(nativeHandle_);
+  }
+
+  /**
+   * Gets the ID of the Column Family.
+   *
+   * @return the ID of the Column Family.
+   */
+  public int getID() {
+    return getID(nativeHandle_);
+  }
+
+  /**
+   * Gets the up-to-date descriptor of the column family
+   * associated with this handle. Since it fills "*desc" with the up-to-date
+   * information, this call might internally lock and release DB mutex to
+   * access the up-to-date CF options. In addition, all the pointer-typed
+   * options cannot be referenced any longer than the original options exist.
+   *
+   * Note that this function is not supported in RocksDBLite.
+   *
+   * @return the up-to-date descriptor.
+   *
+   * @throws RocksDBException if an error occurs whilst retrieving the
+   *     descriptor.
+   */
+  public ColumnFamilyDescriptor getDescriptor() throws RocksDBException {
+    assert(isOwningHandle());
+    return getDescriptor(nativeHandle_);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+
+    final ColumnFamilyHandle that = (ColumnFamilyHandle) o;
+    return rocksDB_.nativeHandle_ == that.rocksDB_.nativeHandle_ &&
+        getID() == that.getID() &&
+        Arrays.equals(getName(), that.getName());
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(getName(), getID(), rocksDB_.nativeHandle_);
+  }
+
+  /**
    * <p>Deletes underlying C++ iterator pointer.</p>
    *
    * <p>Note: the underlying handle can only be safely deleted if the RocksDB
@@ -36,6 +96,9 @@ public class ColumnFamilyHandle extends RocksObject {
     }
   }
 
+  private native byte[] getName(final long handle);
+  private native int getID(final long handle);
+  private native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
   @Override protected final native void disposeInternal(final long handle);
 
   private final RocksDB rocksDB_;

@@ -43,7 +43,8 @@ inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   AddKey(prefix);
 }
 
-Slice FullFilterBlockBuilder::Finish(const BlockHandle& tmp, Status* status) {
+Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
+                                     Status* status) {
   // In this impl we ignore BlockHandle
   *status = Status::OK();
   if (num_added_ != 0) {
@@ -74,8 +75,8 @@ FullFilterBlockReader::FullFilterBlockReader(
 }
 
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
-                                        const bool no_io,
-                                        const Slice* const const_ikey_ptr) {
+                                        const bool /*no_io*/,
+                                        const Slice* const /*const_ikey_ptr*/) {
   assert(block_offset == kNotValid);
   if (!whole_key_filtering_) {
     return true;
@@ -83,10 +84,9 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
   return MayMatch(key);
 }
 
-bool FullFilterBlockReader::PrefixMayMatch(const Slice& prefix,
-                                           uint64_t block_offset,
-                                           const bool no_io,
-                                           const Slice* const const_ikey_ptr) {
+bool FullFilterBlockReader::PrefixMayMatch(
+    const Slice& prefix, uint64_t block_offset, const bool /*no_io*/,
+    const Slice* const /*const_ikey_ptr*/) {
   assert(block_offset == kNotValid);
   if (!prefix_extractor_) {
     return true;

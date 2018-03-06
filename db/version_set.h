@@ -613,6 +613,8 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  uint64_t GetSstFilesSize();
+
  private:
   Env* env_;
   friend class VersionSet;
@@ -870,7 +872,7 @@ class VersionSet {
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
-    virtual void Corruption(size_t bytes, const Status& s) override {
+    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
       if (this->status->ok()) *this->status = s;
     }
   };

@@ -233,8 +233,8 @@ class PersistentCacheDBTest : public DBTestBase {
 
   // insert data to table
   void Insert(const Options& options,
-              const BlockBasedTableOptions& table_options, const int num_iter,
-              std::vector<std::string>* values) {
+              const BlockBasedTableOptions& /*table_options*/,
+              const int num_iter, std::vector<std::string>* values) {
     CreateAndReopenWithCF({"pikachu"}, options);
     // default column family doesn't have block cache
     Options no_block_cache_opts;

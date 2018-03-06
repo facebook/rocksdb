@@ -63,7 +63,7 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
-  virtual void LogData(const Slice& blob) {}
+  virtual void LogData(const Slice& /*blob*/) {}
   virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
     Entry e;
     e.key = key.ToString();

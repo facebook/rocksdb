@@ -284,7 +284,7 @@ TEST_P(MergeOperatorPinningTest, Randomized) {
     Random rnd(301);
     std::map<std::string, std::string> true_data;
 
-    const int kTotalMerges = 10000;
+    const int kTotalMerges = 5000;
     // Every key gets ~10 operands
     const int kKeyRange = kTotalMerges / 10;
     const int kOperandSize = 20;

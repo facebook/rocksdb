@@ -673,8 +673,9 @@ Status DBImpl::SetDBOptions(
 }
 
 // return the same level if it cannot be moved
-int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
-    const MutableCFOptions& mutable_cf_options, int level) {
+int DBImpl::FindMinimumEmptyLevelFitting(
+    ColumnFamilyData* cfd, const MutableCFOptions& /*mutable_cf_options*/,
+    int level) {
   mutex_.AssertHeld();
   const auto* vstorage = cfd->current()->storage_info();
   int minimum_level = level;
@@ -895,7 +896,7 @@ struct IterState {
   bool background_purge;
 };
 
-static void CleanupIteratorState(void* arg1, void* arg2) {
+static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
 
   if (state->super_version->Unref()) {
@@ -2333,31 +2334,31 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 }
 
 // Default implementation -- returns not supported status
-Status DB::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
-                              const std::string& column_family_name,
-                              ColumnFamilyHandle** handle) {
+Status DB::CreateColumnFamily(const ColumnFamilyOptions& /*cf_options*/,
+                              const std::string& /*column_family_name*/,
+                              ColumnFamilyHandle** /*handle*/) {
   return Status::NotSupported("");
 }
 
 Status DB::CreateColumnFamilies(
-    const ColumnFamilyOptions& cf_options,
-    const std::vector<std::string>& column_family_names,
-    std::vector<ColumnFamilyHandle*>* handles) {
+    const ColumnFamilyOptions& /*cf_options*/,
+    const std::vector<std::string>& /*column_family_names*/,
+    std::vector<ColumnFamilyHandle*>* /*handles*/) {
   return Status::NotSupported("");
 }
 
 Status DB::CreateColumnFamilies(
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles) {
+    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
+    std::vector<ColumnFamilyHandle*>* /*handles*/) {
   return Status::NotSupported("");
 }
 
-Status DB::DropColumnFamily(ColumnFamilyHandle* column_family) {
+Status DB::DropColumnFamily(ColumnFamilyHandle* /*column_family*/) {
   return Status::NotSupported("");
 }
 
 Status DB::DropColumnFamilies(
-    const std::vector<ColumnFamilyHandle*>& column_families) {
+    const std::vector<ColumnFamilyHandle*>& /*column_families*/) {
   return Status::NotSupported("");
 }
 
@@ -2386,10 +2387,13 @@ Snapshot::~Snapshot() {
 }
 
 Status DestroyDB(const std::string& dbname, const Options& options) {
-  const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
 
+  // Reset the logger because it holds a handle to the
+  // log file and prevents cleanup and directory removal
+  soptions.info_log.reset();
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
 

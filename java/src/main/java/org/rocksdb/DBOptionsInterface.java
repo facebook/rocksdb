@@ -269,7 +269,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * Statistics objects should not be shared between DB instances as
    * it does not use any locks to prevent concurrent updates.</p>
    *
+   * @param statistics The statistics to set
+   *
    * @return the instance of the current object.
+   *
    * @see RocksDB#open(org.rocksdb.Options, String)
    */
   T setStatistics(final Statistics statistics);
@@ -277,7 +280,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   /**
    * <p>Returns statistics object.</p>
    *
-   * @return the instance of the statistics object or null if there is no statistics object.
+   * @return the instance of the statistics object or null if there is no
+   * statistics object.
+   *
    * @see #setStatistics(Statistics)
    */
   Statistics statistics();
