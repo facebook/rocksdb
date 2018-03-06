@@ -198,11 +198,15 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 
-  //  Retrieves number of elements in LRU, for unit test purpose only
-  //  not threadsafe
+  // Retrieves number of elements in LRU, for unit test purpose only
+  // not threadsafe
   size_t TEST_GetLRUSize();
 
-  //  Retrives high pri pool ratio
+  // Retrieve pool capacities and usages.  Protected with mutex_.
+  size_t GetHighPriPoolCapacity();
+  size_t GetHighPriPoolUsage();
+
+  // Retrives high pri pool ratio
   double GetHighPriPoolRatio();
 
   // Overloading to aligned it to cache line size
@@ -294,9 +298,13 @@ class LRUCache : public ShardedCache {
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual void DisownData() override;
 
-  //  Retrieves number of elements in LRU, for unit test purpose only
+  // Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
-  //  Retrives high pri pool ratio
+  // Retrieves high pri pool ratio
+  size_t GetHighPriPoolCapacity();
+  // Retrieves high pri pool capacty
+  size_t GetHighPriPoolUsage();
+  // Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
  private:

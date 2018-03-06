@@ -458,6 +458,16 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   return usage_ - lru_usage_;
 }
 
+size_t LRUCacheShard::GetHighPriPoolCapacity() {
+  MutexLock l(&mutex_);
+  return high_pri_pool_capacity_;
+}
+
+size_t LRUCacheShard::GetHighPriPoolUsage() {
+  MutexLock l(&mutex_);
+  return high_pri_pool_usage_;
+}
+
 std::string LRUCacheShard::GetPrintableOptions() const {
   const int kBufferSize = 200;
   char buffer[kBufferSize];
@@ -516,6 +526,22 @@ size_t LRUCache::TEST_GetLRUSize() {
     lru_size_of_all_shards += shards_[i].TEST_GetLRUSize();
   }
   return lru_size_of_all_shards;
+}
+
+size_t LRUCache::GetHighPriPoolCapacity() {
+  size_t size = 0;
+  for (int i = 0; i < num_shards_; i++) {
+    size += shards_[i].GetHighPriPoolCapacity();
+  }
+  return size;
+}
+
+size_t LRUCache::GetHighPriPoolUsage() {
+  size_t size = 0;
+  for (int i = 0; i < num_shards_; i++) {
+    size += shards_[i].GetHighPriPoolUsage();
+  }
+  return size;
 }
 
 double LRUCache::GetHighPriPoolRatio() {
