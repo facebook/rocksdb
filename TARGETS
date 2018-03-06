@@ -46,7 +46,10 @@ rocksdb_preprocessor_flags = [
 ]
 
 rocksdb_arch_preprocessor_flags = {
-    "x86_64": ["-DHAVE_SSE42"],
+    "x86_64": [
+        "-DHAVE_SSE42",
+        "-DHAVE_PCLMUL",
+    ],
 }
 
 build_mode = read_config("fbcode", "build_mode")
