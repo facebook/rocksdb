@@ -686,7 +686,7 @@ DEFINE_bool(blob_db_enable_gc, false, "Enable BlobDB garbage collection.");
 
 DEFINE_bool(blob_db_is_fifo, false, "Enable FIFO eviction strategy in BlobDB.");
 
-DEFINE_uint64(blob_db_dir_size, 0,
+DEFINE_uint64(blob_db_max_db_size, 0,
               "Max size limit of the directory where blob files are stored.");
 
 DEFINE_uint64(blob_db_max_ttl_range, 86400,
@@ -3446,7 +3446,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
       blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
-      blob_db_options.blob_dir_size = FLAGS_blob_db_dir_size;
+      blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
       blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
       blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
       blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;

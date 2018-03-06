@@ -36,13 +36,17 @@ struct BlobDBOptions {
   // whether the blob_dir path is relative or absolute.
   bool path_relative = true;
 
-  // is the eviction strategy fifo based
+  // When max_db_size is reached, evict blob files to free up space
+  // instead of returnning NoSpace error on write. Blob files will be
+  // evicted in this order until enough space is free up:
+  //  * the TTL blob file cloeset to expire,
+  //  * the oldest non-TTL blob file.
   bool is_fifo = false;
 
-  // maximum size of the blob dir. Once this gets used, up
-  // evict the blob file which is oldest (is_fifo )
-  // 0 means no limits
-  uint64_t blob_dir_size = 0;
+  // Maximum size of the database (including SST files and blob files).
+  //
+  // Default: 0 (no limits)
+  uint64_t max_db_size = 0;
 
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
@@ -197,6 +201,9 @@ class BlobDB : public StackableDB {
     }
     return NewIterator(options);
   }
+
+  using rocksdb::StackableDB::Close;
+  virtual Status Close() override = 0;
 
   // Opening blob db.
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
