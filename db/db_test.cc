@@ -5404,6 +5404,7 @@ class WriteStallListener : public EventListener {
     if (expected_set_ && 
       condition_ == expected_) {
         cond_.Signal();
+        expected_set_ = false;
     }
   }
   bool CheckCondition(WriteStallCondition expected) {
@@ -5418,7 +5419,6 @@ class WriteStallListener : public EventListener {
           expected_set_ = false;
           return false;
         }
-        expected_set_ = false;
       }
     }
     return true;
