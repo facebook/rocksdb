@@ -1822,14 +1822,26 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   {
     const int kIdBufLen = 100;
     char id_buf[kIdBufLen];
+#ifndef OS_WIN
+    // You can't open a directory on windows using random access file
     std::unique_ptr<RandomAccessFile> file;
-    env_->NewRandomAccessFile(dbname_, &file, EnvOptions());
+    ASSERT_OK(env_->NewRandomAccessFile(dbname_, &file, EnvOptions()));
     if (file->GetUniqueId(id_buf, kIdBufLen) == 0) {
       // fs holding db directory doesn't support getting a unique file id,
       // this means that running this test will fail because lru_cache will load
       // the blocks again regardless of them being already in the cache
       return;
     }
+#else
+    std::unique_ptr<Directory> dir;
+    ASSERT_OK(env_->NewDirectory(dbname_, &dir));
+    if (dir->GetUniqueId(id_buf, kIdBufLen) == 0) {
+      // fs holding db directory doesn't support getting a unique file id,
+      // this means that running this test will fail because lru_cache will load
+      // the blocks again regardless of them being already in the cache
+      return;
+    }
+#endif
   }
   uint32_t bytes_per_bit[2] = {1, 16};
   for (size_t k = 0; k < 2; k++) {

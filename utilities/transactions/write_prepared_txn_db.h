@@ -279,7 +279,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         if (heap_.top() == erased_heap_.top()) {
           heap_.pop();
         }
-        auto erased __attribute__((__unused__)) = erased_heap_.top();
+        uint64_t erased __attribute__((__unused__));
+        erased = erased_heap_.top();
         erased_heap_.pop();
         // No duplicate prepare sequence numbers
         assert(erased_heap_.empty() || erased_heap_.top() != erased);

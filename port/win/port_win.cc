@@ -108,19 +108,20 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 
 // Private structure, exposed only by pointer
 struct DIR {
-  intptr_t handle_;
-  bool firstread_;
-  struct __finddata64_t data_;
+  HANDLE      handle_;
+  bool        firstread_;
+  WIN32_FIND_DATA data_;
   dirent entry_;
 
-  DIR() : handle_(-1), firstread_(true) {}
+  DIR() : handle_(INVALID_HANDLE_VALUE),
+    firstread_(true) {}
 
   DIR(const DIR&) = delete;
   DIR& operator=(const DIR&) = delete;
 
   ~DIR() {
-    if (-1 != handle_) {
-      _findclose(handle_);
+    if (INVALID_HANDLE_VALUE != handle_) {
+      ::FindClose(handle_);
     }
   }
 };
@@ -136,19 +137,25 @@ DIR* opendir(const char* name) {
 
   std::unique_ptr<DIR> dir(new DIR);
 
-  dir->handle_ = _findfirst64(pattern.c_str(), &dir->data_);
+  dir->handle_ = ::FindFirstFileExA(pattern.c_str(), 
+    FindExInfoBasic, // Do not want alternative name
+    &dir->data_,
+    FindExSearchNameMatch,
+    NULL, // lpSearchFilter
+    0);
 
-  if (dir->handle_ == -1) {
+  if (dir->handle_ == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
-  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), dir->data_.name);
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), 
+    dir->data_.cFileName);
 
   return dir.release();
 }
 
 struct dirent* readdir(DIR* dirp) {
-  if (!dirp || dirp->handle_ == -1) {
+  if (!dirp || dirp->handle_ == INVALID_HANDLE_VALUE) {
     errno = EBADF;
     return nullptr;
   }
@@ -158,13 +165,14 @@ struct dirent* readdir(DIR* dirp) {
     return &dirp->entry_;
   }
 
-  auto ret = _findnext64(dirp->handle_, &dirp->data_);
+  auto ret = ::FindNextFileA(dirp->handle_, &dirp->data_);
 
-  if (ret != 0) {
+  if (ret == 0) {
     return nullptr;
   }
 
-  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), dirp->data_.name);
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), 
+    dirp->data_.cFileName);
 
   return &dirp->entry_;
 }

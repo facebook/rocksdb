@@ -36,8 +36,6 @@ class WinLogger : public rocksdb::Logger {
 
   WinLogger& operator=(const WinLogger&) = delete;
 
-  void close();
-
   void Flush() override;
 
   using rocksdb::Logger::Logv;
@@ -47,6 +45,10 @@ class WinLogger : public rocksdb::Logger {
 
   void DebugWriter(const char* str, int len);
 
+protected:
+
+    Status CloseImpl() override;
+
  private:
   HANDLE file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
@@ -54,6 +56,8 @@ class WinLogger : public rocksdb::Logger {
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
   bool flush_pending_;
+
+  Status CloseInternal();
 
   const static uint64_t flush_every_seconds_ = 5;
 };

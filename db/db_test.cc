@@ -5153,7 +5153,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  std::thread manual_compaction_thread([this]() {
+  port::Thread manual_compaction_thread([this]() {
     CompactRangeOptions croptions;
     croptions.exclusive_manual_compaction = true;
     ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
@@ -5393,18 +5393,42 @@ TEST_F(DBTest, HardLimit) {
 #ifndef ROCKSDB_LITE
 class WriteStallListener : public EventListener {
  public:
-  WriteStallListener() : condition_(WriteStallCondition::kNormal) {}
+  WriteStallListener() : cond_(&mutex_), 
+    condition_(WriteStallCondition::kNormal),
+    expected_(WriteStallCondition::kNormal),
+    expected_set_(false) 
+  {}
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
     MutexLock l(&mutex_);
     condition_ = info.condition.cur;
+    if (expected_set_ && 
+      condition_ == expected_) {
+        cond_.Signal();
+        expected_set_ = false;
+    }
   }
   bool CheckCondition(WriteStallCondition expected) {
     MutexLock l(&mutex_);
-    return expected == condition_;
+    if (expected != condition_) {
+      expected_ = expected;
+      expected_set_ = true;
+      while (expected != condition_) {
+        // We bail out on timeout 500 milliseconds
+        const uint64_t timeout_us = 500000;
+        if (cond_.TimedWait(timeout_us)) {
+          expected_set_ = false;
+          return false;
+        }
+      }
+    }
+    return true;
   }
  private:
-  port::Mutex mutex_;
+  port::Mutex   mutex_;
+  port::CondVar cond_;
   WriteStallCondition condition_;
+  WriteStallCondition expected_;
+  bool                expected_set_;
 };
 
 TEST_F(DBTest, SoftLimit) {
@@ -5743,7 +5767,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     return flushes_done.load() > 10;
   };
 
-  std::thread flushing_thread([&] {
+  port::Thread flushing_thread([&] {
     for (int i = 0; !done(); ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), Slice("hi"),
                          Slice(std::to_string(i).c_str())));
@@ -5753,12 +5777,12 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     }
   });
 
-  std::vector<std::thread> thread_spawning_threads(10);
+  std::vector<port::Thread> thread_spawning_threads(10);
   for (auto& t: thread_spawning_threads) {
-    t = std::thread([&] {
+    t = port::Thread([&] {
       while (!done()) {
         {
-          std::thread tmp_thread([&] {
+          port::Thread tmp_thread([&] {
             auto it = db_->NewIterator(ReadOptions());
             delete it;
           });

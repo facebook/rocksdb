@@ -138,6 +138,9 @@ public:
   virtual Status LinkFile(const std::string& src,
     const std::string& target);
 
+  virtual Status AreFilesSame(const std::string& first,
+    const std::string& second, bool* res);
+
   virtual Status LockFile(const std::string& lockFname,
     FileLock** lock);
 
@@ -170,6 +173,8 @@ public:
   size_t GetAllocationGranularity() const { return allocation_granularity_; }
 
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
+
+  static size_t GetSectorSize(const std::string& fname);
 
 private:
   // Returns true iff the named directory exists and is a directory.
@@ -247,6 +252,9 @@ public:
 
   Status LinkFile(const std::string& src,
     const std::string& target) override;
+
+  Status AreFilesSame(const std::string& first,
+    const std::string& second, bool* res) override;
 
   Status LockFile(const std::string& lockFname,
     FileLock** lock) override;
