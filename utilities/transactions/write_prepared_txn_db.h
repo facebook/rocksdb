@@ -20,6 +20,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/set_comparator.h"
 #include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
@@ -517,19 +518,6 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   bool includes_data_;
 };
 
-// A wrapper around Comparator to make it usable in std::set
-struct SetComparator {
-  explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
-  explicit SetComparator(const Comparator* user_comparator)
-      : user_comparator_(user_comparator ? user_comparator
-                                         : BytewiseComparator()) {}
-  bool operator()(const Slice& lhs, const Slice& rhs) const {
-    return user_comparator_->Compare(lhs, rhs) < 0;
-  }
-
- private:
-  const Comparator* user_comparator_;
-};
 // Count the number of sub-batches inside a batch. A sub-batch does not have
 // duplicate keys.
 struct SubBatchCounter : public WriteBatch::Handler {
