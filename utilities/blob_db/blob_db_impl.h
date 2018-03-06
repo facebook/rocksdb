@@ -43,19 +43,9 @@ struct FlushJobInfo;
 
 namespace blob_db {
 
-class BlobFile;
+struct BlobCompactionContext;
 class BlobDBImpl;
-
-class BlobDBFlushBeginListener : public EventListener {
- public:
-  explicit BlobDBFlushBeginListener(BlobDBImpl* blob_db_impl)
-      : blob_db_impl_(blob_db_impl) {}
-
-  void OnFlushBegin(DB* db, const FlushJobInfo& info) override;
-
- private:
-  BlobDBImpl* blob_db_impl_;
-};
+class BlobFile;
 
 // this implements the callback from the WAL which ensures that the
 // blob record is present in the blob log. If fsync/fdatasync in not
@@ -154,6 +144,8 @@ class BlobDBImpl : public BlobDB {
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
+  virtual Status Close() override;
+
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
@@ -180,6 +172,10 @@ class BlobDBImpl : public BlobDB {
 
   Status SyncBlobFiles() override;
 
+  void UpdateLiveSSTSize();
+
+  void GetCompactionContext(BlobCompactionContext* context);
+
 #ifndef NDEBUG
   Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
                            PinnableSlice* value);
@@ -190,12 +186,18 @@ class BlobDBImpl : public BlobDB {
 
   Status TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
 
+  void TEST_ObsoleteBlobFile(std::shared_ptr<BlobFile>& blob_file,
+                             SequenceNumber obsolete_seq = 0,
+                             bool update_size = true);
+
   Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
                                  GCStats* gc_stats);
 
   void TEST_RunGC();
 
   void TEST_DeleteObsoleteFiles();
+
+  uint64_t TEST_live_sst_size();
 #endif  //  !NDEBUG
 
  private:
@@ -217,10 +219,16 @@ class BlobDBImpl : public BlobDB {
                            std::string* compression_output) const;
 
   // Close a file by appending a footer, and removes file from open files list.
-  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
+  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile, bool need_lock = true);
 
   // Close a file if its size exceeds blob_file_size
   Status CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile);
+
+  // Mark file as obsolete and move the file to obsolete file list.
+  //
+  // REQUIRED: hold write lock of mutex_ or during DB open.
+  void ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
+                        SequenceNumber obsolete_seq, bool update_size);
 
   uint64_t ExtractExpiration(const Slice& key, const Slice& value,
                              Slice* value_slice, std::string* new_value);
@@ -242,8 +250,6 @@ class BlobDBImpl : public BlobDB {
   std::shared_ptr<BlobFile> SelectBlobFile();
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
-
-  void Shutdown();
 
   // periodic sanity check. Bunch of checks
   std::pair<bool, int64_t> SanityCheck(bool aborted);
@@ -315,11 +321,12 @@ class BlobDBImpl : public BlobDB {
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
 
-  Status CheckSize(size_t blob_size);
-
-  std::shared_ptr<BlobFile> GetOldestBlobFile();
-
-  bool EvictOldestBlobFile();
+  // Check if inserting a new blob will make DB grow out of space.
+  // If is_fifo = true, FIFO eviction will be triggered to make room for the
+  // new blob. If force_evict = true, FIFO eviction will evict blob files
+  // even eviction will not make enough room for the new blob.
+  Status CheckSizeAndEvictBlobFiles(uint64_t blob_size,
+                                    bool force_evict = false);
 
   // name of the database directory
   std::string dbname_;
@@ -366,10 +373,10 @@ class BlobDBImpl : public BlobDB {
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
+  std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
 
-  // atomic bool to represent shutdown
-  std::atomic<bool> shutdown_;
+  // Flag to check whether Close() has been called on this DB
+  bool closed_;
 
   // timer based queue to execute tasks
   TimerQueue tqueue_;
@@ -378,14 +385,25 @@ class BlobDBImpl : public BlobDB {
   // counter is used to monitor and close excess RA files.
   std::atomic<uint32_t> open_file_count_;
 
-  // total size of all blob files at a given time
-  std::atomic<uint64_t> total_blob_space_;
+  // Total size of all live blob files (i.e. exclude obsolete files).
+  std::atomic<uint64_t> total_blob_size_;
+
+  // total size of SST files.
+  std::atomic<uint64_t> live_sst_size_;
+
+  // Latest FIFO eviction timestamp
+  //
+  // REQUIRES: access with metex_ lock held.
+  uint64_t fifo_eviction_seq_;
+
+  // The expiration up to which latest FIFO eviction evicts.
+  //
+  // REQUIRES: access with metex_ lock held.
+  uint64_t evict_expiration_up_to_;
+
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
-  bool open_p1_done_;
 
   uint32_t debug_level_;
-
-  std::atomic<bool> oldest_file_evicted_;
 };
 
 }  // namespace blob_db
