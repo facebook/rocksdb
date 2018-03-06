@@ -100,7 +100,8 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
   if (max_allowed_space_ <= 0) {
     return false;
   }
-  return total_files_size_ + cur_compactions_reserved_size_ >= max_allowed_space_;
+  return
+    total_files_size_ + cur_compactions_reserved_size_ >= max_allowed_space_;
 }
 
 bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction *c) {
@@ -115,11 +116,12 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction *c) {
   }
 
   if (max_allowed_space_ != 0 &&
-      (size_added_by_compaction + cur_compactions_reserved_size_ + total_files_size_ +
-        compaction_buffer_size_ > max_allowed_space_)) {
+      (size_added_by_compaction + cur_compactions_reserved_size_ +
+        total_files_size_ + compaction_buffer_size_ > max_allowed_space_)) {
     return false;
   }
-  // Update cur_compactions_reserved_size_ so concurrent compactions don't max out space
+  // Update cur_compactions_reserved_size_ so concurrent compaction
+  // don't max out space
   cur_compactions_reserved_size_ += size_added_by_compaction;
   return true;
 }

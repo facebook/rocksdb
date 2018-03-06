@@ -1646,22 +1646,26 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 #endif  // ROCKSDB_LITE
         if (!enough_room) {
           // Just in case tests want to change the value of enough_room
-          TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction():CancelledCompaction",
+          TEST_SYNC_POINT_CALLBACK(
+              "DBImpl::BackgroundCompaction():CancelledCompaction",
               &enough_room);
         }
         if (!enough_room) {
           // Then don't do the compaction
           c->ReleaseCompactionFiles(status);
-          c->column_family_data()->current()->storage_info()->ComputeCompactionScore(
-              *(c->immutable_cf_options()),
-              *(c->mutable_cf_options()));
+          c->column_family_data()->current()
+            ->storage_info()->ComputeCompactionScore(
+                *(c->immutable_cf_options()),
+                *(c->mutable_cf_options()));
 
-          ROCKS_LOG_BUFFER(log_buffer, "Cancelled compaction because not enough room");
+          ROCKS_LOG_BUFFER(log_buffer,
+              "Cancelled compaction because not enough room");
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
 
           c.reset();
-          // Don't need to sleep here, because BackgroundCallCompaction will sleep if !s.ok()
+          // Don't need to sleep here, because BackgroundCallCompaction
+          // will sleep if !s.ok()
           status = Status::CompactionTooLarge();
         } else {
           // update statistics
