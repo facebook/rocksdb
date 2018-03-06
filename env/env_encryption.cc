@@ -150,7 +150,7 @@ class EncryptedRandomAccessFile : public RandomAccessFile {
   // may not have been modified.
   //
   // This function guarantees, for IDs from a given environment, two unique ids
-  // cannot be made equal to eachother by adding arbitrary bytes to one of
+  // cannot be made equal to each other by adding arbitrary bytes to one of
   // them. That is, no unique ID is the prefix of another.
   //
   // This function guarantees that the returned ID will not be interpretable as
@@ -584,7 +584,7 @@ class EncryptedEnv : public EnvWrapper {
     return Status::OK();
   }
 
-  // Open `fname` for random read and write, if file dont exist the file
+  // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
@@ -828,7 +828,7 @@ Status CTRCipherStream::DecryptBlock(uint64_t blockIndex, char *data, char* scra
 // GetPrefixLength returns the length of the prefix that is added to every file
 // and used for storing encryption options.
 // For optimal performance, the prefix length should be a multiple of 
-// the a page size.
+// the page size.
 size_t CTREncryptionProvider::GetPrefixLength() {
   return defaultPrefixLength;
 }

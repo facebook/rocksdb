@@ -34,8 +34,8 @@ namespace rocksdb {
 
 class WritePreparedTxnDB;
 
-// This impl could write to DB also uncomitted data and then later tell apart
-// committed data from uncomitted data. Uncommitted data could be after the
+// This impl could write to DB also uncommitted data and then later tell apart
+// committed data from uncommitted data. Uncommitted data could be after the
 // Prepare phase in 2PC (WritePreparedTxn) or before that
 // (WriteUnpreparedTxnImpl).
 class WritePreparedTxn : public PessimisticTransaction {

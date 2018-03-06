@@ -56,7 +56,7 @@ if(MSVC)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
-    # FreeBSD has jemaloc as default malloc
+    # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
   else()

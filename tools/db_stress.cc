@@ -997,11 +997,11 @@ struct ThreadState {
   Stats stats;
   struct SnapshotState {
     const Snapshot* snapshot;
-    // The cf from which we did a Get at this stapshot
+    // The cf from which we did a Get at this snapshot
     int cf_at;
-    // The name of the cf at the the time that we did a read
+    // The name of the cf at the time that we did a read
     std::string cf_at_name;
-    // The key with which we did a Get at this stapshot
+    // The key with which we did a Get at this snapshot
     std::string key;
     // The status of the Get
     Status status;

@@ -101,7 +101,7 @@ TEST(PreparedHeap, BasicsTest) {
   heap.erase(89l);
   heap.erase(86l);
   heap.erase(88l);
-  // Test top remians the same after a ranodm order of many erases
+  // Test top remains the same after a random order of many erases
   ASSERT_EQ(64l, heap.top());
   heap.pop();
   // Test that pop works with a series of random pending erases
@@ -240,7 +240,7 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
   ASSERT_EQ(batch_cnt, counter.BatchCount());
 
   // Test that RollbackToSavePoint will properly resets the number of
-  // sub-bathces
+  // sub-batches
   for (size_t i = save_points; i > 0; i--) {
     batch.RollbackToSavePoint();
     ASSERT_EQ(batch_cnt_at[i - 1], batch.SubBatchCnt());
@@ -280,7 +280,7 @@ TEST(CommitEntry64b, BasicTest) {
   const size_t INDEX_SIZE = static_cast<size_t>(1ull << INDEX_BITS);
   const CommitEntry64bFormat FORMAT(static_cast<size_t>(INDEX_BITS));
 
-  // zero-initialized CommitEntry64b should inidcate an empty entry
+  // zero-initialized CommitEntry64b should indicate an empty entry
   CommitEntry64b empty_entry64b;
   uint64_t empty_index = 11ul;
   CommitEntry empty_entry;
@@ -353,7 +353,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
  protected:
   // If expect_update is set, check if it actually updated old_commit_map_. If
   // it did not and yet suggested not to check the next snapshot, do the
-  // opposite to check if it was not a bad suggstion.
+  // opposite to check if it was not a bad suggestion.
   void MaybeUpdateOldCommitMapTestWithNext(uint64_t prepare, uint64_t commit,
                                            uint64_t snapshot,
                                            uint64_t next_snapshot,
@@ -371,7 +371,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
     }
     EXPECT_EQ(!expect_update, wp_db->old_commit_map_empty_);
     if (!check_next && wp_db->old_commit_map_empty_) {
-      // do the oppotisite to make sure it was not a bad suggestion
+      // do the opposite to make sure it was not a bad suggestion
       const bool dont_care_bool = true;
       wp_db->MaybeUpdateOldCommitMap(prepare, commit, next_snapshot,
                                      dont_care_bool);
@@ -772,7 +772,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   wp_db->UpdateSnapshots(snapshots, version);
   ASSERT_EQ(snapshots.size(), wp_db->snapshots_total_);
   // seq numbers are chosen so that we have two of them between each two
-  // snapshots. If the diff of two consecuitive seq is more than 5, there is a
+  // snapshots. If the diff of two consecutive seq is more than 5, there is a
   // snapshot between them.
   std::vector<SequenceNumber> seqs = {50l,  55l,  150l, 155l, 250l, 255l, 350l,
                                       355l, 450l, 455l, 550l, 555l, 650l, 655l,
@@ -904,7 +904,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   // a. max should be updated to new_max
   ASSERT_EQ(wp_db->max_evicted_seq_, new_max);
   // b. delayed prepared should contain every txn <= max and prepared should
-  // only contian txns > max
+  // only contain txns > max
   auto it = initial_prepared.begin();
   for (; it != initial_prepared.end() && *it <= new_max; it++) {
     ASSERT_EQ(1, wp_db->delayed_prepared_.erase(*it));
@@ -1034,9 +1034,9 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     }
     if (options.two_write_queues) {
       // In this case none of the above scheduling tricks to deterministically
-      // form merged bactches works because the writes go to saparte queues.
+      // form merged batches works because the writes go to separate queues.
       // This would result in different write groups in each run of the test. We
-      // still keep the test since althgouh non-deterministic and hard to debug,
+      // still keep the test since although non-deterministic and hard to debug,
       // it is still useful to have.
       // TODO(myabandeh): Add a deterministic unit test for two_write_queues
     }
@@ -1069,7 +1069,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   }
 }
 
-// Run a couple of differnet txns among them some uncommitted. Restart the db at
+// Run a couple of different txns among them some uncommitted. Restart the db at
 // a couple points to check whether the list of uncommitted txns are recovered
 // properly.
 TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
@@ -1284,16 +1284,16 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   // only a few snapshots are below the max_evicted_seq_.
   for (int max_snapshots = 1; max_snapshots < 20; max_snapshots++) {
     // Leave some gap between the preliminary snapshots and the final snapshot
-    // that we check. This should test for also different overlapping scnearios
+    // that we check. This should test for also different overlapping scenarios
     // between the last snapshot and the commits.
     for (int max_gap = 1; max_gap < 10; max_gap++) {
       // Since we do not actually write to db, we mock the seq as it would be
-      // increaased by the db. The only exception is that we need db seq to
+      // increased by the db. The only exception is that we need db seq to
       // advance for our snapshots. for which we apply a dummy put each time we
       // increase our mock of seq.
       uint64_t seq = 0;
       // At each step we prepare a txn and then we commit it in the next txn.
-      // This emulates the consecuitive transactions that write to the same key
+      // This emulates the consecutive transactions that write to the same key
       uint64_t cur_txn = 0;
       // Number of snapshots taken so far
       int num_snapshots = 0;
@@ -1306,7 +1306,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // we add a new prepare txn. These do not mean to be committed for
       // snapshot inspection.
       std::set<uint64_t> prepared;
-      // We keep the list of txns comitted before we take the last snaphot.
+      // We keep the list of txns committed before we take the last snapshot.
       // These should be the only seq numbers that will be found in the snapshot
       std::set<uint64_t> committed_before;
       // The set of commit seq numbers to be excluded from IsInSnapshot queries

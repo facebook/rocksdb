@@ -75,7 +75,7 @@ struct TransactionDBOptions {
   // expiration set.
   int64_t default_lock_timeout = 1000;  // 1 second
 
-  // If set, the TransactionDB will use this implemenation of a mutex and
+  // If set, the TransactionDB will use this implementation of a mutex and
   // condition variable for all transaction locking instead of the default
   // mutex/condvar implementation.
   std::shared_ptr<TransactionDBMutexFactory> custom_mutex_factory;
@@ -100,7 +100,7 @@ struct TransactionOptions {
   // If set, it states that the CommitTimeWriteBatch represents the latest state
   // of the application and meant to be used later during recovery. It enables
   // an optimization to postpone updating the memtable with CommitTimeWriteBatch
-  // to only SwithcMamtable or recovery.
+  // to only SwitchMemtable or recovery.
   bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow
@@ -131,15 +131,15 @@ struct TransactionOptions {
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
-// implemenation might or might not make use of the specified optimizations.
+// implementation might or might not make use of the specified optimizations.
 struct TransactionDBWriteOptimizations {
-  // If it is true it means that the applicatinn guratnees that the
+  // If it is true it means that the application guarantees that the
   // key-set in the write batch do not conflict with any concurrent transaction
   // and hence the concurrency control mechanism could be skipped for this
   // write.
   bool skip_concurrency_control = false;
   // If true, the application guarantees that there is no duplicate <column
-  // family, key> in the write batch and any employed mechanism to hanlde
+  // family, key> in the write batch and any employed mechanism to handle
   // duplicate keys could be skipped.
   bool skip_duplicate_key_check = false;
 };

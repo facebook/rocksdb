@@ -22,7 +22,7 @@ namespace rocksdb {
 class Slice;
 
 /*
- * A SliceTranform is a generic pluggable way of transforming one string
+ * A SliceTransform is a generic pluggable way of transforming one string
  * to another. Its primary use-case is in configuring rocksdb
  * to store prefix blooms by setting prefix_extractor in
  * ColumnFamilyOptions.
@@ -72,7 +72,7 @@ class SliceTransform {
   // by setting ReadOptions.total_order_seek = true.
   //
   // Here is an example: Suppose we implement a slice transform that returns
-  // the first part of the string after spliting it using delimiter ",":
+  // the first part of the string after splitting it using delimiter ",":
   // 1. SameResultWhenAppended("abc,") should return true. If applying prefix
   //    bloom filter using it, all slices matching "abc:.*" will be extracted
   //    to "abc,", so any SST file or memtable containing any of those key

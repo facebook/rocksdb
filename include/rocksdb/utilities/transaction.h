@@ -118,7 +118,7 @@ class Transaction {
   // longer be valid and should be discarded after a call to ClearSnapshot().
   virtual void ClearSnapshot() = 0;
 
-  // Prepare the current transation for 2PC
+  // Prepare the current transaction for 2PC
   virtual Status Prepare() = 0;
 
   // Write all batched keys to the db atomically.
@@ -169,8 +169,8 @@ class Transaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
 
-  // An overload of the the above method that receives a PinnableSlice
-  // For backward compatiblity a default implementation is provided
+  // An overload of the above method that receives a PinnableSlice
+  // For backward compatibility a default implementation is provided
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* pinnable_val) {
@@ -230,8 +230,8 @@ class Transaction {
                               const Slice& key, std::string* value,
                               bool exclusive = true) = 0;
 
-  // An overload of the the above method that receives a PinnableSlice
-  // For backward compatiblity a default implementation is provided
+  // An overload of the above method that receives a PinnableSlice
+  // For backward compatibility a default implementation is provided
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* /*column_family*/,
                               const Slice& key, PinnableSlice* pinnable_val,
@@ -368,7 +368,7 @@ class Transaction {
   virtual void EnableIndexing() = 0;
 
   // Returns the number of distinct Keys being tracked by this transaction.
-  // If this transaction was created by a TransactinDB, this is the number of
+  // If this transaction was created by a TransactionDB, this is the number of
   // keys that are currently locked by this transaction.
   // If this transaction was created by an OptimisticTransactionDB, this is the
   // number of keys that need to be checked for conflicts at commit time.
