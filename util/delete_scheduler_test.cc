@@ -28,15 +28,23 @@ namespace rocksdb {
 class DeleteSchedulerTest : public testing::Test {
  public:
   DeleteSchedulerTest() : env_(Env::Default()) {
-    dummy_files_dir_ = test::TmpDir(env_) + "/delete_scheduler_dummy_data_dir";
-    DestroyAndCreateDir(dummy_files_dir_);
+    const int kNumDataDirs = 3;
+    dummy_files_dirs_.reserve(kNumDataDirs);
+    for (size_t i = 0; i < kNumDataDirs; ++i) {
+      dummy_files_dirs_.emplace_back(test::TmpDir(env_) +
+                                     "/delete_scheduler_dummy_data_dir" +
+                                     ToString(i));
+      DestroyAndCreateDir(dummy_files_dirs_.back());
+    }
   }
 
   ~DeleteSchedulerTest() {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    test::DestroyDir(env_, dummy_files_dir_);
+    for (const auto& dummy_files_dir : dummy_files_dirs_) {
+      test::DestroyDir(env_, dummy_files_dir);
+    }
   }
 
   void DestroyAndCreateDir(const std::string& dir) {
@@ -44,23 +52,24 @@ class DeleteSchedulerTest : public testing::Test {
     EXPECT_OK(env_->CreateDir(dir));
   }
 
-  int CountNormalFiles() {
+  int CountNormalFiles(size_t dummy_files_dirs_idx = 0) {
     std::vector<std::string> files_in_dir;
-    EXPECT_OK(env_->GetChildren(dummy_files_dir_, &files_in_dir));
+    EXPECT_OK(env_->GetChildren(dummy_files_dirs_[dummy_files_dirs_idx],
+                                &files_in_dir));
 
     int normal_cnt = 0;
     for (auto& f : files_in_dir) {
       if (!DeleteScheduler::IsTrashFile(f) && f != "." && f != "..") {
-        printf("%s\n", f.c_str());
         normal_cnt++;
       }
     }
     return normal_cnt;
   }
 
-  int CountTrashFiles() {
+  int CountTrashFiles(size_t dummy_files_dirs_idx = 0) {
     std::vector<std::string> files_in_dir;
-    EXPECT_OK(env_->GetChildren(dummy_files_dir_, &files_in_dir));
+    EXPECT_OK(env_->GetChildren(dummy_files_dirs_[dummy_files_dirs_idx],
+                                &files_in_dir));
 
     int trash_cnt = 0;
     for (auto& f : files_in_dir) {
@@ -71,8 +80,10 @@ class DeleteSchedulerTest : public testing::Test {
     return trash_cnt;
   }
 
-  std::string NewDummyFile(const std::string& file_name, uint64_t size = 1024) {
-    std::string file_path = dummy_files_dir_ + "/" + file_name;
+  std::string NewDummyFile(const std::string& file_name, uint64_t size = 1024,
+                           size_t dummy_files_dirs_idx = 0) {
+    std::string file_path =
+        dummy_files_dirs_[dummy_files_dirs_idx] + "/" + file_name;
     std::unique_ptr<WritableFile> f;
     env_->NewWritableFile(file_path, &f, EnvOptions());
     std::string data(size, 'A');
@@ -93,7 +104,7 @@ class DeleteSchedulerTest : public testing::Test {
   }
 
   Env* env_;
-  std::string dummy_files_dir_;
+  std::vector<std::string> dummy_files_dirs_;
   int64_t rate_bytes_per_sec_;
   DeleteScheduler* delete_scheduler_;
   std::unique_ptr<SstFileManagerImpl> sst_file_mgr_;
@@ -126,7 +137,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     rocksdb::SyncPoint::GetInstance()->ClearTrace();
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-    DestroyAndCreateDir(dummy_files_dir_);
+    DestroyAndCreateDir(dummy_files_dirs_[0]);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
     NewDeleteScheduler();
 
@@ -166,6 +177,42 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
   }
 }
 
+TEST_F(DeleteSchedulerTest, MultiDirectoryDeletionsScheduled) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DeleteSchedulerTest::MultiDbPathDeletionsScheduled:1",
+       "DeleteScheduler::BackgroundEmptyTrash"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  rate_bytes_per_sec_ = 1 << 20;  // 1MB
+  NewDeleteScheduler();
+
+  // Generate dummy files in multiple directories
+  const size_t kNumFiles = dummy_files_dirs_.size();
+  const size_t kFileSize = 1 << 10;  // 1KB
+  std::vector<std::string> generated_files;
+  for (size_t i = 0; i < kNumFiles; i++) {
+    generated_files.push_back(NewDummyFile("file", kFileSize, i));
+    ASSERT_EQ(1, CountNormalFiles(i));
+  }
+
+  // Mark dummy files as trash
+  for (size_t i = 0; i < kNumFiles; i++) {
+    ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i]));
+    ASSERT_EQ(0, CountNormalFiles(i));
+    ASSERT_EQ(1, CountTrashFiles(i));
+  }
+  TEST_SYNC_POINT("DeleteSchedulerTest::MultiDbPathDeletionsScheduled:1");
+  delete_scheduler_->WaitForEmptyTrash();
+
+  // Verify dummy files eventually got deleted
+  for (size_t i = 0; i < kNumFiles; i++) {
+    ASSERT_EQ(0, CountNormalFiles(i));
+    ASSERT_EQ(0, CountTrashFiles(i));
+  }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 // Same as the BasicRateLimiting test but delete files in multiple threads.
 // 1- Create 100 dummy files
 // 2- Delete the 100 dummy files using DeleteScheduler using 10 threads
@@ -194,7 +241,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
     rocksdb::SyncPoint::GetInstance()->ClearTrace();
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-    DestroyAndCreateDir(dummy_files_dir_);
+    DestroyAndCreateDir(dummy_files_dirs_[0]);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
     NewDeleteScheduler();
 
@@ -342,7 +389,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   // goind to delete
   for (int i = 0; i < 10; i++) {
     std::string file_name = "data_" + ToString(i) + ".data.trash";
-    ASSERT_OK(env_->DeleteFile(dummy_files_dir_ + "/" + file_name));
+    ASSERT_OK(env_->DeleteFile(dummy_files_dirs_[0] + "/" + file_name));
   }
 
   // Hold BackgroundEmptyTrash
@@ -454,7 +501,7 @@ TEST_F(DeleteSchedulerTest, DISABLED_DynamicRateLimiting1) {
     rocksdb::SyncPoint::GetInstance()->ClearTrace();
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-    DestroyAndCreateDir(dummy_files_dir_);
+    DestroyAndCreateDir(dummy_files_dirs_[0]);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
     delete_scheduler_->SetRateBytesPerSecond(rate_bytes_per_sec_);
 
