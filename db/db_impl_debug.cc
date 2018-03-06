@@ -117,7 +117,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd);
 }
 
-Status DBImpl::TEST_WaitForCompact() {
+Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
 
   // TODO: a bug here. This function actually does not necessarily
@@ -126,7 +126,8 @@ Status DBImpl::TEST_WaitForCompact() {
 
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-          bg_flush_scheduled_) &&
+          bg_flush_scheduled_ ||
+          (wait_unscheduled && unscheduled_compactions_)) &&
          bg_error_.ok()) {
     bg_cv_.Wait();
   }

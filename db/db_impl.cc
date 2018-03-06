@@ -404,9 +404,7 @@ Status DBImpl::CloseHelper() {
   return ret;
 }
 
-Status DBImpl::CloseImpl() {
-  return CloseHelper();
-}
+Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
   if (!closed_) {

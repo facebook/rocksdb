@@ -378,7 +378,9 @@ class DBImpl : public DB {
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
   // Wait for any compaction
-  Status TEST_WaitForCompact();
+  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
+  // is only for the special test of CancelledCompactions
+  Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
