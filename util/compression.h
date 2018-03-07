@@ -46,6 +46,75 @@
 
 namespace rocksdb {
 
+// Data associated with compression dictionary, e.g., to avoid repetitive
+// preprocessing work.
+struct DictContext {
+#if defined(ZSTD) && ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
+  // we cannot use unique_ptr as ZSTD_CDict is an incomplete type so its
+  // destructor is unknown. That's unfortunate because it means we have to
+  // implement move semantics ourselves.
+  ZSTD_CDict* zstd_cdict;
+#endif
+  Slice raw_dict_bytes;
+
+  DictContext() : zstd_cdict(nullptr) {}
+
+  DictContext(DictContext&& other) : zstd_cdict(nullptr) {
+    *this = std::move(other);
+  }
+
+  DictContext& operator=(DictContext&& other) {
+    raw_dict_bytes = std::move(other.raw_dict_bytes);
+#if defined(ZSTD) && ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
+    size_t res = ZSTD_freeCDict(zstd_cdict);
+    assert(res == 0);  // Last I checked it can't fail
+    (void) res;  // prevent unused var warning
+    zstd_cdict = other.zstd_cdict;
+    other.zstd_cdict = nullptr;
+#endif
+    return *this;
+  }
+
+  DictContext& operator=(const DictContext& other) = delete;
+  DictContext(const DictContext& other) = delete;
+
+  // @param raw_dict_bytes If non-nullptr, the pointed-to string must outlive
+  //    the DictContext
+  Status Init(CompressionType _compression_type,
+              const CompressionOptions& _compression_opts,
+              const std::string* _raw_dict_bytes) {
+    if (_raw_dict_bytes != nullptr && _raw_dict_bytes->size()) {
+      raw_dict_bytes = *_raw_dict_bytes;
+#if defined(ZSTD) && ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
+      if (_compression_type == kZSTD ||
+          _compression_type == kZSTDNotFinalCompression) {
+        zstd_cdict =
+            ZSTD_createCDict(_raw_dict_bytes->data(), _raw_dict_bytes->size(),
+                             _compression_opts.level);
+        if (zstd_cdict == nullptr) {
+          char msg[255];
+          snprintf(msg, sizeof(msg),
+                   "ZSTD_createCDict failed on dictionary with size "
+                   "%" ROCKSDB_PRIszt,
+                   _raw_dict_bytes->size());
+          // it has no error code so we can't really know why it failed.
+          return Status::InvalidArgument(msg);
+        }
+      }
+#endif
+    }
+    return Status::OK();
+  }
+
+  ~DictContext() {
+#if defined(ZSTD) && ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
+    size_t res = ZSTD_freeCDict(zstd_cdict);
+    assert(res == 0);  // Last I checked it can't fail
+    (void) res;  // prevent unused var warning
+#endif
+  }
+};
+
 inline bool Snappy_Supported() {
 #ifdef SNAPPY
   return true;
@@ -735,8 +804,7 @@ inline bool XPRESS_Compress(const char* /*input*/, size_t /*length*/,
 #endif
 
 #ifdef XPRESS
-inline char* XPRESS_Uncompress(const char* input_data,
-                               size_t input_length,
+inline char* XPRESS_Uncompress(const char* input_data, size_t input_length,
                                int* decompress_size) {
   return port::xpress::Decompress(input_data, input_length, decompress_size);
 }
@@ -748,12 +816,11 @@ inline char* XPRESS_Uncompress(const char* /*input_data*/,
 }
 #endif
 
-
-// @param compression_dict Data for presetting the compression library's
+// @param dict_context Data for presetting the compression library's
 //    dictionary.
 inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
                           size_t length, ::std::string* output,
-                          const Slice& compression_dict = Slice()) {
+                          const DictContext& dict_context) {
 #ifdef ZSTD
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -765,12 +832,22 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
 
   size_t compressBound = ZSTD_compressBound(length);
   output->resize(static_cast<size_t>(output_header_len + compressBound));
-  size_t outlen;
+  size_t outlen = 0;
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
   ZSTD_CCtx* context = ZSTD_createCCtx();
-  outlen = ZSTD_compress_usingDict(
-      context, &(*output)[output_header_len], compressBound, input, length,
-      compression_dict.data(), compression_dict.size(), opts.level);
+#if ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
+  if (dict_context.zstd_cdict != nullptr) {
+    outlen = ZSTD_compress_usingCDict(context, &(*output)[output_header_len],
+                                      compressBound, input, length,
+                                      dict_context.zstd_cdict);
+  }
+#endif  // ZSTD_VERSION_NUMBER >= 700
+  if (outlen == 0) {
+    outlen = ZSTD_compress_usingDict(
+        context, &(*output)[output_header_len], compressBound, input, length,
+        dict_context.raw_dict_bytes.data(), dict_context.raw_dict_bytes.size(),
+        opts.level);
+  }
   ZSTD_freeCCtx(context);
 #else  // up to v0.4.x
   outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,

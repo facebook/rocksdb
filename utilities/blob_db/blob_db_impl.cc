@@ -738,7 +738,7 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressionType ct = bdb_options_.compression;
   CompressionOptions compression_opts;
   CompressBlock(raw, compression_opts, &ct, kBlockBasedTableVersionFormat,
-                Slice(), compression_output);
+                DictContext(), compression_output);
   return *compression_output;
 }
 

@@ -123,7 +123,7 @@ class BlockBasedTableBuilder : public TableBuilder {
 Slice CompressBlock(const Slice& raw,
                     const CompressionOptions& compression_options,
                     CompressionType* type, uint32_t format_version,
-                    const Slice& compression_dict,
+                    const DictContext& dict_context,
                     std::string* compressed_output);
 
 }  // namespace rocksdb
