@@ -169,7 +169,7 @@ size_t LRUCacheShard::TEST_GetLRUSize() {
   return lru_size;
 }
 
-double LRUCacheShard::GetHighPriPoolRatio() {
+double LRUCacheShard::GetHighPriPoolRatio() const{
   MutexLock l(&mutex_);
   return high_pri_pool_ratio_;
 }
@@ -458,12 +458,12 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   return usage_ - lru_usage_;
 }
 
-size_t LRUCacheShard::GetHighPriPoolCapacity() {
+size_t LRUCacheShard::GetHighPriPoolCapacity() const {
   MutexLock l(&mutex_);
   return high_pri_pool_capacity_;
 }
 
-size_t LRUCacheShard::GetHighPriPoolUsage() {
+size_t LRUCacheShard::GetHighPriPoolUsage() const {
   MutexLock l(&mutex_);
   return high_pri_pool_usage_;
 }
@@ -528,7 +528,7 @@ size_t LRUCache::TEST_GetLRUSize() {
   return lru_size_of_all_shards;
 }
 
-size_t LRUCache::GetHighPriPoolCapacity() {
+size_t LRUCache::GetHighPriPoolCapacity() const {
   size_t size = 0;
   for (int i = 0; i < num_shards_; i++) {
     size += shards_[i].GetHighPriPoolCapacity();
@@ -536,7 +536,7 @@ size_t LRUCache::GetHighPriPoolCapacity() {
   return size;
 }
 
-size_t LRUCache::GetHighPriPoolUsage() {
+size_t LRUCache::GetHighPriPoolUsage() const {
   size_t size = 0;
   for (int i = 0; i < num_shards_; i++) {
     size += shards_[i].GetHighPriPoolUsage();
@@ -544,7 +544,7 @@ size_t LRUCache::GetHighPriPoolUsage() {
   return size;
 }
 
-double LRUCache::GetHighPriPoolRatio() {
+double LRUCache::GetHighPriPoolRatio() const {
   double result = 0.0;
   if (num_shards_ > 0) {
     result = shards_[0].GetHighPriPoolRatio();
