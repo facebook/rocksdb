@@ -454,7 +454,7 @@ Status MockEnv::NewSequentialFile(const std::string& fname,
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
-    *result = NULL;
+    *result = nullptr;
     return Status::IOError(fn, "File not found");
   }
   auto* f = file_map_[fn];
@@ -471,7 +471,7 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
-    *result = NULL;
+    *result = nullptr;
     return Status::IOError(fn, "File not found");
   }
   auto* f = file_map_[fn];
@@ -488,7 +488,7 @@ Status MockEnv::NewRandomRWFile(const std::string& fname,
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
-    *result = NULL;
+    *result = nullptr;
     return Status::IOError(fn, "File not found");
   }
   auto* f = file_map_[fn];

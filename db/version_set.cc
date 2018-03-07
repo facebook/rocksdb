@@ -3016,7 +3016,7 @@ Status VersionSet::Recover(
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(NULL, std::move(manifest_file_reader), &reporter,
+    log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;
@@ -3285,7 +3285,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   column_family_names.insert({0, kDefaultColumnFamilyName});
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(NULL, std::move(file_reader), &reporter, true /*checksum*/,
+  log::Reader reader(nullptr, std::move(file_reader), &reporter, true /*checksum*/,
                      0 /*initial_offset*/, 0);
   Slice record;
   std::string scratch;
@@ -3445,7 +3445,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(NULL, std::move(file_reader), &reporter,
+    log::Reader reader(nullptr, std::move(file_reader), &reporter,
                        true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;

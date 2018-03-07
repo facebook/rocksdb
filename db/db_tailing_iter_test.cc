@@ -214,9 +214,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   }
   ASSERT_TRUE(file_iters_renewed_null);
   ASSERT_TRUE(file_iters_renewed_copy);
-  iter = 0;
-  itern = 0;
-  iterh = 0;
+  iter = nullptr;
+  itern = nullptr;
+  iterh = nullptr;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   table_options.block_cache_compressed = nullptr;
@@ -229,7 +229,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   Slice target1(buf5, 20);
   iteri->Seek(target1);
   ASSERT_TRUE(iteri->status().IsIncomplete());
-  iteri = 0;
+  iteri = nullptr;
 
   read_options.read_tier = kReadAllTier;
   options.table_factory.reset(NewBlockBasedTableFactory());

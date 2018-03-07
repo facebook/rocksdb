@@ -3026,7 +3026,7 @@ void rocksdb_sstfilewriter_delete(rocksdb_sstfilewriter_t* writer,
 
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
                                   char** errptr) {
-  SaveError(errptr, writer->rep->Finish(NULL));
+  SaveError(errptr, writer->rep->Finish(nullptr));
 }
 
 void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {
@@ -3808,7 +3808,7 @@ rocksdb_pinnableslice_t* rocksdb_get_pinned(
     if (!s.IsNotFound()) {
       SaveError(errptr, s);
     }
-    return NULL;
+    return nullptr;
   }
   return v;
 }
@@ -3825,7 +3825,7 @@ rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
     if (!s.IsNotFound()) {
       SaveError(errptr, s);
     }
-    return NULL;
+    return nullptr;
   }
   return v;
 }
@@ -3836,7 +3836,7 @@ const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
                                         size_t* vlen) {
   if (!v) {
     *vlen = 0;
-    return NULL;
+    return nullptr;
   }
 
   *vlen = v->rep.size();

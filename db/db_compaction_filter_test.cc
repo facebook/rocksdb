@@ -767,7 +767,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       iter->Next();
     }
     ASSERT_EQ(count, 6);
-    read_options.snapshot = 0;
+    read_options.snapshot = nullptr;
     std::unique_ptr<Iterator> iter1(db_->NewIterator(read_options));
     iter1->SeekToFirst();
     count = 0;
