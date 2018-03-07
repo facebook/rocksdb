@@ -62,7 +62,7 @@ TableBuilder* NewTableBuilder(
 
 Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& /*mutable_cf_options*/,
+    const MutableCFOptions& mutable_cf_options,
     const EnvOptions& env_options, TableCache* table_cache,
     InternalIterator* iter, std::unique_ptr<InternalIterator> range_del_iter,
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,

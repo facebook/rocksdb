@@ -132,7 +132,7 @@ struct MutableCFOptions {
         memtable_huge_page_size(options.memtable_huge_page_size),
         max_successive_merges(options.max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
-        prefix_extractor(options.prefix_extractor.get()),
+        prefix_extractor(options.prefix_extractor),
         disable_auto_compactions(options.disable_auto_compactions),
         soft_pending_compaction_bytes_limit(
             options.soft_pending_compaction_bytes_limit),
@@ -212,7 +212,7 @@ struct MutableCFOptions {
   size_t memtable_huge_page_size;
   size_t max_successive_merges;
   size_t inplace_update_num_locks;
-  const SliceTransform* prefix_extractor;
+  std::shared_ptr<const SliceTransform> prefix_extractor;
 
   // Compaction related options
   bool disable_auto_compactions;

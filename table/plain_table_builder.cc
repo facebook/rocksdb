@@ -71,10 +71,10 @@ PlainTableBuilder::PlainTableBuilder(
       file_(file),
       bloom_bits_per_key_(bloom_bits_per_key),
       huge_page_tlb_size_(huge_page_tlb_size),
-      encoder_(encoding_type, user_key_len, moptions.prefix_extractor,
+      encoder_(encoding_type, user_key_len, moptions.prefix_extractor.get(),
                index_sparseness),
       store_index_in_file_(store_index_in_file),
-      prefix_extractor_(moptions.prefix_extractor) {
+      prefix_extractor_(moptions.prefix_extractor.get()) {
   // Build index block and save it in the file if hash_table_ratio > 0
   if (store_index_in_file_) {
     assert(hash_table_ratio > 0 || IsTotalOrderMode());

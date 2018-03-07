@@ -139,7 +139,7 @@ class DBIter final: public Iterator {
         is_blob_(false),
         start_seqnum_(read_options.iter_start_seqnum) {
     RecordTick(statistics_, NO_ITERATORS);
-    prefix_extractor_ = mutable_cf_options.prefix_extractor;
+    prefix_extractor_ = mutable_cf_options.prefix_extractor.get();
     max_skip_ = max_sequential_skip_in_iterations;
     max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
     if (pin_thru_lifetime_) {

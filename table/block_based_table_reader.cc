@@ -699,7 +699,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
   rep->internal_prefix_transform.reset(
-      new InternalKeySliceTransform(rep->moptions.prefix_extractor));
+      new InternalKeySliceTransform(rep->moptions.prefix_extractor.get()));
   SetupCacheKeyPrefix(rep, file_size);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
@@ -1250,14 +1250,16 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   switch (filter_type) {
     case Rep::FilterType::kPartitionedFilter: {
       return new PartitionedFilterBlockReader(
-          rep->prefix_filtering ? rep->moptions.prefix_extractor : nullptr,
+          rep->prefix_filtering ? rep->moptions.prefix_extractor.get()
+                                : nullptr,
           rep->whole_key_filtering, std::move(block), nullptr,
           rep->ioptions.statistics, rep->internal_comparator, this);
     }
 
     case Rep::FilterType::kBlockFilter:
       return new BlockBasedFilterBlockReader(
-          rep->prefix_filtering ? rep->moptions.prefix_extractor : nullptr,
+          rep->prefix_filtering ? rep->moptions.prefix_extractor.get()
+                                : nullptr,
           rep->table_options, rep->whole_key_filtering, std::move(block),
           rep->ioptions.statistics);
 
@@ -1266,7 +1268,8 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
           rep->filter_policy->GetFilterBitsReader(block.data);
       assert(filter_bits_reader != nullptr);
       return new FullFilterBlockReader(
-          rep->prefix_filtering ? rep->moptions.prefix_extractor : nullptr,
+          rep->prefix_filtering ? rep->moptions.prefix_extractor.get()
+                                : nullptr,
           rep->whole_key_filtering, std::move(block), filter_bits_reader,
           rep->ioptions.statistics);
     }
@@ -2544,7 +2547,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         s = block_fetcher.ReadBlockContents();
         if (!s.ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(
-              rep_->moptions.prefix_extractor, table_options,
+              rep_->moptions.prefix_extractor.get(), table_options,
               table_options.whole_key_filtering, std::move(block),
               rep_->ioptions.statistics));
         }

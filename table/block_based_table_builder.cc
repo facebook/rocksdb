@@ -70,7 +70,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   FilterBitsBuilder* filter_bits_builder =
       table_opt.filter_policy->GetFilterBitsBuilder();
   if (filter_bits_builder == nullptr) {
-    return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor, table_opt);
+    return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
+                                            table_opt);
   } else {
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
@@ -83,11 +84,11 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
           (100 - table_opt.block_size_deviation)) + 99) / 100);
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
-          mopt.prefix_extractor, table_opt.whole_key_filtering,
+          mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
           p_index_builder, partition_size);
     } else {
-      return new FullFilterBlockBuilder(mopt.prefix_extractor,
+      return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
                                         filter_bits_builder);
     }
@@ -304,7 +305,7 @@ struct BlockBasedTableBuilder::Rep {
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
         range_del_block(1 /* block_restart_interval */),
-        internal_prefix_transform(_moptions.prefix_extractor),
+        internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),

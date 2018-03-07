@@ -4609,24 +4609,42 @@ TEST_F(DBTest, FileCreationRandomFailure) {
 TEST_F(DBTest, DynamicBloomFilterOptions) {
   Options options;
   options.create_if_missing = true;
-  const SliceTransform* old_slice = NewFixedPrefixTransform(4);
-  options.prefix_extractor.reset(old_slice);
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
   DestroyAndReopen(options);
 
-  ASSERT_OK(Put("aabc", "v1"));
-  ASSERT_OK(Put("aabd", "v2"));
-  ASSERT_OK(Put("abcc", "v3"));
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("fpa", "0"));
+  dbfull()->Flush(FlushOptions());
 
-  ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->Name(), old_slice->Name());
-  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "{capped:8;}"}}));
-  const SliceTransform* new_slice = NewFixedPrefixTransform(2);
-  options.prefix_extractor.reset(new_slice);
-  Reopen(options);
-  ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->Name(), new_slice->Name());
+  ReadOptions read_options;
+  read_options.prefix_same_as_start = true;
+  Iterator* iter = db_->NewIterator(read_options);
+  int count = 0;
+  for (iter->Seek("foo"); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  // should see all four keys
+  ASSERT_EQ(count, 4);
+  delete iter;
 
-  ASSERT_EQ("v1", Get("aabc"));
-  ASSERT_EQ("v2", Get("aabd"));
-  ASSERT_EQ("v3", Get("abcc"));
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
+  ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
+                      "rocksdb.CappedPrefix.3"));
+  iter = db_->NewIterator(read_options);
+  count = 0;
+  for (iter->Seek("foo"); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  // "fpa" should be skipped
+  ASSERT_EQ(count, 3);
+  delete iter;
+  // TODO: create iterator before changing prefix_extractor
+  // TODO: Create a new column family with a different prefix_extractor and
+  // verify iterator
 }
 
 #ifndef ROCKSDB_LITE
@@ -5468,15 +5486,15 @@ TEST_F(DBTest, HardLimit) {
 #if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 class WriteStallListener : public EventListener {
  public:
-  WriteStallListener() : cond_(&mutex_), 
+  WriteStallListener() : cond_(&mutex_),
     condition_(WriteStallCondition::kNormal),
     expected_(WriteStallCondition::kNormal),
-    expected_set_(false) 
+    expected_set_(false)
   {}
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
     MutexLock l(&mutex_);
     condition_ = info.condition.cur;
-    if (expected_set_ && 
+    if (expected_set_ &&
       condition_ == expected_) {
         cond_.Signal();
         expected_set_ = false;

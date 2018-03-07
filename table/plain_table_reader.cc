@@ -103,7 +103,7 @@ PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
       encoding_type_(encoding_type),
       full_scan_mode_(false),
       user_key_len_(static_cast<uint32_t>(table_properties->fixed_key_len)),
-      prefix_extractor_(moptions.prefix_extractor),
+      prefix_extractor_(moptions.prefix_extractor.get()),
       enable_bloom_(false),
       bloom_(6, nullptr),
       file_info_(std::move(file), storage_options,
@@ -213,7 +213,7 @@ Status PlainTableReader::PopulateIndexRecordList(
   bool is_first_record = true;
   Slice key_prefix_slice;
   PlainTableKeyDecoder decoder(&file_info_, encoding_type_, user_key_len_,
-                               moptions_.prefix_extractor);
+                               moptions_.prefix_extractor.get());
   while (pos < file_info_.data_end_offset) {
     uint32_t key_offset = pos;
     ParsedInternalKey key;
@@ -568,7 +568,7 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   uint32_t offset;
   bool prefix_match;
   PlainTableKeyDecoder decoder(&file_info_, encoding_type_, user_key_len_,
-                               moptions_.prefix_extractor);
+                               moptions_.prefix_extractor.get());
   Status s = GetOffset(&decoder, target, prefix_slice, prefix_hash,
                        prefix_match, &offset);
 
