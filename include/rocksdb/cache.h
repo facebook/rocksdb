@@ -184,6 +184,12 @@ class Cache {
   // returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() const = 0;
 
+  // returns the capacity of the high priority pool
+  virtual size_t GetHighPriPoolCapacity() const {
+    // default implementation returns 0
+    return 0;
+  }
+
   // returns the memory size for the entries residing in the cache.
   virtual size_t GetUsage() const = 0;
 
@@ -192,6 +198,18 @@ class Cache {
 
   // returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
+
+  // returns the memory size for the entries in the high priority pool
+  virtual size_t GetHighPriPoolUsage() const {
+    // default implementation returns 0
+    return 0;
+  }
+
+  // returns the ratio of memory usaged by the high priority pool
+  virtual double GetHighPriPoolRatio() const {
+    // default implementation returns 0
+    return 0;
+  }
 
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
