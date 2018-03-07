@@ -131,7 +131,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 };
 
-Slice CompressBlock(const Slice& raw, const CompressionContext& compression_ctx,
+Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
                     std::string* compressed_output);
 
