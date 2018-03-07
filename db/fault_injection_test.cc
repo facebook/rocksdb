@@ -76,8 +76,8 @@ class FaultInjectionTest : public testing::Test,
         sync_use_wal_(false),
         sync_use_compact_(true),
         base_env_(nullptr),
-        env_(NULL),
-        db_(NULL) {
+        env_(nullptr),
+        db_(nullptr) {
   }
 
   ~FaultInjectionTest() {
@@ -139,9 +139,9 @@ class FaultInjectionTest : public testing::Test,
   }
 
   Status NewDB() {
-    assert(db_ == NULL);
+    assert(db_ == nullptr);
     assert(tiny_cache_ == nullptr);
-    assert(env_ == NULL);
+    assert(env_ == nullptr);
 
     env_ =
         new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
@@ -176,7 +176,7 @@ class FaultInjectionTest : public testing::Test,
     Status s = DestroyDB(dbname_, options_);
 
     delete env_;
-    env_ = NULL;
+    env_ = nullptr;
 
     tiny_cache_.reset();
 
