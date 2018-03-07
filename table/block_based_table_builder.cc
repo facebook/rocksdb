@@ -364,10 +364,10 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   }
 
   DictContext dict_context;
-  Status status =
+  Status st =
       dict_context.Init(compression_type, compression_opts, compression_dict);
-  if (!status.ok()) {
-    ROCKS_LOG_WARN(ioptions.info_log, "%s", status.ToString().c_str());
+  if (!st.ok()) {
+    ROCKS_LOG_WARN(ioptions.info_log, "%s", st.ToString().c_str());
   }
 
   rep_ =
