@@ -62,11 +62,11 @@ void createSST(const std::string& file_name,
   std::string column_family_name;
   int unknown_level = -1;
   tb.reset(opts.table_factory->NewTableBuilder(
-      TableBuilderOptions(imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
-                          CompressionType::kNoCompression, CompressionOptions(),
-                          nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name,
-                          unknown_level),
+      TableBuilderOptions(
+          imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
+          CompressionType::kNoCompression, CompressionOptions(),
+          nullptr /* compression_dict */, false /* skip_filters */,
+          column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 

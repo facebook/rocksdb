@@ -50,9 +50,8 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
   int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
-      kTestColumnFamilyId, kTestColumnFamilyName,
-      writable->get(), options.compression, options.compression_opts,
-      unknown_level));
+      kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
+      options.compression, options.compression_opts, unknown_level));
 }
 }  // namespace
 
@@ -406,8 +405,8 @@ void TestInternalKeyPropertiesCollector(
   MutableCFOptions moptions(options);
 
   for (int iter = 0; iter < 2; ++iter) {
-    MakeBuilder(options, ioptions, moptions, pikc, &int_tbl_prop_collector_factories,
-                &writable, &builder);
+    MakeBuilder(options, ioptions, moptions, pikc,
+                &int_tbl_prop_collector_factories, &writable, &builder);
     for (const auto& k : keys) {
       builder->Add(k.Encode(), "val");
     }

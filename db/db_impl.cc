@@ -1639,8 +1639,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-      snapshot,
-      sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, read_callback,
       ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob,
       allow_refresh);

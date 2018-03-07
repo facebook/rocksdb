@@ -382,7 +382,8 @@ class TableConstructor: public Constructor {
     return table_reader_->ApproximateOffsetOf(key);
   }
 
-  virtual Status Reopen(const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions) {
+  virtual Status Reopen(const ImmutableCFOptions& ioptions,
+                        const MutableCFOptions& moptions) {
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
@@ -1263,8 +1264,8 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
   const MutableCFOptions moptions(options);
   std::unique_ptr<InternalKeyComparator> internal_cmp(
       new InternalKeyComparator(options.comparator));
-  c.Finish(options, ioptions, moptions, table_options, *internal_cmp, &sorted_keys,
-           &kvmap);
+  c.Finish(options, ioptions, moptions, table_options, *internal_cmp,
+           &sorted_keys, &kvmap);
 
   for (int j = 0; j < 2; ++j) {
     std::unique_ptr<InternalIterator> iter(
@@ -1559,8 +1560,8 @@ TEST_F(BlockBasedTableTest, NoopTransformSeek) {
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
-  c.Finish(options, ioptions, moptions, table_options, internal_comparator, &keys,
-           &kvmap);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
 
   auto* reader = c.GetTableReader();
   for (int i = 0; i < 2; ++i) {
@@ -1595,9 +1596,9 @@ TEST_F(BlockBasedTableTest, SkipPrefixBloomFilter) {
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
-  c.Finish(options, ioptions, moptions, table_options, internal_comparator, &keys,
-           &kvmap);
-  //TODO(Zhongyi): update test to use MutableCFOptions
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+  // TODO(Zhongyi): update test to use MutableCFOptions
   options.prefix_extractor.reset(NewFixedPrefixTransform(9));
   const ImmutableCFOptions new_ioptions(options);
   const MutableCFOptions new_moptions(options);
@@ -1661,7 +1662,8 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
       new InternalKeyComparator(BytewiseComparator()));
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
-  c.Finish(options, ioptions, moptions, table_options, *comparator, &keys, &kvmap);
+  c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
+           &kvmap);
   auto reader = c.GetTableReader();
 
   auto props = reader->GetTableProperties();
@@ -2329,7 +2331,8 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
             stl_wrappers::KVMap kvmap;
             const ImmutableCFOptions ioptions(opt);
             const MutableCFOptions moptions(opt);
-            c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys, &kvmap);
+            c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys,
+                     &kvmap);
 
             // Doing a read to make index/filter loaded into the cache
             auto table_reader =
@@ -2507,11 +2510,10 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::string column_family_name;
   int unknown_level = -1;
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
-      TableBuilderOptions(ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-                          kNoCompression, CompressionOptions(),
-                          nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name,
-                          unknown_level),
+      TableBuilderOptions(
+          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
+          kNoCompression, CompressionOptions(), nullptr /* compression_dict */,
+          false /* skip_filters */, column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -2971,7 +2973,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
       new InternalKeyComparator(BytewiseComparator()));
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
-  c.Finish(options, ioptions, moptions, table_options, *comparator, &keys, &kvmap);
+  c.Finish(options, ioptions, moptions, table_options, *comparator, &keys,
+           &kvmap);
   auto reader = c.GetTableReader();
 
   std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(ReadOptions()));
@@ -3094,9 +3097,9 @@ TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
                                                   0 /* global_seqno*/));
   std::string column_family_name;
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-                          kNoCompression, CompressionOptions(),
-                          nullptr /* compression_dict */,
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kNoCompression,
+                          CompressionOptions(), nullptr /* compression_dict */,
                           false /* skip_filters */, column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
@@ -3154,8 +3157,8 @@ TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
             new test::StringSource(ss_rw.contents(), 73342, true)));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions, EnvOptions(), ikc), std::move(file_reader),
-        ss_rw.contents().size(), &table_reader);
+        TableReaderOptions(ioptions, moptions, EnvOptions(), ikc),
+        std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(ReadOptions());
   };

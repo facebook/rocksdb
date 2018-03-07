@@ -333,8 +333,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     index_block = nullptr;
   }
 
-  if ((moptions_.prefix_extractor == nullptr) &&
-      (hash_table_ratio != 0)) {
+  if ((moptions_.prefix_extractor == nullptr) && (hash_table_ratio != 0)) {
     // moptions.prefix_extractor is requried for a hash-based look-up.
     return Status::NotSupported(
         "PlainTable requires a prefix extractor enable prefix hash mode.");
@@ -380,8 +379,9 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     bloom_bits_per_key = 0;
   }
 
-  PlainTableIndexBuilder index_builder(&arena_, ioptions_, moptions_, index_sparseness,
-                                       hash_table_ratio, huge_page_tlb_size);
+  PlainTableIndexBuilder index_builder(&arena_, ioptions_, moptions_,
+                                       index_sparseness, hash_table_ratio,
+                                       huge_page_tlb_size);
 
   std::vector<uint32_t> prefix_hashes;
   if (!index_in_file) {

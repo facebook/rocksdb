@@ -110,8 +110,8 @@ class DBIter final: public Iterator {
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
-         const ImmutableCFOptions& cf_options, const MutableCFOptions& mutable_cf_options,
-         const Comparator* cmp,
+         const ImmutableCFOptions& cf_options,
+         const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
          uint64_t max_sequential_skip_in_iterations,
          ReadCallback* read_callback, bool allow_blob)
@@ -1434,8 +1434,8 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         uint64_t max_sequential_skip_in_iterations,
                         ReadCallback* read_callback, bool allow_blob) {
   DBIter* db_iter =
-      new DBIter(env, read_options, cf_options, mutable_cf_options, user_key_comparator,
-                 internal_iter, sequence, false,
+      new DBIter(env, read_options, cf_options, mutable_cf_options,
+                 user_key_comparator, internal_iter, sequence, false,
                  max_sequential_skip_in_iterations, read_callback, allow_blob);
   return db_iter;
 }
@@ -1488,9 +1488,8 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem)
       DBIter(env, read_options, cf_options, mutable_cf_options,
-             cf_options.user_comparator, nullptr,
-             sequence, true, max_sequential_skip_in_iteration, read_callback,
-             allow_blob);
+             cf_options.user_comparator, nullptr, sequence, true,
+             max_sequential_skip_in_iteration, read_callback, allow_blob);
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
 }
@@ -1512,7 +1511,8 @@ Status ArenaWrappedDBIter::Refresh() {
     new (&arena_) Arena();
 
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
-    Init(env, read_options_, *(cfd_->ioptions()), *(cfd_->GetLatestMutableCFOptions()), latest_seq,
+    Init(env, read_options_, *(cfd_->ioptions()),
+         *(cfd_->GetLatestMutableCFOptions()), latest_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
          cur_sv_number, read_callback_, allow_blob_, allow_refresh_);
 
@@ -1529,8 +1529,7 @@ Status ArenaWrappedDBIter::Refresh() {
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options,
-    const MutableCFOptions& mutable_cf_options,
-    const SequenceNumber& sequence,
+    const MutableCFOptions& mutable_cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
     bool allow_blob, bool allow_refresh) {

@@ -43,12 +43,15 @@
 
 namespace rocksdb {
 
-SstFileReader::SstFileReader(const std::string& file_path,
-                             bool verify_checksum,
+SstFileReader::SstFileReader(const std::string& file_path, bool verify_checksum,
                              bool output_hex)
-    :file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum),
-    output_hex_(output_hex), ioptions_(options_), moptions_(ColumnFamilyOptions(options_)),
-    internal_comparator_(BytewiseComparator()) {
+    : file_name_(file_path),
+      read_num_(0),
+      verify_checksum_(verify_checksum),
+      output_hex_(output_hex),
+      ioptions_(options_),
+      moptions_(ColumnFamilyOptions(options_)),
+      internal_comparator_(BytewiseComparator()) {
   fprintf(stdout, "Process %s\n", file_path.c_str());
   init_result_ = GetTableReader(file_name_);
 }
@@ -128,7 +131,8 @@ Status SstFileReader::NewTableReader(
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, moptions_, soptions_, internal_comparator_,
+        TableReaderOptions(ioptions_, moptions_, soptions_,
+                           internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
@@ -205,11 +209,10 @@ int SstFileReader::ShowAllCompressionSizes(
       CompressionOptions compress_opt;
       std::string column_family_name;
       int unknown_level = -1;
-      TableBuilderOptions tb_opts(imoptions, moptions, ikc, &block_based_table_factories,
-                                  i.first, compress_opt,
-                                  nullptr /* compression_dict */,
-                                  false /* skip_filters */, column_family_name,
-                                  unknown_level);
+      TableBuilderOptions tb_opts(
+          imoptions, moptions, ikc, &block_based_table_factories, i.first,
+          compress_opt, nullptr /* compression_dict */,
+          false /* skip_filters */, column_family_name, unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
       fprintf(stdout, "Compression: %s", i.second);
       fprintf(stdout, " Size: %" PRIu64 "\n", file_size);

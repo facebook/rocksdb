@@ -404,8 +404,7 @@ struct BlockBasedTable::CachableEntry {
 
 struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
-      const EnvOptions& _env_options,
-      const BlockBasedTableOptions& _table_opt,
+      const EnvOptions& _env_options, const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters)
       : ioptions(_ioptions),
         moptions(_moptions),

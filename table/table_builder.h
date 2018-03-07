@@ -50,8 +50,7 @@ struct TableReaderOptions {
 
 struct TableBuilderOptions {
   TableBuilderOptions(
-      const ImmutableCFOptions& _ioptions,
-      const MutableCFOptions& _moptions,
+      const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
       const InternalKeyComparator& _internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,

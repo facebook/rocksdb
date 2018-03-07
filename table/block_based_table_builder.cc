@@ -62,7 +62,7 @@ namespace {
 
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
-    const ImmutableCFOptions& opt, const MutableCFOptions &mopt,
+    const ImmutableCFOptions& opt, const MutableCFOptions& mopt,
     const BlockBasedTableOptions& table_opt,
     PartitionedIndexBuilder* const p_index_builder) {
   if (table_opt.filter_policy == nullptr) return nullptr;
@@ -282,8 +282,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
-  Rep(const ImmutableCFOptions& _ioptions,
-      const MutableCFOptions& _moptions,
+  Rep(const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
       const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& icomparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -330,9 +329,8 @@ struct BlockBasedTableBuilder::Rep {
     if (skip_filters) {
       filter_builder = nullptr;
     } else {
-      filter_builder.reset(
-          CreateFilterBlockBuilder(_ioptions, _moptions, table_options,
-                                   p_index_builder_));
+      filter_builder.reset(CreateFilterBlockBuilder(
+          _ioptions, _moptions, table_options, p_index_builder_));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -347,8 +345,7 @@ struct BlockBasedTableBuilder::Rep {
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
-    const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& moptions,
+    const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
     const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -371,11 +368,11 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
-                 int_tbl_prop_collector_factories, column_family_id, file,
-                 compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name, creation_time,
-                 oldest_key_time);
+  rep_ =
+      new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
+              int_tbl_prop_collector_factories, column_family_id, file,
+              compression_type, compression_opts, compression_dict,
+              skip_filters, column_family_name, creation_time, oldest_key_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);

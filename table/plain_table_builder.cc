@@ -57,8 +57,7 @@ extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
-    const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& moptions,
+    const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
@@ -79,9 +78,9 @@ PlainTableBuilder::PlainTableBuilder(
   // Build index block and save it in the file if hash_table_ratio > 0
   if (store_index_in_file_) {
     assert(hash_table_ratio > 0 || IsTotalOrderMode());
-    index_builder_.reset(
-        new PlainTableIndexBuilder(&arena_, ioptions, moptions, index_sparseness,
-                                   hash_table_ratio, huge_page_tlb_size_));
+    index_builder_.reset(new PlainTableIndexBuilder(
+        &arena_, ioptions, moptions, index_sparseness, hash_table_ratio,
+        huge_page_tlb_size_));
     properties_.user_collected_properties
         [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
   }

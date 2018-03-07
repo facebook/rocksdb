@@ -689,8 +689,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
-  Rep* rep = new BlockBasedTable::Rep(ioptions, moptions, env_options, table_options,
-                                      internal_comparator, skip_filters);
+  Rep* rep =
+      new BlockBasedTable::Rep(ioptions, moptions, env_options, table_options,
+                               internal_comparator, skip_filters);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
