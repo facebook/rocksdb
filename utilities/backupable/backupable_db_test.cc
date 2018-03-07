@@ -811,7 +811,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
-      "/shared/.00010.sst.tmp",    "/shared/.00011.sst.tmp",
+      "/shared/.00010.sst.tmp",   "/shared/.00011.sst.tmp",
       "/private/1.tmp/CURRENT",   "/private/1.tmp/MANIFEST-01",
       "/private/1.tmp/00011.log", "/meta/.1.tmp"};
   AppendPath(backupdir_, should_have_written);

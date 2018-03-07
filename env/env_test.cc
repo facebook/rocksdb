@@ -1514,48 +1514,46 @@ class TestEnv : public EnvWrapper {
     explicit TestEnv() : EnvWrapper(Env::Default()),
                 close_count(0) { }
 
-    class TestLogger : public Logger {
-      public:
-        using Logger::Logv;
-        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
-        ~TestLogger() {
-          if (!closed_) {
-            CloseHelper();
-          }
-        }
-        virtual void Logv(const char* /*format*/, va_list /*ap*/) override{};
+  class TestLogger : public Logger {
+   public:
+    using Logger::Logv;
+    TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+    ~TestLogger() {
+      if (!closed_) {
+        CloseHelper();
+      }
+    }
+    virtual void Logv(const char* format, va_list ap) override{};
 
-       protected:
-        virtual Status CloseImpl() override {
-          return CloseHelper();
-        }
-      private:
-        Status CloseHelper() {
-          env->CloseCountInc();;
-          return Status::OK();
-        }
-        TestEnv *env;
-    };
+   protected:
+    virtual Status CloseImpl() override { return CloseHelper(); }
 
-    void CloseCountInc() { close_count++; }
-
-    int GetCloseCount() { return close_count; }
-
-    virtual Status NewLogger(const std::string& /*fname*/,
-                             shared_ptr<Logger>* result) {
-      result->reset(new TestLogger(this));
+   private:
+    Status CloseHelper() {
+      env->CloseCountInc();;
       return Status::OK();
     }
+    TestEnv* env;
+  };
 
-  private:
-    int close_count;
+  void CloseCountInc() { close_count++; }
+
+  int GetCloseCount() { return close_count; }
+
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) {
+    result->reset(new TestLogger(this));
+    return Status::OK();
+  }
+
+ private:
+  int close_count;
 };
 
-class EnvTest : public testing::Test {
-};
+class EnvTest : public testing::Test {};
 
 TEST_F(EnvTest, Close) {
-  TestEnv *env = new TestEnv();
+  TestEnv* env = new TestEnv();
   std::shared_ptr<Logger> logger;
   Status s;
 
@@ -1576,7 +1574,6 @@ TEST_F(EnvTest, Close) {
 
   delete env;
 }
-
 
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),

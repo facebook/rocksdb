@@ -886,7 +886,7 @@ class TestEnv : public EnvWrapper {
       return Status::OK();
     }
 
-  private:
+   private:
     int close_count;
 };
 
@@ -896,7 +896,7 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv *env = new TestEnv();
+  TestEnv* env = new TestEnv();
   options.create_if_missing = true;
   options.env = env;
   Status s = DB::Open(options, dbname, &db);

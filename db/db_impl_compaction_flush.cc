@@ -1503,7 +1503,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     if (made_progress ||
         (bg_compaction_scheduled_ == 0 &&
          bg_bottom_compaction_scheduled_ == 0) ||
-        HasPendingManualCompaction()) {
+        HasPendingManualCompaction() || unscheduled_compactions_ == 0) {
       // signal if
       // * made_progress -- need to wakeup DelayWrite
       // * bg_{bottom,}_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
@@ -1566,6 +1566,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
+#ifndef ROCKSDB_LITE
+  bool sfm_bookkeeping = false;
+#endif  // ROCKSDB_LITE
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);
@@ -1628,27 +1631,65 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
       c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
+
+      bool enough_room = true;
       if (c != nullptr) {
-        // update statistics
-        MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
-                    c->inputs(0)->size());
-        // There are three things that can change compaction score:
-        // 1) When flush or compaction finish. This case is covered by
-        // InstallSuperVersionAndScheduleWork
-        // 2) When MutableCFOptions changes. This case is also covered by
-        // InstallSuperVersionAndScheduleWork, because this is when the new
-        // options take effect.
-        // 3) When we Pick a new compaction, we "remove" those files being
-        // compacted from the calculation, which then influences compaction
-        // score. Here we check if we need the new compaction even without the
-        // files that are currently being compacted. If we need another
-        // compaction, we might be able to execute it in parallel, so we add it
-        // to the queue and schedule a new thread.
-        if (cfd->NeedsCompaction()) {
-          // Yes, we need more compactions!
+#ifndef ROCKSDB_LITE
+        auto sfm = static_cast<SstFileManagerImpl*>(
+            immutable_db_options_.sst_file_manager.get());
+        if (sfm) {
+          enough_room = sfm->EnoughRoomForCompaction(c.get());
+          if (enough_room) {
+            sfm_bookkeeping = true;
+          }
+        }
+#endif  // ROCKSDB_LITE
+        if (!enough_room) {
+          // Just in case tests want to change the value of enough_room
+          TEST_SYNC_POINT_CALLBACK(
+              "DBImpl::BackgroundCompaction():CancelledCompaction",
+              &enough_room);
+        }
+        if (!enough_room) {
+          // Then don't do the compaction
+          c->ReleaseCompactionFiles(status);
+          c->column_family_data()
+              ->current()
+              ->storage_info()
+              ->ComputeCompactionScore(*(c->immutable_cf_options()),
+                                       *(c->mutable_cf_options()));
+
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "Cancelled compaction because not enough room");
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
-          MaybeScheduleFlushOrCompaction();
+
+          c.reset();
+          // Don't need to sleep here, because BackgroundCallCompaction
+          // will sleep if !s.ok()
+          status = Status::CompactionTooLarge();
+        } else {
+          // update statistics
+          MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
+                      c->inputs(0)->size());
+          // There are three things that can change compaction score:
+          // 1) When flush or compaction finish. This case is covered by
+          // InstallSuperVersionAndScheduleWork
+          // 2) When MutableCFOptions changes. This case is also covered by
+          // InstallSuperVersionAndScheduleWork, because this is when the new
+          // options take effect.
+          // 3) When we Pick a new compaction, we "remove" those files being
+          // compacted from the calculation, which then influences compaction
+          // score. Here we check if we need the new compaction even without the
+          // files that are currently being compacted. If we need another
+          // compaction, we might be able to execute it in parallel, so we add
+          // it to the queue and schedule a new thread.
+          if (cfd->NeedsCompaction()) {
+            // Yes, we need more compactions!
+            AddToCompactionQueue(cfd);
+            ++unscheduled_compactions_;
+            MaybeScheduleFlushOrCompaction();
+          }
         }
       }
     }
@@ -1808,6 +1849,16 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   if (c != nullptr) {
     c->ReleaseCompactionFiles(status);
     *made_progress = true;
+
+#ifndef ROCKSDB_LITE
+    // Need to make sure SstFileManager does its bookkeeping
+    auto sfm = static_cast<SstFileManagerImpl*>(
+        immutable_db_options_.sst_file_manager.get());
+    if (sfm && sfm_bookkeeping) {
+      sfm->OnCompactionCompletion(c.get());
+    }
+#endif  // ROCKSDB_LITE
+
     NotifyOnCompactionCompleted(
         c->column_family_data(), c.get(), status,
         compaction_job_stats, job_context->job_id);
@@ -1815,7 +1866,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   // this will unref its input_version and column_family_data
   c.reset();
 
-  if (status.ok()) {
+  if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
