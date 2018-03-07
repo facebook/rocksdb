@@ -826,7 +826,7 @@ class DB {
 
   // This function will wait until all currently running background processes
   // finish. After it returns, no background process will be run until
-  // UnblockBackgroundWork is called
+  // ContinueBackgroundWork is called
   virtual Status PauseBackgroundWork() = 0;
   virtual Status ContinueBackgroundWork() = 0;
 
