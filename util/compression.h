@@ -53,13 +53,13 @@ struct DictContext {
   // we cannot use unique_ptr as ZSTD_CDict is an incomplete type so its
   // destructor is unknown. That's unfortunate because it means we have to
   // implement move semantics ourselves.
-  ZSTD_CDict* zstd_cdict;
+  ZSTD_CDict* zstd_cdict = nullptr;
 #endif
   Slice raw_dict_bytes;
 
-  DictContext() : zstd_cdict(nullptr) {}
+  DictContext() {}
 
-  DictContext(DictContext&& other) : zstd_cdict(nullptr) {
+  DictContext(DictContext&& other) {
     *this = std::move(other);
   }
 
