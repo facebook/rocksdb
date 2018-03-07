@@ -79,11 +79,13 @@ Status ReadBlockFromFile(
     std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, const Slice& compression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit) {
+    size_t read_amp_bytes_per_bit, Cache* block_cache = nullptr,
+    const Slice* cache_key = nullptr, void** alloc_handle = nullptr) {
   BlockContents contents;
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
                              &contents, ioptions, do_uncompress,
-                             compression_dict, cache_options);
+                             compression_dict, cache_options, block_cache,
+                             cache_key, alloc_handle);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
@@ -1113,11 +1115,12 @@ Status BlockBasedTable::PutDataBlockToCache(
     const ReadOptions& /*read_options*/, const ImmutableCFOptions& ioptions,
     CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
     const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
-    Cache::Priority priority, GetContext* get_context) {
+    Cache::Priority priority, GetContext* get_context, void* alloc_handle) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
   Status s;
+
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
   Statistics* statistics = ioptions.statistics;
@@ -1159,9 +1162,16 @@ Status BlockBasedTable::PutDataBlockToCache(
   // insert into uncompressed block cache
   assert((block->value->compression_type() == kNoCompression));
   if (block_cache != nullptr && block->value->cachable()) {
-    s = block_cache->Insert(
-        block_cache_key, block->value, block->value->usable_size(),
-        &DeleteCachedEntry<Block>, &(block->cache_handle), priority);
+    if (alloc_handle != nullptr) {
+      s = block_cache->InsertWithAllocHandle(
+          block_cache_key, block->value, alloc_handle,
+          block->value->usable_size(), &DeleteCachedEntry<Block>,
+          &(block->cache_handle), priority);
+    } else {
+      s = block_cache->Insert(
+          block_cache_key, block->value, block->value->usable_size(),
+          &DeleteCachedEntry<Block>, &(block->cache_handle), priority);
+    }
     block_cache->TEST_mark_as_data_block(block_cache_key,
                                          block->value->usable_size());
     if (s.ok()) {
@@ -1196,7 +1206,8 @@ Status BlockBasedTable::PutDataBlockToCache(
                      block->value->usable_size());
         }
       }
-      assert(reinterpret_cast<Block*>(
+      assert(alloc_handle != nullptr ||
+             reinterpret_cast<Block*>(
                  block_cache->Value(block->cache_handle)) == block->value);
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
@@ -1528,8 +1539,10 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
     } else {
-      if (!ro.fill_cache && rep->cache_key_prefix_size != 0) {
+      if (!ro.fill_cache && rep->cache_key_prefix_size != 0 &&
+          !block_cache->need_allocate()) {
         // insert a dummy record to block cache to track the memory usage
+        // TODO needs to allow the case if block cache requires allocation
         Cache::Handle* cache_handle;
         // There are two other types of cache keys: 1) SST cache key added in
         // `MaybeLoadDataBlockToCache` 2) dummy cache key added in
@@ -1606,6 +1619,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
         block_entry, rep->table_options.format_version, compression_dict,
         rep->table_options.read_amp_bytes_per_bit, is_index, get_context);
 
+    void* alloc_handle = nullptr;
     if (block_entry->value == nullptr && !no_io && ro.fill_cache) {
       std::unique_ptr<Block> raw_block;
       {
@@ -1615,7 +1629,9 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             &raw_block, rep->ioptions,
             block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
             compression_dict, rep->persistent_cache_options, rep->global_seqno,
-            rep->table_options.read_amp_bytes_per_bit);
+            rep->table_options.read_amp_bytes_per_bit,
+            rep->blocks_maybe_compressed ? nullptr : block_cache, &key,
+            &alloc_handle);
       }
 
       if (s.ok()) {
@@ -1628,7 +1644,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
                             .cache_index_and_filter_blocks_with_high_priority
                 ? Cache::Priority::HIGH
                 : Cache::Priority::LOW,
-            get_context);
+            get_context, alloc_handle);
       }
     }
   }

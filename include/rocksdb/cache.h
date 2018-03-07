@@ -88,7 +88,7 @@ class Cache {
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache() {}
+  Cache() : need_allocate_(false) {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -101,6 +101,14 @@ class Cache {
 
   // The type of the Cache
   virtual const char* Name() const = 0;
+
+  bool need_allocate() { return need_allocate_; }
+  void set_need_allocate(bool v) { need_allocate_ = v; }
+
+  virtual Status Allocate(const Slice& key, size_t length, char** buf,
+                          void** alloc_handle) {
+    return Status::NotSupported();
+  }
 
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
@@ -120,7 +128,16 @@ class Cache {
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) = 0;
+                        Priority priority = Priority::LOW) {
+    return Status::NotSupported();
+  }
+
+  virtual Status InsertWithAllocHandle(
+      const Slice& key, void* value, void* alloc_handle, size_t charge,
+      void (*deleter)(const Slice& key, void* value), Handle** handle = nullptr,
+      Priority priority = Priority::LOW) {
+    return Status::NotSupported();
+  }
 
   // If the cache has no mapping for "key", returns nullptr.
   //
@@ -218,6 +235,9 @@ class Cache {
   // in tests. The default implementation does nothing.
   virtual void TEST_mark_as_data_block(const Slice& /*key*/,
                                        size_t /*charge*/) {}
+
+ protected:
+  bool need_allocate_ = false;
 
  private:
   // No copying allowed
