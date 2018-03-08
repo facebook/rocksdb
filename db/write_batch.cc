@@ -397,7 +397,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
   input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
-  // the batch boundry sybmols otherwise we would mis-count the number of
+  // the batch boundary symbols otherwise we would mis-count the number of
   // batches. We do that by checking whether the accumulated batch is empty
   // before seeing the next Noop.
   bool empty_batch = true;
@@ -1070,11 +1070,11 @@ class MemTableInserter : public WriteBatch::Handler {
   // is set when a batch, which is tagged with seq, is read from the WAL.
   // Within a sequenced batch, which could be a merge of multiple batches, we
   // have two policies to advance the seq: i) seq_per_key (default) and ii)
-  // seq_per_batch. To implement the latter we need to mark the boundry between
+  // seq_per_batch. To implement the latter we need to mark the boundary between
   // the individual batches. The approach is this: 1) Use the terminating
-  // markers to indicate the boundry (kTypeEndPrepareXID, kTypeCommitXID,
-  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absense of a
-  // natural boundy marker.
+  // markers to indicate the boundary (kTypeEndPrepareXID, kTypeCommitXID,
+  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absence of a
+  // natural boundary marker.
   void MaybeAdvanceSeq(bool batch_boundry = false) {
     if (batch_boundry == seq_per_batch_) {
       sequence_++;
@@ -1150,7 +1150,7 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
-        // The CF is probabely flushed and hence no need for insert but we still
+        // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
@@ -1230,10 +1230,10 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // If the ret_status is TryAgain then let the next try to add the ky to
-      // the the rebuilding transaction object.
+      // the rebuilding transaction object.
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
     }
-    // Since all Puts are logged in trasaction logs (if enabled), always bump
+    // Since all Puts are logged in transaction logs (if enabled), always bump
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
     MaybeAdvanceSeq();
@@ -1278,7 +1278,7 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
-        // The CF is probabely flushed and hence no need for insert but we still
+        // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
@@ -1293,7 +1293,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // If the ret_status is TryAgain then let the next try to add the ky to
-      // the the rebuilding transaction object.
+      // the rebuilding transaction object.
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
     return ret_status;
@@ -1313,7 +1313,7 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
-        // The CF is probabely flushed and hence no need for insert but we still
+        // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                          key);
@@ -1330,7 +1330,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // If the ret_status is TryAgain then let the next try to add the ky to
-      // the the rebuilding transaction object.
+      // the rebuilding transaction object.
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
     }
     return ret_status;
@@ -1352,11 +1352,11 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
-        // The CF is probabely flushed and hence no need for insert but we still
+        // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                         begin_key, end_key);
-        // TODO(myabandeh): when transctional DeleteRange support is added,
+        // TODO(myabandeh): when transactional DeleteRange support is added,
         // check if end_key must also be added.
         batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
             column_family_id, begin_key, sequence_);
@@ -1384,7 +1384,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // If the ret_status is TryAgain then let the next try to add the ky to
-      // the the rebuilding transaction object.
+      // the rebuilding transaction object.
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
     }
@@ -1406,7 +1406,7 @@ class MemTableInserter : public WriteBatch::Handler {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
-        // The CF is probabely flushed and hence no need for insert but we still
+        // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                   value);
@@ -1498,7 +1498,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // If the ret_status is TryAgain then let the next try to add the ky to
-      // the the rebuilding transaction object.
+      // the rebuilding transaction object.
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
     }
     MaybeAdvanceSeq();
@@ -1596,7 +1596,7 @@ class MemTableInserter : public WriteBatch::Handler {
       // and commit.
       auto trx = db_->GetRecoveredTransaction(name.ToString());
 
-      // the log contaiting the prepared section may have
+      // the log containing the prepared section may have
       // been released in the last incarnation because the
       // data was flushed to L0
       if (trx != nullptr) {
@@ -1604,7 +1604,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // duplicate re-insertion of values.
         assert(log_number_ref_ == 0);
         if (write_after_commit_) {
-          // all insertes must reference this trx log number
+          // all inserts must reference this trx log number
           log_number_ref_ = trx->log_number_;
           s = trx->batch_->Iterate(this);
           log_number_ref_ = 0;

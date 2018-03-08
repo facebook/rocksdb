@@ -188,7 +188,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, std::string* value);
 
-  // An overload of the the above method that receives a PinnableSlice
+  // An overload of the above method that receives a PinnableSlice
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, PinnableSlice* value);
 
@@ -196,7 +196,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
 
-  // An overload of the the above method that receives a PinnableSlice
+  // An overload of the above method that receives a PinnableSlice
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);

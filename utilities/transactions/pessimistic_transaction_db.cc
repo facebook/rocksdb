@@ -373,7 +373,7 @@ Transaction* PessimisticTransactionDB::BeginInternalTransaction(
 //
 // Put(), Merge(), and Delete() only lock a single key per call.  Write() will
 // sort its keys before locking them.  This guarantees that TransactionDB write
-// methods cannot deadlock with eachother (but still could deadlock with a
+// methods cannot deadlock with each other (but still could deadlock with a
 // Transaction).
 Status PessimisticTransactionDB::Put(const WriteOptions& options,
                                      ColumnFamilyHandle* column_family,

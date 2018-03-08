@@ -115,7 +115,7 @@ class VersionStorageInfo {
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
-  // Decrease the current stat form a to-be-delected file-meta
+  // Decrease the current stat from a to-be-deleted file-meta
   void RemoveCurrentStats(FileMetaData* file_meta);
 
   void ComputeCompensatedSizes();
@@ -491,7 +491,7 @@ class VersionStorageInfo {
   uint64_t accumulated_num_deletions_;
   // current number of non_deletion entries
   uint64_t current_num_non_deletions_;
-  // current number of delection entries
+  // current number of deletion entries
   uint64_t current_num_deletions_;
   // current number of file samples
   uint64_t current_num_samples_;
@@ -565,13 +565,13 @@ class Version {
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
 
-  // Returns the version nuber of this version
+  // Returns the version number of this version
   uint64_t GetVersionNumber() const { return version_number_; }
 
   // REQUIRES: lock is held
   // On success, "tp" will contains the table properties of the file
   // specified in "file_meta".  If the file name of "file_meta" is
-  // known ahread, passing it by a non-null "fname" can save a
+  // known ahead, passing it by a non-null "fname" can save a
   // file-name conversion.
   Status GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                             const FileMetaData* file_meta,
@@ -580,14 +580,14 @@ class Version {
   // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
-  // tables' propertis, represented as shared_ptr.
+  // tables' properties, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
   // REQUIRES: lock is held
-  // On success, "tp" will contains the aggregated table property amoug
+  // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
   Status GetAggregatedTableProperties(
       std::shared_ptr<const TableProperties>* tp, int level = -1);
@@ -637,7 +637,7 @@ class Version {
   bool IsFilterSkipped(int level, bool is_file_last_in_level = false);
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
-  // fields of file_mata from its associated TableProperties.
+  // fields of file_meta from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.
   bool MaybeInitializeFileMetaData(FileMetaData* file_meta);
 
@@ -775,7 +775,7 @@ class VersionSet {
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
-    // Last visible seqeunce must always be less than last written seq
+    // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
@@ -913,7 +913,7 @@ class VersionSet {
   // The last allocated sequence that is also published to the readers. This is
   // applicable only when last_seq_same_as_publish_seq_ is not set. Otherwise
   // last_sequence_ also indicates the last published seq.
-  // We have last_sequence <= last_published_seqeunce_ <=
+  // We have last_sequence <= last_published_sequence_ <=
   // last_allocated_sequence_
   std::atomic<uint64_t> last_published_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
