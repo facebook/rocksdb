@@ -26,7 +26,7 @@ extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
 #else
 
 namespace rocksdb {
-// Kill the process with probablity 1/odds for testing.
+// Kill the process with probability 1/odds for testing.
 extern void TestKillRandom(std::string kill_point, int odds,
                            const std::string& srcfile, int srcline);
 
@@ -105,7 +105,7 @@ class SyncPoint {
 
   // triggered by TEST_SYNC_POINT, blocking execution until all predecessors
   // are executed.
-  // And/or call registered callback functionn, with argument `cb_arg`
+  // And/or call registered callback function, with argument `cb_arg`
   void Process(const std::string& point, void* cb_arg = nullptr);
 
   // TODO: it might be useful to provide a function that blocks until all
@@ -133,7 +133,7 @@ class SyncPoint {
 }  // namespace rocksdb
 
 // Use TEST_SYNC_POINT to specify sync points inside code base.
-// Sync points can have happens-after depedency on other sync points,
+// Sync points can have happens-after dependency on other sync points,
 // configured at runtime via SyncPoint::LoadDependency. This could be
 // utilized to re-produce race conditions between threads.
 // See TransactionLogIteratorRace in db_test.cc for an example use case.
