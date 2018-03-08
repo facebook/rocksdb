@@ -545,9 +545,10 @@ class BlockBasedTableIterator : public InternalIterator {
   }
   bool IsKeyPinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
-           block_iter_points_to_real_block_;
+           block_iter_points_to_real_block_ && data_block_iter_.IsKeyPinned();
   }
   bool IsValuePinned() const override {
+    // BlockIter::IsValuePinned() is always true. No need to check
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            block_iter_points_to_real_block_;
   }
@@ -566,7 +567,7 @@ class BlockBasedTableIterator : public InternalIterator {
 
   void ResetDataIter() {
     if (block_iter_points_to_real_block_) {
-      if (pinned_iters_mgr_ != nullptr) {
+      if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
         data_block_iter_.DelegateCleanupsTo(pinned_iters_mgr_);
       }
       data_block_iter_.~BlockIter();
