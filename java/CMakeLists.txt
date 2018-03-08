@@ -24,6 +24,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/lru_cache.cc
         rocksjni/memtablejni.cc
         rocksjni/merge_operator.cc
+        rocksjni/native_comparator_wrapper_test.cc
         rocksjni/options.cc
         rocksjni/options_util.cc
         rocksjni/ratelimiterjni.cc
@@ -87,6 +88,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.LRUCache
         org.rocksdb.MemTableConfig
         org.rocksdb.MergeOperator
+        org.rocksdb.NativeComparatorWrapper
+        org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper
         org.rocksdb.NativeLibraryLoader
         org.rocksdb.Options
         org.rocksdb.OptionsUtil
@@ -179,6 +182,7 @@ add_jar(
   src/main/java/org/rocksdb/CompactionStyle.java
   src/main/java/org/rocksdb/Comparator.java
   src/main/java/org/rocksdb/ComparatorOptions.java
+  src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
   src/main/java/org/rocksdb/DBOptions.java
@@ -205,6 +209,7 @@ add_jar(
   src/main/java/org/rocksdb/MergeOperator.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
+  src/main/java/org/rocksdb/NativeComparatorWrapper.java
   src/main/java/org/rocksdb/NativeLibraryLoader.java
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java
@@ -246,6 +251,7 @@ add_jar(
   src/main/java/org/rocksdb/WriteOptions.java
   src/test/java/org/rocksdb/BackupEngineTest.java
   src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
+  src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksMemoryResource.java
