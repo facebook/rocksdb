@@ -941,6 +941,9 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  if (!vstorage->ExpiredTtlFiles().empty()) {
+    return true;
+  }
   if (!vstorage->BottommostFilesMarkedForCompaction().empty()) {
     return true;
   }

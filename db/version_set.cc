@@ -1667,7 +1667,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
-  ComputeExpiredTtlFiles(immutable_cf_options);
+  if (immutable_cf_options.level_compaction_untouched_files_ttl > 0) {
+    ComputeExpiredTtlFiles(immutable_cf_options);
+  }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -1696,6 +1698,8 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
     const ImmutableCFOptions& ioptions) {
+  assert(ioptions.level_compaction_untouched_files_ttl > 0);
+
   expired_ttl_files_.clear();
 
   int64_t _current_time;
