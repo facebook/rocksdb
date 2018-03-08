@@ -547,13 +547,12 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   Options options = CurrentOptions();
   options.sst_file_manager = sst_file_manager;
   options.level0_file_num_compaction_trigger = 2;
+  options.statistics = CreateDBStatistics();
   DestroyAndReopen(options);
 
-  int cancelled_compaction = 0;
   int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
-        cancelled_compaction++;
         sfm->SetMaxAllowedSpaceUsage(0);
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -580,9 +579,10 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_OK(Flush());
   dbfull()->TEST_WaitForCompact(true);
 
-  ASSERT_GT(cancelled_compaction, 0);
   ASSERT_GT(completed_compactions, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
+  // Make sure the stat is bumped
+  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
