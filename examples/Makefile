@@ -1,6 +1,6 @@
-include make_config.mk
-
 INSTALL_PATH ?= /usr/local
+
+include $(INSTALL_PATH)/include/rocksdb/make_config.mk
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
