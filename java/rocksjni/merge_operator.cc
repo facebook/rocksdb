@@ -26,12 +26,12 @@
 /*
  * Class:     org_rocksdb_StringAppendOperator
  * Method:    newSharedStringAppendOperator
- * Signature: ()J
+ * Signature: (C)J
  */
 jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator
-(JNIEnv* env, jclass jclazz) {
+(JNIEnv* env, jclass jclazz, jchar jdelim) {
   auto* sptr_string_append_op = new std::shared_ptr<rocksdb::MergeOperator>(
-    rocksdb::MergeOperators::CreateFromStringId("stringappend"));
+    rocksdb::MergeOperators::CreateStringAppendOperator((char) jdelim));
   return reinterpret_cast<jlong>(sptr_string_append_op);
 }
 
