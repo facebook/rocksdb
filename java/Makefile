@@ -30,6 +30,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MergeOperator\
+	org.rocksdb.NativeComparatorWrapper\
 	org.rocksdb.OptimisticTransactionDB\
 	org.rocksdb.OptimisticTransactionOptions\
 	org.rocksdb.Options\
@@ -64,6 +65,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.WBWIRocksIterator
 
 NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
+    org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper\
     org.rocksdb.WriteBatchTest\
     org.rocksdb.WriteBatchTestInternalHelper
 
@@ -111,6 +113,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
+	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptimisticTransactionTest\
 	org.rocksdb.OptimisticTransactionDBTest\
