@@ -3106,6 +3106,69 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   }
 }
 
+TEST_F(DBCompactionTest, CompactExpiredFiles) {
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 2;
+  const int kValueSize = 1024;
+
+  Options options = CurrentOptions();
+  // options.num_levels = 4;
+  options.compression = kNoCompression;
+  options.level_compaction_untouched_files_ttl = 5;
+  options.max_open_files = -1;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  Reopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(2));
+
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumKeysPerFile + j), ""));
+    }
+    Flush();
+  }
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(1);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(1));
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(2));
+
+  env_->addon_time_.fetch_add(2 * 60 * 60);
+
+  for (int i = 0; i < 1; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(10 * kNumKeysPerFile + j), ""));
+    }
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(3));
+  ASSERT_EQ(0, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+}
+
 TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
   // compaction only triggers flush after it's sure stall won't be triggered for

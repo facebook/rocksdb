@@ -9,7 +9,6 @@
 #include <utility>
 #include "db/compaction.h"
 #include "db/compaction_picker_universal.h"
-// #include "db/db_test_util.h"
 
 #include "util/logging.h"
 #include "util/string_util.h"
@@ -1443,26 +1442,6 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
       cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
   ASSERT_EQ(4, vstorage_->NextCompactionIndex(1 /* level */));
-}
-
-TEST_F(CompactionPickerTest, CompactExpiredTTLFiles) {
-
-  // SpecialEnv env(Env::Default());
-  // env.time_elapse_only_sleep_ = false;
-  // options_.env = &env;
-  ioptions_.level_compaction_untouched_files_ttl = 2;
-
-  NewVersionStorage(6, kCompactionStyleLevel);
-  Add(2, 1U, "150", "200");
-  Add(3, 2U, "160", "180");
-  Add(3, 3U, "181", "230");
-  UpdateVersionStorageInfo();
-
-  //env.addon_time_.fetch_add(2 * 60 * 60);
-  options_.env->SleepForMicroseconds(5 * 1000 * 1000);
-  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
-  ASSERT_TRUE(compaction.get() != nullptr);
 }
 
 }  // namespace rocksdb
