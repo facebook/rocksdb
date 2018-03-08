@@ -17,9 +17,22 @@ package org.rocksdb;
 public abstract class AbstractComparator<T extends AbstractSlice<?>>
     extends RocksCallbackObject {
 
+  protected AbstractComparator() {
+    super();
+  }
+
   protected AbstractComparator(final ComparatorOptions copt) {
     super(copt.nativeHandle_);
   }
+
+  /**
+   * Get the type of this comparator.
+   *
+   * Used for determining the correct C++ cast in native code.
+   *
+   * @return The type of the comparator.
+   */
+  abstract ComparatorType getComparatorType();
 
   /**
    * The name of the comparator.  Used to check for comparator

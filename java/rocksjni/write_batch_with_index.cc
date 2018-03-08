@@ -39,19 +39,31 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__Z(
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    newWriteBatchWithIndex
- * Signature: (JZIZ)J
+ * Signature: (JBIZ)J
  */
-jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JZIZ(
+jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JBIZ(
     JNIEnv* env, jclass jcls, jlong jfallback_index_comparator_handle,
-    jboolean is_direct, jint jreserved_bytes, jboolean joverwrite_key) {
-rocksdb::Comparator *fallback_comparator = nullptr;
-if(is_direct) {
-  fallback_comparator =
-      reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jfallback_index_comparator_handle);
-} else {
-  fallback_comparator =
-      reinterpret_cast<rocksdb::ComparatorJniCallback*>(jfallback_index_comparator_handle);
-}
+    jbyte jcomparator_type, jint jreserved_bytes, jboolean joverwrite_key) {
+  rocksdb::Comparator *fallback_comparator = nullptr;
+  switch(jcomparator_type) {
+      // JAVA_COMPARATOR
+      case 0x0:
+        fallback_comparator =
+            reinterpret_cast<rocksdb::ComparatorJniCallback*>(jfallback_index_comparator_handle);
+        break;
+
+      // JAVA_DIRECT_COMPARATOR
+      case 0x1:
+        fallback_comparator =
+            reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jfallback_index_comparator_handle);
+        break;
+
+      // JAVA_NATIVE_COMPARATOR_WRAPPER
+      case 0x2:
+        fallback_comparator =
+            reinterpret_cast<rocksdb::Comparator*>(jfallback_index_comparator_handle);
+        break;
+  }
   auto* wbwi =
       new rocksdb::WriteBatchWithIndex(
           fallback_comparator,
