@@ -74,7 +74,9 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       row_cache(db_options.row_cache),
       max_subcompactions(db_options.max_subcompactions),
       memtable_insert_with_hint_prefix_extractor(
-          cf_options.memtable_insert_with_hint_prefix_extractor.get()) {}
+          cf_options.memtable_insert_with_hint_prefix_extractor.get()),
+      level_compaction_untouched_files_ttl(
+          cf_options.level_compaction_untouched_files_ttl) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {

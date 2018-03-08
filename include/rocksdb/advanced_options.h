@@ -570,6 +570,8 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool report_bg_io_stats = false;
 
+  uint64_t level_compaction_untouched_files_ttl = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
