@@ -1,19 +1,5 @@
 INSTALL_PATH ?= /usr/local
 
-include $(INSTALL_PATH)/include/rocksdb/make_config.mk
-
-ifndef DISABLE_JEMALLOC
-	ifdef JEMALLOC
-		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
-	endif
-	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
-	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
-endif
-
-ifneq ($(USE_RTTI), 1)
-	CXXFLAGS += -fno-rtti
-endif
-
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
 	# we should only run rocksdb in production with DEBUG_LEVEL 0
@@ -28,6 +14,27 @@ LIBRARY = ${LIBNAME}.a
 
 INSTALL_FILES = $(INSTALL_PATH)/include/rocksdb \
 								$(INSTALL_PATH)/lib/$(LIBRARY)
+
+
+CONFIG_FILE = $(INSTALL_PATH)/include/rocksdb/make_config.mk
+
+#ifeq ("$(wildcard $(CONFIG_FILE))","")
+ifneq ("$(CONFIG_FILE)","")
+	include $(INSTALL_PATH)/include/rocksdb/make_config.mk
+endif
+
+ifndef DISABLE_JEMALLOC
+	ifdef JEMALLOC
+		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
+	endif
+	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
+	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
+endif
+
+ifneq ($(USE_RTTI), 1)
+	CXXFLAGS += -fno-rtti
+endif
+
 
 .PHONY: clean librocksdb
 
@@ -67,6 +74,6 @@ clean:
 librocksdb:
 ifeq ($(wildcard $(INSTALL_FILES)),)
 	# installing library before compiling examples
-	../make
 	sudo ../make install
+	include $(CONFIG_FILE)
 endif
