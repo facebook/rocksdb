@@ -14,6 +14,7 @@
 
 #include "include/org_rocksdb_Comparator.h"
 #include "include/org_rocksdb_DirectComparator.h"
+#include "include/org_rocksdb_NativeComparatorWrapper.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 
@@ -48,5 +49,17 @@ jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
   auto* c =
       new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
   return reinterpret_cast<jlong>(c);
+}
+
+/*
+ * Class:     org_rocksdb_NativeComparatorWrapper
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_NativeComparatorWrapper_disposeInternal(
+    JNIEnv* env, jobject jobj, jlong jcomparator_handle) {
+  auto* comparator =
+      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+  delete comparator;
 }
 // </editor-fold>
