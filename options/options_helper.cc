@@ -96,6 +96,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
+  options.enable_pipelined_write = immutable_db_options.enable_pipelined_write;
   options.allow_concurrent_memtable_write =
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
