@@ -3113,7 +3113,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   Options options = CurrentOptions();
   options.compression = kNoCompression;
-  options.level_compaction_untouched_files_ttl = 1 * 24 * 60 * 60;  // 1 day
+  options.ttl = 1 * 24 * 60 * 60;  // 1 day
   options.max_open_files = -1;
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;

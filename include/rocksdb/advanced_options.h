@@ -570,7 +570,11 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool report_bg_io_stats = false;
 
-  uint64_t level_compaction_untouched_files_ttl = 0;
+  // Files older than TTL will go through the compaction process.
+  // Enabled only for level compaction for now.
+  // 
+  // Default: 0 (disabled)
+  uint64_t ttl = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
