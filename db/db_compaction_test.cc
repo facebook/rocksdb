@@ -3106,13 +3106,12 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   }
 }
 
-TEST_F(DBCompactionTest, CompactExpiredFilesTrivialMove) {
+TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   const int kNumKeysPerFile = 32;
-  const int kNumLevelFiles = 1;
+  const int kNumLevelFiles = 2;
   const int kValueSize = 1024;
 
   Options options = CurrentOptions();
-  options.num_levels = 4;
   options.compression = kNoCompression;
   options.level_compaction_untouched_files_ttl = 1 * 24 * 60 * 60;  // 1 day
   options.max_open_files = -1;
@@ -3120,7 +3119,7 @@ TEST_F(DBCompactionTest, CompactExpiredFilesTrivialMove) {
   options.env = env_;
 
   env_->addon_time_.store(0);
-  Reopen(options);
+  DestroyAndReopen(options);
 
   Random rnd(301);
   for (int i = 0; i < kNumLevelFiles; ++i) {
@@ -3129,122 +3128,32 @@ TEST_F(DBCompactionTest, CompactExpiredFilesTrivialMove) {
     }
     Flush();
   }
-
-  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
+  Flush();
   dbfull()->TEST_WaitForCompact();
-
-  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
-  env_->addon_time_.fetch_add(1.5 * 24 * 60 * 60);  // 1.5 days
-
-  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
+  MoveFilesToLevel(3);
+  ASSERT_EQ("0,0,0,2", FilesPerLevel());
 
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(Put(Key(10 * kNumKeysPerFile + j), ""));
+      // Overwrite previous keys with smaller, but predictable, values.
+      ASSERT_OK(Delete(Key(i * kNumKeysPerFile + j)));
     }
     Flush();
   }
-  ASSERT_EQ(2 * kNumLevelFiles, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
   dbfull()->TEST_WaitForCompact();
-
-  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(3));
-}
-
-TEST_F(DBCompactionTest, CompactExpiredFilesNoTrivialMove) {
-  // const int kNumKeysPerFile = 32;
-  // const int kNumLevelFiles = 1;
-  // const int kValueSize = 1024;
-
-  Options options = CurrentOptions();
-  options.num_levels = 4;
-  options.compression = kNoCompression;
-  options.level_compaction_untouched_files_ttl = 1 * 24 * 60 * 60;  // 1 day
-  options.max_open_files = -1;
-  env_->time_elapse_only_sleep_ = false;
-  options.env = env_;
-
-  env_->addon_time_.store(0);
-  Reopen(options);
-
-  Random rnd(301);
-  ASSERT_OK(Put("1", "1"));
-  ASSERT_OK(Put("2", "2"));
-
-  Flush();
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
-  MoveFilesToLevel(2);
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(1, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
-  ASSERT_OK(Put("2", "new2"));
-  ASSERT_OK(Put("3", "new3"));
-
-  Flush();
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  ASSERT_EQ(1, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
+  ASSERT_EQ("2,0,0,2", FilesPerLevel());
   MoveFilesToLevel(1);
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(1));
-  ASSERT_EQ(1, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
+  ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
   env_->addon_time_.fetch_add(1.5 * 24 * 60 * 60);  // 1.5 days
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(1));
-  ASSERT_EQ(1, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
+  ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
-  ASSERT_OK(Put("7", "7"));
-  ASSERT_OK(Put("8", "8"));
+  // Just do a siimple write + flush so that the Ttl expired files get compacted.
+  ASSERT_OK(Put("a", "1"));
   Flush();
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(1));
-  ASSERT_EQ(1, NumTableFilesAtLevel(2));
-  ASSERT_EQ(0, NumTableFilesAtLevel(3));
-
   dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-
-  // These fail at the moment ... but should pass
-  // ASSERT_EQ(1, NumTableFilesAtLevel(2));
-  // ASSERT_EQ(0, NumTableFilesAtLevel(3));
+  // All non-L0 files are deleted, as they contained only deleted data.
+  ASSERT_EQ("1", FilesPerLevel());
 }
 
 TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {

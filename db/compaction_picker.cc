@@ -1099,8 +1099,9 @@ void LevelCompactionBuilder::PickExpiredTtlFiles() {
     output_level_ =
         (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
 
-    if (start_level_ == 0 &&
-        !compaction_picker_->level0_compactions_in_progress()->empty()) {
+
+    if ((start_level_ == vstorage_->num_non_empty_levels() - 1) ||
+        (start_level_ == 0 && !compaction_picker_->level0_compactions_in_progress()->empty())) {
       return false;
     }
 
