@@ -1716,15 +1716,13 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time > 0 &&
-            creation_time < (current_time -
-                             ioptions.ttl)) {
+            creation_time < (current_time - ioptions.ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }
     }
   }
 }
-
 
 namespace {
 

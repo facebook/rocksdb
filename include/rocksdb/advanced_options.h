@@ -572,7 +572,7 @@ struct AdvancedColumnFamilyOptions {
 
   // Files older than TTL will go through the compaction process.
   // Enabled only for level compaction for now.
-  // 
+  //
   // Default: 0 (disabled)
   uint64_t ttl = 0;
 

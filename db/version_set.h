@@ -292,8 +292,7 @@ class VersionStorageInfo {
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   // REQUIRES: DB mutex held during access
-  const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles()
-      const {
+  const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
   }

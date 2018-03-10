@@ -322,8 +322,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      force_consistency_checks);
     ROCKS_LOG_HEADER(log, "               Options.report_bg_io_stats: %d",
                      report_bg_io_stats);
-    ROCKS_LOG_HEADER(log, "                              Options.ttl: %d",
-                     ttl);
+    ROCKS_LOG_HEADER(log, "                              Options.ttl: %d", ttl);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

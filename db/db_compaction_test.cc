@@ -3124,7 +3124,8 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   Random rnd(301);
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
     }
     Flush();
   }
@@ -3148,7 +3149,8 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   env_->addon_time_.fetch_add(1.5 * 24 * 60 * 60);  // 1.5 days
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
-  // Just do a siimple write + flush so that the Ttl expired files get compacted.
+  // Just do a siimple write + flush so that the Ttl expired files get
+  // compacted.
   ASSERT_OK(Put("a", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();

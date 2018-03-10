@@ -1099,9 +1099,9 @@ void LevelCompactionBuilder::PickExpiredTtlFiles() {
     output_level_ =
         (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
 
-
     if ((start_level_ == vstorage_->num_non_empty_levels() - 1) ||
-        (start_level_ == 0 && !compaction_picker_->level0_compactions_in_progress()->empty())) {
+        (start_level_ == 0 &&
+         !compaction_picker_->level0_compactions_in_progress()->empty())) {
       return false;
     }
 
@@ -1120,8 +1120,6 @@ void LevelCompactionBuilder::PickExpiredTtlFiles() {
 
   start_level_inputs_.files.clear();
 }
-
-
 
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
@@ -1186,8 +1184,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     size_t i;
     for (i = 0; i < vstorage_->BottommostFilesMarkedForCompaction().size();
          ++i) {
-      auto& level_and_file =
-          vstorage_->BottommostFilesMarkedForCompaction()[i];
+      auto& level_and_file = vstorage_->BottommostFilesMarkedForCompaction()[i];
       assert(!level_and_file.second->being_compacted);
       start_level_inputs_.level = output_level_ = start_level_ =
           level_and_file.first;
