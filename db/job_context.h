@@ -92,12 +92,11 @@ struct JobContext {
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
     std::string file_name;
-    uint32_t path_id;
     std::string file_path;
-    CandidateFileInfo(std::string name, uint32_t pathID, std::string path)
-        : file_name(std::move(name)), path_id(pathID), file_path(path) {}
+    CandidateFileInfo(std::string name, std::string path)
+        : file_name(std::move(name)), file_path(path) {}
     bool operator==(const CandidateFileInfo& other) const {
-      return file_name == other.file_name && path_id == other.path_id &&
+      return file_name == other.file_name &&
              file_path == other.file_path;
     }
   };

@@ -864,12 +864,11 @@ void DBImpl::BackgroundCallPurge() {
       auto fname = purge_file->fname;
       auto type = purge_file->type;
       auto number = purge_file->number;
-      auto path_id = purge_file->path_id;
       auto job_id = purge_file->job_id;
       purge_queue_.pop_front();
 
       mutex_.Unlock();
-      DeleteObsoleteFileImpl(job_id, fname, type, number, path_id);
+      DeleteObsoleteFileImpl(job_id, fname, type, number);
       mutex_.Lock();
     } else {
       assert(!logs_to_free_queue_.empty());
@@ -2441,7 +2440,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile) {
-          del = DeleteSSTFile(&soptions, path_to_delete, 0);
+          del = DeleteSSTFile(&soptions, path_to_delete);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -2451,24 +2450,15 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       }
     }
 
-    struct PathInformation {
-      size_t path_id_;
-      std::string path_;
-      PathInformation(size_t path_id, const std::string& path)
-          : path_id_(path_id),
-            path_(path) {}
-    };
-    std::vector<PathInformation> path_infos;
+    std::vector<std::string> paths;
 
     for (size_t path_id = 0; path_id < options.db_paths.size(); path_id++) {
-      path_infos.emplace_back(
-          PathInformation(path_id, options.db_paths[path_id].path));
+      paths.emplace_back(options.db_paths[path_id].path);
     }
     for (auto& cf : column_families) {
       for (size_t path_id = 0; path_id < cf.options.cf_paths.size();
            path_id++) {
-        path_infos.emplace_back(
-            PathInformation(path_id, cf.options.cf_paths[path_id].path));
+        paths.emplace_back(cf.options.cf_paths[path_id].path);
       }
     }
 
@@ -2476,24 +2466,16 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     // Note that we compare only the actual paths but not path ids.
     // This reason is that same path can appear at different path_ids
     // for different column families.
-    std::sort(path_infos.begin(), path_infos.end(),
-      [](const PathInformation& first, const PathInformation& second) {
-        return first.path_ < second.path_;
-      });
-    path_infos.erase(std::unique(path_infos.begin(), path_infos.end(),
-      [](const PathInformation& first, const PathInformation& second) {
-        return first.path_ == second.path_;
-      }), path_infos.end());
+    std::sort(paths.begin(), paths.end());
+    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
 
-    for (auto& path_info : path_infos) {
-      size_t path_id = path_info.path_id_;
-      env->GetChildren(path_info.path_, &filenames);
+    for (auto& path : paths) {
+      env->GetChildren(path, &filenames);
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          std::string table_path = path_info.path_ + "/" + filenames[i];
-          Status del = DeleteSSTFile(&soptions, table_path,
-                                     static_cast<uint32_t>(path_id));
+          std::string table_path = path + "/" + filenames[i];
+          Status del = DeleteSSTFile(&soptions, table_path);
           if (result.ok() && !del.ok()) {
             result = del;
           }

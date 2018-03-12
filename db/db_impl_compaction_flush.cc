@@ -1241,10 +1241,9 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
 }
 
 void DBImpl::SchedulePendingPurge(std::string fname, FileType type,
-                                  uint64_t number, uint32_t path_id,
-                                  int job_id) {
+                                  uint64_t number, int job_id) {
   mutex_.AssertHeld();
-  PurgeFileInfo file_info(fname, type, number, path_id, job_id);
+  PurgeFileInfo file_info(fname, type, number, job_id);
   purge_queue_.push_back(std::move(file_info));
 }
 
