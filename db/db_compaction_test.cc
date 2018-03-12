@@ -3113,7 +3113,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   Options options = CurrentOptions();
   options.compression = kNoCompression;
-  options.ttl = 1 * 24 * 60 * 60;  // 1 day
+  options.ttl = 24 * 60 * 60;  // 24 hours
   options.max_open_files = -1;
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
@@ -3146,7 +3146,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   MoveFilesToLevel(1);
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
-  env_->addon_time_.fetch_add(1.5 * 24 * 60 * 60);  // 1.5 days
+  env_->addon_time_.fetch_add(36 * 60 * 60);  // 36 hours
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
   // Just do a siimple write + flush so that the Ttl expired files get
