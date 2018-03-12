@@ -177,6 +177,11 @@ class Cache {
   // capacity.
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
 
+  // Set the high priority pool ratio
+  virtual void SetHighPriPoolRatio(double high_pri_pool_ratio) {
+    // default implementation is noop
+  }
+
   // Get the flag whether to return error on insertion when cache reaches its
   // full capacity.
   virtual bool HasStrictCapacityLimit() const = 0;
