@@ -299,7 +299,7 @@ bool LRUCacheShard::Ref(Cache::Handle* h) {
   return true;
 }
 
-void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
+void LRUCacheShard::SetHighPriPoolRatio(double high_pri_pool_ratio) {
   MutexLock l(&mutex_);
   high_pri_pool_ratio_ = high_pri_pool_ratio;
   high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
@@ -486,9 +486,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   shards_ = new LRUCacheShard[num_shards_];
   SetCapacity(capacity);
   SetStrictCapacityLimit(strict_capacity_limit);
-  for (int i = 0; i < num_shards_; i++) {
-    shards_[i].SetHighPriorityPoolRatio(high_pri_pool_ratio);
-  }
+  SetHighPriPoolRatio(high_pri_pool_ratio);
 }
 
 LRUCache::~LRUCache() { delete[] shards_; }
@@ -550,6 +548,12 @@ double LRUCache::GetHighPriPoolRatio() const {
     result = shards_[0].GetHighPriPoolRatio();
   }
   return result;
+}
+
+void LRUCache::SetHighPriPoolRatio(double high_pri_pool_ratio) {
+  for (int i = 0; i < num_shards_; i++) {
+    shards_[i].SetHighPriPoolRatio(high_pri_pool_ratio);
+  }
 }
 
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {

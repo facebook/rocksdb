@@ -168,7 +168,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
   // Set percentage of capacity reserved for high-pri cache entries.
-  void SetHighPriorityPoolRatio(double high_pri_pool_ratio);
+  void SetHighPriPoolRatio(double high_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
@@ -298,7 +298,7 @@ class LRUCache : public ShardedCache {
   virtual size_t GetHighPriPoolCapacity() const;
   virtual size_t GetHighPriPoolUsage() const;
   virtual double GetHighPriPoolRatio() const;
-
+  virtual void SetHighPriPoolRatio(double high_pri_pool_ratio);
   // Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
 
