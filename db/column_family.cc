@@ -34,6 +34,7 @@
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
+#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 
@@ -295,6 +296,17 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.soft_pending_compaction_bytes_limit =
         result.hard_pending_compaction_bytes_limit;
   }
+
+#ifndef ROCKSDB_LITE
+  // When the DB is stopped, it's possible that there are some .trash files that
+  // were not deleted yet, when we open the DB we will find these .trash files
+  // and schedule them to be deleted (or delete immediately if SstFileManager
+  // was not used)
+  auto sfm = static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
+  for (size_t i = 0; i < result.cf_paths.size(); i++) {
+    DeleteScheduler::CleanupDirectory(db_options.env, sfm, result.cf_paths[i].path);
+  }
+#endif
 
   if (result.cf_paths.empty()) {
     result.cf_paths = db_options.db_paths;
