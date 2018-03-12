@@ -474,7 +474,7 @@ class DBImpl : public DB {
   // It is not necessary to hold the mutex when invoking this method.
   // If FindObsoleteFiles() was run, we need to also run
   // PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
-  void PurgeObsoleteFiles(const JobContext& background_contet,
+  void PurgeObsoleteFiles(JobContext& background_contet,
                           bool schedule_only = false);
 
   void SchedulePurge();

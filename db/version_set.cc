@@ -2580,12 +2580,12 @@ VersionSet::~VersionSet() {
   Cache* table_cache = column_family_set_->get_table_cache();
   table_cache->ApplyToAllCacheEntries(&CloseTables, false /* thread_safe */);
   column_family_set_.reset();
-  for (auto file : obsolete_files_) {
+  for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
       table_cache->Release(file.metadata->table_reader_handle);
       TableCache::Evict(table_cache, file.metadata->fd.GetNumber());
     }
-    delete file.metadata;
+    file.DeleteMetadata();
   }
   obsolete_files_.clear();
 }
@@ -4000,9 +4000,9 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
   std::vector<ObsoleteFileInfo> pending_files;
   for (auto& f : obsolete_files_) {
     if (f.metadata->fd.GetNumber() < min_pending_output) {
-      files->push_back(f);
+      files->push_back(std::move(f));
     } else {
-      pending_files.push_back(f);
+      pending_files.push_back(std::move(f));
     }
   }
   obsolete_files_.swap(pending_files);

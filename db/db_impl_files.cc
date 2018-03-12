@@ -366,7 +366,7 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
 // belong to live files are possibly removed. Also, removes all the
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
-void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
+void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:Begin");
   // we'd better have sth to delete
   assert(state.HaveSomethingToDelete());
@@ -389,13 +389,13 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
       state.log_delete_files.size() + state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   const char* kDumbDbName = "";
-  for (auto file : state.sst_delete_files) {
+  for (auto& file : state.sst_delete_files) {
     candidate_files.emplace_back(
         MakeTableFileName(kDumbDbName, file.metadata->fd.GetNumber()), file.path);
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
     }
-    delete file.metadata;
+    file.DeleteMetadata();
   }
 
   for (auto file_num : state.log_delete_files) {
