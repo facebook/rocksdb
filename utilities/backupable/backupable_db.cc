@@ -146,11 +146,17 @@ class BackupEngineImpl : public BackupEngine {
 
   class BackupMeta {
    public:
-    BackupMeta(const std::string& meta_filename,
+    BackupMeta(
+        const std::string& meta_filename, const std::string& meta_tmp_filename,
         std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos,
         Env* env)
-      : timestamp_(0), sequence_number_(0), size_(0),
-        meta_filename_(meta_filename), file_infos_(file_infos), env_(env) {}
+        : timestamp_(0),
+          sequence_number_(0),
+          size_(0),
+          meta_filename_(meta_filename),
+          meta_tmp_filename_(meta_tmp_filename),
+          file_infos_(file_infos),
+          env_(env) {}
 
     BackupMeta(const BackupMeta&) = delete;
     BackupMeta& operator=(const BackupMeta&) = delete;
@@ -228,6 +234,7 @@ class BackupEngineImpl : public BackupEngine {
     uint64_t size_;
     std::string app_metadata_;
     std::string const meta_filename_;
+    std::string const meta_tmp_filename_;
     // files with relative paths (without "/" prefix!!)
     std::vector<std::shared_ptr<FileInfo>> files_;
     std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos_;
@@ -257,12 +264,14 @@ class BackupEngineImpl : public BackupEngine {
   inline std::string GetSharedFileRel(const std::string& file = "",
                                       bool tmp = false) const {
     assert(file.size() == 0 || file[0] != '/');
-    return "shared/" + file + (tmp ? ".tmp" : "");
+    return std::string("shared/") + (tmp ? "." : "") + file +
+           (tmp ? ".tmp" : "");
   }
   inline std::string GetSharedFileWithChecksumRel(const std::string& file = "",
                                                   bool tmp = false) const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetSharedChecksumDirRel() + "/" + file + (tmp ? ".tmp" : "");
+    return GetSharedChecksumDirRel() + "/" + (tmp ? "." : "") + file +
+           (tmp ? ".tmp" : "");
   }
   inline std::string GetSharedFileWithChecksum(const std::string& file,
                                                const uint32_t checksum_value,
@@ -283,8 +292,9 @@ class BackupEngineImpl : public BackupEngine {
   inline std::string GetBackupMetaDir() const {
     return GetAbsolutePath("meta");
   }
-  inline std::string GetBackupMetaFile(BackupID backup_id) const {
-    return GetBackupMetaDir() + "/" + rocksdb::ToString(backup_id);
+  inline std::string GetBackupMetaFile(BackupID backup_id, bool tmp) const {
+    return GetBackupMetaDir() + "/" + (tmp ? "." : "") +
+           rocksdb::ToString(backup_id) + (tmp ? ".tmp" : "");
   }
 
   // If size_limit == 0, there is no size limit, copy everything.
@@ -605,10 +615,11 @@ Status BackupEngineImpl::Initialize() {
       continue;
     }
     assert(backups_.find(backup_id) == backups_.end());
-    backups_.insert(
-        std::make_pair(backup_id, unique_ptr<BackupMeta>(new BackupMeta(
-                                      GetBackupMetaFile(backup_id),
-                                      &backuped_file_infos_, backup_env_))));
+    backups_.insert(std::make_pair(
+        backup_id, unique_ptr<BackupMeta>(new BackupMeta(
+                       GetBackupMetaFile(backup_id, false /* tmp */),
+                       GetBackupMetaFile(backup_id, true /* tmp */),
+                       &backuped_file_infos_, backup_env_))));
   }
 
   latest_backup_id_ = 0;
@@ -736,10 +747,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   BackupID new_backup_id = latest_backup_id_ + 1;
 
   assert(backups_.find(new_backup_id) == backups_.end());
-  auto ret = backups_.insert(
-      std::make_pair(new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
-                                        GetBackupMetaFile(new_backup_id),
-                                        &backuped_file_infos_, backup_env_))));
+  auto ret = backups_.insert(std::make_pair(
+      new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
+                         GetBackupMetaFile(new_backup_id, false /* tmp */),
+                         GetBackupMetaFile(new_backup_id, true /* tmp */),
+                         &backuped_file_infos_, backup_env_))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
@@ -1708,8 +1720,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
   env_options.use_direct_writes = false;
-  s = env_->NewWritableFile(meta_filename_ + ".tmp", &backup_meta_file,
-                            env_options);
+  s = env_->NewWritableFile(meta_tmp_filename_, &backup_meta_file, env_options);
   if (!s.ok()) {
     return s;
   }
@@ -1722,23 +1733,25 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   if (!app_metadata_.empty()) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
-    if (hex_encoded_metadata.size() + kMetaDataPrefix.size() + 1 >
-        buf_size - len) {
+    len += snprintf(buf.get() + len, buf_size - len, "%s%s\n",
+                    kMetaDataPrefix.ToString().c_str(),
+                    hex_encoded_metadata.c_str());
+    if (len >= buf_size) {
       return Status::Corruption("Buffer too small to fit backup metadata");
     }
-    memcpy(buf.get() + len, kMetaDataPrefix.data(), kMetaDataPrefix.size());
-    len += kMetaDataPrefix.size();
-    memcpy(buf.get() + len, hex_encoded_metadata.data(),
-           hex_encoded_metadata.size());
-    len += hex_encoded_metadata.size();
-    buf[len++] = '\n';
   }
   len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n",
                   files_.size());
+  if (len >= buf_size) {
+    return Status::Corruption("Buffer too small to fit backup metadata");
+  }
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",
                     file->filename.c_str(), file->checksum_value);
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
 
   s = backup_meta_file->Append(Slice(buf.get(), len));
@@ -1749,7 +1762,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     s = backup_meta_file->Close();
   }
   if (s.ok()) {
-    s = env_->RenameFile(meta_filename_ + ".tmp", meta_filename_);
+    s = env_->RenameFile(meta_tmp_filename_, meta_filename_);
   }
   return s;
 }

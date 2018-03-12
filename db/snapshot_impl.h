@@ -45,6 +45,10 @@ class SnapshotList {
     list_.prev_ = &list_;
     list_.next_ = &list_;
     list_.number_ = 0xFFFFFFFFL;      // placeholder marker, for debugging
+    // Set all the variables to make UBSAN happy.
+    list_.list_ = nullptr;
+    list_.unix_time_ = 0;
+    list_.is_write_conflict_boundary_ = false;
     count_ = 0;
   }
 
@@ -106,22 +110,6 @@ class SnapshotList {
       s = s->next_;
     }
     return ret;
-  }
-
-  // Whether there is an active snapshot in range [lower_bound, upper_bound).
-  bool HasSnapshotInRange(SequenceNumber lower_bound,
-                          SequenceNumber upper_bound) {
-    if (empty()) {
-      return false;
-    }
-    const SnapshotImpl* s = &list_;
-    while (s->next_ != &list_) {
-      if (s->next_->number_ >= lower_bound) {
-        return s->next_->number_ < upper_bound;
-      }
-      s = s->next_;
-    }
-    return false;
   }
 
   // get the sequence number of the most recent snapshot

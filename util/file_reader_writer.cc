@@ -239,6 +239,9 @@ Status WritableFileWriter::Close() {
   // we need to let the file know where data ends.
   if (use_direct_io()) {
     interim = writable_file_->Truncate(filesize_);
+    if (interim.ok()) {
+      interim = writable_file_->Fsync();
+    }
     if (!interim.ok() && s.ok()) {
       s = interim;
     }
@@ -513,7 +516,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
       *result = Slice(scratch, cached_len);
       return Status::OK();
     }
-    size_t advanced_offset = offset + cached_len;
+    size_t advanced_offset = static_cast<size_t>(offset + cached_len);
     // In the case of cache hit advanced_offset is already aligned, means that
     // chunk_offset equals to advanced_offset
     size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
@@ -541,12 +544,18 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   }
 
   virtual Status Prefetch(uint64_t offset, size_t n) override {
-    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
+    if (n < readahead_size_) {
+      // Don't allow smaller prefetches than the configured `readahead_size_`.
+      // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
+      return Status::OK();
+    }
+    size_t offset_ = static_cast<size_t>(offset);
+    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset_);
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
     }
     return ReadIntoBuffer(prefetch_offset,
-                          Roundup(offset + n, alignment_) - prefetch_offset);
+                          Roundup(offset_ + n, alignment_) - prefetch_offset);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
@@ -606,16 +615,20 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
                                     uint64_t offset, size_t n) {
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
-  uint64_t roundup_offset = Roundup(offset, alignment);
-  uint64_t roundup_len = Roundup(n, alignment);
+  size_t offset_ = static_cast<size_t>(offset);
+  uint64_t rounddown_offset = Rounddown(offset_, alignment);
+  uint64_t roundup_end = Roundup(offset_ + n, alignment);
+  uint64_t roundup_len = roundup_end - rounddown_offset;
+  assert(roundup_len >= alignment);
+  assert(roundup_len % alignment == 0);
   buffer_.Alignment(alignment);
-  buffer_.AllocateNewBuffer(roundup_len);
+  buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len));
 
   Slice result;
-  Status s =
-      reader->Read(roundup_offset, roundup_len, &result, buffer_.BufferStart());
+  Status s = reader->Read(rounddown_offset, static_cast<size_t>(roundup_len),
+                          &result, buffer_.BufferStart());
   if (s.ok()) {
-    buffer_offset_ = roundup_offset;
+    buffer_offset_ = rounddown_offset;
     buffer_len_ = result.size();
   }
   return s;

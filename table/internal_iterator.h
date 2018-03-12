@@ -69,12 +69,17 @@ class InternalIterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  // True if the iterator is invalidated because it is out of the iterator
+  // upper bound
+  virtual bool IsOutOfBound() { return false; }
+
   // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager
   // they will implement this function and use the passed pointer to communicate
   // with PinnedIteratorsManager.
-  virtual void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {}
+  virtual void SetPinnedItersMgr(PinnedIteratorsManager* /*pinned_iters_mgr*/) {
+  }
 
   // If true, this means that the Slice returned by key() is valid as long as
   // PinnedIteratorsManager::ReleasePinnedData is not called and the
@@ -91,7 +96,7 @@ class InternalIterator : public Cleanable {
   // Iterator is not deleted.
   virtual bool IsValuePinned() const { return false; }
 
-  virtual Status GetProperty(std::string prop_name, std::string* prop) {
+  virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
 

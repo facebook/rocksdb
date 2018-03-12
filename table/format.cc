@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
+#include "table/block_fetcher.h"
 #include "table/persistent_cache_helper.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -40,7 +41,6 @@ extern const uint64_t kPlainTableMagicNumber;
 const uint64_t kLegacyPlainTableMagicNumber = 0;
 const uint64_t kPlainTableMagicNumber = 0;
 #endif
-const uint32_t DefaultStackBufferSize = 5000;
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
   return env != nullptr && stats != nullptr &&
@@ -196,7 +196,7 @@ Status Footer::DecodeFrom(Slice* input) {
 }
 
 std::string Footer::ToString() const {
-  std::string result, handle_;
+  std::string result;
   result.reserve(1024);
 
   bool legacy = IsLegacyFooterFormat(table_magic_number_);
@@ -262,205 +262,6 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
       + " in " + file->file_name());
   }
   return Status::OK();
-}
-
-// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
-namespace {
-Status CheckBlockChecksum(const ReadOptions& options, const Footer& footer,
-                          const Slice& contents, size_t block_size,
-                          RandomAccessFileReader* file,
-                          const BlockHandle& handle) {
-  Status s;
-  // Check the crc of the type and the block contents
-  if (options.verify_checksums) {
-    const char* data = contents.data();  // Pointer to where Read put the data
-    PERF_TIMER_GUARD(block_checksum_time);
-    uint32_t value = DecodeFixed32(data + block_size + 1);
-    uint32_t actual = 0;
-    switch (footer.checksum()) {
-      case kNoChecksum:
-        break;
-      case kCRC32c:
-        value = crc32c::Unmask(value);
-        actual = crc32c::Value(data, block_size + 1);
-        break;
-      case kxxHash:
-        actual = XXH32(data, static_cast<int>(block_size) + 1, 0);
-        break;
-      default:
-        s = Status::Corruption(
-            "unknown checksum type " + ToString(footer.checksum()) + " in " +
-            file->file_name() + " offset " + ToString(handle.offset()) +
-            " size " + ToString(block_size));
-    }
-    if (s.ok() && actual != value) {
-      s = Status::Corruption(
-          "block checksum mismatch: expected " + ToString(actual) + ", got " +
-          ToString(value) + "  in " + file->file_name() + " offset " +
-          ToString(handle.offset()) + " size " + ToString(block_size));
-    }
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  return s;
-}
-
-// Read a block and check its CRC
-// contents is the result of reading.
-// According to the implementation of file->Read, contents may not point to buf
-Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
-                 const ReadOptions& options, const BlockHandle& handle,
-                 Slice* contents, /* result of reading */ char* buf) {
-  size_t n = static_cast<size_t>(handle.size());
-  Status s;
-
-  {
-    PERF_TIMER_GUARD(block_read_time);
-    s = file->Read(handle.offset(), n + kBlockTrailerSize, contents, buf);
-  }
-
-  PERF_COUNTER_ADD(block_read_count, 1);
-  PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
-
-  if (!s.ok()) {
-    return s;
-  }
-  if (contents->size() != n + kBlockTrailerSize) {
-    return Status::Corruption("truncated block read from " + file->file_name() +
-                              " offset " + ToString(handle.offset()) +
-                              ", expected " + ToString(n + kBlockTrailerSize) +
-                              " bytes, got " + ToString(contents->size()));
-  }
-  return CheckBlockChecksum(options, footer, *contents, n, file, handle);
-}
-
-}  // namespace
-
-Status ReadBlockContents(RandomAccessFileReader* file,
-                         FilePrefetchBuffer* prefetch_buffer,
-                         const Footer& footer, const ReadOptions& read_options,
-                         const BlockHandle& handle, BlockContents* contents,
-                         const ImmutableCFOptions& ioptions,
-                         bool decompression_requested,
-                         const Slice& compression_dict,
-                         const PersistentCacheOptions& cache_options) {
-  Status status;
-  Slice slice;
-  size_t n = static_cast<size_t>(handle.size());
-  std::unique_ptr<char[]> heap_buf;
-  char stack_buf[DefaultStackBufferSize];
-  char* used_buf = nullptr;
-  rocksdb::CompressionType compression_type;
-
-  if (cache_options.persistent_cache &&
-      !cache_options.persistent_cache->IsCompressed()) {
-    status = PersistentCacheHelper::LookupUncompressedPage(cache_options,
-                                                           handle, contents);
-    if (status.ok()) {
-      // uncompressed page is found for the block handle
-      return status;
-    } else {
-      // uncompressed page is not found
-      if (ioptions.info_log && !status.IsNotFound()) {
-        assert(!status.ok());
-        ROCKS_LOG_INFO(ioptions.info_log,
-                       "Error reading from persistent cache. %s",
-                       status.ToString().c_str());
-      }
-    }
-  }
-
-  bool got_from_prefetch_buffer = false;
-  if (prefetch_buffer != nullptr &&
-      prefetch_buffer->TryReadFromCache(
-          handle.offset(),
-          static_cast<size_t>(handle.size()) + kBlockTrailerSize, &slice)) {
-    status =
-        CheckBlockChecksum(read_options, footer, slice,
-                           static_cast<size_t>(handle.size()), file, handle);
-    if (!status.ok()) {
-      return status;
-    }
-    got_from_prefetch_buffer = true;
-    used_buf = const_cast<char*>(slice.data());
-  } else if (cache_options.persistent_cache &&
-             cache_options.persistent_cache->IsCompressed()) {
-    // lookup uncompressed cache mode p-cache
-    status = PersistentCacheHelper::LookupRawPage(
-        cache_options, handle, &heap_buf, n + kBlockTrailerSize);
-  } else {
-    status = Status::NotFound();
-  }
-
-  if (!got_from_prefetch_buffer) {
-    if (status.ok()) {
-      // cache hit
-      used_buf = heap_buf.get();
-      slice = Slice(heap_buf.get(), n);
-    } else {
-      if (ioptions.info_log && !status.IsNotFound()) {
-        assert(!status.ok());
-        ROCKS_LOG_INFO(ioptions.info_log,
-                       "Error reading from persistent cache. %s",
-                       status.ToString().c_str());
-      }
-      // cache miss read from device
-      if (decompression_requested &&
-          n + kBlockTrailerSize < DefaultStackBufferSize) {
-        // If we've got a small enough hunk of data, read it in to the
-        // trivially allocated stack buffer instead of needing a full malloc()
-        used_buf = &stack_buf[0];
-      } else {
-        heap_buf = std::unique_ptr<char[]>(new char[n + kBlockTrailerSize]);
-        used_buf = heap_buf.get();
-      }
-
-      status = ReadBlock(file, footer, read_options, handle, &slice, used_buf);
-      if (status.ok() && read_options.fill_cache &&
-          cache_options.persistent_cache &&
-          cache_options.persistent_cache->IsCompressed()) {
-        // insert to raw cache
-        PersistentCacheHelper::InsertRawPage(cache_options, handle, used_buf,
-                                             n + kBlockTrailerSize);
-      }
-    }
-
-    if (!status.ok()) {
-      return status;
-    }
-  }
-
-  PERF_TIMER_GUARD(block_decompress_time);
-
-  compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
-
-  if (decompression_requested && compression_type != kNoCompression) {
-    // compressed page, uncompress, update cache
-    status = UncompressBlockContents(slice.data(), n, contents,
-                                     footer.version(), compression_dict,
-                                     ioptions);
-  } else if (slice.data() != used_buf) {
-    // the slice content is not the buffer provided
-    *contents = BlockContents(Slice(slice.data(), n), false, compression_type);
-  } else {
-    // page is uncompressed, the buffer either stack or heap provided
-    if (got_from_prefetch_buffer || used_buf == &stack_buf[0]) {
-      heap_buf = std::unique_ptr<char[]>(new char[n]);
-      memcpy(heap_buf.get(), used_buf, n);
-    }
-    *contents = BlockContents(std::move(heap_buf), n, true, compression_type);
-  }
-
-  if (status.ok() && !got_from_prefetch_buffer && read_options.fill_cache &&
-      cache_options.persistent_cache &&
-      !cache_options.persistent_cache->IsCompressed()) {
-    // insert to uncompressed cache
-    PersistentCacheHelper::InsertUncompressedPage(cache_options, handle,
-                                                  *contents);
-  }
-
-  return status;
 }
 
 Status UncompressBlockContentsForCompressionType(
@@ -568,9 +369,9 @@ Status UncompressBlockContentsForCompressionType(
   if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
     MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
       timer.ElapsedNanos());
-    MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
-    RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
   }
+  MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
+  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
 
   return Status::OK();
 }

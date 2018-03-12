@@ -376,6 +376,30 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
+  Options options = CurrentOptions();
+
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, "", 1024 * 1024 /* 1 MB/sec */));
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+
+  Destroy(last_options_);
+
+  // Add some trash files to the db directory so the DB can clean them up
+  env_->CreateDirIfMissing(dbname_);
+  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
+
+  // Reopen the DB and verify that it deletes existing trash files
+  ASSERT_OK(TryReopen(options));
+  sfm->WaitForEmptyTrash();
+  ASSERT_NOK(env_->FileExists(dbname_ + "/" + "001.sst.trash"));
+  ASSERT_NOK(env_->FileExists(dbname_ + "/" + "002.sst.trash"));
+  ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
+}
+
+
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and
@@ -437,13 +461,15 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
+  // Compaction will delete and regenerate a file from L1 in second db path. It
+  // should still be cleaned up via delete scheduler.
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();
-  ASSERT_EQ(bg_delete_file, 8);
+  ASSERT_EQ(bg_delete_file, 9);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -514,6 +540,52 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {
   ASSERT_NOK(Flush());
 }
 
+TEST_F(DBSSTTest, CancellingCompactionsWorks) {
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Options options = CurrentOptions();
+  options.sst_file_manager = sst_file_manager;
+  options.level0_file_num_compaction_trigger = 2;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  int completed_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
+        sfm->SetMaxAllowedSpaceUsage(0);
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
+      [&](void* arg) { completed_compactions++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+
+  // Generate a file containing 10 keys.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+  uint64_t total_file_size = 0;
+  auto files_in_db = GetAllSSTFiles(&total_file_size);
+  // Set the maximum allowed space usage to the current total size
+  sfm->SetMaxAllowedSpaceUsage(2 * total_file_size + 1);
+
+  // Generate another file to trigger compaction.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_GT(completed_compactions, 0);
+  ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
+  // Make sure the stat is bumped
+  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
   // This test will set a maximum allowed space for the DB, then it will
   // keep filling the DB until the limit is reached and bg_error_ is set.
@@ -540,6 +612,12 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
         // clear error to ensure compaction callback is called
         *bg_error = Status::OK();
         estimate_multiplier++;  // used in the main loop assert
+      });
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
+        bool* enough_room = static_cast<bool*>(arg);
+        *enough_room = true;
       });
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(

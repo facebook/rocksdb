@@ -49,4 +49,5 @@ JniCallback::~JniCallback() {
 
   releaseJniEnv(attached_thread);
 }
+// @lint-ignore TXT4 T25377293 Grandfathered in
 }  // namespace rocksdb

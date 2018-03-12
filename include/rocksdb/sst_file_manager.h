@@ -35,11 +35,21 @@ class SstFileManager {
   // thread-safe.
   virtual void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) = 0;
 
+  // Set the amount of buffer room each compaction should be able to leave.
+  // In other words, at its maximum disk space consumption, the compaction
+  // should still leave compaction_buffer_size available on the disk so that
+  // other background functions may continue, such as logging and flushing.
+  virtual void SetCompactionBufferSize(uint64_t compaction_buffer_size) = 0;
+
   // Return true if the total size of SST files exceeded the maximum allowed
   // space usage.
   //
   // thread-safe.
   virtual bool IsMaxAllowedSpaceReached() = 0;
+
+  // Returns true if the total size of SST files as well as estimated size
+  // of ongoing compactions exceeds the maximums allowed space usage.
+  virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
 
   // Return the total size of all tracked files.
   // thread-safe

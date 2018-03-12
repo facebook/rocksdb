@@ -117,10 +117,10 @@ class WriteBatchInternal {
   // Set the count for the number of entries in the batch.
   static void SetCount(WriteBatch* batch, int n);
 
-  // Return the seqeunce number for the start of this batch.
+  // Return the sequence number for the start of this batch.
   static SequenceNumber Sequence(const WriteBatch* batch);
 
-  // Store the specified number as the seqeunce number for the start of
+  // Store the specified number as the sequence number for the start of
   // this batch.
   static void SetSequence(WriteBatch* batch, SequenceNumber seq);
 
@@ -137,6 +137,9 @@ class WriteBatchInternal {
   }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
+
+  static Status CheckSlicePartsLength(const SliceParts& key,
+                                      const SliceParts& value);
 
   // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
   //
@@ -165,7 +168,7 @@ class WriteBatchInternal {
                            bool seq_per_batch = false);
 
   // Convenience form of InsertInto when you have only one batch
-  // next_seq returns the seq after last sequnce number used in MemTable insert
+  // next_seq returns the seq after last sequence number used in MemTable insert
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
@@ -182,7 +185,7 @@ class WriteBatchInternal {
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
-                           bool seq_per_batch = false);
+                           bool seq_per_batch = false, size_t batch_cnt = 0);
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);

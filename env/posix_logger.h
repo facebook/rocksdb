@@ -24,6 +24,7 @@
 #endif
 
 #include <atomic>
+#include "env/io_posix.h"
 #include "monitoring/iostats_context_imp.h"
 #include "rocksdb/env.h"
 #include "util/sync_point.h"
@@ -32,6 +33,15 @@ namespace rocksdb {
 
 class PosixLogger : public Logger {
  private:
+  Status PosixCloseHelper() {
+    int ret;
+
+    ret = fclose(file_);
+    if (ret) {
+      return IOError("Unable to close log file", "", ret);
+    }
+    return Status::OK();
+  }
   FILE* file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
   std::atomic_size_t log_size_;
@@ -40,6 +50,10 @@ class PosixLogger : public Logger {
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
   std::atomic<bool> flush_pending_;
+
+ protected:
+  virtual Status CloseImpl() override { return PosixCloseHelper(); }
+
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env,
               const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
@@ -52,7 +66,10 @@ class PosixLogger : public Logger {
         env_(env),
         flush_pending_(false) {}
   virtual ~PosixLogger() {
-    fclose(file_);
+    if (!closed_) {
+      closed_ = true;
+      PosixCloseHelper();
+    }
   }
   virtual void Flush() override {
     TEST_SYNC_POINT("PosixLogger::Flush:Begin1");

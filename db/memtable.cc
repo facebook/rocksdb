@@ -225,7 +225,7 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
   // Internal keys are encoded as length-prefixed strings.
   Slice k1 = GetLengthPrefixedSlice(prefix_len_key1);
   Slice k2 = GetLengthPrefixedSlice(prefix_len_key2);
-  return comparator.Compare(k1, k2);
+  return comparator.CompareKeySeq(k1, k2);
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key,
@@ -233,7 +233,15 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
     const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
-  return comparator.Compare(a, key);
+  return comparator.CompareKeySeq(a, key);
+}
+
+void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
+#ifndef ROCKSDB_LITE
+  throw std::runtime_error("concurrent insert not supported");
+#else
+  abort();
+#endif
 }
 
 Slice MemTableRep::UserKey(const char* key) const {
@@ -281,8 +289,7 @@ class MemTableIterator : public InternalIterator {
 #ifndef NDEBUG
     // Assert that the MemTableIterator is never deleted while
     // Pinning is Enabled.
-    assert(!pinned_iters_mgr_ ||
-           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 #endif
     if (arena_mode_) {
       iter_->~Iterator();
@@ -436,7 +443,7 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
   return {entry_count * (data_size / n), entry_count};
 }
 
-void MemTable::Add(SequenceNumber s, ValueType type,
+bool MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value, bool allow_concurrent,
                    MemTablePostProcessInfo* post_process_info) {
@@ -471,9 +478,15 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      table->InsertWithHint(handle, &insert_hints_[prefix]);
+      bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
+      if (!res) {
+        return res;
+      }
     } else {
-      table->Insert(handle);
+      bool res = table->InsertKey(handle);
+      if (!res) {
+        return res;
+      }
     }
 
     // this is a bit ugly, but is the way to avoid locked instructions
@@ -506,7 +519,10 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    table->InsertConcurrently(handle);
+    bool res = table->InsertKeyConcurrently(handle);
+    if (!res) {
+      return res;
+    }
 
     assert(post_process_info != nullptr);
     post_process_info->num_entries++;
@@ -536,6 +552,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     is_range_del_table_empty_ = false;
   }
   UpdateOldestKeyTime();
+  return true;
 }
 
 // Callback from MemTable::Get()
@@ -571,11 +588,12 @@ struct Saver {
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
+  assert(s != nullptr);
   MergeContext* merge_context = s->merge_context;
   RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
+  assert(merge_context != nullptr && range_del_agg != nullptr);
 
   // entry format is:
   //    klength  varint32
@@ -791,8 +809,9 @@ void MemTable::Update(SequenceNumber seq,
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
-      SequenceNumber unused;
-      UnPackSequenceAndType(tag, &unused, &type);
+      SequenceNumber existing_seq;
+      UnPackSequenceAndType(tag, &existing_seq, &type);
+      assert(existing_seq != seq);
       if (type == kTypeValue) {
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
@@ -815,7 +834,10 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-  Add(seq, kTypeValue, key, value);
+  bool add_res __attribute__((__unused__));
+  add_res = Add(seq, kTypeValue, key, value);
+  // We already checked unused != seq above. In that case, Add should not fail.
+  assert(add_res);
 }
 
 bool MemTable::UpdateCallback(SequenceNumber seq,

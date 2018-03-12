@@ -53,7 +53,7 @@ class FlushedFileCollector : public EventListener {
   FlushedFileCollector() {}
   ~FlushedFileCollector() {}
 
-  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
     flushed_files_.push_back(info.file_path);
   }
@@ -1515,6 +1515,122 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   ASSERT_GT(deleted_count2, deleted_count);
   size_t new_num_files = CountFiles();
   ASSERT_GT(old_num_files, new_num_files);
+}
+
+TEST_F(DBCompactionTest, DeleteFilesInRanges) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 10 * 1024 * 1024;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 4;
+  options.max_background_compactions = 3;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+
+  // file [0 => 100), [100 => 200), ... [900, 1000)
+  for (auto i = 0; i < 10; i++) {
+    for (auto j = 0; j < 100; j++) {
+      auto k = i * 100 + j;
+      values[k] = RandomString(&rnd, value_size);
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("10", FilesPerLevel(0));
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ("0,0,10", FilesPerLevel(0));
+
+  // file [0 => 100), [200 => 300), ... [800, 900)
+  for (auto i = 0; i < 10; i+=2) {
+    for (auto j = 0; j < 100; j++) {
+      auto k = i * 100 + j;
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("5,0,10", FilesPerLevel(0));
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
+  ASSERT_EQ("0,5,10", FilesPerLevel(0));
+
+  // Delete files in range [0, 299] (inclusive)
+  {
+    auto begin_str1 = Key(0), end_str1 = Key(100);
+    auto begin_str2 = Key(100), end_str2 = Key(200);
+    auto begin_str3 = Key(200), end_str3 = Key(299);
+    Slice begin1(begin_str1), end1(end_str1);
+    Slice begin2(begin_str2), end2(end_str2);
+    Slice begin3(begin_str3), end3(end_str3);
+    std::vector<RangePtr> ranges;
+    ranges.push_back(RangePtr(&begin1, &end1));
+    ranges.push_back(RangePtr(&begin2, &end2));
+    ranges.push_back(RangePtr(&begin3, &end3));
+    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
+                                  ranges.data(), ranges.size()));
+    ASSERT_EQ("0,3,7", FilesPerLevel(0));
+
+    // Keys [0, 300) should not exist.
+    for (auto i = 0; i < 300; i++) {
+      ReadOptions ropts;
+      std::string result;
+      auto s = db_->Get(ropts, Key(i), &result);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+    for (auto i = 300; i < 1000; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
+  }
+
+  // Delete files in range [600, 999) (exclusive)
+  {
+    auto begin_str1 = Key(600), end_str1 = Key(800);
+    auto begin_str2 = Key(700), end_str2 = Key(900);
+    auto begin_str3 = Key(800), end_str3 = Key(999);
+    Slice begin1(begin_str1), end1(end_str1);
+    Slice begin2(begin_str2), end2(end_str2);
+    Slice begin3(begin_str3), end3(end_str3);
+    std::vector<RangePtr> ranges;
+    ranges.push_back(RangePtr(&begin1, &end1));
+    ranges.push_back(RangePtr(&begin2, &end2));
+    ranges.push_back(RangePtr(&begin3, &end3));
+    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
+                                  ranges.data(), ranges.size(), false));
+    ASSERT_EQ("0,1,4", FilesPerLevel(0));
+
+    // Keys [600, 900) should not exist.
+    for (auto i = 600; i < 900; i++) {
+      ReadOptions ropts;
+      std::string result;
+      auto s = db_->Get(ropts, Key(i), &result);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+    for (auto i = 300; i < 600; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
+    for (auto i = 900; i < 1000; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
+  }
+
+  // Delete all files.
+  {
+    RangePtr range;
+    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
+    ASSERT_EQ("", FilesPerLevel(0));
+
+    for (auto i = 0; i < 1000; i++) {
+      ReadOptions ropts;
+      std::string result;
+      auto s = db_->Get(ropts, Key(i), &result);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+  }
 }
 
 TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
@@ -3105,6 +3221,276 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
     // each file is smaller than it was before as it was rewritten without
     // deletion markers/deleted keys.
     ASSERT_LT(post_file.size, pre_file.size);
+  }
+}
+
+TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
+  // compaction only triggers flush after it's sure stall won't be triggered for
+  // L0 file count going too high.
+  const int kNumL0FilesTrigger = 4;
+  const int kNumL0FilesLimit = 8;
+  // i == 0: verifies normal case where stall is avoided by delay
+  // i == 1: verifies no delay in edge case where stall trigger is same as
+  //         compaction trigger, so stall can't be avoided
+  for (int i = 0; i < 2; ++i) {
+    Options options = CurrentOptions();
+    options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+    if (i == 0) {
+      options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+    } else {
+      options.level0_file_num_compaction_trigger = kNumL0FilesLimit;
+    }
+    Reopen(options);
+
+    if (i == 0) {
+      // ensure the auto compaction doesn't finish until manual compaction has
+      // had a chance to be delayed.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"DBImpl::CompactRange:StallWait", "CompactionJob::Run():End"}});
+    } else {
+      // ensure the auto-compaction doesn't finish until manual compaction has
+      // continued without delay.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"DBImpl::CompactRange:StallWaitDone", "CompactionJob::Run():End"}});
+    }
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int j = 0; j < kNumL0FilesLimit - 1; ++j) {
+      for (int k = 0; k < 2; ++k) {
+        ASSERT_OK(Put(Key(k), RandomString(&rnd, 1024)));
+      }
+      Flush();
+    }
+    auto manual_compaction_thread = port::Thread([this]() {
+      CompactRangeOptions cro;
+      cro.allow_write_stall = false;
+      db_->CompactRange(cro, nullptr, nullptr);
+    });
+
+    manual_compaction_thread.join();
+    dbfull()->TEST_WaitForCompact();
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_GT(NumTableFilesAtLevel(1), 0);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
+TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
+  // compaction only triggers flush after it's sure stall won't be triggered for
+  // immutable memtable count going too high.
+  const int kNumImmMemTableLimit = 8;
+  // i == 0: verifies normal case where stall is avoided by delay
+  // i == 1: verifies no delay in edge case where stall trigger is same as flush
+  //         trigger, so stall can't be avoided
+  for (int i = 0; i < 2; ++i) {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    // the delay limit is one less than the stop limit. This test focuses on
+    // avoiding delay limit, but this option sets stop limit, so add one.
+    options.max_write_buffer_number = kNumImmMemTableLimit + 1;
+    if (i == 1) {
+      options.min_write_buffer_number_to_merge = kNumImmMemTableLimit;
+    }
+    Reopen(options);
+
+    if (i == 0) {
+      // ensure the flush doesn't finish until manual compaction has had a
+      // chance to be delayed.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"DBImpl::CompactRange:StallWait", "FlushJob::WriteLevel0Table"}});
+    } else {
+      // ensure the flush doesn't finish until manual compaction has continued
+      // without delay.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"DBImpl::CompactRange:StallWaitDone",
+            "FlushJob::WriteLevel0Table"}});
+    }
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int j = 0; j < kNumImmMemTableLimit - 1; ++j) {
+      ASSERT_OK(Put(Key(0), RandomString(&rnd, 1024)));
+      FlushOptions flush_opts;
+      flush_opts.wait = false;
+      dbfull()->Flush(flush_opts);
+    }
+
+    auto manual_compaction_thread = port::Thread([this]() {
+      CompactRangeOptions cro;
+      cro.allow_write_stall = false;
+      db_->CompactRange(cro, nullptr, nullptr);
+    });
+
+    manual_compaction_thread.join();
+    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_GT(NumTableFilesAtLevel(1), 0);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
+TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`, delay
+  // does not hang if CF is dropped or DB is closed
+  const int kNumL0FilesTrigger = 4;
+  const int kNumL0FilesLimit = 8;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  // i == 0: DB::DropColumnFamily() on CompactRange's target CF unblocks it
+  // i == 1: DB::CancelAllBackgroundWork() unblocks CompactRange. This is to
+  //         simulate what happens during Close as we can't call Close (it
+  //         blocks on the auto-compaction, making a cycle).
+  for (int i = 0; i < 2; ++i) {
+    CreateAndReopenWithCF({"one"}, options);
+    // The calls to close CF/DB wait until the manual compaction stalls.
+    // The auto-compaction waits until the manual compaction finishes to ensure
+    // the signal comes from closing CF/DB, not from compaction making progress.
+    rocksdb::SyncPoint::GetInstance()->LoadDependency(
+        {{"DBImpl::CompactRange:StallWait",
+          "DBCompactionTest::CompactRangeShutdownWhileDelayed:PreShutdown"},
+         {"DBCompactionTest::CompactRangeShutdownWhileDelayed:PostManual",
+          "CompactionJob::Run():End"}});
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int j = 0; j < kNumL0FilesLimit - 1; ++j) {
+      for (int k = 0; k < 2; ++k) {
+        ASSERT_OK(Put(1, Key(k), RandomString(&rnd, 1024)));
+      }
+      Flush(1);
+    }
+    auto manual_compaction_thread = port::Thread([this]() {
+      CompactRangeOptions cro;
+      cro.allow_write_stall = false;
+      ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                      .IsShutdownInProgress());
+    });
+
+    TEST_SYNC_POINT(
+        "DBCompactionTest::CompactRangeShutdownWhileDelayed:PreShutdown");
+    if (i == 0) {
+      ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+    } else {
+      dbfull()->CancelAllBackgroundWork(false /* wait */);
+    }
+    manual_compaction_thread.join();
+    TEST_SYNC_POINT(
+        "DBCompactionTest::CompactRangeShutdownWhileDelayed:PostManual");
+    dbfull()->TEST_WaitForCompact();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
+TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`,
+  // CompactRange skips its flush if the delay is long enough that the memtables
+  // existing at the beginning of the call have already been flushed.
+  const int kNumL0FilesTrigger = 4;
+  const int kNumL0FilesLimit = 8;
+  Options options = CurrentOptions();
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+  Reopen(options);
+
+  Random rnd(301);
+  // The manual flush includes the memtable that was active when CompactRange
+  // began. So it unblocks CompactRange and precludes its flush. Throughout the
+  // test, stall conditions are upheld via high L0 file count.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::CompactRange:StallWait",
+        "DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush"},
+       {"DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush",
+        "DBImpl::CompactRange:StallWaitDone"},
+       {"DBImpl::CompactRange:StallWaitDone", "CompactionJob::Run():End"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+  auto manual_compaction_thread = port::Thread([this]() {
+    CompactRangeOptions cro;
+    cro.allow_write_stall = false;
+    db_->CompactRange(cro, nullptr, nullptr);
+  });
+
+  TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush");
+  Put(ToString(0), RandomString(&rnd, 1024));
+  Flush();
+  Put(ToString(0), RandomString(&rnd, 1024));
+  TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
+  manual_compaction_thread.join();
+
+  // If CompactRange's flush was skipped, the final Put above will still be
+  // in the active memtable.
+  std::string num_keys_in_memtable;
+  db_->GetProperty(DB::Properties::kNumEntriesActiveMemTable, &num_keys_in_memtable);
+  ASSERT_EQ(ToString(1), num_keys_in_memtable);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
+  // Verify memtable only gets flushed if it contains data overlapping the range
+  // provided to `CompactRange`. Tests all kinds of overlap/non-overlap.
+  const int kNumEndpointKeys = 5;
+  std::string keys[kNumEndpointKeys] = {"a", "b", "c", "d", "e"};
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // One extra iteration for nullptr, which means left side of interval is
+  // unbounded.
+  for (int i = 0; i <= kNumEndpointKeys; ++i) {
+    Slice begin;
+    Slice* begin_ptr;
+    if (i == 0) {
+      begin_ptr = nullptr;
+    } else {
+      begin = keys[i - 1];
+      begin_ptr = &begin;
+    }
+    // Start at `i` so right endpoint comes after left endpoint. One extra
+    // iteration for nullptr, which means right side of interval is unbounded.
+    for (int j = std::max(0, i - 1); j <= kNumEndpointKeys; ++j) {
+      Slice end;
+      Slice* end_ptr;
+      if (j == kNumEndpointKeys) {
+        end_ptr = nullptr;
+      } else {
+        end = keys[j];
+        end_ptr = &end;
+      }
+      ASSERT_OK(Put("b", "val"));
+      ASSERT_OK(Put("d", "val"));
+      CompactRangeOptions compact_range_opts;
+      ASSERT_OK(db_->CompactRange(compact_range_opts, begin_ptr, end_ptr));
+
+      uint64_t get_prop_tmp, num_memtable_entries = 0;
+      ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesImmMemTables,
+                                      &get_prop_tmp));
+      num_memtable_entries += get_prop_tmp;
+      ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+                                      &get_prop_tmp));
+      num_memtable_entries += get_prop_tmp;
+      if (begin_ptr == nullptr || end_ptr == nullptr ||
+          (i <= 4 && j >= 1 && (begin != "c" || end != "c"))) {
+        // In this case `CompactRange`'s range overlapped in some way with the
+        // memtable's range, so flush should've happened. Then "b" and "d" won't
+        // be in the memtable.
+        ASSERT_EQ(0, num_memtable_entries);
+      } else {
+        ASSERT_EQ(2, num_memtable_entries);
+        // flush anyways to prepare for next iteration
+        db_->Flush(FlushOptions());
+      }
+    }
   }
 }
 

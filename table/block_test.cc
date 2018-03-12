@@ -133,7 +133,7 @@ TEST_F(BlockTest, SimpleTest) {
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
                                const std::vector<std::string> &keys,
                                const std::vector<std::string> &values,
-                               const int prefix_group_size = 1) {
+                               const int /*prefix_group_size*/ = 1) {
   builder->reset(new BlockBuilder(1 /* restart interval */));
 
   // Add only half of the keys
@@ -229,18 +229,47 @@ class BlockReadAmpBitmapSlowAndAccurate {
     marked_ranges_.emplace(end_offset, start_offset);
   }
 
+  void ResetCheckSequence() { iter_valid_ = false; }
+
   // Return true if any byte in this range was Marked
+  // This does linear search from the previous position. When calling
+  // multiple times, `offset` needs to be incremental to get correct results.
+  // Call ResetCheckSequence() to reset it.
   bool IsPinMarked(size_t offset) {
-    auto it = marked_ranges_.lower_bound(
+    if (iter_valid_) {
+      // Has existing iterator, try linear search from
+      // the iterator.
+      for (int i = 0; i < 64; i++) {
+        if (offset < iter_->second) {
+          return false;
+        }
+        if (offset <= iter_->first) {
+          return true;
+        }
+
+        iter_++;
+        if (iter_ == marked_ranges_.end()) {
+          iter_valid_ = false;
+          return false;
+        }
+      }
+    }
+    // Initial call or have linear searched too many times.
+    // Do binary search.
+    iter_ = marked_ranges_.lower_bound(
         std::make_pair(offset, static_cast<size_t>(0)));
-    if (it == marked_ranges_.end()) {
+    if (iter_ == marked_ranges_.end()) {
+      iter_valid_ = false;
       return false;
     }
-    return offset <= it->first && offset >= it->second;
+    iter_valid_ = true;
+    return offset <= iter_->first && offset >= iter_->second;
   }
 
  private:
   std::set<std::pair<size_t, size_t>> marked_ranges_;
+  std::set<std::pair<size_t, size_t>>::iterator iter_;
+  bool iter_valid_ = false;
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
@@ -251,18 +280,16 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     });
   SyncPoint::GetInstance()->EnableProcessing();
   std::vector<size_t> block_sizes = {
-      1,                 // 1 byte
-      32,                // 32 bytes
-      61,                // 61 bytes
-      64,                // 64 bytes
-      512,               // 0.5 KB
-      1024,              // 1 KB
-      1024 * 4,          // 4 KB
-      1024 * 10,         // 10 KB
-      1024 * 50,         // 50 KB
-      1024 * 1024,       // 1 MB
-      1024 * 1024 * 4,   // 4 MB
-      1024 * 1024 * 50,  // 10 MB
+      1,                // 1 byte
+      32,               // 32 bytes
+      61,               // 61 bytes
+      64,               // 64 bytes
+      512,              // 0.5 KB
+      1024,             // 1 KB
+      1024 * 4,         // 4 KB
+      1024 * 10,        // 10 KB
+      1024 * 50,        // 50 KB
+      1024 * 1024 * 4,  // 5 MB
       777,
       124653,
   };
@@ -277,10 +304,6 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     size_t needed_bits = (block_size / kBytesPerBit);
     if (block_size % kBytesPerBit != 0) {
       needed_bits++;
-    }
-    size_t bitmap_size = needed_bits / 32;
-    if (needed_bits % 32 != 0) {
-      bitmap_size++;
     }
 
     ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES), block_size);
@@ -309,6 +332,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     }
 
     for (size_t i = 0; i < random_entries.size(); i++) {
+      read_amp_slow_and_accurate.ResetCheckSequence();
       auto &current_entry = random_entries[rnd.Next() % random_entries.size()];
 
       read_amp_bitmap.Mark(static_cast<uint32_t>(current_entry.first),

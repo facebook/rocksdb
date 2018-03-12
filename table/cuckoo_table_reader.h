@@ -54,7 +54,7 @@ class CuckooTableReader: public TableReader {
   size_t ApproximateMemoryUsage() const override;
 
   // Following methods are not implemented for Cuckoo Table Reader
-  uint64_t ApproximateOffsetOf(const Slice& key) override { return 0; }
+  uint64_t ApproximateOffsetOf(const Slice& /*key*/) override { return 0; }
   void SetupForCompaction() override {}
   // End of methods not implemented.
 

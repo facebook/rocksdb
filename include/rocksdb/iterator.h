@@ -51,7 +51,7 @@ class Iterator : public Cleanable {
   // Position at the last key in the source that at or before target
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
-  virtual void SeekForPrev(const Slice& target) {}
+  virtual void SeekForPrev(const Slice& target) = 0;
 
   // Moves to the next entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.
@@ -97,6 +97,9 @@ class Iterator : public Cleanable {
   // Property "rocksdb.iterator.super-version-number":
   //   LSM version used by the iterator. The same format as DB Property
   //   kCurrentSuperVersionNumber. See its comment for more information.
+  // Property "rocksdb.iterator.internal-key":
+  //   Get the user-key portion of the internal key at which the iteration
+  //   stopped.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
  private:

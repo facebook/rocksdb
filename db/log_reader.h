@@ -54,6 +54,7 @@ class Reader {
   // The Reader will start reading at the first record located at physical
   // position >= initial_offset within the file.
   Reader(std::shared_ptr<Logger> info_log,
+  // @lint-ignore TXT2 T25377293 Grandfathered in
 	 unique_ptr<SequentialFileReader>&& file,
          Reporter* reporter, bool checksum, uint64_t initial_offset,
          uint64_t log_num);

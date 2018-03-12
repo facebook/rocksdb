@@ -25,5 +25,10 @@ public abstract class Comparator extends AbstractComparator<Slice> {
     return createNewComparator0(nativeParameterHandles[0]);
   }
 
+  @Override
+  final ComparatorType getComparatorType() {
+    return ComparatorType.JAVA_COMPARATOR;
+  }
+
   private native long createNewComparator0(final long comparatorOptionsHandle);
 }

@@ -76,8 +76,8 @@ class FaultInjectionTest : public testing::Test,
         sync_use_wal_(false),
         sync_use_compact_(true),
         base_env_(nullptr),
-        env_(NULL),
-        db_(NULL) {
+        env_(nullptr),
+        db_(nullptr) {
   }
 
   ~FaultInjectionTest() {
@@ -139,9 +139,9 @@ class FaultInjectionTest : public testing::Test,
   }
 
   Status NewDB() {
-    assert(db_ == NULL);
+    assert(db_ == nullptr);
     assert(tiny_cache_ == nullptr);
-    assert(env_ == NULL);
+    assert(env_ == nullptr);
 
     env_ =
         new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
@@ -176,7 +176,7 @@ class FaultInjectionTest : public testing::Test,
     Status s = DestroyDB(dbname_, options_);
 
     delete env_;
-    env_ = NULL;
+    env_ = nullptr;
 
     tiny_cache_.reset();
 
@@ -228,16 +228,9 @@ class FaultInjectionTest : public testing::Test,
     return Status::OK();
   }
 
-#ifdef ROCKSDB_UBSAN_RUN
-#if defined(__clang__)
-__attribute__((__no_sanitize__("shift"), no_sanitize("signed-integer-overflow")))
-#elif defined(__GNUC__)
-__attribute__((__no_sanitize_undefined__))
-#endif
-#endif
   // Return the ith key
   Slice Key(int i, std::string* storage) const {
-    int num = i;
+    unsigned long long num = i;
     if (!sequential_order_) {
       // random transfer
       const int m = 0x5bd1e995;
@@ -245,7 +238,7 @@ __attribute__((__no_sanitize_undefined__))
       num ^= num << 24;
     }
     char buf[100];
-    snprintf(buf, sizeof(buf), "%016d", num);
+    snprintf(buf, sizeof(buf), "%016d", static_cast<int>(num));
     storage->assign(buf, strlen(buf));
     return Slice(*storage);
   }

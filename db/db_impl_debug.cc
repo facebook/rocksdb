@@ -103,7 +103,7 @@ Status DBImpl::TEST_FlushMemTable(bool wait, ColumnFamilyHandle* cfh) {
     auto cfhi = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh);
     cfd = cfhi->cfd();
   }
-  return FlushMemTable(cfd, fo);
+  return FlushMemTable(cfd, fo, FlushReason::kTest);
 }
 
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
@@ -117,7 +117,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd);
 }
 
-Status DBImpl::TEST_WaitForCompact() {
+Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
 
   // TODO: a bug here. This function actually does not necessarily
@@ -126,7 +126,8 @@ Status DBImpl::TEST_WaitForCompact() {
 
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-          bg_flush_scheduled_) &&
+          bg_flush_scheduled_ ||
+          (wait_unscheduled && unscheduled_compactions_)) &&
          bg_error_.ok()) {
     bg_cv_.Wait();
   }
@@ -185,6 +186,12 @@ Status DBImpl::TEST_GetAllImmutableCFOptions(
 uint64_t DBImpl::TEST_FindMinLogContainingOutstandingPrep() {
   return FindMinLogContainingOutstandingPrep();
 }
+
+size_t DBImpl::TEST_PreparedSectionCompletedSize() {
+  return prepared_section_completed_.size();
+}
+
+size_t DBImpl::TEST_LogsWithPrepSize() { return logs_with_prep_.size(); }
 
 uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
   return FindMinPrepLogReferencedByMemTable();

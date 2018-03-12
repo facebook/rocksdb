@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef MERGE_OPERATORS_H
-#define MERGE_OPERATORS_H
+#pragma once
+#include "rocksdb/merge_operator.h"
 
-#include <memory>
 #include <stdio.h>
 
-#include "rocksdb/merge_operator.h"
+#include <memory>
+#include <string>
 
 namespace rocksdb {
 
@@ -19,8 +19,10 @@ class MergeOperators {
   static std::shared_ptr<MergeOperator> CreateDeprecatedPutOperator();
   static std::shared_ptr<MergeOperator> CreateUInt64AddOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator();
+  static std::shared_ptr<MergeOperator> CreateStringAppendOperator(char delim_char);
   static std::shared_ptr<MergeOperator> CreateStringAppendTESTOperator();
   static std::shared_ptr<MergeOperator> CreateMaxOperator();
+  static std::shared_ptr<MergeOperator> CreateBytesXOROperator();
 
   // Will return a different merge operator depending on the string.
   // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
@@ -38,14 +40,13 @@ class MergeOperators {
       return CreateStringAppendTESTOperator();
     } else if (name == "max") {
       return CreateMaxOperator();
+    } else if (name == "bytesxor") {
+      return CreateBytesXOROperator();
     } else {
       // Empty or unknown, just return nullptr
       return nullptr;
     }
   }
-
 };
 
-} // namespace rocksdb
-
-#endif
+}  // namespace rocksdb

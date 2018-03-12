@@ -157,9 +157,11 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
   }
-
-  // This function has to be re-worked for cases when
-  // ReFS file system introduced on Windows Server 2012 is used
+#if (_WIN32_WINNT == _WIN32_WINNT_VISTA)
+  // MINGGW as defined by CMake file.
+  // yuslepukhin: I hate the guts of the above macros.
+  // This impl does not guarantee uniqueness everywhere
+  // is reasonably good
   BY_HANDLE_FILE_INFORMATION FileInfo;
 
   BOOL result = GetFileInformationByHandle(hFile, &FileInfo);
@@ -177,6 +179,33 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
 
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
+#else
+  FILE_ID_INFO FileInfo;
+  BOOL result = GetFileInformationByHandleEx(hFile, FileIdInfo, &FileInfo,
+    sizeof(FileInfo));
+
+  TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
+
+  if (!result) {
+    return 0;
+  }
+
+  static_assert(sizeof(uint64_t) == sizeof(FileInfo.VolumeSerialNumber),
+    "Wrong sizeof expectations");
+  // FileId.Identifier is an array of 16 BYTEs, we encode them as two uint64_t
+  static_assert(sizeof(uint64_t) * 2 == sizeof(FileInfo.FileId.Identifier),
+    "Wrong sizeof expectations");
+
+  char* rid = id;
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.VolumeSerialNumber));
+  uint64_t* file_id = reinterpret_cast<uint64_t*>(&FileInfo.FileId.Identifier[0]);
+  rid = EncodeVarint64(rid, *file_id);
+  ++file_id;
+  rid = EncodeVarint64(rid, *file_id);
+
+  assert(rid >= id);
+  return static_cast<size_t>(rid - id);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -192,8 +221,8 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
       length_(length) {}
 
 WinMmapReadableFile::~WinMmapReadableFile() {
-  BOOL ret = ::UnmapViewOfFile(mapped_region_);
-  (void)ret;
+  BOOL ret __attribute__((__unused__));
+  ret = ::UnmapViewOfFile(mapped_region_);
   assert(ret);
 
   ret = ::CloseHandle(hMap_);
@@ -279,7 +308,7 @@ Status WinMmapFile::MapNewRegion() {
 
     if (hMap_ != NULL) {
       // Unmap the previous one
-      BOOL ret;
+      BOOL ret __attribute__((__unused__));
       ret = ::CloseHandle(hMap_);
       assert(ret);
       hMap_ = NULL;
@@ -782,8 +811,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError(
         "Failed to pwrite for: " + file_data_->GetName(), lastError);
-    }
-    else {
+    } else {
       written = ret;
     }
 
@@ -828,8 +856,7 @@ Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset)
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
       "Failed to pwrite for: " + file_data_->GetName(), lastError);
-  }
-  else {
+  } else {
     assert(size_t(ret) == data.size());
     // For sequential write this would be simple
     // size extension by data.size()
@@ -880,7 +907,7 @@ inline
 Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
-  if (fsync(file_data_->GetFileHandle()) < 0) {
+  if (!file_data_->use_direct_io() && fsync(file_data_->GetFileHandle()) < 0) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
         "fsync failed at Sync() for: " + file_data_->GetName(), lastError);
@@ -963,6 +990,8 @@ Status WinWritableFile::Sync() {
 
 Status WinWritableFile::Fsync() { return SyncImpl(); }
 
+bool WinWritableFile::IsSyncThreadSafe() const { return true; }
+
 uint64_t WinWritableFile::GetFileSize() {
   return GetFileNextWriteOffset();
 }
@@ -1017,11 +1046,14 @@ Status WinRandomRWFile::Close() {
 
 Status WinDirectory::Fsync() { return Status::OK(); }
 
+size_t WinDirectory::GetUniqueId(char* id, size_t max_size) const {
+  return GetUniqueIdFromFile(handle_, id, max_size);
+}
 //////////////////////////////////////////////////////////////////////////
 /// WinFileLock
 
 WinFileLock::~WinFileLock() {
-  BOOL ret;
+  BOOL ret __attribute__((__unused__));
   ret = ::CloseHandle(hFile_);
   assert(ret);
 }

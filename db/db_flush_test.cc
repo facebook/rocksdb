@@ -126,6 +126,41 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   ASSERT_EQ(1, num_compactions);
 }
 
+TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush",
+        "DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:1"},
+       {"DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:2",
+        "FlushJob::WriteLevel0Table"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key1", "value1"));
+
+  port::Thread t([&]() {
+    // The call wait for flush to finish, i.e. with flush_options.wait = true.
+    ASSERT_OK(Flush());
+  });
+
+  // Wait for flush start.
+  TEST_SYNC_POINT("DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:1");
+  // Insert a second memtable before the manual flush finish.
+  // At the end of the manual flush job, it will check if further flush
+  // is needed, but it will not trigger flush of the second memtable because
+  // min_write_buffer_number_to_merge is not reached.
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  TEST_SYNC_POINT("DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:2");
+
+  // Manual flush should return, without waiting for flush indefinitely.
+  t.join();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
@@ -148,6 +183,26 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   ASSERT_OK(dbfull()->Flush(flush_options));
   Destroy(options);
   delete options.env;
+}
+
+TEST_F(DBFlushTest, FlushError) {
+  Options options;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_injection_env.get();
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  fault_injection_env->SetFilesystemActive(false);
+  Status s = dbfull()->TEST_SwitchMemtable();
+  fault_injection_env->SetFilesystemActive(true);
+  Destroy(options);
+  ASSERT_NE(s, Status::OK());
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,

@@ -34,4 +34,5 @@ void Java_org_rocksdb_AbstractCompactionFilterFactory_disposeInternal(
   auto* ptr_sptr_cff =
       reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactoryJniCallback> *>(jhandle);
   delete ptr_sptr_cff;
+// @lint-ignore TXT4 T25377293 Grandfathered in
 }

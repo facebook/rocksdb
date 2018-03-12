@@ -81,8 +81,11 @@ struct SuperVersionContext {
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
     return full_scan_candidate_files.size() || sst_delete_files.size() ||
-           log_delete_files.size() || manifest_delete_files.size() ||
-           memtables_to_free.size() > 0 || logs_to_free.size() > 0 ||
+           log_delete_files.size() || manifest_delete_files.size();
+  }
+
+  inline bool HaveSomethingToClean() const {
+    return memtables_to_free.size() > 0 || logs_to_free.size() > 0 ||
            superversion_context.HaveSomethingToDelete();
   }
 

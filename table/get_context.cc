@@ -77,7 +77,7 @@ void GetContext::MarkKeyMayExist() {
   }
 }
 
-void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
+void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   assert(state_ == kNotFound);
   appendToReplayLog(replay_log_, kTypeValue, value);
 
@@ -85,6 +85,13 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   if (LIKELY(pinnable_val_ != nullptr)) {
     pinnable_val_->PinSelf(value);
   }
+}
+
+void GetContext::RecordCounters(Tickers ticker, size_t val) {
+  if (ticker == Tickers::TICKER_ENUM_MAX) {
+    return;
+  }
+  tickers_value[ticker] += static_cast<uint64_t>(val);
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,

@@ -36,6 +36,7 @@ static int PthreadCall(const char* label, int result) {
 }
 
 Mutex::Mutex(bool adaptive) {
+  (void) adaptive;
 #ifdef ROCKSDB_PTHREAD_ADAPTIVE_MUTEX
   if (!adaptive) {
     PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
@@ -192,7 +193,7 @@ void *cacheline_aligned_alloc(size_t size) {
 #elif ( _POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600 || defined(__APPLE__))
   void *m;
   errno = posix_memalign(&m, CACHE_LINE_SIZE, size);
-  return errno ? NULL : m;
+  return errno ? nullptr : m;
 #else
   return malloc(size);
 #endif

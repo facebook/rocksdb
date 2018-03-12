@@ -498,9 +498,9 @@ TEST_F(DBTest2, WalFilterTest) {
       apply_option_at_record_index_(apply_option_for_record_index),
       current_record_index_(0) {}
 
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-      WriteBatch* new_batch,
-      bool* batch_changed) const override {
+    virtual WalProcessingOption LogRecord(
+        const WriteBatch& /*batch*/, WriteBatch* /*new_batch*/,
+        bool* /*batch_changed*/) const override {
       WalFilter::WalProcessingOption option_to_return;
 
       if (current_record_index_ == apply_option_at_record_index_) {
@@ -874,11 +874,10 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
       cf_name_id_map_ = cf_name_id_map;
     }
 
-    virtual WalProcessingOption LogRecordFound(unsigned long long log_number,
-      const std::string& log_file_name,
-      const WriteBatch& batch,
-      WriteBatch* new_batch,
-      bool* batch_changed) override {
+    virtual WalProcessingOption LogRecordFound(
+        unsigned long long log_number, const std::string& /*log_file_name*/,
+        const WriteBatch& batch, WriteBatch* /*new_batch*/,
+        bool* /*batch_changed*/) override {
       class LogRecordBatchHandler : public WriteBatch::Handler {
       private:
         const std::map<uint32_t, uint64_t> & cf_log_number_map_;
@@ -1231,7 +1230,7 @@ class CompactionStallTestListener : public EventListener {
  public:
   CompactionStallTestListener() : compacted_files_cnt_(0) {}
 
-  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.cf_name, "default");
     ASSERT_EQ(ci.base_input_level, 0);
     ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);
@@ -1820,11 +1819,29 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
-  if (dbname_.find("dev/shm") != std::string::npos) {
-    // /dev/shm dont support getting a unique file id, this mean that
-    // running this test on /dev/shm will fail because lru_cache will load
-    // the blocks again regardless of them being already in the cache
-    return;
+  {
+    const int kIdBufLen = 100;
+    char id_buf[kIdBufLen];
+#ifndef OS_WIN
+    // You can't open a directory on windows using random access file
+    std::unique_ptr<RandomAccessFile> file;
+    ASSERT_OK(env_->NewRandomAccessFile(dbname_, &file, EnvOptions()));
+    if (file->GetUniqueId(id_buf, kIdBufLen) == 0) {
+      // fs holding db directory doesn't support getting a unique file id,
+      // this means that running this test will fail because lru_cache will load
+      // the blocks again regardless of them being already in the cache
+      return;
+    }
+#else
+    std::unique_ptr<Directory> dir;
+    ASSERT_OK(env_->NewDirectory(dbname_, &dir));
+    if (dir->GetUniqueId(id_buf, kIdBufLen) == 0) {
+      // fs holding db directory doesn't support getting a unique file id,
+      // this means that running this test will fail because lru_cache will load
+      // the blocks again regardless of them being already in the cache
+      return;
+    }
+#endif
   }
   uint32_t bytes_per_bit[2] = {1, 16};
   for (size_t k = 0; k < 2; k++) {
@@ -2429,6 +2446,60 @@ TEST_F(DBTest2, ReadCallbackTest) {
     dbfull()->ReleaseSnapshot(snapshot);
   }
 }
+
+#ifndef ROCKSDB_LITE
+
+TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
+  // Regression test for race condition where an obsolete file is returned to
+  // user as a "live file" but then deleted, all while file deletions are
+  // disabled.
+  //
+  // It happened like this:
+  //
+  // 1. [flush thread] Log file "x.log" found by FindObsoleteFiles
+  // 2. [user thread] DisableFileDeletions, GetSortedWalFiles are called and the
+  //    latter returned "x.log"
+  // 3. [flush thread] PurgeObsoleteFiles deleted "x.log"
+  // 4. [user thread] Reading "x.log" failed
+  //
+  // Unfortunately the only regression test I can come up with involves sleep.
+  // We cannot set SyncPoints to repro since, once the fix is applied, the
+  // SyncPoints would cause a deadlock as the repro's sequence of events is now
+  // prohibited.
+  //
+  // Instead, if we sleep for a second between Find and Purge, and ensure the
+  // read attempt happens after purge, then the sequence of events will almost
+  // certainly happen on the old code.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BackgroundCallFlush:FilesFound",
+       "DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered"},
+      {"DBImpl::PurgeObsoleteFiles:End",
+       "DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured"},
+  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PurgeObsoleteFiles:Begin",
+      [&](void* arg) { env_->SleepForMicroseconds(1000000); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put("key", "val");
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  db_->Flush(flush_opts);
+  TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered");
+
+  db_->DisableFileDeletions();
+  VectorLogPtr log_files;
+  db_->GetSortedWalFiles(log_files);
+  TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured");
+  for (const auto& log_file : log_files) {
+    ASSERT_OK(env_->FileExists(LogFileName(dbname_, log_file->LogNumber())));
+  }
+
+  db_->EnableFileDeletions();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 

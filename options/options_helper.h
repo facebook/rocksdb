@@ -15,6 +15,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
 
@@ -63,6 +64,8 @@ enum class OptionType {
   kCompactionFilter,
   kCompactionFilterFactory,
   kCompactionOptionsFIFO,
+  kCompactionOptionsUniversal,
+  kCompactionStopStyle,
   kMergeOperator,
   kMemTableRepFactory,
   kBlockBasedTableIndexType,
@@ -141,15 +144,19 @@ struct OptionsHelper {
   static std::map<CompactionStopStyle, std::string>
       compaction_stop_style_to_string;
   static std::unordered_map<std::string, ChecksumType> checksum_type_string_map;
+  static std::unordered_map<std::string, CompressionType>
+      compression_type_string_map;
 #ifndef ROCKSDB_LITE
   static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info;
   static std::unordered_map<std::string, OptionTypeInfo>
       fifo_compaction_options_type_info;
+  static std::unordered_map<std::string, OptionTypeInfo>
+      universal_compaction_options_type_info;
+  static std::unordered_map<std::string, CompactionStopStyle>
+      compaction_stop_style_string_map;
   static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info;
   static std::unordered_map<std::string, OptionTypeInfo>
       lru_cache_options_type_info;
-  static std::unordered_map<std::string, CompressionType>
-      compression_type_string_map;
   static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
       block_base_table_index_type_string_map;
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
@@ -166,6 +173,7 @@ struct OptionsHelper {
   static ColumnFamilyOptions dummy_cf_options;
   static CompactionOptionsFIFO dummy_comp_options;
   static LRUCacheOptions dummy_lru_cache_options;
+  static CompactionOptionsUniversal dummy_comp_options_universal;
 #endif  // !ROCKSDB_LITE
 };
 
@@ -180,6 +188,10 @@ static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
 static auto& cf_options_type_info = OptionsHelper::cf_options_type_info;
 static auto& fifo_compaction_options_type_info =
     OptionsHelper::fifo_compaction_options_type_info;
+static auto& universal_compaction_options_type_info =
+    OptionsHelper::universal_compaction_options_type_info;
+static auto& compaction_stop_style_string_map =
+    OptionsHelper::compaction_stop_style_string_map;
 static auto& db_options_type_info = OptionsHelper::db_options_type_info;
 static auto& lru_cache_options_type_info =
     OptionsHelper::lru_cache_options_type_info;

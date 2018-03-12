@@ -168,6 +168,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   }
 
   cf_opts.compaction_options_fifo = mutable_cf_options.compaction_options_fifo;
+  cf_opts.compaction_options_universal =
+      mutable_cf_options.compaction_options_universal;
 
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
@@ -206,6 +208,18 @@ std::unordered_map<std::string, ChecksumType>
                                                {"kCRC32c", kCRC32c},
                                                {"kxxHash", kxxHash}};
 
+std::unordered_map<std::string, CompressionType>
+    OptionsHelper::compression_type_string_map = {
+        {"kNoCompression", kNoCompression},
+        {"kSnappyCompression", kSnappyCompression},
+        {"kZlibCompression", kZlibCompression},
+        {"kBZip2Compression", kBZip2Compression},
+        {"kLZ4Compression", kLZ4Compression},
+        {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kXpressCompression", kXpressCompression},
+        {"kZSTD", kZSTD},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+        {"kDisableCompressionOption", kDisableCompressionOption}};
 #ifndef ROCKSDB_LITE
 
 template <typename T>
@@ -496,6 +510,14 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           reinterpret_cast<LRUCacheOptions*>(opt_address),
           lru_cache_options_type_info);
     }
+    case OptionType::kCompactionOptionsUniversal:
+      return ParseStructOptions<CompactionOptionsUniversal>(
+          value, reinterpret_cast<CompactionOptionsUniversal*>(opt_address),
+          universal_compaction_options_type_info);
+    case OptionType::kCompactionStopStyle:
+      return ParseEnum<CompactionStopStyle>(
+          compaction_stop_style_string_map, value,
+          reinterpret_cast<CompactionStopStyle*>(opt_address));
     default:
       return false;
   }
@@ -660,11 +682,18 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<InfoLogLevel>(
           info_log_level_string_map,
           *reinterpret_cast<const InfoLogLevel*>(opt_address), value);
-    case OptionType::kCompactionOptionsFIFO: {
+    case OptionType::kCompactionOptionsFIFO:
       return SerializeStruct<CompactionOptionsFIFO>(
           *reinterpret_cast<const CompactionOptionsFIFO*>(opt_address), value,
           fifo_compaction_options_type_info);
-    }
+    case OptionType::kCompactionOptionsUniversal:
+      return SerializeStruct<CompactionOptionsUniversal>(
+          *reinterpret_cast<const CompactionOptionsUniversal*>(opt_address),
+          value, universal_compaction_options_type_info);
+    case OptionType::kCompactionStopStyle:
+      return SerializeEnum<CompactionStopStyle>(
+          compaction_stop_style_string_map,
+          *reinterpret_cast<const CompactionStopStyle*>(opt_address), value);
     default:
       return false;
   }
@@ -1459,19 +1488,6 @@ std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
           0}}};
 
-std::unordered_map<std::string, CompressionType>
-    OptionsHelper::compression_type_string_map = {
-        {"kNoCompression", kNoCompression},
-        {"kSnappyCompression", kSnappyCompression},
-        {"kZlibCompression", kZlibCompression},
-        {"kBZip2Compression", kBZip2Compression},
-        {"kLZ4Compression", kLZ4Compression},
-        {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression},
-        {"kZSTD", kZSTD},
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
-        {"kDisableCompressionOption", kDisableCompressionOption}};
-
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
@@ -1525,6 +1541,7 @@ std::unordered_map<std::string, InfoLogLevel>
 ColumnFamilyOptions OptionsHelper::dummy_cf_options;
 CompactionOptionsFIFO OptionsHelper::dummy_comp_options;
 LRUCacheOptions OptionsHelper::dummy_lru_cache_options;
+CompactionOptionsUniversal OptionsHelper::dummy_comp_options_universal;
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)
@@ -1555,12 +1572,15 @@ int offset_of(T1 LRUCacheOptions::*member) {
   return int(size_t(&(OptionsHelper::dummy_lru_cache_options.*member)) -
              size_t(&OptionsHelper::dummy_lru_cache_options));
 }
+template <typename T1>
+int offset_of(T1 CompactionOptionsUniversal::*member) {
+  return int(size_t(&(OptionsHelper::dummy_comp_options_universal.*member)) -
+             size_t(&OptionsHelper::dummy_comp_options_universal));
+}
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::cf_options_type_info = {
         /* not yet supported
-        CompactionOptionsFIFO compaction_options_fifo;
-        CompactionOptionsUniversal compaction_options_universal;
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
         typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
@@ -1783,7 +1803,12 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_options_fifo",
          {offset_of(&ColumnFamilyOptions::compaction_options_fifo),
           OptionType::kCompactionOptionsFIFO, OptionVerificationType::kNormal,
-          true, offsetof(struct MutableCFOptions, compaction_options_fifo)}}};
+          true, offsetof(struct MutableCFOptions, compaction_options_fifo)}},
+        {"compaction_options_universal",
+         {offset_of(&ColumnFamilyOptions::compaction_options_universal),
+          OptionType::kCompactionOptionsUniversal,
+          OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, compaction_options_universal)}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {
@@ -1801,20 +1826,61 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::lru_cache_options_type_info = {
-        {"capacity", {offset_of(&LRUCacheOptions::capacity),
-          OptionType::kSizeT, OptionVerificationType::kNormal, true,
-          offsetof(struct LRUCacheOptions, capacity)}},
-        {"num_shard_bits", {offset_of(&LRUCacheOptions::num_shard_bits),
+    OptionsHelper::universal_compaction_options_type_info = {
+        {"size_ratio",
+         {offset_of(&CompactionOptionsUniversal::size_ratio), OptionType::kUInt,
+          OptionVerificationType::kNormal, true,
+          offsetof(class CompactionOptionsUniversal, size_ratio)}},
+        {"min_merge_width",
+         {offset_of(&CompactionOptionsUniversal::min_merge_width),
+          OptionType::kUInt, OptionVerificationType::kNormal, true,
+          offsetof(class CompactionOptionsUniversal, min_merge_width)}},
+        {"max_merge_width",
+         {offset_of(&CompactionOptionsUniversal::max_merge_width),
+          OptionType::kUInt, OptionVerificationType::kNormal, true,
+          offsetof(class CompactionOptionsUniversal, max_merge_width)}},
+        {"max_size_amplification_percent",
+         {offset_of(
+              &CompactionOptionsUniversal::max_size_amplification_percent),
+          OptionType::kUInt, OptionVerificationType::kNormal, true,
+          offsetof(class CompactionOptionsUniversal,
+                   max_size_amplification_percent)}},
+        {"compression_size_percent",
+         {offset_of(&CompactionOptionsUniversal::compression_size_percent),
           OptionType::kInt, OptionVerificationType::kNormal, true,
+          offsetof(class CompactionOptionsUniversal,
+                   compression_size_percent)}},
+        {"stop_style",
+         {offset_of(&CompactionOptionsUniversal::stop_style),
+          OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
+          true, offsetof(class CompactionOptionsUniversal, stop_style)}},
+        {"allow_trivial_move",
+         {offset_of(&CompactionOptionsUniversal::allow_trivial_move),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(class CompactionOptionsUniversal, allow_trivial_move)}}};
+
+std::unordered_map<std::string, CompactionStopStyle>
+    OptionsHelper::compaction_stop_style_string_map = {
+        {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
+        {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
+
+std::unordered_map<std::string, OptionTypeInfo>
+    OptionsHelper::lru_cache_options_type_info = {
+        {"capacity",
+         {offset_of(&LRUCacheOptions::capacity), OptionType::kSizeT,
+          OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, capacity)}},
+        {"num_shard_bits",
+         {offset_of(&LRUCacheOptions::num_shard_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, true,
           offsetof(struct LRUCacheOptions, num_shard_bits)}},
         {"strict_capacity_limit",
          {offset_of(&LRUCacheOptions::strict_capacity_limit),
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct LRUCacheOptions, strict_capacity_limit)}},
         {"high_pri_pool_ratio",
-         {offset_of(&LRUCacheOptions::high_pri_pool_ratio),
-          OptionType::kDouble, OptionVerificationType::kNormal, true,
+         {offset_of(&LRUCacheOptions::high_pri_pool_ratio), OptionType::kDouble,
+          OptionVerificationType::kNormal, true,
           offsetof(struct LRUCacheOptions, high_pri_pool_ratio)}}};
 
 #endif  // !ROCKSDB_LITE

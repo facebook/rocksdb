@@ -15,7 +15,7 @@ namespace rocksdb {
 // Other than basic table properties, each table may also have the user
 // collected properties.
 // The value of the user-collected properties are encoded as raw bytes --
-// users have to interprete these values by themselves.
+// users have to interpret these values by themselves.
 // Note: To do prefix seek/scan in `UserCollectedProperties`, you can do
 // something similar to:
 //
@@ -59,7 +59,7 @@ extern const std::string kRangeDelBlock;
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
 // a collection of callback functions that will be invoked during table
-// building. It is construced with TablePropertiesCollectorFactory. The methods
+// building. It is constructed with TablePropertiesCollectorFactory. The methods
 // don't need to be thread-safe, as we will create exactly one
 // TablePropertiesCollector object per table and then call it sequentially
 class TablePropertiesCollector {

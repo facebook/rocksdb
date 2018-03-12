@@ -22,6 +22,8 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
     : env_(env),
       logger_(logger),
       total_files_size_(0),
+      compaction_buffer_size_(0),
+      cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
       delete_scheduler_(env, rate_bytes_per_sec, logger.get(), this,
                         max_trash_db_ratio) {}
@@ -48,6 +50,18 @@ Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
   return Status::OK();
 }
 
+void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
+  MutexLock l(&mu_);
+  uint64_t size_added_by_compaction = 0;
+  for (size_t i = 0; i < c->num_input_levels(); i++) {
+    for (size_t j = 0; j < c->num_input_files(i); j++) {
+      FileMetaData* filemeta = c->input(i, j);
+      size_added_by_compaction += filemeta->fd.GetFileSize();
+    }
+  }
+  cur_compactions_reserved_size_ -= size_added_by_compaction;
+}
+
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
                                       const std::string& new_path,
                                       uint64_t* file_size) {
@@ -68,12 +82,55 @@ void SstFileManagerImpl::SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) {
   max_allowed_space_ = max_allowed_space;
 }
 
+void SstFileManagerImpl::SetCompactionBufferSize(
+    uint64_t compaction_buffer_size) {
+  MutexLock l(&mu_);
+  compaction_buffer_size_ = compaction_buffer_size;
+}
+
 bool SstFileManagerImpl::IsMaxAllowedSpaceReached() {
   MutexLock l(&mu_);
   if (max_allowed_space_ <= 0) {
     return false;
   }
   return total_files_size_ >= max_allowed_space_;
+}
+
+bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
+  MutexLock l(&mu_);
+  if (max_allowed_space_ <= 0) {
+    return false;
+  }
+  return total_files_size_ + cur_compactions_reserved_size_ >=
+         max_allowed_space_;
+}
+
+bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction* c) {
+  MutexLock l(&mu_);
+  uint64_t size_added_by_compaction = 0;
+  // First check if we even have the space to do the compaction
+  for (size_t i = 0; i < c->num_input_levels(); i++) {
+    for (size_t j = 0; j < c->num_input_files(i); j++) {
+      FileMetaData* filemeta = c->input(i, j);
+      size_added_by_compaction += filemeta->fd.GetFileSize();
+    }
+  }
+
+  if (max_allowed_space_ != 0 &&
+      (size_added_by_compaction + cur_compactions_reserved_size_ +
+           total_files_size_ + compaction_buffer_size_ >
+       max_allowed_space_)) {
+    return false;
+  }
+  // Update cur_compactions_reserved_size_ so concurrent compaction
+  // don't max out space
+  cur_compactions_reserved_size_ += size_added_by_compaction;
+  return true;
+}
+
+uint64_t SstFileManagerImpl::GetCompactionsReservedSize() {
+  MutexLock l(&mu_);
+  return cur_compactions_reserved_size_;
 }
 
 uint64_t SstFileManagerImpl::GetTotalSize() {

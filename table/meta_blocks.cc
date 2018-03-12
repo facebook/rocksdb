@@ -11,6 +11,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block.h"
+#include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
 #include "table/persistent_cache_helper.h"
@@ -176,8 +177,13 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   ReadOptions read_options;
   read_options.verify_checksums = false;
   Status s;
-  s = ReadBlockContents(file, prefetch_buffer, footer, read_options, handle,
-                        &block_contents, ioptions, false /* decompress */);
+  Slice compression_dict;
+  PersistentCacheOptions cache_options;
+
+  BlockFetcher block_fetcher(
+      file, prefetch_buffer, footer, read_options, handle, &block_contents,
+      ioptions, false /* decompress */, compression_dict, cache_options);
+  s = block_fetcher.ReadBlockContents();
 
   if (!s.ok()) {
     return s;
@@ -292,9 +298,14 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  s = ReadBlockContents(file, nullptr /* prefetch_buffer */, footer,
-                        read_options, metaindex_handle, &metaindex_contents,
-                        ioptions, false /* decompress */);
+  Slice compression_dict;
+  PersistentCacheOptions cache_options;
+
+  BlockFetcher block_fetcher(
+      file, nullptr /* prefetch_buffer */, footer, read_options,
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      compression_dict, cache_options);
+  s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
   }
@@ -350,9 +361,13 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  s = ReadBlockContents(file, nullptr /* prefetch_buffer */, footer,
-                        read_options, metaindex_handle, &metaindex_contents,
-                        ioptions, false /* do decompression */);
+  Slice compression_dict;
+  PersistentCacheOptions cache_options;
+  BlockFetcher block_fetcher(
+      file, nullptr /* prefetch_buffer */, footer, read_options,
+      metaindex_handle, &metaindex_contents, ioptions,
+      false /* do decompression */, compression_dict, cache_options);
+  s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
   }
@@ -384,9 +399,14 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  status = ReadBlockContents(file, prefetch_buffer, footer, read_options,
+  Slice compression_dict;
+  PersistentCacheOptions cache_options;
+
+  BlockFetcher block_fetcher(file, prefetch_buffer, footer, read_options,
                              metaindex_handle, &metaindex_contents, ioptions,
-                             false /* decompress */);
+                             false /* decompress */, compression_dict,
+                             cache_options);
+  status = block_fetcher.ReadBlockContents();
   if (!status.ok()) {
     return status;
   }
@@ -406,9 +426,10 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   }
 
   // Reading metablock
-  return ReadBlockContents(file, prefetch_buffer, footer, read_options,
-                           block_handle, contents, ioptions,
-                           false /* decompress */);
+  BlockFetcher block_fetcher2(
+      file, prefetch_buffer, footer, read_options, block_handle, contents,
+      ioptions, false /* decompress */, compression_dict, cache_options);
+  return block_fetcher2.ReadBlockContents();
 }
 
 }  // namespace rocksdb

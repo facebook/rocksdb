@@ -77,9 +77,11 @@ Status RandomTransactionInserter::DBGet(
     uint64_t ikey, bool get_for_update, uint64_t* int_value,
     std::string* full_key, bool* unexpected_error) {
   Status s;
-  // four digits and zero end char
-  char prefix_buf[5];
+  // Five digits (since the largest uint16_t is 65535) plus the NUL
+  // end char.
+  char prefix_buf[6];
   // Pad prefix appropriately so we can iterate over each set
+  assert(set_i + 1 <= 9999);
   snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
   // key format:  [SET#][random#]
   std::string skey = ToString(ikey);
@@ -124,7 +126,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   bool unexpected_error = false;
 
   std::vector<uint16_t> set_vec(num_sets_);
-  std::iota(set_vec.begin(), set_vec.end(), 0);
+  std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
   std::random_shuffle(set_vec.begin(), set_vec.end(),
                       [&](uint64_t r) { return rand_->Uniform(r); });
   // For each set, pick a key at random and increment it
@@ -173,7 +175,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     if (txn != nullptr) {
       std::hash<std::thread::id> hasher;
       char name[64];
-      snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
+      snprintf(name, 64, "txn%" ROCKSDB_PRIszt "-%d", hasher(std::this_thread::get_id()),
                txn_id_++);
       assert(strlen(name) < 64 - 1);
       if (!is_optimistic && !rand_->OneIn(10)) {
@@ -254,15 +256,17 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   }
 
   std::vector<uint16_t> set_vec(num_sets);
-  std::iota(set_vec.begin(), set_vec.end(), 0);
+  std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
   if (rand) {
     std::random_shuffle(set_vec.begin(), set_vec.end(),
                         [&](uint64_t r) { return rand->Uniform(r); });
   }
   // For each set of keys with the same prefix, sum all the values
   for (uint16_t set_i : set_vec) {
-    // four digits and zero end char
-    char prefix_buf[5];
+    // Five digits (since the largest uint16_t is 65535) plus the NUL
+    // end char.
+    char prefix_buf[6];
+    assert(set_i + 1 <= 9999);
     snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
     uint64_t total = 0;
 
