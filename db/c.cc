@@ -2574,9 +2574,7 @@ void rocksdb_perfcontext_reset(rocksdb_perfcontext_t* context) {
 char* rocksdb_perfcontext_report(rocksdb_perfcontext_t* context,
     unsigned char exclude_zero_counters) {
   std::string s = context->rep->ToString(exclude_zero_counters);
-  char *report = (char *)malloc(s.size()+1);
-  report[s.size()] = '\0';
-  return strncpy(report, s.c_str(), s.size());
+  return strndup(s.c_str(), s.size());
 }
 
 uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
