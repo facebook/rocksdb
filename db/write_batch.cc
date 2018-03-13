@@ -1024,6 +1024,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   bool IsDuplicateKeySeq(uint32_t column_family_id, const Slice& key) {
     assert(!write_after_commit_);
+    assert(rebuilding_trx_ != nullptr);
     if (!dup_dectector_on_) {
       new (&duplicate_detector_) DuplicateDetector(db_);
       dup_dectector_on_ = true;
