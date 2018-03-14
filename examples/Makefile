@@ -20,7 +20,7 @@ CONFIG_FILE = $(INSTALL_PATH)/include/rocksdb/make_config.mk
 
 #ifeq ("$(wildcard $(CONFIG_FILE))","")
 ifneq ("$(CONFIG_FILE)","")
-	include $(INSTALL_PATH)/include/rocksdb/make_config.mk
+	include $(CONFIG_FILE)
 endif
 
 ifndef DISABLE_JEMALLOC
