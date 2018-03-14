@@ -406,7 +406,6 @@ TESTS = \
 	db_range_del_test \
 	db_sst_test \
 	db_tailing_iter_test \
-	db_universal_compaction_test \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
@@ -508,6 +507,7 @@ TESTS = \
 	repair_test \
 	env_timed_test \
 	write_prepared_transaction_test \
+	db_universal_compaction_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
