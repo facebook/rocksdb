@@ -20,9 +20,9 @@ addons:
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
-  - TEST_GROUP=2 # 30-32 minutes
-  - TEST_GROUP=3 # ? minutes - under development
-  - TEST_GROUP=4 # ? minutes - under development
+  - TEST_GROUP=2 # 18-20 minutes
+  - TEST_GROUP=3 # 20-22 minutes
+  - TEST_GROUP=4 # 12-14 minutes
   # Run java tests
   - JOB_NAME=java_test # 4-11 minutes
   # Build ROCKSDB_LITE
