@@ -77,7 +77,8 @@ class DBImplReadOnly : public DBImpl {
       ColumnFamilyHandle* /*column_family*/,
       const std::vector<std::string>& /*input_file_names*/,
       const int /*output_level*/, const int /*output_path_id*/ = -1,
-      std::vector<std::string>* const /*output_file_names*/ = NULL) override {
+      std::vector<std::string>* const /*output_file_names*/ = nullptr
+      ) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

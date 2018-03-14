@@ -186,7 +186,8 @@ class DBImpl : public DB {
                               const std::vector<std::string>& input_file_names,
                               const int output_level,
                               const int output_path_id = -1,
-                              std::vector<std::string>* const output_file_names = NULL) override;
+                              std::vector<std::string>* const output_file_names
+                              = nullptr) override;
 
   virtual Status PauseBackgroundWork() override;
   virtual Status ContinueBackgroundWork() override;
