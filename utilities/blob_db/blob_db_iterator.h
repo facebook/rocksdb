@@ -129,7 +129,6 @@ class BlobDBIterator : public Iterator {
         }
         return false;
       }
-      return status_.IsNotFound();
     } else {
       return false;
     }
