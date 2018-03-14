@@ -1009,7 +1009,9 @@ class MemTableInserter : public WriteBatch::Handler {
   bool seq_per_batch_;
   // Whether the memtable write will be done only after the commit
   bool write_after_commit_;
-  DuplicateDetector duplicate_detector_;
+  using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
+  DupDetector       duplicate_detector_;
+  bool              dup_dectector_on_;
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -1018,6 +1020,17 @@ class MemTableInserter : public WriteBatch::Handler {
       post_info_created_ = true;
     }
     return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
+  }
+
+  bool IsDuplicateKeySeq(uint32_t column_family_id, const Slice& key) {
+    assert(!write_after_commit_);
+    assert(rebuilding_trx_ != nullptr);
+    if (!dup_dectector_on_) {
+      new (&duplicate_detector_) DuplicateDetector(db_);
+      dup_dectector_on_ = true;
+    }
+    return reinterpret_cast<DuplicateDetector*>
+      (&duplicate_detector_)->IsDuplicateKeySeq(column_family_id, key, sequence_);
   }
 
  protected:
@@ -1048,11 +1061,16 @@ class MemTableInserter : public WriteBatch::Handler {
         // batch). So seq_per_batch being false indicates write_after_commit
         // approach.
         write_after_commit_(!seq_per_batch),
-        duplicate_detector_(db_) {
+        duplicate_detector_(),
+        dup_dectector_on_(false) {
     assert(cf_mems_);
   }
 
   ~MemTableInserter() {
+    if (dup_dectector_on_) {
+      reinterpret_cast<DuplicateDetector*>
+        (&duplicate_detector_)->~DuplicateDetector();
+    }
     if (post_info_created_) {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
@@ -1153,8 +1171,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
-        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
-                                                              key, sequence_);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1281,8 +1298,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
-                                                              key, sequence_);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1317,8 +1333,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                          key);
-        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
-                                                              key, sequence_);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1358,8 +1373,7 @@ class MemTableInserter : public WriteBatch::Handler {
                                         begin_key, end_key);
         // TODO(myabandeh): when transactional DeleteRange support is added,
         // check if end_key must also be added.
-        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(
-            column_family_id, begin_key, sequence_);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, begin_key);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
@@ -1410,8 +1424,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // need to keep track of the keys for upcoming rollback/commit.
         WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                   value);
-        batch_boundry = duplicate_detector_.IsDuplicateKeySeq(column_family_id,
-                                                              key, sequence_);
+        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
