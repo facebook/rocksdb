@@ -655,6 +655,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "double_deletefile_test",
+        "db/double_deletefile_test.cc",
+        "serial",
+    ],
+    [
         "dynamic_bloom_test",
         "util/dynamic_bloom_test.cc",
         "serial",

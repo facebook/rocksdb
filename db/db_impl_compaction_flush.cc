@@ -1479,6 +1479,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
+    TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:2");
 
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToClean() ||
@@ -1491,6 +1492,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       // It also applies to access other states that DB owns.
       log_buffer.FlushBufferToLog();
       if (job_context.HaveSomethingToDelete()) {
+        TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:3");
         PurgeObsoleteFiles(job_context);
       }
       job_context.Clean();
