@@ -409,6 +409,11 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
+  // The deletion scheduler sometimes skips marking file as trash according to
+  // a heuristic. In that case the deletion will go through the below SyncPoint.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile",
+      [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
@@ -461,15 +466,15 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
-  // Compaction will delete and regenerate a file from L1 in second db path. It
-  // should still be cleaned up via delete scheduler.
+  // Compaction will delete both files and regenerate a file in L1 in second
+  // db path. The deleted files should still be cleaned up via delete scheduler.
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();
-  ASSERT_EQ(bg_delete_file, 9);
+  ASSERT_EQ(bg_delete_file, 10);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
