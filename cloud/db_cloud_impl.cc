@@ -26,11 +26,7 @@ namespace rocksdb {
 
 DBCloudImpl::DBCloudImpl(DB* db) : DBCloud(db), cenv_(nullptr) {}
 
-DBCloudImpl::~DBCloudImpl() {
-  // Issue a blocking flush so that the latest manifest
-  // is made durable in the cloud.
-  Flush(FlushOptions());
-}
+DBCloudImpl::~DBCloudImpl() {}
 
 Status DBCloud::Open(const Options& options, const std::string& dbname,
                      const std::string& persistent_cache_path,
@@ -102,7 +98,6 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   if (!options.info_log) {
     CreateLoggerFromOptions(local_dbname, options, &options.info_log);
   }
-
 
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
   Env* local_env = cenv->GetBaseEnv();

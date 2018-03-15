@@ -368,6 +368,7 @@ TEST_F(CloudTest, TrueClone) {
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_TRUE(value.compare("World") == 0);
   ASSERT_OK(db_->GetDbIdentity(master_dbid));
+  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseDB();
   value.clear();
   {
@@ -395,6 +396,7 @@ TEST_F(CloudTest, TrueClone) {
     value.clear();
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("Clone1") == 0);
+    ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
   {
     // Reopen clone1 with a different local path
@@ -409,6 +411,7 @@ TEST_F(CloudTest, TrueClone) {
     value.clear();
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("Clone1") == 0);
+    ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
   {
     // Reopen clone1 with the same local path as above.
@@ -423,6 +426,7 @@ TEST_F(CloudTest, TrueClone) {
     value.clear();
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("Clone1") == 0);
+    ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
   {
     // Create clone2
@@ -636,6 +640,7 @@ TEST_F(CloudTest, Savepoint) {
 
     // check that the sst file is copied to dest path
     ASSERT_OK(cloud_env->ExistsObject(src_bucket_prefix_, dpath));
+    ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
   {
     // Reopen the clone
