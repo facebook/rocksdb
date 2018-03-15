@@ -109,17 +109,17 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
 
-  // Check whether the transaction that wrote the value with seqeunce number seq
+  // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq
   bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
-  // Add the trasnaction with prepare sequence seq to the prepared list
+  // Add the transaction with prepare sequence seq to the prepared list
   void AddPrepared(uint64_t seq);
   // Rollback a prepared txn identified with prep_seq. rollback_seq is the seq
   // with which the additional data is written to cancel the txn effect. It can
-  // be used to idenitfy the snapshots that overlap with the rolled back txn.
+  // be used to identify the snapshots that overlap with the rolled back txn.
   void RollbackPrepared(uint64_t prep_seq, uint64_t rollback_seq);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
-  // commit_seq to the commit map. prepare_skipped is set if the prpeare phase
+  // commit_seq to the commit map. prepare_skipped is set if the prepare phase
   // is skipped for this commit. loop_cnt is to detect infinite loops.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                     bool prepare_skipped = false, uint8_t loop_cnt = 0);
@@ -158,7 +158,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   };
 
   // Prepare Seq (64 bits) = PAD ... PAD PREP PREP ... PREP INDEX INDEX ...
-  // INDEX Detal Seq (64 bits)   = 0 0 0 0 0 0 0 0 0  0 0 0 DELTA DELTA ...
+  // INDEX Delta Seq (64 bits)   = 0 0 0 0 0 0 0 0 0  0 0 0 DELTA DELTA ...
   // DELTA DELTA Encoded Value         = PREP PREP .... PREP PREP DELTA DELTA
   // ... DELTA DELTA PAD: first bits of a seq that is reserved for tagging and
   // hence ignored PREP/INDEX: the used bits in a prepare seq number INDEX: the
@@ -274,7 +274,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       while (!heap_.empty() && !erased_heap_.empty() &&
              // heap_.top() > erased_heap_.top() could happen if we have erased
              // a non-existent entry. Ideally the user should not do that but we
-             // should be resiliant againt it.
+             // should be resilient against it.
              heap_.top() >= erased_heap_.top()) {
         if (heap_.top() == erased_heap_.top()) {
           heap_.pop();
@@ -330,7 +330,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // the time of updating the max. Thread-safety: this function can be called
   // concurrently. The concurrent invocations of this function is equivalent to
   // a serial invocation in which the last invocation is the one with the
-  // largetst new_max value.
+  // largest new_max value.
   void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
                             const SequenceNumber& new_max);
 
@@ -342,9 +342,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void ReleaseSnapshotInternal(const SequenceNumber snap_seq);
 
   // Update the list of snapshots corresponding to the soon-to-be-updated
-  // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
+  // max_evicted_seq_. Thread-safety: this function can be called concurrently.
   // The concurrent invocations of this function is equivalent to a serial
-  // invocation in which the last invocation is the one with the largetst
+  // invocation in which the last invocation is the one with the largest
   // version value.
   void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
                        const SequenceNumber& version);
@@ -383,7 +383,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
   // The version of the latest list of snapshots. This can be used to avoid
-  // rewrittiing a list that is concurrently updated with a more recent version.
+  // rewriting a list that is concurrently updated with a more recent version.
   SequenceNumber snapshots_version_ = 0;
 
   // A heap of prepared transactions. Thread-safety is provided with
@@ -408,7 +408,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // maintenance work under the lock.
   size_t INC_STEP_FOR_MAX_EVICTED = 1;
   // A map from old snapshots (expected to be used by a few read-only txns) to
-  // prpared sequence number of the evicted entries from commit_cache_ that
+  // prepared sequence number of the evicted entries from commit_cache_ that
   // overlaps with such snapshot. These are the prepared sequence numbers that
   // the snapshot, to which they are mapped, cannot assume to be committed just
   // because it is no longer in the commit_cache_. The vector must be sorted
@@ -483,7 +483,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     }  // else there was no prepare phase
     if (includes_data_) {
       assert(data_batch_cnt_);
-      // Commit the data that is accompnaied with the commit request
+      // Commit the data that is accompanied with the commit request
       const bool PREPARE_SKIPPED = true;
       for (size_t i = 0; i < data_batch_cnt_; i++) {
         // For commit seq of each batch use the commit seq of the last batch.

@@ -469,7 +469,7 @@ class DBImpl : public DB {
                          bool no_full_scan = false);
 
   // Diffs the files listed in filenames and those that do not
-  // belong to live files are posibly removed. Also, removes all the
+  // belong to live files are possibly removed. Also, removes all the
   // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
   // If FindObsoleteFiles() was run, we need to also run

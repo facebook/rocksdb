@@ -1668,6 +1668,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           // Don't need to sleep here, because BackgroundCallCompaction
           // will sleep if !s.ok()
           status = Status::CompactionTooLarge();
+          RecordTick(stats_, COMPACTION_CANCELLED, 1);
         } else {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,

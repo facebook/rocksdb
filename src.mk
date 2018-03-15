@@ -398,7 +398,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/lru_cache.cc                                  \
   java/rocksjni/memtablejni.cc                                \
   java/rocksjni/merge_operator.cc                             \
-  java/rocksjni/optimistic_transaction_db.cc                   \
+  java/rocksjni/native_comparator_wrapper_test.cc             \
+  java/rocksjni/optimistic_transaction_db.cc                  \
   java/rocksjni/optimistic_transaction_options.cc             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/options_util.cc                               \
