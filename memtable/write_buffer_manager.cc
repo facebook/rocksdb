@@ -56,8 +56,9 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       memory_active_(0),
       cache_rep_(nullptr) {
 #ifndef ROCKSDB_LITE
-  if (cache) {
+  if (cache && !cache->need_allocate()) {
     // Construct the cache key using the pointer to this.
+    // TODO allow allocate from the cache.
     cache_rep_.reset(new CacheRep(cache));
   }
 #endif  // ROCKSDB_LITE

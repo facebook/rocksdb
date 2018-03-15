@@ -163,6 +163,143 @@ TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
   Reopen(options);
 }
 
+namespace {
+struct TestNeedAllocationCacheHandle {
+  void* value;
+  void (*deleter)(const Slice& key, void* value);
+  char value_begin[1];
+};
+
+void TestNeedAllocationCacheDeleter(const Slice& key, void* value) {
+  TestNeedAllocationCacheHandle* h =
+      static_cast<TestNeedAllocationCacheHandle*>(value);
+  h->deleter(key, h->value);
+  delete[] static_cast<char*>(value);
+}
+
+class TestNeedAllocationCache : public Cache {
+ public:
+  TestNeedAllocationCache(size_t capacity) {
+    inner_cache_ = NewLRUCache(capacity);
+    set_need_allocate(true);
+  }
+
+  virtual const char* Name() const { return "TestNeedAllocationCache"; }
+
+  virtual Status Allocate(const Slice& key, size_t length, char** buf,
+                          void** alloc_handle) override {
+    char* alloc = new char[length + sizeof(TestNeedAllocationCacheHandle)];
+    TestNeedAllocationCacheHandle* h =
+        static_cast<TestNeedAllocationCacheHandle*>(static_cast<void*>(alloc));
+    *buf = h->value_begin;
+    *alloc_handle = alloc;
+    return Status::OK();
+  }
+
+  virtual void* Value(Handle* handle) override {
+    void* inner_value = inner_cache_->Value(handle);
+    TestNeedAllocationCacheHandle* h =
+        static_cast<TestNeedAllocationCacheHandle*>(inner_value);
+    return h->value;
+  }
+  virtual Status InsertWithAllocHandle(
+      const Slice& key, void* value, void* alloc_handle, size_t charge,
+      void (*deleter)(const Slice& key, void* value), Handle** handle = nullptr,
+      Priority priority = Priority::LOW) {
+    TestNeedAllocationCacheHandle* h =
+        static_cast<TestNeedAllocationCacheHandle*>(alloc_handle);
+    h->value = value;
+    h->deleter = deleter;
+    return inner_cache_->Insert(key, alloc_handle, charge,
+                                TestNeedAllocationCacheDeleter, handle,
+                                priority);
+  }
+
+  virtual void DisownData() override { inner_cache_->DisownData(); }
+  virtual void SetCapacity(size_t capacity) override {
+    inner_cache_->SetCapacity(capacity);
+  }
+  virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override {
+    inner_cache_->SetStrictCapacityLimit(strict_capacity_limit);
+  }
+  virtual Status Insert(const Slice& key, void* value, size_t charge,
+                        void (*deleter)(const Slice& key, void* value),
+                        Handle** handle, Priority priority) override {
+    return Status::NotSupported();
+  }
+  virtual Handle* Lookup(const Slice& key, Statistics* stats) override {
+    return inner_cache_->Lookup(key, stats);
+  }
+  virtual bool Ref(Handle* handle) override {
+    return inner_cache_->Ref(handle);
+  }
+  virtual bool Release(Handle* handle, bool force_erase = false) override {
+    return inner_cache_->Release(handle, force_erase);
+  }
+  virtual void Erase(const Slice& key) override { inner_cache_->Erase(key); }
+  virtual uint64_t NewId() override { return inner_cache_->NewId(); }
+  virtual size_t GetCapacity() const override {
+    return inner_cache_->GetCapacity();
+  }
+  virtual bool HasStrictCapacityLimit() const override {
+    return inner_cache_->HasStrictCapacityLimit();
+  }
+  virtual size_t GetUsage() const override { return inner_cache_->GetUsage(); }
+  virtual size_t GetUsage(Handle* handle) const override {
+    return inner_cache_->GetUsage(handle);
+  }
+  virtual size_t GetPinnedUsage() const override {
+    return inner_cache_->GetPinnedUsage();
+  }
+  virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                                      bool thread_safe) override {
+    inner_cache_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+  virtual void EraseUnRefEntries() override {
+    inner_cache_->EraseUnRefEntries();
+  }
+  virtual std::string GetPrintableOptions() const override {
+    return inner_cache_->GetPrintableOptions();
+  }
+
+ private:
+  std::shared_ptr<Cache> inner_cache_;
+};
+}  // namespace
+
+TEST_F(DBTest2, CacheNeedsAllocation) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.max_successive_merges = 3;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.disable_auto_compactions = true;
+  options.compression = CompressionType::kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache.reset(new TestNeedAllocationCache(64 * 1024));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+  // Generate and read back the first SST file
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("z", "bar"));
+  Flush();
+  ASSERT_EQ("bar", Get("foo"));
+  // The block in the first SST file is now in block cache
+  ASSERT_EQ("bar", Get("foo"));
+
+  // Generate the second SST file but don't read it back so the data block
+  // will not in the block cache.
+  ASSERT_OK(Put("foo", "bar2"));
+  ASSERT_OK(Put("z", "bar2"));
+  Flush();
+
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ("bar2", Get("foo"));
+  ASSERT_EQ("bar2", Get("foo"));
+  ASSERT_OK(Put("foo", "bar3"));
+}
+
 #ifndef ROCKSDB_LITE
 class DBTestSharedWriteBufferAcrossCFs
     : public DBTestBase,

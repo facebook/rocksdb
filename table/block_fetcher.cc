@@ -103,20 +103,38 @@ bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
     // lookup uncompressed cache mode p-cache
-    status_ = PersistentCacheHelper::LookupRawPage(
+    Status s = PersistentCacheHelper::LookupRawPage(
         cache_options_, handle_, &heap_buf_, block_size_ + kBlockTrailerSize);
-    if (status_.ok()) {
+    if (s.ok()) {
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
       return true;
-    } else if (!status_.IsNotFound() && ioptions_.info_log) {
-      assert(!status_.ok());
+    } else if (!s.IsNotFound() && ioptions_.info_log) {
+      assert(!s.ok());
       ROCKS_LOG_INFO(ioptions_.info_log,
                      "Error reading from persistent cache. %s",
-                     status_.ToString().c_str());
+                     s.ToString().c_str());
     }
   }
   return false;
+}
+
+char* BlockFetcher::AllocateBuf() {
+  assert(heap_buf_.get() == nullptr);
+  assert(alloc_buf_from_cache_ == nullptr);
+  if (!do_uncompress_ && block_cache_ != nullptr &&
+      block_cache_->need_allocate()) {
+    assert(block_cache_key_ != nullptr);
+    assert(status_.ok());
+    status_ = block_cache_->Allocate(*block_cache_key_,
+                                     block_size_ + kBlockTrailerSize,
+                                     &alloc_buf_from_cache_, alloc_handle_);
+    return alloc_buf_from_cache_;
+  } else {
+    heap_buf_ =
+        std::unique_ptr<char[]>(new char[block_size_ + kBlockTrailerSize]);
+    return heap_buf_.get();
+  }
 }
 
 void BlockFetcher::PrepareBufferForBlockFromFile() {
@@ -127,9 +145,7 @@ void BlockFetcher::PrepareBufferForBlockFromFile() {
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
   } else {
-    heap_buf_ =
-        std::unique_ptr<char[]>(new char[block_size_ + kBlockTrailerSize]);
-    used_buf_ = heap_buf_.get();
+    used_buf_ = AllocateBuf();
   }
 }
 
@@ -161,11 +177,21 @@ void BlockFetcher::GetBlockContents() {
   } else {
     // page is uncompressed, the buffer either stack or heap provided
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      heap_buf_ = std::unique_ptr<char[]>(new char[block_size_]);
-      memcpy(heap_buf_.get(), used_buf_, block_size_);
+      char* alloc_buf = AllocateBuf();
+      if (status_.ok()) {
+        memcpy(alloc_buf, used_buf_, block_size_);
+        used_buf_ = alloc_buf;
+      }
     }
-    *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
-                               compression_type);
+    if (used_buf_ == heap_buf_.get()) {
+      assert(status_.ok());
+      *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
+                                 compression_type);
+    } else if (status_.ok()) {
+      assert(used_buf_ == alloc_buf_from_cache_);
+      *contents_ = BlockContents(Slice(alloc_buf_from_cache_, block_size_),
+                                 true, compression_type);
+    }
   }
 }
 
@@ -181,6 +207,9 @@ Status BlockFetcher::ReadBlockContents() {
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
     PrepareBufferForBlockFromFile();
+    if (!status_.ok()) {
+      return status_;
+    }
     Status s;
 
     {
@@ -224,8 +253,9 @@ Status BlockFetcher::ReadBlockContents() {
   } else {
     GetBlockContents();
   }
-
-  InsertUncompressedBlockToPersistentCacheIfNeeded();
+  if (status_.ok()) {
+    InsertUncompressedBlockToPersistentCacheIfNeeded();
+  }
 
   return status_;
 }
