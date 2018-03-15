@@ -461,7 +461,8 @@ Status DBImpl::CompactFiles(
     const CompactionOptions& compact_options,
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& input_file_names,
-    const int output_level, const int output_path_id) {
+    const int output_level, const int output_path_id,
+    std::vector<std::string>* const output_file_names) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
@@ -488,7 +489,7 @@ Status DBImpl::CompactFiles(
     WaitForIngestFile();
 
     s = CompactFilesImpl(compact_options, cfd, sv->current,
-                         input_file_names, output_level,
+                         input_file_names, output_file_names, output_level,
                          output_path_id, &job_context, &log_buffer);
   }
   if (sv->Unref()) {
@@ -532,6 +533,7 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
+    std::vector<std::string>* const output_file_names,
     const int output_level, int output_path_id, JobContext* job_context,
     LogBuffer* log_buffer) {
   mutex_.AssertHeld();
@@ -677,6 +679,14 @@ Status DBImpl::CompactFilesImpl(
       if (!new_bg_error.ok()) {
         bg_error_ = new_bg_error;
       }
+    }
+  }
+
+  if (output_file_names != nullptr) {
+    for (const auto newf : c->edit()->GetNewFiles()) {
+      (*output_file_names).push_back(TableFileName(
+              immutable_db_options_.db_paths, newf.second.fd.GetNumber(),
+              newf.second.fd.GetPathId()) );
     }
   }
 
