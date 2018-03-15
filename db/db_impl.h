@@ -185,7 +185,9 @@ class DBImpl : public DB {
                               ColumnFamilyHandle* column_family,
                               const std::vector<std::string>& input_file_names,
                               const int output_level,
-                              const int output_path_id = -1) override;
+                              const int output_path_id = -1,
+                              std::vector<std::string>* const output_file_names
+                              = nullptr) override;
 
   virtual Status PauseBackgroundWork() override;
   virtual Status ContinueBackgroundWork() override;
@@ -881,6 +883,7 @@ class DBImpl : public DB {
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
+                          std::vector<std::string>* const output_file_names,
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer);
 

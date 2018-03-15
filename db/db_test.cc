@@ -2411,7 +2411,9 @@ class ModelDB : public DB {
       const CompactionOptions& /*compact_options*/,
       ColumnFamilyHandle* /*column_family*/,
       const std::vector<std::string>& /*input_file_names*/,
-      const int /*output_level*/, const int /*output_path_id*/ = -1) override {
+      const int /*output_level*/, const int /*output_path_id*/ = -1,
+      std::vector<std::string>* const /*output_file_names*/ = nullptr
+      ) override {
     return Status::NotSupported("Not supported operation.");
   }
 
