@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.10.5 (03/16/2018)
 ### Bug fixes
 * Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
 
