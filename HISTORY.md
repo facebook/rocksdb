@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug fixes
+* Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
+
 ## 5.10.4 (02/22/2018)
 ### New Features
 * Follow rsync-style naming convention for BackupEngine tempfiles. This enables some optimizations when run on GlusterFS.
