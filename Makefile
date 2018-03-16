@@ -1492,8 +1492,6 @@ blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 # make install related stuff
 INSTALL_PATH ?= /usr/local
 
-# create make_config.mk in include directory to easily include in applications
-dummy_include := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; export PORTABLE="$(PORTABLE)"; "$(CURDIR)/build_tools/build_detect_platform" "$(INSTALL_PATH)/include/rocksdb/make_config.mk"))
 
 uninstall:
 	rm -rf $(INSTALL_PATH)/include/rocksdb \
@@ -1511,6 +1509,8 @@ install-headers:
 	for header in `find "include/rocksdb" -type f -name *.h`; do \
 		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
 	done
+	# create make_config.mk in include directory to easily include in applications
+	cp $(CURDIR)/make_config.mk $(INSTALL_PATH)
 
 install-static: install-headers $(LIBRARY)
 	install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib

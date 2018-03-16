@@ -18,10 +18,10 @@ INSTALL_FILES = $(INSTALL_PATH)/include/rocksdb \
 
 CONFIG_FILE = $(INSTALL_PATH)/include/rocksdb/make_config.mk
 
-#ifeq ("$(wildcard $(CONFIG_FILE))","")
-ifneq ("$(CONFIG_FILE)","")
-	include $(CONFIG_FILE)
-endif
+#ifeq ("$(CONFIG_FILE)","")
+#endif
+
+#include $(CONFIG_FILE)
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
@@ -40,6 +40,13 @@ endif
 
 
 all: simple_example column_families_example compact_files_example c_simple_example optimistic_transaction_example transaction_example compaction_filter_example options_file_example
+
+librocksdb:
+ifeq ($(wildcard $(INSTALL_FILES)),)
+	# install library before compiling examples
+	$(error "RocksDB has not yet been installed")
+endif
+include $(CONFIG_FILE)
 
 simple_example: librocksdb simple_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ $(INSTALL_PATH)/lib/librocksdb.a -I$(INSTALL_PATH)/include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
@@ -71,9 +78,3 @@ options_file_example: librocksdb options_file_example.cc
 clean:
 	rm -rf ./simple_example ./column_families_example ./compact_files_example ./compaction_filter_example ./c_simple_example c_simple_example.o ./optimistic_transaction_example ./transaction_example ./options_file_example
 
-librocksdb:
-ifeq ($(wildcard $(INSTALL_FILES)),)
-	# installing library before compiling examples
-	sudo ../make install
-	include $(CONFIG_FILE)
-endif
