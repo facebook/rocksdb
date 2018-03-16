@@ -133,17 +133,6 @@ class ExternalSstFileIngestionJob {
   Status AssignGlobalSeqnoForIngestedFile(IngestedFileInfo* file_to_ingest,
                                           SequenceNumber seqno);
 
-  // Check if `file_to_ingest` key range overlap with the range `iter` represent
-  // REQUIRES: Mutex held
-  Status IngestedFileOverlapWithIteratorRange(
-      const IngestedFileInfo* file_to_ingest, InternalIterator* iter,
-      bool* overlap);
-
-  // Check if `file_to_ingest` key range overlap with level
-  // REQUIRES: Mutex held
-  Status IngestedFileOverlapWithLevel(SuperVersion* sv,
-    IngestedFileInfo* file_to_ingest, int lvl, bool* overlap_with_level);
-
   // Check if `file_to_ingest` can fit in level `level`
   // REQUIRES: Mutex held
   bool IngestedFileFitInLevel(const IngestedFileInfo* file_to_ingest,
