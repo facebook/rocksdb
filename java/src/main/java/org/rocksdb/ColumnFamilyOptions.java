@@ -196,7 +196,7 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setComparator(
       final BuiltinComparator builtinComparator) {
     assert(isOwningHandle());
-    setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
+    setComparatorHandle(nativeHandle_, builtinComparator.getValue());
     return this;
   }
 
@@ -941,7 +941,7 @@ public class ColumnFamilyOptions extends RocksObject
       long memtableMemoryBudget);
   private native void optimizeUniversalStyleCompaction(long handle,
       long memtableMemoryBudget);
-  private native void setComparatorHandle(long handle, int builtinComparator);
+  private native void setComparatorHandle(long handle, byte builtinComparator);
   private native void setComparatorHandle(long optHandle,
       long comparatorHandle, byte comparatorType);
   private native void setMergeOperatorName(long handle, String name);

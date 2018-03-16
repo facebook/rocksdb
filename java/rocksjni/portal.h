@@ -24,6 +24,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -2687,6 +2688,24 @@ class HashMapJni : public JavaClass {
   }
 };
 
+// The portal class for org.rocksdb.BuiltinComparator
+class BuiltinComparatorJni {
+ public:
+  // Returns the equivalent C++ rocksdb::Comparator for the
+  // provided Java org.rocksdb.BuiltinComparator
+  static const ROCKSDB_NAMESPACE::Comparator* toCppBuiltinComparator(
+      jbyte jbuiltin_comparator) {
+    switch (jbuiltin_comparator) {
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
+
+       case 0x0:
+      default:
+        return ROCKSDB_NAMESPACE::BytewiseComparator();
+    }
+  }
+};
+
 // The portal class for org.rocksdb.RocksDB
 class RocksDBJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::DB*, RocksDBJni> {
@@ -3733,6 +3752,31 @@ class AbstractComparatorJni
         env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
+  }
+
+  /**
+   * Casts an address of a rocksdb::Comparator passed in from
+   * the Java API to a pointer to the correct type of native Comparator class.
+   *
+   * @param jcomparator_handle pointer to the comparator.
+   * @param jcomparator_type the type of the comparator to inform the cast.
+   *
+   * @return A pointer to a comparator.
+   */
+  static ROCKSDB_NAMESPACE::Comparator* castCppComparator(jlong jcomparator_handle,
+    jbyte jcomparator_type) {
+    switch(jcomparator_type) {
+      // JAVA_COMPARATOR
+      case 0x0:
+        return reinterpret_cast<ROCKSDB_NAMESPACE::ComparatorJniCallback*>(jcomparator_handle);
+
+      // JAVA_NATIVE_COMPARATOR_WRAPPER
+      case 0x1:
+        return reinterpret_cast<ROCKSDB_NAMESPACE::Comparator*>(jcomparator_handle);
+
+       default:
+        return nullptr;
+    }
   }
 };
 
