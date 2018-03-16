@@ -6,6 +6,9 @@
 ### New Features
 * Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.
 
+### Bug Fixes
+* Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
+
 ## 5.12.0 (2/14/2018)
 ### Public API Change
 * Iterator::SeekForPrev is now a pure virtual method. This is to prevent user who implement the Iterator interface fail to implement SeekForPrev by mistake.
