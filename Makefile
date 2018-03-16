@@ -276,7 +276,11 @@ endif
 default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
-  -Wno-unused-parameter -Wno-unused-lambda-capture
+  -Wno-unused-parameter
+
+ifeq ($(PLATFORM), OS_OPENBSD)
+	WARNING_FLAGS += -Wno-unused-lambda-capture
+endif
 
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror
