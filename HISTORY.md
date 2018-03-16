@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.12.1 (3/16/2018)
 ### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
 
