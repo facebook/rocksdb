@@ -558,6 +558,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
+  java/rocksjni/collection_merge_operator.cc                  \
   java/rocksjni/columnfamilyhandle.cc                         \
   java/rocksjni/compact_range_options.cc                      \
   java/rocksjni/compaction_filter.cc                          \

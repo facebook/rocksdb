@@ -8,21 +8,11 @@
 // for ROCKSDB_NAMESPACE::MergeOperator.
 
 #include <jni.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <memory>
-#include <string>
 
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice_transform.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/table.h"
-#include "rocksjni/portal.h"
 #include "utilities/merge_operators.h"
 
 /*
@@ -30,12 +20,10 @@
  * Method:    newSharedStringAppendOperator
  * Signature: (C)J
  */
-jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator(
-    JNIEnv* /*env*/, jclass /*jclazz*/, jchar jdelim) {
-  auto* sptr_string_append_op =
-      new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
-          ROCKSDB_NAMESPACE::MergeOperators::CreateStringAppendOperator(
-              (char)jdelim));
+jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator
+(JNIEnv*, jclass, jchar jdelim) {
+  auto* sptr_string_append_op = new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
+    ROCKSDB_NAMESPACE::MergeOperators::CreateStringAppendOperator((char)jdelim));
   return reinterpret_cast<jlong>(sptr_string_append_op);
 }
 
@@ -44,9 +32,8 @@ jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv* /*env*/,
-                                                           jobject /*jobj*/,
-                                                           jlong jhandle) {
+void Java_org_rocksdb_StringAppendOperator_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
   auto* sptr_string_append_op =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
           jhandle);
@@ -59,10 +46,9 @@ void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv* /*env*/,
  * Signature: ()J
  */
 jlong Java_org_rocksdb_UInt64AddOperator_newSharedUInt64AddOperator(
-    JNIEnv* /*env*/, jclass /*jclazz*/) {
-  auto* sptr_uint64_add_op =
-      new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
-          ROCKSDB_NAMESPACE::MergeOperators::CreateUInt64AddOperator());
+    JNIEnv*, jclass) {
+  auto* sptr_uint64_add_op = new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
+      ROCKSDB_NAMESPACE::MergeOperators::CreateUInt64AddOperator());
   return reinterpret_cast<jlong>(sptr_uint64_add_op);
 }
 
@@ -71,9 +57,8 @@ jlong Java_org_rocksdb_UInt64AddOperator_newSharedUInt64AddOperator(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv* /*env*/,
-                                                        jobject /*jobj*/,
-                                                        jlong jhandle) {
+void Java_org_rocksdb_UInt64AddOperator_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
   auto* sptr_uint64_add_op =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
           jhandle);

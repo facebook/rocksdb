@@ -35,6 +35,8 @@
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "utilities/merge_operators/collection/collection_merge_operator.h"
+
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/event_listener_jnicallback.h"
@@ -7655,6 +7657,7 @@ class WalProcessingOptionJni {
   }
 };
 
+
 // The portal class for org.rocksdb.ReusedSynchronisationType
 class ReusedSynchronisationTypeJni {
  public:
@@ -7692,6 +7695,7 @@ class ReusedSynchronisationTypeJni {
     }
   }
 };
+
 // The portal class for org.rocksdb.SanityLevel
 class SanityLevelJni {
  public:
