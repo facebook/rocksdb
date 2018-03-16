@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
+
 ## 5.11.2 (02/24/2018)
 ### Bug Fixes
 * Fix bug in iterator readahead causing blocks to incorrectly be considered truncated (corrupted).
