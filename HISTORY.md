@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
+
 ## 5.9.2 (12/6/2017)
 ### Bug Fixes
 * Fix possible corruption to LSM structure when `DeleteFilesInRange()` deletes a subset of files spanned by a `DeleteRange()` marker.
