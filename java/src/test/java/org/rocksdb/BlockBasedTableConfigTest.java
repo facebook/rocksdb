@@ -32,6 +32,16 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
+  public void blockBasedTableWithBlockCache() {
+    try(final Options options = new Options()
+        .setTableFormatConfig(new BlockBasedTableConfig()
+        .setBlockCache(new LRUCache(17 * 1024 * 1024)))) {
+      assertThat(options.tableFactoryName()).
+          isEqualTo("BlockBasedTable");
+    }
+  }
+
+  @Test
   public void blockSizeDeviation() {
     BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setBlockSizeDeviation(12);
