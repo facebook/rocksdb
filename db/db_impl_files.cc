@@ -197,6 +197,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   versions_->AddLiveFiles(&job_context->sst_live);
   if (doing_the_full_scan) {
+    InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
+        dbname_);
     for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
          path_id++) {
       // set of all files in the directory. We'll exclude files that are still
@@ -205,6 +207,19 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       env_->GetChildren(immutable_db_options_.db_paths[path_id].path,
                         &files);  // Ignore errors
       for (std::string file : files) {
+        uint64_t number;
+        FileType type;
+        // 1. If we cannot parse the file name, we skip;
+        // 2. If the file with file_number equals number has already been
+        // grabbed for purge by another compaction job, we also skip it if we
+        // are doing full scan in order to avoid double deletion of the same
+        // file under race conditions. See
+        // https://github.com/facebook/rocksdb/issues/3573
+        if (!ParseFileName(file, &number, info_log_prefix.prefix, &type) ||
+            versions_->IsGrabbedForPurge(number)) {
+          continue;
+        }
+
         // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
         job_context->full_scan_candidate_files.emplace_back(
             "/" + file, static_cast<uint32_t>(path_id));
@@ -317,6 +332,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
         DeleteSSTFile(&immutable_db_options_, fname, path_id);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
+  }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion", &file_deletion_status);
+  {
+    InstrumentedMutexLock guard_lock(&mutex_);
+    versions_->MarkAsPurged(number);
   }
   if (file_deletion_status.ok()) {
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -557,4 +577,5 @@ void DBImpl::DeleteObsoleteFiles() {
   job_context.Clean();
   mutex_.Lock();
 }
+
 }  // namespace rocksdb

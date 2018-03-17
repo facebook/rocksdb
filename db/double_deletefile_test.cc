@@ -45,7 +45,7 @@ class DoubleDeleteFileTest : public testing::Test {
     env_ = Env::Default();
     // Trigger compaction when the number of level 0 files reaches 2.
     options_.level0_file_num_compaction_trigger = 2;
-    options_.disable_auto_compactions = true;
+    options_.disable_auto_compactions = false;
     options_.delete_obsolete_files_period_micros = 0;  // always do full purge
     options_.enable_thread_tracking = true;
     options_.write_buffer_size = 1024*1024*1000;
@@ -53,7 +53,7 @@ class DoubleDeleteFileTest : public testing::Test {
     options_.max_bytes_for_level_base = 1024*1024*1000;
     options_.WAL_ttl_seconds = 300; // Used to test log files
     options_.WAL_size_limit_MB = 1024; // Used to test log files
-    dbname_ = test::TmpDir() + "/deletefile_test";
+    dbname_ = test::TmpDir() + "/double_deletefile_test";
     options_.wal_dir = dbname_ + "/wal_files";
 
     // clean up all the files that might have been there before
@@ -87,7 +87,7 @@ class DoubleDeleteFileTest : public testing::Test {
     db_ = nullptr;
   }
 
-  void AddKeys(int numkeys, int startkey = 0) {
+  void AddKeys(int numkeys, int startkey) {
     WriteOptions options;
     options.sync = false;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
@@ -165,15 +165,17 @@ TEST_F(DoubleDeleteFileTest, RaceForObsoleteFileDeletion) {
   SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BackgroundCallCompaction:2",
        "DoubleDeleteFileTest::RaceForObsoleteFileDeletion:1"},
-      {"DoubleDeleteFileTest::RaceForObsoleteFileDeletion:2",
-       "DBImpl::BackgroundCallCompaction:3"},
-  });
+      {"DBImpl::BackgroundCallCompaction:3",
+       "DoubleDeleteFileTest::RaceForObsoleteFileDeletion:2"},
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DeleteObsoleteFileImpl:AfterDeletion", [&](void* arg) {
+        Status* p_status = reinterpret_cast<Status*>(arg);
+        ASSERT_TRUE(p_status->ok());
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  port::Thread compactThread([&]() {
-      dbi->TEST_CompactRange(0, nullptr, nullptr);
-  });
   port::Thread userThread([&]() {
     JobContext jobCxt(0);
     TEST_SYNC_POINT("DoubleDeleteFileTest::RaceForObsoleteFileDeletion:1");
@@ -181,12 +183,11 @@ TEST_F(DoubleDeleteFileTest, RaceForObsoleteFileDeletion) {
     dbi->FindObsoleteFiles(&jobCxt,
       true /* force=true */, false /* no_full_scan=false */);
     dbi->TEST_UnlockMutex();
-    dbi->PurgeObsoleteFiles(jobCxt);
     TEST_SYNC_POINT("DoubleDeleteFileTest::RaceForObsoleteFileDeletion:2");
+    dbi->PurgeObsoleteFiles(jobCxt);
     jobCxt.Clean();
   });
 
-  compactThread.join();
   userThread.join();
 
   CloseDB();

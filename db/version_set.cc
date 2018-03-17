@@ -4077,6 +4077,7 @@ void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files,
   for (auto f : obsolete_files_) {
     if (f->fd.GetNumber() < min_pending_output) {
       files->push_back(f);
+      MarkAsGrabbedForPurge(f->fd.GetNumber());
     } else {
       pending_files.push_back(f);
     }
@@ -4135,6 +4136,24 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     }
   }
   return total_files_size;
+}
+
+// IsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
+// (mutex_) should already be held.
+bool VersionSet::IsGrabbedForPurge(uint64_t file_number) const {
+  return ssts_grabbed_for_purge_.count(file_number) > 0;
+}
+
+// MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
+// (mutex_) should already be held.
+void VersionSet::MarkAsGrabbedForPurge(uint64_t file_number) {
+  ssts_grabbed_for_purge_.insert(std::pair<uint64_t, bool>(file_number, false));
+}
+
+// MarkAsPurged is called by DeleteObsoleteFileImpl, and db mutex
+// (mutex_) is not acquired.
+void VersionSet::MarkAsPurged(uint64_t file_number) {
+  ssts_grabbed_for_purge_.erase(file_number);
 }
 
 }  // namespace rocksdb

@@ -858,6 +858,10 @@ class VersionSet {
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
+  bool IsGrabbedForPurge(uint64_t file_number) const;
+  void MarkAsGrabbedForPurge(uint64_t file_number);
+  void MarkAsPurged(uint64_t file_number);
+
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
   const EnvOptions& env_options() { return env_options_; }
   void ChangeEnvOptions(const MutableDBOptions& new_options) {
@@ -937,6 +941,8 @@ class VersionSet {
 
   std::vector<FileMetaData*> obsolete_files_;
   std::vector<std::string> obsolete_manifests_;
+
+  std::unordered_map<uint64_t, bool> ssts_grabbed_for_purge_;
 
   // env options for all reads and writes except compactions
   EnvOptions env_options_;

@@ -1492,8 +1492,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       // It also applies to access other states that DB owns.
       log_buffer.FlushBufferToLog();
       if (job_context.HaveSomethingToDelete()) {
-        TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:3");
         PurgeObsoleteFiles(job_context);
+        TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:3");
       }
       job_context.Clean();
       mutex_.Lock();
