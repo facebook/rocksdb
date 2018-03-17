@@ -83,7 +83,7 @@ public class Environment {
   }
 
   private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
-    if (isUnix() || isAix() || isSolaris() || isFreeBSD()) {
+    if (isUnix() || isAix() || isSolaris() || isFreeBSD() || isOpenBSD()) {
       return libraryFileName + ".so";
     } else if (isMac()) {
       return libraryFileName + (shared ? ".dylib" : ".jnilib");
