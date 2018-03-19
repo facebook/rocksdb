@@ -2751,6 +2751,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
+  options.target_file_size_base = 100000000;
   options.write_buffer_size = 100000000;
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
