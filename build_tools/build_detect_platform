@@ -16,6 +16,8 @@
 #   PLATFORM_CXXFLAGS           C++ compiler flags.  Will contain:
 #   PLATFORM_SHARED_VERSIONED   Set to 'true' if platform supports versioned
 #                               shared libraries, empty otherwise.
+#   FIND			Command for the find utility
+#   WATCH			Command for the watch utility
 #
 # The PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS might include the following:
 #
@@ -88,6 +90,14 @@ if test -z "$CLANG_ANALYZER"; then
     CLANG_ANALYZER=$(which clang++ 2> /dev/null)
 fi
 
+if test -z "$FIND"; then
+    FIND=find
+fi
+
+if test -z "$WATCH"; then
+    WATCH=watch
+fi
+
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
 CROSS_COMPILE=
 PLATFORM_CCFLAGS=
@@ -154,9 +164,12 @@ case "$TARGET_OS" in
         ;;
     OpenBSD)
         PLATFORM=OS_OPENBSD
+	CXX=clang++
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_OPENBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread"
         # PORT_FILES=port/openbsd/openbsd_specific.cc
+	FIND=gfind
+	WATCH=gnuwatch
         ;;
     DragonFly)
         PLATFORM=OS_DRAGONFLYBSD
@@ -575,6 +588,8 @@ echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
+echo "FIND=$FIND" >> "$OUTPUT"
+echo "WATCH=$WATCH" >> "$OUTPUT"
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"
