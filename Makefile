@@ -992,7 +992,7 @@ clean:
 	cd java; $(MAKE) clean
 
 tags:
-	ctags * -R
+	ctags -R .
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
 	ctags -e -R -o etags *
 
