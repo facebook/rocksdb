@@ -78,6 +78,33 @@ int FindFileInRange(const InternalKeyComparator& icmp,
   return right;
 }
 
+Status OverlapWithIterator(const Comparator* ucmp,
+    const Slice& smallest_user_key,
+    const Slice& largest_user_key,
+    InternalIterator* iter,
+    bool* overlap) {
+  InternalKey range_start(smallest_user_key, kMaxSequenceNumber,
+                          kValueTypeForSeek);
+  iter->Seek(range_start.Encode());
+  if (!iter->status().ok()) {
+    return iter->status();
+  }
+
+  *overlap = false;
+  if (iter->Valid()) {
+    ParsedInternalKey seek_result;
+    if (!ParseInternalKey(iter->key(), &seek_result)) {
+      return Status::Corruption("DB have corrupted keys");
+    }
+
+    if (ucmp->Compare(seek_result.user_key, largest_user_key) <= 0) {
+      *overlap = true;
+    }
+  }
+
+  return iter->status();
+}
+
 // Class to help choose the next file to search for the particular key.
 // Searches and returns files level by level.
 // We can search level-by-level since entries never hop across
@@ -1008,6 +1035,59 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         false /* for_compaction */, IsFilterSkipped(level), level,
         range_del_agg));
   }
+}
+
+Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
+                                         const EnvOptions& env_options,
+                                         const Slice& smallest_user_key,
+                                         const Slice& largest_user_key,
+                                         int level, bool* overlap) {
+  assert(storage_info_.finalized_);
+
+  auto icmp = cfd_->internal_comparator();
+  auto ucmp = icmp.user_comparator();
+
+  Arena arena;
+  Status status;
+  RangeDelAggregator range_del_agg(icmp, {}, false);
+
+  *overlap = false;
+
+  if (level == 0) {
+    for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
+      const auto file = &storage_info_.LevelFilesBrief(0).files[i];
+      if (AfterFile(ucmp, &smallest_user_key, file) ||
+          BeforeFile(ucmp, &largest_user_key, file)) {
+        continue;
+      }
+      ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
+          read_options, env_options, cfd_->internal_comparator(), file->fd,
+          &range_del_agg, nullptr, cfd_->internal_stats()->GetFileReadHist(0),
+          false, &arena, false /* skip_filters */, 0 /* level */));
+      status = OverlapWithIterator(
+          ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
+      if (!status.ok() || *overlap) {
+        break;
+      }
+    }
+  } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
+    auto mem = arena.AllocateAligned(sizeof(LevelIterator));
+    ScopedArenaIterator iter(new (mem) LevelIterator(
+        cfd_->table_cache(), read_options, env_options,
+        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+        should_sample_file_read(),
+        cfd_->internal_stats()->GetFileReadHist(level),
+        false /* for_compaction */, IsFilterSkipped(level), level,
+        &range_del_agg));
+    status = OverlapWithIterator(
+        ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
+  }
+
+  if (status.ok() && *overlap == false &&
+      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key)) {
+    *overlap = true;
+  }
+  return status;
 }
 
 VersionStorageInfo::VersionStorageInfo(

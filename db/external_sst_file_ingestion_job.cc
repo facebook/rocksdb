@@ -407,8 +407,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
-      status = IngestedFileOverlapWithLevel(sv, file_to_ingest, lvl,
-        &overlap_with_level);
+      status = sv->current->OverlapWithLevelIterator(ro, env_options_,
+          file_to_ingest->smallest_user_key, file_to_ingest->largest_user_key,
+          lvl, &overlap_with_level);
       if (!status.ok()) {
         return status;
       }
@@ -515,34 +516,6 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
   return status;
 }
 
-Status ExternalSstFileIngestionJob::IngestedFileOverlapWithIteratorRange(
-    const IngestedFileInfo* file_to_ingest, InternalIterator* iter,
-    bool* overlap) {
-  auto* vstorage = cfd_->current()->storage_info();
-  auto* ucmp = vstorage->InternalComparator()->user_comparator();
-  InternalKey range_start(file_to_ingest->smallest_user_key, kMaxSequenceNumber,
-                          kValueTypeForSeek);
-  iter->Seek(range_start.Encode());
-  if (!iter->status().ok()) {
-    return iter->status();
-  }
-
-  *overlap = false;
-  if (iter->Valid()) {
-    ParsedInternalKey seek_result;
-    if (!ParseInternalKey(iter->key(), &seek_result)) {
-      return Status::Corruption("DB have corrupted keys");
-    }
-
-    if (ucmp->Compare(seek_result.user_key, file_to_ingest->largest_user_key) <=
-        0) {
-      *overlap = true;
-    }
-  }
-
-  return iter->status();
-}
-
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
     const IngestedFileInfo* file_to_ingest, int level) {
   if (level == 0) {
@@ -569,38 +542,6 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
   // File did not overlap with level files, our compaction output
   return true;
-}
-
-Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
-    SuperVersion* sv, IngestedFileInfo* file_to_ingest, int lvl,
-    bool* overlap_with_level) {
-  Arena arena;
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
-                                          &arena);
-  // Files are opened lazily when the iterator needs them, thus range deletions
-  // are also added lazily to the aggregator. We need to check for range
-  // deletion overlap only in the case where there's no point-key overlap. Then,
-  // we've already opened the file with range containing the ingested file's
-  // begin key, and iterated through all files until the one containing the
-  // ingested file's end key. So any files maybe containing range deletions
-  // overlapping the ingested file must have been opened and had their range
-  // deletions added to the aggregator.
-  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
-                                   {} /* snapshots */,
-                                   false /* collapse_deletions */);
-  sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder, lvl,
-                                    &range_del_agg);
-  ScopedArenaIterator level_iter(merge_iter_builder.Finish());
-  Status status = IngestedFileOverlapWithIteratorRange(
-      file_to_ingest, level_iter.get(), overlap_with_level);
-  if (status.ok() && *overlap_with_level == false &&
-      range_del_agg.IsRangeOverlapped(file_to_ingest->smallest_user_key,
-                                      file_to_ingest->largest_user_key)) {
-    *overlap_with_level = true;
-  }
-  return status;
 }
 
 }  // namespace rocksdb

@@ -525,6 +525,11 @@ class Version {
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
+  Status OverlapWithLevelIterator(const ReadOptions&, const EnvOptions&,
+                                  const Slice& smallest_user_key,
+                                  const Slice& largest_user_key,
+                                  int level, bool* overlap);
+
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later.
