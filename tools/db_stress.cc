@@ -834,7 +834,7 @@ class SharedState {
     delete[] permutation;
 
     size_t expected_values_size =
-        sizeof(uint32_t) * FLAGS_column_families * max_key_;
+        sizeof(std::atomic<uint32_t>) * FLAGS_column_families * max_key_;
     bool values_init_needed = false;
     Status status;
     if (!FLAGS_expected_values_path.empty()) {
@@ -857,7 +857,7 @@ class SharedState {
       }
       if (status.ok()) {
         assert(expected_mmap_buffer_->length == expected_values_size);
-        values_ = static_cast<uint32_t*>(expected_mmap_buffer_->base);
+        values_ = static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->base);
         assert(values_ != nullptr);
       } else {
         fprintf(stderr, "Failed opening expected file '%s' with error: %s\n",
@@ -866,14 +866,14 @@ class SharedState {
       }
     }
     if (values_ == nullptr) {
-      values_ = static_cast<uint32_t*>(malloc(expected_values_size));
+      values_ = static_cast<std::atomic<uint32_t>*>(malloc(expected_values_size));
       values_init_needed = true;
     }
     assert(values_ != nullptr);
     if (values_init_needed) {
       for (int i = 0; i < FLAGS_column_families; ++i) {
         for (int j = 0; j < max_key_; ++j) {
-          Value(i, j) = DELETION_SENTINEL;
+          Delete(i, j, false /* pending */);
         }
       }
     }
@@ -988,7 +988,7 @@ class SharedState {
     }
   }
 
-  uint32_t& Value(int cf, int64_t key) const {
+  std::atomic<uint32_t>& Value(int cf, int64_t key) const {
     return values_[cf * max_key_ + key];
   }
 
@@ -1001,15 +1001,7 @@ class SharedState {
   //    guaranteed finished. This is useful for crash-recovery testing when the
   //    process may crash before updating the expected values array.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    if (pending) {
-      Value(cf, key) = UNKNOWN_SENTINEL;
-      // prevent reordering expected value assignment after Write
-      std::atomic_thread_fence(std::memory_order_release);
-    } else {
-      // prevent reordering Write after expected value assignment
-      std::atomic_thread_fence(std::memory_order_release);
-      Value(cf, key) = value_base;
-    }
+    Value(cf, key) = pending ? UNKNOWN_SENTINEL : value_base;
   }
 
   uint32_t Get(int cf, int64_t key) const { return Value(cf, key); }
@@ -1085,7 +1077,7 @@ class SharedState {
   // Keys that should not be overwritten
   std::vector<std::unordered_set<size_t> > no_overwrite_ids_;
 
-  uint32_t* values_;
+  std::atomic<uint32_t>* values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex> > > key_locks_;
