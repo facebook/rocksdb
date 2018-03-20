@@ -569,6 +569,7 @@ set(SOURCES
         util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
+        util/sync_point_impl.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
