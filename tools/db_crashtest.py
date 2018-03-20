@@ -182,6 +182,7 @@ def gen_cmd(params):
 def blackbox_crash_main(args):
     cmd_params = gen_cmd_params(args)
     dbname = get_dbname('blackbox')
+    expected_values_file = tempfile.NamedTemporaryFile()
     exit_time = time.time() + cmd_params['duration']
 
     print("Running blackbox-crash-test with \n"
@@ -190,13 +191,17 @@ def blackbox_crash_main(args):
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
           + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
-          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n"
+          + "expected_values_path=" + expected_values_file.name + "\n")
 
     while time.time() < exit_time:
         run_had_errors = False
         killtime = time.time() + cmd_params['interval']
 
-        cmd = gen_cmd(dict(cmd_params.items() + {'db': dbname}.items()))
+        cmd = gen_cmd(dict(
+            cmd_params.items() +
+            {'db': dbname,
+             'expected_values_path': expected_values_file.name}.items()))
 
         child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
