@@ -1745,13 +1745,18 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   if (len >= buf_size) {
     return Status::Corruption("Buffer too small to fit backup metadata");
   }
+  char tempbuf[18];
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
+
+	size_t newlen = len + file->filename.length() + sprintf(tempbuf, " crc32 %u\n", file->checksum_value);
+	if (newlen >= buf_size) {
+		s = backup_meta_file->Append(Slice(buf.get(), len));
+		buf.reset();
+		len = 0;
+	}
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",
                     file->filename.c_str(), file->checksum_value);
-    if (len >= buf_size) {
-      return Status::Corruption("Buffer too small to fit backup metadata");
-    }
   }
 
   s = backup_meta_file->Append(Slice(buf.get(), len));
