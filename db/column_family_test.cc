@@ -2791,6 +2791,18 @@ TEST_F(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
+TEST_F(ColumnFamilyTest, CreateAndDestoryOptions) {
+  std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
+  ColumnFamilyHandle* cfh;
+  Open();
+  ASSERT_OK(db_->CreateColumnFamily(*(cfo.get()), "yoyo", &cfh));
+  cfo.reset();
+  ASSERT_OK(db_->Put(WriteOptions(), cfh, "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
   SpecialEnv env(Env::Default());
