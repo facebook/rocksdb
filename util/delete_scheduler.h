@@ -34,7 +34,7 @@ class DeleteScheduler {
  public:
   DeleteScheduler(Env* env, int64_t rate_bytes_per_sec, Logger* info_log,
                   SstFileManagerImpl* sst_file_manager,
-                  double max_trash_db_ratio);
+                  double max_trash_db_ratio, uint64_t bytes_max_delete_chunk);
 
   ~DeleteScheduler();
 
@@ -82,7 +82,7 @@ class DeleteScheduler {
   Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
 
   Status DeleteTrashFile(const std::string& path_in_trash,
-                         uint64_t* deleted_bytes);
+                         uint64_t* deleted_bytes, bool* is_complete);
 
   void BackgroundEmptyTrash();
 
@@ -97,6 +97,7 @@ class DeleteScheduler {
   std::queue<std::string> queue_;
   // Number of trash files that are waiting to be deleted
   int32_t pending_files_;
+  uint64_t bytes_max_delete_chunk_;
   // Errors that happened in BackgroundEmptyTrash (file_path => error)
   std::map<std::string, Status> bg_errors_;
   // Set to true in ~DeleteScheduler() to force BackgroundEmptyTrash to stop
