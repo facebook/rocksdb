@@ -1752,7 +1752,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   }
 
   char writelen_temp[18];
-  if (len + sprintf(writelen_temp, "%" ROCKSDB_PRIszt "\n") >= buf_size) {
+  if (len + sprintf(writelen_temp, "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
 	  backup_meta_file->Append(Slice(buf.get(), len));
 	  buf.release();
 	  unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
