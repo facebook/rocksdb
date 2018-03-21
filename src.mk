@@ -148,6 +148,7 @@ LIB_SOURCES =                                                   \
   util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
+  util/sync_point_impl.cc                                       \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
