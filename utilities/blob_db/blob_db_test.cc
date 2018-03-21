@@ -763,6 +763,26 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   VerifyDB({{"foo", "v2"}});
 }
 
+TEST_F(BlobDBTest, NewFileGeneratedFromGCShouldMarkAsImmutable) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  ASSERT_OK(Put("foo", "bar"));
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  auto blob_file1 = blob_files[0];
+  ASSERT_EQ(1, blob_files.size());
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file1));
+  GCStats gc_stats;
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_file1, &gc_stats));
+  ASSERT_EQ(1, gc_stats.blob_count);
+  ASSERT_EQ(1, gc_stats.num_keys_relocated);
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(2, blob_files.size());
+  ASSERT_EQ(blob_file1, blob_files[0]);
+  ASSERT_TRUE(blob_files[1]->Immutable());
+}
+
 // This test is no longer valid since we now return an error when we go
 // over the configured max_db_size.
 // The test needs to be re-written later in such a way that writes continue
