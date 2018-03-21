@@ -1751,7 +1751,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
                     hex_encoded_metadata.c_str());
   }
 
-  char writelen_temp[18];
+  char writelen_temp[19];
   if (len + sprintf(writelen_temp, "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
 	  backup_meta_file->Append(Slice(buf.get(), len));
 	  buf.release();
