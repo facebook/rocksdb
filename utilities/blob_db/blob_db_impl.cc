@@ -1218,9 +1218,7 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile,
     if (bfile->HasTTL()) {
       size_t erased __attribute__((__unused__));
       erased = open_ttl_files_.erase(bfile);
-      assert(erased == 1);
-    } else {
-      assert(bfile == open_non_ttl_file_);
+    } else if (bfile == open_non_ttl_file_) {
       open_non_ttl_file_ = nullptr;
     }
   }
@@ -1301,7 +1299,9 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
       {
         ReadLock lockbfile_r(&bfile->mutex_);
 
-        if (bfile->expiration_range_.second > epoch_now) continue;
+        if (bfile->expiration_range_.second > epoch_now) {
+          continue;
+        }
         process_files.push_back(bfile);
       }
     }
@@ -1568,12 +1568,16 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       newfile = NewBlobFile(reason);
 
       new_writer = CheckOrCreateWriterLocked(newfile);
-      newfile->header_ = std::move(header);
       // Can't use header beyond this point
+      newfile->header_ = std::move(header);
       newfile->header_valid_ = true;
       newfile->file_size_ = BlobLogHeader::kSize;
-      s = new_writer->WriteHeader(newfile->header_);
+      newfile->SetColumnFamilyId(bfptr->column_family_id());
+      newfile->SetHasTTL(bfptr->HasTTL());
+      newfile->SetCompression(bfptr->compression());
+      newfile->expiration_range_ = bfptr->expiration_range_;
 
+      s = new_writer->WriteHeader(newfile->header_);
       if (!s.ok()) {
         ROCKS_LOG_ERROR(db_options_.info_log,
                         "File: %s - header writing failed",
@@ -1581,8 +1585,10 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
         break;
       }
 
+      // We don't add the file to open_ttl_files_ or open_non_ttl_files_, to
+      // avoid user writes writing to the file, and avoid CheckSeqFiles close
+      // the file by mistake.
       WriteLock wl(&mutex_);
-
       blob_files_.insert(std::make_pair(newfile->BlobFileNumber(), newfile));
     }
 
@@ -1650,6 +1656,10 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
              gc_stats->bytes_overwritten);
   RecordTick(statistics_, BLOB_DB_GC_BYTES_EXPIRED, gc_stats->bytes_expired);
   if (newfile != nullptr) {
+    {
+      MutexLock l(&write_mutex_);
+      CloseBlobFile(newfile);
+    }
     total_blob_size_ += newfile->file_size_;
     ROCKS_LOG_INFO(db_options_.info_log, "New blob file %" PRIu64 ".",
                    newfile->BlobFileNumber());
