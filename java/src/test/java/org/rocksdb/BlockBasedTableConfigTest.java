@@ -6,7 +6,11 @@
 package org.rocksdb;
 
 import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,6 +19,8 @@ public class BlockBasedTableConfigTest {
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
+
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void noBlockCache() {
@@ -32,12 +38,27 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
-  public void blockBasedTableWithBlockCache() {
-    try(final Options options = new Options()
-        .setTableFormatConfig(new BlockBasedTableConfig()
-        .setBlockCache(new LRUCache(17 * 1024 * 1024)))) {
-      assertThat(options.tableFactoryName()).
-          isEqualTo("BlockBasedTable");
+  public void sharedBlockCache() throws RocksDBException {
+    try (final Cache cache = new LRUCache(8 * 1024 * 1024);
+         final Statistics statistics = new Statistics()) {
+      for (int shard = 0; shard < 8; shard++) {
+        try (final Options options =
+                 new Options()
+                     .setCreateIfMissing(true)
+                     .setStatistics(statistics)
+                     .setTableFormatConfig(new BlockBasedTableConfig().setBlockCache(cache));
+             final RocksDB db =
+                 RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/" + shard)) {
+          final byte[] key = "some-key".getBytes(StandardCharsets.UTF_8);
+          final byte[] value = "some-value".getBytes(StandardCharsets.UTF_8);
+
+          db.put(key, value);
+          db.flush(new FlushOptions());
+          db.get(key);
+
+          assertThat(statistics.getTickerCount(TickerType.BLOCK_CACHE_ADD)).isEqualTo(shard + 1);
+        }
+      }
     }
   }
 
@@ -155,6 +176,14 @@ public class BlockBasedTableConfigTest {
         new BlockBasedTableConfig().setFilter(null))) {
       assertThat(options.tableFactoryName()).
           isEqualTo("BlockBasedTable");
+    }
+  }
+
+  @Test
+  public void blockBasedTableWithBlockCache() {
+    try (final Options options = new Options().setTableFormatConfig(
+             new BlockBasedTableConfig().setBlockCache(new LRUCache(17 * 1024 * 1024)))) {
+      assertThat(options.tableFactoryName()).isEqualTo("BlockBasedTable");
     }
   }
 
