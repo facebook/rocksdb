@@ -28,7 +28,8 @@ BlobDumpTool::BlobDumpTool()
     : reader_(nullptr), buffer_(nullptr), buffer_size_(0) {}
 
 Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
-                         DisplayType show_blob, DisplayType show_raw_blob,
+                         DisplayType show_blob,
+                         DisplayType show_uncompressed_blob,
                          bool show_summary) {
   Status s;
   Env* env = Env::Default();
@@ -64,12 +65,12 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   uint64_t total_records = 0;
   uint64_t total_key_size = 0;
   uint64_t total_blob_size = 0;
-  uint64_t total_raw_blob_size = 0;
+  uint64_t total_uncompressed_blob_size = 0;
   if (show_key != DisplayType::kNone || show_summary) {
     while (offset < footer_offset) {
-      s = DumpRecord(show_key, show_blob, show_raw_blob, show_summary,
+      s = DumpRecord(show_key, show_blob, show_uncompressed_blob, show_summary,
                      compression, &offset, &total_records, &total_key_size,
-                     &total_blob_size, &total_raw_blob_size);
+                     &total_blob_size, &total_uncompressed_blob_size);
       if (!s.ok()) {
         break;
       }
@@ -82,7 +83,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
     fprintf(stdout, "  total blob size: %" PRIu64 "\n", total_blob_size);
     if (compression != kNoCompression) {
       fprintf(stdout, "  total raw blob size: %" PRIu64 "\n",
-              total_raw_blob_size);
+              total_uncompressed_blob_size);
     }
   }
   return s;
@@ -167,12 +168,12 @@ Status BlobDumpTool::DumpBlobLogFooter(uint64_t file_size,
 }
 
 Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
-                                DisplayType show_raw_blob, bool show_summary,
-                                CompressionType compression, uint64_t* offset,
-                                uint64_t* total_records,
+                                DisplayType show_uncompressed_blob,
+                                bool show_summary, CompressionType compression,
+                                uint64_t* offset, uint64_t* total_records,
                                 uint64_t* total_key_size,
                                 uint64_t* total_blob_size,
-                                uint64_t* total_raw_blob_size) {
+                                uint64_t* total_uncompressed_blob_size) {
   if (show_key != DisplayType::kNone) {
     fprintf(stdout, "Read record with offset 0x%" PRIx64 " (%" PRIu64 "):\n",
             *offset, *offset);
@@ -200,9 +201,9 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     return s;
   }
   // Decompress value
-  std::string raw_value;
+  std::string uncompressed_value;
   if (compression != kNoCompression &&
-      (show_raw_blob != DisplayType::kNone || show_summary)) {
+      (show_uncompressed_blob != DisplayType::kNone || show_summary)) {
     BlockContents contents;
     s = UncompressBlockContentsForCompressionType(
         slice.data() + key_size, value_size, &contents,
@@ -211,7 +212,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     if (!s.ok()) {
       return s;
     }
-    raw_value = contents.data.ToString();
+    uncompressed_value = contents.data.ToString();
   }
   if (show_key != DisplayType::kNone) {
     fprintf(stdout, "  key        : ");
@@ -220,16 +221,16 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
       fprintf(stdout, "  blob       : ");
       DumpSlice(Slice(slice.data() + key_size, value_size), show_blob);
     }
-    if (show_raw_blob != DisplayType::kNone) {
+    if (show_uncompressed_blob != DisplayType::kNone) {
       fprintf(stdout, "  raw blob   : ");
-      DumpSlice(Slice(raw_value), show_raw_blob);
+      DumpSlice(Slice(uncompressed_value), show_uncompressed_blob);
     }
   }
   *offset += key_size + value_size;
   *total_records += 1;
   *total_key_size += key_size;
   *total_blob_size += value_size;
-  *total_raw_blob_size += raw_value.size();
+  *total_uncompressed_blob_size += uncompressed_value.size();
   return s;
 }
 

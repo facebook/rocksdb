@@ -28,7 +28,7 @@ class BlobDumpTool {
   BlobDumpTool();
 
   Status Run(const std::string& filename, DisplayType show_key,
-             DisplayType show_blob, DisplayType show_raw_blob,
+             DisplayType show_blob, DisplayType show_uncompressed_blob,
              bool show_summary);
 
  private:
@@ -40,10 +40,11 @@ class BlobDumpTool {
   Status DumpBlobLogHeader(uint64_t* offset, CompressionType* compression);
   Status DumpBlobLogFooter(uint64_t file_size, uint64_t* footer_offset);
   Status DumpRecord(DisplayType show_key, DisplayType show_blob,
-                    DisplayType show_raw_blob, bool show_summary,
+                    DisplayType show_uncompressed_blob, bool show_summary,
                     CompressionType compression, uint64_t* offset,
                     uint64_t* total_records, uint64_t* total_key_size,
-                    uint64_t* total_blob_size, uint64_t* total_raw_blob_size);
+                    uint64_t* total_blob_size,
+                    uint64_t* total_uncompressed_blob_size);
   void DumpSlice(const Slice s, DisplayType type);
 
   template <class T>
