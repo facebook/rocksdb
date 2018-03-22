@@ -133,7 +133,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       for (auto* writer : *(w.write_group)) {
         if (!writer->CallbackFailed() && writer->pre_release_callback) {
           assert(writer->sequence != kMaxSequenceNumber);
-          Status ws = writer->pre_release_callback->Callback(writer->sequence);
+          Status ws = writer->pre_release_callback->Callback(writer->sequence,
+                                                             disable_memtable);
           if (!ws.ok()) {
             status = ws;
             break;
@@ -368,7 +369,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       for (auto* writer : write_group) {
         if (!writer->CallbackFailed() && writer->pre_release_callback) {
           assert(writer->sequence != kMaxSequenceNumber);
-          Status ws = writer->pre_release_callback->Callback(writer->sequence);
+          Status ws = writer->pre_release_callback->Callback(writer->sequence,
+                                                             disable_memtable);
           if (!ws.ok()) {
             status = ws;
             break;
@@ -629,7 +631,9 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
     for (auto* writer : write_group) {
       if (!writer->CallbackFailed() && writer->pre_release_callback) {
         assert(writer->sequence != kMaxSequenceNumber);
-        Status ws = writer->pre_release_callback->Callback(writer->sequence);
+        const bool DISABLE_MEMTABLE = true;
+        Status ws = writer->pre_release_callback->Callback(writer->sequence,
+                                                           DISABLE_MEMTABLE);
         if (!ws.ok()) {
           status = ws;
           break;
