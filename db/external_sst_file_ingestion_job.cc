@@ -511,6 +511,9 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
   PutFixed64(&seqno_val, seqno);
   status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
   if (status.ok()) {
+    status = rwfile->Fsync();
+  }
+  if (status.ok()) {
     file_to_ingest->assigned_seqno = seqno;
   }
   return status;
