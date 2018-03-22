@@ -65,6 +65,7 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
 
 TEST_F(FilterBlockTest, SingleChunk) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
+  ASSERT_EQ(0, builder.NumAdded());
   builder.StartBlock(100);
   builder.Add("foo");
   builder.Add("bar");
@@ -73,6 +74,7 @@ TEST_F(FilterBlockTest, SingleChunk) {
   builder.Add("box");
   builder.StartBlock(300);
   builder.Add("hello");
+  ASSERT_EQ(5, builder.NumAdded());
   BlockContents block(builder.Finish(), false, kNoCompression);
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
                                      std::move(block), nullptr);

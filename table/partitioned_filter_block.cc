@@ -25,7 +25,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval),
       p_index_builder_(p_index_builder),
-      filters_in_partition_(0) {
+      filters_in_partition_(0),
+      num_added_(0) {
   filters_per_partition_ =
       filter_bits_builder_->CalculateNumEntry(partition_size);
 }
@@ -53,6 +54,7 @@ void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
   MaybeCutAFilterBlock();
   filter_bits_builder_->AddKey(key);
   filters_in_partition_++;
+  num_added_++;
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(
