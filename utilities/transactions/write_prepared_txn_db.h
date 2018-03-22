@@ -459,19 +459,22 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                              SequenceNumber prep_seq,
                                              size_t prep_batch_cnt,
                                              size_t data_batch_cnt = 0,
-                                             bool prep_heap_skipped = false)
+                                             bool prep_heap_skipped = false,
+                                             bool publish_seq = true)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
         prep_batch_cnt_(prep_batch_cnt),
         data_batch_cnt_(data_batch_cnt),
         prep_heap_skipped_(prep_heap_skipped),
-        includes_data_(data_batch_cnt_ > 0) {
+        includes_data_(data_batch_cnt_ > 0),
+        publish_seq_(publish_seq) {
     assert((prep_batch_cnt_ > 0) != (prep_seq == kMaxSequenceNumber));  // xor
     assert(prep_batch_cnt_ > 0 || data_batch_cnt_ > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq) override {
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled) override {
     assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
@@ -492,7 +495,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
         db_->AddCommitted(commit_seq + i, last_commit_seq, PREPARE_SKIPPED);
       }
     }
-    if (db_impl_->immutable_db_options().two_write_queues) {
+    if (db_impl_->immutable_db_options().two_write_queues && publish_seq_) {
+      assert(is_mem_disabled);  // implies the 2nd queue
       // Publish the sequence number. We can do that here assuming the callback
       // is invoked only from one write queue, which would guarantee that the
       // publish sequence numbers will be in order, i.e., once a seq is
@@ -517,6 +521,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   // Either because it is commit without prepare or it has a
   // CommitTimeWriteBatch
   bool includes_data_;
+  // Should the callback also publishes the commit seq number
+  bool publish_seq_;
 };
 
 // Count the number of sub-batches inside a batch. A sub-batch does not have
