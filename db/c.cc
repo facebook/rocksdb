@@ -38,6 +38,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
 
 using rocksdb::BytewiseComparator;
@@ -101,6 +102,8 @@ using rocksdb::OptimisticTransactionDB;
 using rocksdb::OptimisticTransactionOptions;
 using rocksdb::Transaction;
 using rocksdb::Checkpoint;
+using rocksdb::PerfLevel;
+using rocksdb::PerfContext;
 
 using std::shared_ptr;
 
@@ -141,6 +144,7 @@ struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
 struct rocksdb_ratelimiter_t     { RateLimiter*      rep; };
+struct rocksdb_perfcontext_t     { PerfContext*      rep; };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
 };
@@ -2550,6 +2554,176 @@ void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
     delete limiter->rep;
   }
   delete limiter;
+}
+
+void rocksdb_set_perf_level(int v) {
+  PerfLevel level = static_cast<PerfLevel>(v);
+  SetPerfLevel(level);
+}
+
+rocksdb_perfcontext_t* rocksdb_perfcontext_create() {
+  rocksdb_perfcontext_t* context = new rocksdb_perfcontext_t;
+  context->rep = rocksdb::get_perf_context();
+  return context;
+}
+
+void rocksdb_perfcontext_reset(rocksdb_perfcontext_t* context) {
+  context->rep->Reset();
+}
+
+char* rocksdb_perfcontext_report(rocksdb_perfcontext_t* context,
+    unsigned char exclude_zero_counters) {
+  return strdup(context->rep->ToString(exclude_zero_counters).c_str());
+}
+
+uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
+    int metric) {
+  PerfContext* rep = context->rep;
+  switch (metric) {
+    case rocksdb_user_key_comparison_count:
+      return rep->user_key_comparison_count;
+    case rocksdb_block_cache_hit_count:
+      return rep->block_cache_hit_count;
+    case rocksdb_block_read_count:
+      return rep->block_read_count;
+    case rocksdb_block_read_byte:
+      return rep->block_read_byte;
+    case rocksdb_block_read_time:
+      return rep->block_read_time;
+    case rocksdb_block_checksum_time:
+      return rep->block_checksum_time;
+    case rocksdb_block_decompress_time:
+      return rep->block_decompress_time;
+    case rocksdb_get_read_bytes:
+      return rep->get_read_bytes;
+    case rocksdb_multiget_read_bytes:
+      return rep->multiget_read_bytes;
+    case rocksdb_iter_read_bytes:
+      return rep->iter_read_bytes;
+    case rocksdb_internal_key_skipped_count:
+      return rep->internal_key_skipped_count;
+    case rocksdb_internal_delete_skipped_count:
+      return rep->internal_delete_skipped_count;
+    case rocksdb_internal_recent_skipped_count:
+      return rep->internal_recent_skipped_count;
+    case rocksdb_internal_merge_count:
+      return rep->internal_merge_count;
+    case rocksdb_get_snapshot_time:
+      return rep->get_snapshot_time;
+    case rocksdb_get_from_memtable_time:
+      return rep->get_from_memtable_time;
+    case rocksdb_get_from_memtable_count:
+      return rep->get_from_memtable_count;
+    case rocksdb_get_post_process_time:
+      return rep->get_post_process_time;
+    case rocksdb_get_from_output_files_time:
+      return rep->get_from_output_files_time;
+    case rocksdb_seek_on_memtable_time:
+      return rep->seek_on_memtable_time;
+    case rocksdb_seek_on_memtable_count:
+      return rep->seek_on_memtable_count;
+    case rocksdb_next_on_memtable_count:
+      return rep->next_on_memtable_count;
+    case rocksdb_prev_on_memtable_count:
+      return rep->prev_on_memtable_count;
+    case rocksdb_seek_child_seek_time:
+      return rep->seek_child_seek_time;
+    case rocksdb_seek_child_seek_count:
+      return rep->seek_child_seek_count;
+    case rocksdb_seek_min_heap_time:
+      return rep->seek_min_heap_time;
+    case rocksdb_seek_max_heap_time:
+      return rep->seek_max_heap_time;
+    case rocksdb_seek_internal_seek_time:
+      return rep->seek_internal_seek_time;
+    case rocksdb_find_next_user_entry_time:
+      return rep->find_next_user_entry_time;
+    case rocksdb_write_wal_time:
+      return rep->write_wal_time;
+    case rocksdb_write_memtable_time:
+      return rep->write_memtable_time;
+    case rocksdb_write_delay_time:
+      return rep->write_delay_time;
+    case rocksdb_write_pre_and_post_process_time:
+      return rep->write_pre_and_post_process_time;
+    case rocksdb_db_mutex_lock_nanos:
+      return rep->db_mutex_lock_nanos;
+    case rocksdb_db_condition_wait_nanos:
+      return rep->db_condition_wait_nanos;
+    case rocksdb_merge_operator_time_nanos:
+      return rep->merge_operator_time_nanos;
+    case rocksdb_read_index_block_nanos:
+      return rep->read_index_block_nanos;
+    case rocksdb_read_filter_block_nanos:
+      return rep->read_filter_block_nanos;
+    case rocksdb_new_table_block_iter_nanos:
+      return rep->new_table_block_iter_nanos;
+    case rocksdb_new_table_iterator_nanos:
+      return rep->new_table_iterator_nanos;
+    case rocksdb_block_seek_nanos:
+      return rep->block_seek_nanos;
+    case rocksdb_find_table_nanos:
+      return rep->find_table_nanos;
+    case rocksdb_bloom_memtable_hit_count:
+      return rep->bloom_memtable_hit_count;
+    case rocksdb_bloom_memtable_miss_count:
+      return rep->bloom_memtable_miss_count;
+    case rocksdb_bloom_sst_hit_count:
+      return rep->bloom_sst_hit_count;
+    case rocksdb_bloom_sst_miss_count:
+      return rep->bloom_sst_miss_count;
+    case rocksdb_key_lock_wait_time:
+      return rep->key_lock_wait_time;
+    case rocksdb_key_lock_wait_count:
+      return rep->key_lock_wait_count;
+    case rocksdb_env_new_sequential_file_nanos:
+      return rep->env_new_sequential_file_nanos;
+    case rocksdb_env_new_random_access_file_nanos:
+      return rep->env_new_random_access_file_nanos;
+    case rocksdb_env_new_writable_file_nanos:
+      return rep->env_new_writable_file_nanos;
+    case rocksdb_env_reuse_writable_file_nanos:
+      return rep->env_reuse_writable_file_nanos;
+    case rocksdb_env_new_random_rw_file_nanos:
+      return rep->env_new_random_rw_file_nanos;
+    case rocksdb_env_new_directory_nanos:
+      return rep->env_new_directory_nanos;
+    case rocksdb_env_file_exists_nanos:
+      return rep->env_file_exists_nanos;
+    case rocksdb_env_get_children_nanos:
+      return rep->env_get_children_nanos;
+    case rocksdb_env_get_children_file_attributes_nanos:
+      return rep->env_get_children_file_attributes_nanos;
+    case rocksdb_env_delete_file_nanos:
+      return rep->env_delete_file_nanos;
+    case rocksdb_env_create_dir_nanos:
+      return rep->env_create_dir_nanos;
+    case rocksdb_env_create_dir_if_missing_nanos:
+      return rep->env_create_dir_if_missing_nanos;
+    case rocksdb_env_delete_dir_nanos:
+      return rep->env_delete_dir_nanos;
+    case rocksdb_env_get_file_size_nanos:
+      return rep->env_get_file_size_nanos;
+    case rocksdb_env_get_file_modification_time_nanos:
+      return rep->env_get_file_modification_time_nanos;
+    case rocksdb_env_rename_file_nanos:
+      return rep->env_rename_file_nanos;
+    case rocksdb_env_link_file_nanos:
+      return rep->env_link_file_nanos;
+    case rocksdb_env_lock_file_nanos:
+      return rep->env_lock_file_nanos;
+    case rocksdb_env_unlock_file_nanos:
+      return rep->env_unlock_file_nanos;
+    case rocksdb_env_new_logger_nanos:
+      return rep->env_new_logger_nanos;
+    default:
+      break;
+  }
+  return 0;
+}
+
+void rocksdb_perfcontext_destroy(rocksdb_perfcontext_t* context) {
+  delete context;
 }
 
 /*
