@@ -1734,18 +1734,18 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
 
-	// +1 to accomodate newline character
-	size_t hex_meta_strlen = kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
-	if (hex_meta_strlen >= buf_size) {
-		return Status::Corruption("Buffer too small to fit backup metadata");
-	}
-	else if (len + hex_meta_strlen >= buf_size) {
-		backup_meta_file->Append(Slice(buf.get(), len));
-		buf.release();
-		unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
-		buf.swap(new_reset_buf);
-		len = 0;
-	}
+    // +1 to accomodate newline character
+    size_t hex_meta_strlen = kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
+    if (hex_meta_strlen >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
+    else if (len + hex_meta_strlen >= buf_size) {
+      backup_meta_file->Append(Slice(buf.get(), len));
+      buf.release();
+      unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
+      buf.swap(new_reset_buf);
+      len = 0;
+    }
     len += snprintf(buf.get() + len, buf_size - len, "%s%s\n",
                     kMetaDataPrefix.ToString().c_str(),
                     hex_encoded_metadata.c_str());
@@ -1753,28 +1753,31 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
 
   char writelen_temp[19];
   if (len + sprintf(writelen_temp, "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
-	  backup_meta_file->Append(Slice(buf.get(), len));
-	  buf.release();
-	  unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
-	  buf.swap(new_reset_buf);
-	  len = 0;
+    backup_meta_file->Append(Slice(buf.get(), len));
+    buf.release();
+    unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
+    buf.swap(new_reset_buf);
+    len = 0;
   }
-  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n",
-                  files_.size());
+  {
+    const char *const_write = writelen_temp;
+    len += snprintf(buf.get() + len, buf_size - len, "%s", const_write);
+  }
 
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
 
-	size_t newlen = len + file->filename.length() + sprintf(writelen_temp, " crc32 %u\n", file->checksum_value);
-	if (newlen >= buf_size) {
-		backup_meta_file->Append(Slice(buf.get(), len));
-		buf.release();
-		unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
-		buf.swap(new_reset_buf);
-		len = 0;
-	}
-    len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",
-                    file->filename.c_str(), file->checksum_value);
+    size_t newlen = len + file->filename.length() + sprintf(writelen_temp, " crc32 %u\n", file->checksum_value);
+    const char *const_write = writelen_temp;
+    if (newlen >= buf_size) {
+      backup_meta_file->Append(Slice(buf.get(), len));
+      buf.release();
+      unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
+      buf.swap(new_reset_buf);
+      len = 0;
+    }
+    len += snprintf(buf.get() + len, buf_size - len, "%s%s",
+                    file->filename.c_str(), const_write);
   }
 
   s = backup_meta_file->Append(Slice(buf.get(), len));
