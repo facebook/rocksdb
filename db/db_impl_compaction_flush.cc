@@ -891,7 +891,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualCompaction);
+      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());

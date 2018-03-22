@@ -93,6 +93,7 @@ enum class FlushReason : int {
   kTest = 0x07,
   kDeleteFiles = 0x08,
   kAutoCompaction = 0x09,
+  kManualFlush = 0x0a,
 };
 
 enum class BackgroundErrorReason {

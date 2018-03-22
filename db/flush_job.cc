@@ -76,6 +76,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Delete Files";
     case FlushReason::kAutoCompaction:
       return "Auto Compaction";
+    case FlushReason::kManualFlush:
+      return "Manual Flush";
     default:
       return "Invalid";
   }
