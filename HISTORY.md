@@ -1,6 +1,14 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+
+### New Features
+
+### Bug Fixes
+
+
+## 5.13.0 (3/20/2018)
+### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
 * Remove CompactionEventListener.
 
