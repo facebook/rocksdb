@@ -5,7 +5,7 @@
 ### New Features
 
 ### Bug Fixes
-
+* Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
 
 ## 5.13.0 (3/20/2018)
 ### Public API Change
