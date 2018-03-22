@@ -650,8 +650,11 @@ Status BlockBasedTableBuilder::Finish() {
 
   BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
       compression_dict_block_handle, range_del_block_handle;
+
   // Write filter block
-  if (ok() && r->filter_builder != nullptr) {
+  bool empty_filter_block = (r->filter_builder == nullptr ||
+                             r->filter_builder->NumAdded() == 0);
+  if (ok() && !empty_filter_block) {
     Status s = Status::Incomplete();
     while (s.IsIncomplete()) {
       Slice filter_content = r->filter_builder->Finish(filter_block_handle, &s);
@@ -687,7 +690,7 @@ Status BlockBasedTableBuilder::Finish() {
   }
 
   if (ok()) {
-    if (r->filter_builder != nullptr) {
+    if (!empty_filter_block) {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
       std::string key;
