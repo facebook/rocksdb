@@ -149,19 +149,22 @@ Status WritePreparedTxn::CommitInternal() {
   if (LIKELY(do_one_write || !s.ok())) {
     return s;
   }  // else do the 2nd write to publish seq
-  // Note: the 2nd write comes with a performance penality. So if we have too many of commits accompanied with ComitTimeWriteBatch and yet we cannot enable use_only_the_last_commit_time_batch_for_recovery_ optimization, two_write_queues should be disabled to avoid many additional writes here.
+  // Note: the 2nd write comes with a performance penality. So if we have too
+  // many of commits accompanied with ComitTimeWriteBatch and yet we cannot
+  // enable use_only_the_last_commit_time_batch_for_recovery_ optimization,
+  // two_write_queues should be disabled to avoid many additional writes here.
   class PublishSeqPreReleaseCallback : public PreReleaseCallback {
-    public:
-     PublishSeqPreReleaseCallback(DBImpl* db_impl) : db_impl_(db_impl) {}
-     virtual Status Callback(SequenceNumber seq,
-                             bool is_mem_disabled) override {
-       assert(is_mem_disabled);
-       assert(db_impl_->immutable_db_options().two_write_queues);
-       db_impl_->SetLastPublishedSequence(seq);
-       return Status::OK();
-      }
-     private:
-      DBImpl* db_impl_;
+   public:
+    PublishSeqPreReleaseCallback(DBImpl* db_impl) : db_impl_(db_impl) {}
+    virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) override {
+      assert(is_mem_disabled);
+      assert(db_impl_->immutable_db_options().two_write_queues);
+      db_impl_->SetLastPublishedSequence(seq);
+      return Status::OK();
+    }
+
+   private:
+    DBImpl* db_impl_;
   } publish_seq_callback(db_impl_);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());

@@ -496,7 +496,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues && publish_seq_) {
-      assert(is_mem_disabled); // implies the 2nd queue
+      assert(is_mem_disabled);  // implies the 2nd queue
       // Publish the sequence number. We can do that here assuming the callback
       // is invoked only from one write queue, which would guarantee that the
       // publish sequence numbers will be in order, i.e., once a seq is
