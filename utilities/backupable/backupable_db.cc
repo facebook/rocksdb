@@ -1741,7 +1741,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     }
     else if (len + hex_meta_strlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
-      buf.release();
+      buf.reset();
       unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
       buf.swap(new_reset_buf);
       len = 0;
@@ -1754,7 +1754,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   char writelen_temp[19];
   if (len + sprintf(writelen_temp, "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
     backup_meta_file->Append(Slice(buf.get(), len));
-    buf.release();
+    buf.reset();
     unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
     buf.swap(new_reset_buf);
     len = 0;
@@ -1771,7 +1771,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     const char *const_write = writelen_temp;
     if (newlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
-      buf.release();
+      buf.reset();
       unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
       buf.swap(new_reset_buf);
       len = 0;
