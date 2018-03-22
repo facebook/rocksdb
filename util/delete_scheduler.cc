@@ -22,11 +22,13 @@ namespace rocksdb {
 DeleteScheduler::DeleteScheduler(Env* env, int64_t rate_bytes_per_sec,
                                  Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager,
-                                 double max_trash_db_ratio)
+                                 double max_trash_db_ratio,
+                                 uint64_t bytes_max_delete_chunk)
     : env_(env),
       total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       pending_files_(0),
+      bytes_max_delete_chunk_(bytes_max_delete_chunk),
       closing_(false),
       cv_(&mu_),
       info_log_(info_log),
@@ -208,15 +210,18 @@ void DeleteScheduler::BackgroundEmptyTrash() {
 
       // Get new file to delete
       std::string path_in_trash = queue_.front();
-      queue_.pop();
 
       // We dont need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
+      bool is_complete = true;
       // Delete file from trash and update total_penlty value
-      Status s = DeleteTrashFile(path_in_trash,  &deleted_bytes);
+      Status s = DeleteTrashFile(path_in_trash, &deleted_bytes, &is_complete);
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
+      if (is_complete) {
+        queue_.pop();
+      }
 
       if (!s.ok()) {
         bg_errors_[path_in_trash] = s;
@@ -236,7 +241,9 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       TEST_SYNC_POINT_CALLBACK("DeleteScheduler::BackgroundEmptyTrash:Wait",
                                &total_penlty);
 
-      pending_files_--;
+      if (is_complete) {
+        pending_files_--;
+      }
       if (pending_files_ == 0) {
         // Unblock WaitForEmptyTrash since there are no more files waiting
         // to be deleted
@@ -247,23 +254,49 @@ void DeleteScheduler::BackgroundEmptyTrash() {
 }
 
 Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
-                                        uint64_t* deleted_bytes) {
+                                        uint64_t* deleted_bytes,
+                                        bool* is_complete) {
   uint64_t file_size;
   Status s = env_->GetFileSize(path_in_trash, &file_size);
+  *is_complete = true;
+  TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
   if (s.ok()) {
-    TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
-    s = env_->DeleteFile(path_in_trash);
-  }
+    bool need_full_delete = true;
+    if (bytes_max_delete_chunk_ != 0 && file_size > bytes_max_delete_chunk_) {
+      unique_ptr<WritableFile> wf;
+      Status my_status =
+          env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
+      if (my_status.ok()) {
+        my_status = wf->Truncate(file_size - bytes_max_delete_chunk_);
+        if (my_status.ok()) {
+          TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:Fsync");
+          my_status = wf->Fsync();
+        }
+      }
+      if (my_status.ok()) {
+        *deleted_bytes = bytes_max_delete_chunk_;
+        need_full_delete = false;
+        *is_complete = false;
+      } else {
+        ROCKS_LOG_WARN(info_log_,
+                       "Failed to partially delete %s from trash -- %s",
+                       path_in_trash.c_str(), my_status.ToString().c_str());
+      }
+    }
 
+    if (need_full_delete) {
+      s = env_->DeleteFile(path_in_trash);
+      *deleted_bytes = file_size;
+      sst_file_manager_->OnDeleteFile(path_in_trash);
+    }
+  }
   if (!s.ok()) {
     // Error while getting file size or while deleting
     ROCKS_LOG_ERROR(info_log_, "Failed to delete %s from trash -- %s",
                     path_in_trash.c_str(), s.ToString().c_str());
     *deleted_bytes = 0;
   } else {
-    *deleted_bytes = file_size;
-    total_trash_size_.fetch_sub(file_size);
-    sst_file_manager_->OnDeleteFile(path_in_trash);
+    total_trash_size_.fetch_sub(*deleted_bytes);
   }
 
   return s;

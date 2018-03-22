@@ -27,7 +27,8 @@ class SstFileManagerImpl : public SstFileManager {
  public:
   explicit SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                               int64_t rate_bytes_per_sec,
-                              double max_trash_db_ratio);
+                              double max_trash_db_ratio,
+                              uint64_t bytes_max_delete_chunk);
 
   ~SstFileManagerImpl();
 
