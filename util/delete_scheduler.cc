@@ -262,7 +262,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
   TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
   if (s.ok()) {
     bool need_full_delete = true;
-    if (bytes_max_delete_chunk_ != 0 && file_size >= bytes_max_delete_chunk_) {
+    if (bytes_max_delete_chunk_ != 0 && file_size > bytes_max_delete_chunk_) {
       unique_ptr<WritableFile> wf;
       Status my_status =
           env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
@@ -279,7 +279,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
         *is_complete = false;
       } else {
         ROCKS_LOG_WARN(info_log_,
-                       "Failed to partitionlly delete %s from trash -- %s",
+                       "Failed to partially delete %s from trash -- %s",
                        path_in_trash.c_str(), my_status.ToString().c_str());
       }
     }
