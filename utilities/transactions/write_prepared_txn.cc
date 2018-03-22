@@ -155,7 +155,8 @@ Status WritePreparedTxn::CommitInternal() {
   // two_write_queues should be disabled to avoid many additional writes here.
   class PublishSeqPreReleaseCallback : public PreReleaseCallback {
    public:
-    PublishSeqPreReleaseCallback(DBImpl* db_impl) : db_impl_(db_impl) {}
+    explicit PublishSeqPreReleaseCallback(DBImpl* db_impl)
+        : db_impl_(db_impl) {}
     virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) override {
       assert(is_mem_disabled);
       assert(db_impl_->immutable_db_options().two_write_queues);
