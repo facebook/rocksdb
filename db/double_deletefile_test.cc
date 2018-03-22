@@ -160,7 +160,6 @@ class DoubleDeleteFileTest : public testing::Test {
 TEST_F(DoubleDeleteFileTest, RaceForObsoleteFileDeletion) {
   createLevel0Files(2, 50000);
   CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
-  CheckFileTypeCounts(dbname_, 0, 2, 1);
 
   SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BackgroundCallCompaction:2",
