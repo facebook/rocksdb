@@ -124,7 +124,7 @@ class DoubleDeleteFileTest : public testing::Test {
   }
 
   void createLevel0Files(int numFiles, int numKeysPerFile) {
-    uint64_t startKey = 0;
+    int startKey = 0;
     DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
     for (int i = 0; i < numFiles; i++) {
       AddKeys(numKeysPerFile, startKey);
