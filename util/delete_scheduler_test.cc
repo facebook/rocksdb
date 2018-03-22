@@ -441,9 +441,9 @@ TEST_F(DeleteSchedulerTest, DeletePartialFile) {
   int bg_fsync = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void*) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteScheduler::DeleteTrashFile:Fsync", [&](void* arg) { bg_fsync++; });
+      "DeleteScheduler::DeleteTrashFile:Fsync", [&](void*) { bg_fsync++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
