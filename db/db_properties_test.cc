@@ -69,27 +69,27 @@ TEST_F(DBPropertiesTest, Empty) {
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("1", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("2", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("3", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->EnableFileDeletions(false));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("2", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->EnableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("0", num);
+    ASSERT_EQ("1", num);
   } while (ChangeOptions());
 }
 
