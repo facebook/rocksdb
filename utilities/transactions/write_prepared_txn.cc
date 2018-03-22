@@ -128,9 +128,14 @@ Status WritePreparedTxn::CommitInternal() {
     assert(s.ok());
     commit_batch_cnt = counter.BatchCount();
   }
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
-      wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt);
+  const bool PREP_HEAP_SKIPPED = true;
   const bool disable_memtable = !includes_data;
+  const bool do_one_write =
+      !db_impl_->immutable_db_options().two_write_queues || disable_memtable;
+  const bool publish_seq = do_one_write;
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt,
+      !PREP_HEAP_SKIPPED, publish_seq);
   uint64_t seq_used = kMaxSequenceNumber;
   // Since the prepared batch is directly written to memtable, there is already
   // a connection between the memtable and its WAL, so there is no need to
@@ -140,6 +145,38 @@ Status WritePreparedTxn::CommitInternal() {
   auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                                zero_log_number, disable_memtable, &seq_used,
                                batch_cnt, &update_commit_map);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (LIKELY(do_one_write || !s.ok())) {
+    return s;
+  }  // else do the 2nd write to publish seq
+  // Note: the 2nd write comes with a performance penality. So if we have too
+  // many of commits accompanied with ComitTimeWriteBatch and yet we cannot
+  // enable use_only_the_last_commit_time_batch_for_recovery_ optimization,
+  // two_write_queues should be disabled to avoid many additional writes here.
+  class PublishSeqPreReleaseCallback : public PreReleaseCallback {
+   public:
+    explicit PublishSeqPreReleaseCallback(DBImpl* db_impl)
+        : db_impl_(db_impl) {}
+    virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) override {
+      assert(is_mem_disabled);
+      assert(db_impl_->immutable_db_options().two_write_queues);
+      db_impl_->SetLastPublishedSequence(seq);
+      return Status::OK();
+    }
+
+   private:
+    DBImpl* db_impl_;
+  } publish_seq_callback(db_impl_);
+  WriteBatch empty_batch;
+  empty_batch.PutLogData(Slice());
+  // In the absence of Prepare markers, use Noop as a batch separator
+  WriteBatchInternal::InsertNoop(&empty_batch);
+  const bool DISABLE_MEMTABLE = true;
+  const size_t ONE_BATCH = 1;
+  const uint64_t NO_REF_LOG = 0;
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
+                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+                          &publish_seq_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
 }
@@ -240,14 +277,14 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatchInternal::MarkRollback(&rollback_batch, name_);
   bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   const bool DISABLE_MEMTABLE = true;
-  const uint64_t no_log_ref = 0;
+  const uint64_t NO_REF_LOG = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ZERO_PREPARES = 0;
   const size_t ONE_BATCH = 1;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, ONE_BATCH);
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          no_log_ref, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+                          NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           do_one_write ? &update_commit_map : nullptr);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
@@ -275,7 +312,7 @@ Status WritePreparedTxn::RollbackInternal() {
   // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(&empty_batch);
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          no_log_ref, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Mark the txn as rolled back
