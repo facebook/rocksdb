@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string>
 #include <utility>
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -606,5 +607,47 @@ struct RangeTombstone {
     return InternalKey(end_key_, seq_, kTypeRangeDeletion);
   }
 };
+
+inline
+int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  if (r == 0) {
+    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
+    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+inline
+int InternalKeyComparator::CompareKeySeq(const Slice& akey,
+                                         const Slice& bkey) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  if (r == 0) {
+    // Shift the number to exclude the last byte which contains the value type
+    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8) >> 8;
+    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8) >> 8;
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
 
 }  // namespace rocksdb
