@@ -815,16 +815,16 @@ class DB {
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& input_file_names,
       const int output_level, const int output_path_id = -1,
-      std::vector<std::string>* const output_file_names = nullptr) = 0;
+      CompactionJobInfo* const job_info = nullptr) = 0;
 
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
       const std::vector<std::string>& input_file_names,
       const int output_level, const int output_path_id = -1,
-      std::vector<std::string>* const output_file_names = nullptr) {
+      CompactionJobInfo* const job_info = nullptr) {
     return CompactFiles(compact_options, DefaultColumnFamily(),
                         input_file_names, output_level, output_path_id,
-                        output_file_names);
+                        job_info);
   }
 
   // This function will wait until all currently running background processes

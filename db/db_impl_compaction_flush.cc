@@ -462,7 +462,7 @@ Status DBImpl::CompactFiles(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& input_file_names,
     const int output_level, const int output_path_id,
-    std::vector<std::string>* const output_file_names) {
+    CompactionJobInfo* const job_info) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
@@ -489,7 +489,7 @@ Status DBImpl::CompactFiles(
     WaitForIngestFile();
 
     s = CompactFilesImpl(compact_options, cfd, sv->current,
-                         input_file_names, output_file_names, output_level,
+                         input_file_names, job_info, output_level,
                          output_path_id, &job_context, &log_buffer);
   }
   if (sv->Unref()) {
@@ -533,7 +533,7 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
-    std::vector<std::string>* const output_file_names,
+    CompactionJobInfo* const job_info,
     const int output_level, int output_path_id, JobContext* job_context,
     LogBuffer* log_buffer) {
   mutex_.AssertHeld();
@@ -611,6 +611,10 @@ Status DBImpl::CompactFilesImpl(
     snapshot_checker = DisableGCSnapshotChecker::Instance();
   }
   assert(is_snapshot_supported_ || snapshots_.empty());
+
+  CompactionJobStats compaction_job_stats;
+  compaction_job_stats.num_input_files = c->num_input_files(0);
+
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -620,7 +624,7 @@ Status DBImpl::CompactFilesImpl(
       table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      nullptr);  // Here we pass a nullptr for CompactionJobStats because
+      &compaction_job_stats);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
                  // returned.  The idea of not triggering OnCompationCompleted()
@@ -682,11 +686,35 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
-  if (output_file_names != nullptr) {
+  if (job_info != nullptr) {
+    job_info->cf_name = cfd->GetName();
+    job_info->status = status;
+    job_info->thread_id = env_->GetThreadID();
+    job_info->job_id = job_context->job_id;
+    job_info->base_input_level = c->start_level();
+    job_info->output_level = c->output_level();
+    job_info->stats = compaction_job_stats;
+    job_info->table_properties = c->GetOutputTableProperties();
+    job_info->compaction_reason = c->compaction_reason();
+    job_info->compression = c->output_compression();
+    for (size_t i = 0; i < c->num_input_levels(); ++i) {
+      for (const auto fmd : *c->inputs(i)) {
+        auto fn = TableFileName(immutable_db_options_.db_paths,
+            fmd->fd.GetNumber(), fmd->fd.GetPathId());
+        job_info->input_files.push_back(fn);
+        if (job_info->table_properties.count(fn) == 0) {
+          std::shared_ptr<const TableProperties> tp;
+          auto st = cfd->current()->GetTableProperties(&tp, fmd, &fn);
+          if (st.ok()) {
+            job_info->table_properties[fn] = tp;
+          }
+        }
+      }
+    }
     for (const auto newf : c->edit()->GetNewFiles()) {
-      (*output_file_names).push_back(TableFileName(
-              immutable_db_options_.db_paths, newf.second.fd.GetNumber(),
-              newf.second.fd.GetPathId()) );
+      job_info->output_files.push_back(TableFileName(immutable_db_options_.db_paths,
+          newf.second.fd.GetNumber(),
+          newf.second.fd.GetPathId()));
     }
   }
 
