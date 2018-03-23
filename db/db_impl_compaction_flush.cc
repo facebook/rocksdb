@@ -624,19 +624,7 @@ Status DBImpl::CompactFilesImpl(
       table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats);  // Here we pass a nullptr for CompactionJobStats because
-                 // CompactFiles does not trigger OnCompactionCompleted(),
-                 // which is the only place where CompactionJobStats is
-                 // returned.  The idea of not triggering OnCompationCompleted()
-                 // is that CompactFiles runs in the caller thread, so the user
-                 // should always know when it completes.  As a result, it makes
-                 // less sense to notify the users something they should already
-                 // know.
-                 //
-                 // In the future, if we would like to add CompactionJobStats
-                 // support for CompactFiles, we should have CompactFiles API
-                 // pass a pointer of CompactionJobStats as the out-value
-                 // instead of using EventListener.
+      &compaction_job_stats);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
