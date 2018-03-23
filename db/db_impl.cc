@@ -2147,7 +2147,8 @@ Status DBImpl::DeleteFile(std::string name) {
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
           cfd, &job_context.superversion_context,
-          *cfd->GetLatestMutableCFOptions());
+          *cfd->GetLatestMutableCFOptions(),
+          FlushReason::kDeleteFiles);
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2231,7 +2232,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
           cfd, &job_context.superversion_context,
-          *cfd->GetLatestMutableCFOptions());
+          *cfd->GetLatestMutableCFOptions(),
+          FlushReason::kDeleteFiles);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2860,7 +2862,8 @@ Status DBImpl::IngestExternalFile(
     }
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(cfd, &sv_context,
-                                         *mutable_cf_options);
+                                         *mutable_cf_options,
+                                         FlushReason::kExternalFileIngestion);
     }
 
     // Resume writes to the DB

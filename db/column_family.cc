@@ -386,7 +386,7 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      flush_reason_(FlushReason::kUnknown),
+      flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       pending_flush_(false),
       pending_compaction_(false),
