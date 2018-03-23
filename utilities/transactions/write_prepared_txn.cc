@@ -83,7 +83,9 @@ Status WritePreparedTxn::PrepareInternal() {
   // callback otherwise there is a non-zero chance of max dvancing prepare_seq
   // and readers assume the data as committed.
   if (s.ok()) {
-    wpt_db_->AddPrepared(prepare_seq);
+    for (size_t i = 0; i < prepare_batch_cnt_; i++) {
+      wpt_db_->AddPrepared(prepare_seq + i);
+    }
   }
   return s;
 }

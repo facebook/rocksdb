@@ -36,7 +36,10 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   for (auto rtxn : rtxns) {
-    AddPrepared(rtxn.second->seq_);
+    auto cnt = rtxn.second->batch_cnt_ ? rtxn.second->batch_cnt_ : 1;
+    for (size_t i = 0; i < cnt; i++) {
+      AddPrepared(rtxn.second->seq_ + i);
+    }
   }
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
