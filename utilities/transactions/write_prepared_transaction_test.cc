@@ -932,7 +932,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
 
 // This tests that transactions with duplicate keys perform correctly after max
 // is advancing their prepared sequence numbers. This will not be the case if
-// for example the txn does not add the prepared seq for teh second sub-batch to
+// for example the txn does not add the prepared seq for the second sub-batch to
 // the PrepareHeap structure.
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   WriteOptions write_options;
