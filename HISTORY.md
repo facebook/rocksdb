@@ -1,15 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-### Public API Change
-
-### New Features
-
-### Bug Fixes
-* Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
-
-### Java API Changes
-* Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
-
 ## 5.13.0 (3/20/2018)
 ### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
@@ -24,6 +13,10 @@
 ### Bug Fixes
 * Fix a leak in prepared_section_completed_ where the zeroed entries would not removed from the map.
 * Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
+* Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
+
+### Java API Changes
+* Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
 
 ## 5.12.0 (2/14/2018)
 ### Public API Change
