@@ -1066,7 +1066,8 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
   }
   if (cfd_picked != nullptr) {
-    status = SwitchMemtable(cfd_picked, write_context);
+    status = SwitchMemtable(cfd_picked, write_context,
+                            FlushReason::kWriteBufferFull);
     if (status.ok()) {
       cfd_picked->imm()->FlushRequested();
       SchedulePendingFlush(cfd_picked, FlushReason::kWriteBufferFull);
@@ -1167,7 +1168,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ColumnFamilyData* cfd;
   while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-    auto status = SwitchMemtable(cfd, context);
+    auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
     if (cfd->Unref()) {
       delete cfd;
     }
@@ -1196,7 +1197,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
+Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                              FlushReason flush_reason) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {
@@ -1364,7 +1366,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options);
+                                     mutable_cf_options,
+                                     flush_reason);
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }
