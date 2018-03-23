@@ -76,13 +76,11 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
 
   switch (level) {
     case kReadHeader:
-      // file_->Skip(record->key_size + record->value_size);
       next_byte_ += kb_size;
       break;
 
     case kReadHeaderKey:
       s = ReadSlice(record->key_size, &record->key, &record->key_buf);
-      // file_->Skip(record->value_size);
       next_byte_ += record->value_size;
       break;
 
