@@ -83,7 +83,9 @@ Status WritePreparedTxn::PrepareInternal() {
   // callback otherwise there is a non-zero chance of max dvancing prepare_seq
   // and readers assume the data as committed.
   if (s.ok()) {
-    wpt_db_->AddPrepared(prepare_seq);
+    for (size_t i = 0; i < prepare_batch_cnt_; i++) {
+      wpt_db_->AddPrepared(prepare_seq + i);
+    }
   }
   return s;
 }
@@ -293,7 +295,9 @@ Status WritePreparedTxn::RollbackInternal() {
   if (do_one_write) {
     // Mark the txn as rolled back
     uint64_t& rollback_seq = seq_used;
-    wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+    for (size_t i = 0; i < prepare_batch_cnt_; i++) {
+      wpt_db_->RollbackPrepared(GetId() + i, rollback_seq);
+    }
     return s;
   }  // else do the 2nd write for commit
   uint64_t& prepare_seq = seq_used;
@@ -318,7 +322,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // Mark the txn as rolled back
   uint64_t& rollback_seq = seq_used;
   if (s.ok()) {
-    wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+    for (size_t i = 0; i < prepare_batch_cnt_; i++) {
+      wpt_db_->RollbackPrepared(GetId() + i, rollback_seq);
+    }
   }
 
   return s;

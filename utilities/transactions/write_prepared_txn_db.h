@@ -241,6 +241,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class PreparedHeap_Concurrent_Test;
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
+  friend class
+      WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
