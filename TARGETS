@@ -655,8 +655,8 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "double_deletefile_test",
-        "db/double_deletefile_test.cc",
+        "obsolete_files_test",
+        "db/obsolete_files_test.cc",
         "serial",
     ],
     [

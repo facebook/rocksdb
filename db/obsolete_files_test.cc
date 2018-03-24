@@ -32,7 +32,7 @@ using std::flush;
 
 namespace rocksdb {
 
-class DoubleDeleteFileTest : public testing::Test {
+class ObsoleteFilesTest : public testing::Test {
  public:
   std::string dbname_;
   Options options_;
@@ -40,7 +40,7 @@ class DoubleDeleteFileTest : public testing::Test {
   Env* env_;
   int numlevels_;
 
-  DoubleDeleteFileTest() {
+  ObsoleteFilesTest() {
     db_ = nullptr;
     env_ = Env::Default();
     // Trigger compaction when the number of level 0 files reaches 2.
@@ -157,32 +157,38 @@ class DoubleDeleteFileTest : public testing::Test {
   }
 };
 
-TEST_F(DoubleDeleteFileTest, RaceForObsoleteFileDeletion) {
+TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   createLevel0Files(2, 50000);
   CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
 
   SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::BackgroundCallCompaction:2",
-       "DoubleDeleteFileTest::RaceForObsoleteFileDeletion:1"},
-      {"DBImpl::BackgroundCallCompaction:3",
-       "DoubleDeleteFileTest::RaceForObsoleteFileDeletion:2"},
+      {"DBImpl::BackgroundCallCompaction:FoundObsoleteFiles",
+       "ObsoleteFilesTest::RaceForObsoleteFileDeletion:1"},
+      {"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+       "ObsoleteFilesTest::RaceForObsoleteFileDeletion:2"},
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DeleteObsoleteFileImpl:AfterDeletion", [&](void* arg) {
         Status* p_status = reinterpret_cast<Status*>(arg);
         ASSERT_TRUE(p_status->ok());
       });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::CloseHelper:PendingPurgeFinished", [&](void* arg) {
+        std::unordered_map<uint64_t, bool>* ssts_grabbed_for_purge_ptr =
+            reinterpret_cast<std::unordered_map<uint64_t, bool>*>(arg);
+        ASSERT_TRUE(ssts_grabbed_for_purge_ptr->empty());
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   port::Thread userThread([&]() {
     JobContext jobCxt(0);
-    TEST_SYNC_POINT("DoubleDeleteFileTest::RaceForObsoleteFileDeletion:1");
+    TEST_SYNC_POINT("ObsoleteFilesTest::RaceForObsoleteFileDeletion:1");
     dbi->TEST_LockMutex();
     dbi->FindObsoleteFiles(&jobCxt,
       true /* force=true */, false /* no_full_scan=false */);
     dbi->TEST_UnlockMutex();
-    TEST_SYNC_POINT("DoubleDeleteFileTest::RaceForObsoleteFileDeletion:2");
+    TEST_SYNC_POINT("ObsoleteFilesTest::RaceForObsoleteFileDeletion:2");
     dbi->PurgeObsoleteFiles(jobCxt);
     jobCxt.Clean();
   });
