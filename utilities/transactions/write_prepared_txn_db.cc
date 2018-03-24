@@ -131,20 +131,22 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ZERO_PREPARES = 0;
-  // Since this is not 2pc, there is no need for AddPrepared but having it in the PreReleaseCallback enables an optimization. Refer to SmallestUnCommittedSeq for more details.
+  // Since this is not 2pc, there is no need for AddPrepared but having it in
+  // the PreReleaseCallback enables an optimization. Refer to
+  // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
-      this, db_impl_->immutable_db_options().two_write_queues);
+      this, batch_cnt, db_impl_->immutable_db_options().two_write_queues);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       this, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, batch_cnt);
-  PreReleaseCallback *pre_release_callback;
+  PreReleaseCallback* pre_release_callback;
   if (do_one_write) {
-   pre_release_callback = &update_commit_map;
+    pre_release_callback = &update_commit_map;
   } else {
-   pre_release_callback = &add_prepared_callback;;
+    pre_release_callback = &add_prepared_callback;
   }
-  auto s = db_impl_->WriteImpl(
-      write_options, batch, nullptr, nullptr, no_log_ref, !DISABLE_MEMTABLE,
-      &seq_used, batch_cnt, pre_release_callback);
+  auto s = db_impl_->WriteImpl(write_options, batch, nullptr, nullptr,
+                               no_log_ref, !DISABLE_MEMTABLE, &seq_used,
+                               batch_cnt, pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   uint64_t& prepare_seq = seq_used;
   if (txn != nullptr) {

@@ -597,16 +597,23 @@ class WritePreparedTxnReadCallback : public ReadCallback {
 
 class AddPreparedCallback : public PreReleaseCallback {
  public:
-  AddPreparedCallback(WritePreparedTxnDB* db, bool two_write_queues) : db_(db), two_write_queues_(two_write_queues) {}
+  AddPreparedCallback(WritePreparedTxnDB* db, size_t sub_batch_cnt,
+                      bool two_write_queues)
+      : db_(db),
+        sub_batch_cnt_(sub_batch_cnt),
+        two_write_queues_(two_write_queues) {}
   virtual Status Callback(SequenceNumber prepare_seq,
                           bool is_mem_disabled) override {
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
-    db_->AddPrepared(prepare_seq);
+    for (size_t i = 0; i < sub_batch_cnt_; i++) {
+      db_->AddPrepared(prepare_seq + i);
+    }
     return Status::OK();
   }
 
  private:
   WritePreparedTxnDB* db_;
+  size_t sub_batch_cnt_;
   bool two_write_queues_;
 };
 

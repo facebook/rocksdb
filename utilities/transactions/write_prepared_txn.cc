@@ -72,6 +72,8 @@ Status WritePreparedTxn::PrepareInternal() {
   const bool WRITE_AFTER_COMMIT = true;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
                                      !WRITE_AFTER_COMMIT);
+  // For each duplicate key we account for a new sub-batch
+  prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // AddPrepared better to be called in the pre-release callback otherwise there
   // is a non-zero chance of max dvancing prepare_seq and readers assume the
   // data as committed.
@@ -83,13 +85,10 @@ Status WritePreparedTxn::PrepareInternal() {
       db_impl_->immutable_db_options().two_write_queues);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
-  // For each duplicate key we account for a new sub-batch
-  prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
-  Status s =
-      db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
-                          &add_prepared_callback);
+  Status s = db_impl_->WriteImpl(
+      write_options, GetWriteBatch()->GetWriteBatch(),
+      /*callback*/ nullptr, &log_number_, /*log ref*/ 0, !DISABLE_MEMTABLE,
+      &seq_used, prepare_batch_cnt_, &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
   SetId(prepare_seq);
