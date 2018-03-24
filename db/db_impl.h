@@ -886,7 +886,7 @@ class DBImpl : public DB {
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
-                          CompactionJobInfo* const jo_info,
+                          CompactionJobInfo* const job_info,
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer);
 
