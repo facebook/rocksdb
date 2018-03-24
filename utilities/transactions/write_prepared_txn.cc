@@ -40,7 +40,7 @@ Status WritePreparedTxn::Get(const ReadOptions& read_options,
   auto snapshot = read_options.snapshot;
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber smallest_prep = 0; // by default disable the optimization
+  SequenceNumber smallest_prep = 0;  // by default disable the optimization
   if (snapshot != nullptr) {
     smallest_prep =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
@@ -212,7 +212,8 @@ Status WritePreparedTxn::RollbackInternal() {
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators)
         : db_(db),
-          callback(wpt_db, snap_seq, 0), // 0 disables smallest_prep optimization
+          callback(wpt_db, snap_seq,
+                   0),  // 0 disables smallest_prep optimization
           rollback_batch_(dst_batch),
           comparators_(comparators) {}
 

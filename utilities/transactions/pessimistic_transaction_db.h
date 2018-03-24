@@ -35,9 +35,7 @@ class PessimisticTransactionDB : public TransactionDB {
 
   virtual ~PessimisticTransactionDB();
 
-  virtual const Snapshot* GetSnapshot() override {
-    return db_->GetSnapshot();
-  }
+  virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,

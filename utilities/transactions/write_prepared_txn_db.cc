@@ -249,7 +249,8 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
 struct WritePreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
-                std::shared_ptr<ManagedSnapshot> s, SequenceNumber smallest_prep)
+                std::shared_ptr<ManagedSnapshot> s,
+                SequenceNumber smallest_prep)
       : callback(txn_db, sequence, smallest_prep), snapshot(s) {}
 
   WritePreparedTxnReadCallback callback;
@@ -286,7 +287,8 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   }
   assert(snapshot_seq != kMaxSequenceNumber);
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-  auto* state = new IteratorState(this, snapshot_seq, own_snapshot, smallest_prep);
+  auto* state =
+      new IteratorState(this, snapshot_seq, own_snapshot, smallest_prep);
   auto* db_iter =
       db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
                                 !ALLOW_BLOB, !ALLOW_REFRESH);
@@ -322,7 +324,8 @@ Status WritePreparedTxnDB::NewIterators(
   iterators->reserve(column_families.size());
   for (auto* column_family : column_families) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-    auto* state = new IteratorState(this, snapshot_seq, own_snapshot, smallest_prep);
+    auto* state =
+        new IteratorState(this, snapshot_seq, own_snapshot, smallest_prep);
     auto* db_iter =
         db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
                                   !ALLOW_BLOB, !ALLOW_REFRESH);
@@ -521,7 +524,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
   };
 }
 
-const Snapshot* WritePreparedTxnDB::GetSnapshot() { 
+const Snapshot* WritePreparedTxnDB::GetSnapshot() {
   const bool FOR_WW_CONFLICT_CHECK = true;
   SnapshotImpl* snap_impl = db_impl_->GetSnapshotImpl(!FOR_WW_CONFLICT_CHECK);
   assert(snap_impl);

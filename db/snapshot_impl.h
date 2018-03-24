@@ -60,8 +60,8 @@ class SnapshotList {
   SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
   SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
 
-  SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq,
-                          uint64_t unix_time, bool is_write_conflict_boundary) {
+  SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
+                    bool is_write_conflict_boundary) {
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->is_write_conflict_boundary_ = is_write_conflict_boundary;

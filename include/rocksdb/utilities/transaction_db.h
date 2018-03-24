@@ -172,9 +172,7 @@ struct DeadlockPath {
 
 class TransactionDB : public StackableDB {
  public:
-  virtual const Snapshot* GetSnapshot() override {
-    return db_->GetSnapshot();
-  }
+  virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
   // Optimized version of ::Write that receives more optimization request such
   // as skip_concurrency_control.
   using StackableDB::Write;
