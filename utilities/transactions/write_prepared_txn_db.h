@@ -479,6 +479,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   }
   // Enhance the snapshot object by recording in it the smallest uncommitted seq
   inline void EnhanceSnapshot(SnapshotImpl* snapshot) {
+    assert(snapshot);
     snapshot->smallest_prepare_ = WritePreparedTxnDB::SmallestUnCommittedSeq();
   }
 

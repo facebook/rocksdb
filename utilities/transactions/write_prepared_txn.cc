@@ -372,6 +372,7 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
 void WritePreparedTxn::SetSnapshot() {
   const bool FOR_WW_CONFLICT_CHECK = true;
   SnapshotImpl* snapshot = dbimpl_->GetSnapshotImpl(FOR_WW_CONFLICT_CHECK);
+  assert(snapshot);
   wpt_db_->EnhanceSnapshot(snapshot);
   SetSnapshotInternal(snapshot);
 }

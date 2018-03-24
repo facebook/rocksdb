@@ -524,6 +524,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
 const Snapshot* WritePreparedTxnDB::GetSnapshot() { 
   const bool FOR_WW_CONFLICT_CHECK = true;
   SnapshotImpl* snap_impl = db_impl_->GetSnapshotImpl(!FOR_WW_CONFLICT_CHECK);
+  assert(snap_impl);
   EnhanceSnapshot(snap_impl);
   return snap_impl;
 }
