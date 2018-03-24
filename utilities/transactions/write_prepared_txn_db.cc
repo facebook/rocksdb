@@ -21,6 +21,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -190,8 +191,9 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   SequenceNumber smallest_prep = 0;
   if (options.snapshot != nullptr) {
     seq = options.snapshot->GetSequenceNumber();
-    smallest_prep =
-        dynamic_cast<const SnapshotImpl*>(options.snapshot)->smallest_prepare_;
+    smallest_prep = static_cast_with_check<const SnapshotImpl, const Snapshot>(
+                        options.snapshot)
+                        ->smallest_prepare_;
   } else {
     smallest_prep = SmallestUnCommittedSeq();
   }
@@ -269,13 +271,17 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   SequenceNumber smallest_prep = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    smallest_prep = dynamic_cast<const SnapshotImpl*>(options.snapshot)->smallest_prepare_;
+    smallest_prep = static_cast_with_check<const SnapshotImpl, const Snapshot>(
+                        options.snapshot)
+                        ->smallest_prepare_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
     // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
-    smallest_prep = dynamic_cast<const SnapshotImpl*>(snapshot)->smallest_prepare_;
+    smallest_prep =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+            ->smallest_prepare_;
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
   assert(snapshot_seq != kMaxSequenceNumber);
@@ -299,14 +305,18 @@ Status WritePreparedTxnDB::NewIterators(
   SequenceNumber smallest_prep = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    smallest_prep = dynamic_cast<const SnapshotImpl*>(options.snapshot)->smallest_prepare_;
+    smallest_prep = static_cast_with_check<const SnapshotImpl, const Snapshot>(
+                        options.snapshot)
+                        ->smallest_prepare_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
     // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
-    smallest_prep = dynamic_cast<const SnapshotImpl*>(snapshot)->smallest_prepare_;
+    smallest_prep =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+            ->smallest_prepare_;
   }
   iterators->clear();
   iterators->reserve(column_families.size());

@@ -6,6 +6,10 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <mutex>
 #include <queue>
@@ -601,7 +605,9 @@ class AddPreparedCallback : public PreReleaseCallback {
                       bool two_write_queues)
       : db_(db),
         sub_batch_cnt_(sub_batch_cnt),
-        two_write_queues_(two_write_queues) {}
+        two_write_queues_(two_write_queues) {
+    (void)two_write_queues_;  // to silence unused private field warning
+  }
   virtual Status Callback(SequenceNumber prepare_seq,
                           bool is_mem_disabled) override {
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue

@@ -20,6 +20,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
@@ -41,7 +42,9 @@ Status WritePreparedTxn::Get(const ReadOptions& read_options,
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
   SequenceNumber smallest_prep = 0; // by default disable the optimization
   if (snapshot != nullptr) {
-    smallest_prep = dynamic_cast<const SnapshotImpl*>(snapshot)->smallest_prepare_;
+    smallest_prep =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+            ->smallest_prepare_;
   }
 
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, smallest_prep);
@@ -340,7 +343,10 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                           SequenceNumber* tracked_at_seq) {
   assert(snapshot_);
 
-  SequenceNumber smallest_prep = dynamic_cast<const SnapshotImpl*>(snapshot_.get())->smallest_prepare_;
+  SequenceNumber smallest_prep =
+      static_cast_with_check<const SnapshotImpl, const Snapshot>(
+          snapshot_.get())
+          ->smallest_prepare_;
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
   // tracked_at_seq is either max or the last snapshot with which this key was
   // trackeed so there is no need to apply the IsInSnapshot to this comparison
