@@ -1382,6 +1382,88 @@ TEST(FullMergeV2, Add_MultiRemoveAdd_uint32) {
   ASSERT_EQ(0, merge_out.existing_operand.size());
 }
 
+// TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+TEST(FullMergeV2, EmptyOperands) {
+  std::string empty1;
+  std::string empty2;
+  auto operand_list = {
+    empty1,
+    empty2
+  };
+
+  auto merge_out = EmptyMergeOut();
+
+  const bool result = test_FullMergeV2(operand_list, merge_out);
+
+  ASSERT_TRUE(result);
+  ASSERT_TRUE(merge_out.new_value.empty());
+  ASSERT_EQ(0, merge_out.existing_operand.size());
+}
+
+// TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+TEST(FullMergeV2, EmptyOperandsAndAdd) {
+  std::string empty1;
+  std::string empty2;
+  auto operand_list = {
+    empty1,
+    Add({
+      "1000",
+      "2000"
+    }),
+    empty2
+  };
+
+  auto merge_out = EmptyMergeOut();
+
+  const bool result = test_FullMergeV2(operand_list, merge_out);
+
+  ASSERT_TRUE(result);
+  ASSERT_EQ("10002000", merge_out.new_value);
+  ASSERT_EQ(0, merge_out.existing_operand.size());
+}
+
+// TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+TEST(FullMergeV2, EmptyOperands_Existing) {
+  std::string empty1;
+  std::string empty2;
+  auto operand_list = {
+    empty1,
+    empty2
+  };
+  Slice existing_value("1000500090009999");
+
+  auto merge_out = EmptyMergeOut();
+
+  const bool result = test_FullMergeV2(operand_list, merge_out, &existing_value);
+
+  ASSERT_TRUE(result);
+  ASSERT_EQ("1000500090009999", merge_out.new_value);
+  ASSERT_EQ(0, merge_out.existing_operand.size());
+}
+
+// TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+TEST(FullMergeV2, EmptyOperandsAndAdd_Existing) {
+  std::string empty1;
+  std::string empty2;
+  auto operand_list = {
+    empty1,
+    Add({
+      "1000",
+      "2000"
+    }),
+    empty2
+  };
+  Slice existing_value("1000500090009999");
+
+  auto merge_out = EmptyMergeOut();
+
+  const bool result = test_FullMergeV2(operand_list, merge_out, &existing_value);
+
+  ASSERT_TRUE(result);
+  ASSERT_EQ("100050009000999910002000", merge_out.new_value);
+  ASSERT_EQ(0, merge_out.existing_operand.size());
+}
+
 /** PartialMergeMulti TESTS **/
 
 /** PartialMergeMulti CollectionOperation::kAdd TESTS **/

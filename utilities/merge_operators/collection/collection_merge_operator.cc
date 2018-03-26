@@ -79,6 +79,13 @@ bool CollectionMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
   // iterate all relevant operands
   for (auto it_operand = last_clear_operation; it_operand != multi_operand_list.end(); ++it_operand) {
     const Slice* const operand = &(*it_operand);
+
+    // TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+    // handles the case where PartialMergeMulti returns a no-op
+    if (operand->size() == 0) {
+      continue;
+    }
+
     const char* value = operand->data();
     const char collection_op = *value++;
 
@@ -142,6 +149,13 @@ bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
   while (it != multi_operand_list.begin()) {
     --it;
     const Slice* const operand = &(*it);
+
+    // TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+    // handles the case where previous PartialMergeMulti returns a no-op
+    if (operand->size() == 0) {
+      continue;
+    }
+
     const char* record_ptr = operand->data();
     const char collection_op = *record_ptr++;
 

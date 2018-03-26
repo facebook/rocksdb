@@ -150,22 +150,94 @@ class MultiOperandListIterator
   }
 
  private:
+  // const Slice* begin_operand() {
+  //     // read from underlying operand_list
+  //     const Slice* operand = &(*it_operand_list_);
+
+  //     // is multi Collection Operation?
+  //     if ((*operand)[0] == CollectionOperation::_kMulti) {
+  //       in_multi_ = true;
+  //       multi_operand_ = operand;
+  //       build_multi_operand_index();
+
+  //       operand = get_multi_operand_operand(multi_operand_index_offset_);
+  //     }
+
+  //     return operand;
+  // }
+  // TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+  // handles the case where previous PartialMergeMulti returns a no-op
   const Slice* begin_operand() {
-      // read from underlying operand_list
-      const Slice* operand = &(*it_operand_list_);
+      while (it_operand_list_ != it_operand_list_end_) {
+        // read from underlying operand_list
+        const Slice* operand = &(*it_operand_list_);
 
-      // is multi Collection Operation?
-      if ((*operand)[0] == CollectionOperation::_kMulti) {
-        in_multi_ = true;
-        multi_operand_ = operand;
-        build_multi_operand_index();
+        // handles the case where previous PartialMergeMulti returns a no-op
+        if (operand->size() == 0) {
+            ++it_operand_list_;   // this is empty, attempt next
+            continue;
+        }
 
-        operand = get_multi_operand_operand(multi_operand_index_offset_);
+        // is multi Collection Operation?
+        if ((*operand)[0] == CollectionOperation::_kMulti) {
+          in_multi_ = true;
+          multi_operand_ = operand;
+          build_multi_operand_index();
+
+          operand = get_multi_operand_operand(multi_operand_index_offset_);
+        }
+
+        return operand;
       }
 
-      return operand;
+      return nullptr;
   }
 
+  // const Slice* next_operand() {
+  //   const Slice* operand = nullptr;
+
+  //   if (in_multi_) {
+  //     if (has_next_multi_operand()) {
+
+  //       // cleanup memory from previous operand of multi
+  //       delete current_operand_;
+
+  //       // return next from multi
+  //       operand = get_multi_operand_operand(++multi_operand_index_offset_);
+
+  //     } else {
+  //       // end of previous multi
+  //       in_multi_ = false;
+  //       multi_operand_ = nullptr;
+  //       delete current_operand_;  // free the memory allocated for the last multi
+  //     }
+  //   }
+
+  //   if (!in_multi_
+  //       && it_operand_list_ != it_operand_list_end_) {
+  //     // read next from underlying operand_list
+
+  //     if (++it_operand_list_ == it_operand_list_end_) {
+  //       operand = nullptr;
+  //     } else {
+  //       operand = &(*it_operand_list_);
+
+  //       // is multi Collection Operation?
+  //       if ((*operand)[0] == CollectionOperation::_kMulti) {
+  //         in_multi_ = true;
+  //         multi_operand_ = operand;
+  //         build_multi_operand_index();
+  //         multi_operand_index_offset_ = 0;
+
+  //         operand = get_multi_operand_operand(multi_operand_index_offset_);
+  //       }
+  //     }
+  //   }
+
+  //   return operand;
+  // }
+  // TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+  // handles the case where previous PartialMergeMulti returns a no-op
   const Slice* next_operand() {
     const Slice* operand = nullptr;
 
@@ -190,10 +262,13 @@ class MultiOperandListIterator
         && it_operand_list_ != it_operand_list_end_) {
       // read next from underlying operand_list
       
-      if(++it_operand_list_ == it_operand_list_end_) {
-        operand = nullptr;
-      } else {
+      while (++it_operand_list_ != it_operand_list_end_) {
         operand = &(*it_operand_list_);
+
+        // handles the case where previous PartialMergeMulti returns a no-op
+        if (operand->size() == 0) {
+            continue; // this is empty, attempt next
+        }
 
         // is multi Collection Operation?
         if ((*operand)[0] == CollectionOperation::_kMulti) {
@@ -204,6 +279,12 @@ class MultiOperandListIterator
           
           operand = get_multi_operand_operand(multi_operand_index_offset_);
         }
+
+        break;
+      }
+
+      if (it_operand_list_ == it_operand_list_end_) {
+        operand = nullptr;
       }
     }
 
@@ -224,6 +305,46 @@ class MultiOperandListIterator
     return operand;
   }
 
+  // const Slice* prev_operand() {
+  //   const Slice* operand = nullptr;
+
+  //   if (in_multi_) {
+  //     if (has_prev_multi_operand()) {
+
+  //       // cleanup memory from previous operand of multi
+  //       delete current_operand_;
+
+  //       // return prev from multi
+  //       operand = get_multi_operand_operand(--multi_operand_index_offset_);
+
+  //       } else {
+  //       // end of previous multi
+  //       in_multi_ = false;
+  //       multi_operand_ = nullptr;
+  //       delete current_operand_;  // free the memory allocated for the last multi
+  //     }
+  //   }
+
+  //   if (!in_multi_
+  //       && it_operand_list_ > it_operand_list_begin_) {
+  //     // read prev from underlying operand_list
+  //     operand = &(*--it_operand_list_);
+
+  //     // is multi Collection Operation?
+  //     if ((*operand)[0] == CollectionOperation::_kMulti) {
+  //       in_multi_ = true;
+  //       multi_operand_ = operand;
+  //       build_multi_operand_index();
+  //       multi_operand_index_offset_ = multi_operand_index_.size();
+
+  //       operand = get_multi_operand_operand(--multi_operand_index_offset_);
+  //     }
+  //   }
+
+  //   return operand;
+  // }
+  // TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
+  // handles the case where previous PartialMergeMulti returns a no-op
   const Slice* prev_operand() {
     const Slice* operand = nullptr;
 
@@ -243,20 +364,28 @@ class MultiOperandListIterator
         delete current_operand_;  // free the memory allocated for the last multi
       }
     }
-    
-    if (!in_multi_
-        && it_operand_list_ > it_operand_list_begin_) {
-      // read prev from underlying operand_list
-      operand = &(*--it_operand_list_);
 
-      // is multi Collection Operation?
-      if ((*operand)[0] == CollectionOperation::_kMulti) {
-        in_multi_ = true;
-        multi_operand_ = operand;
-        build_multi_operand_index();
-        multi_operand_index_offset_ = multi_operand_index_.size();
-        
-        operand = get_multi_operand_operand(--multi_operand_index_offset_);
+    if (!in_multi_) {
+      while (it_operand_list_ > it_operand_list_begin_) {
+        // read prev from underlying operand_list
+        operand = &(*--it_operand_list_);
+
+        // handles the case where previous PartialMergeMulti returns a no-op
+        if (operand->size() == 0) {
+            continue; // this is empty, attempt prev
+        }
+
+        // is multi Collection Operation?
+        if ((*operand)[0] == CollectionOperation::_kMulti) {
+          in_multi_ = true;
+          multi_operand_ = operand;
+          build_multi_operand_index();
+          multi_operand_index_offset_ = multi_operand_index_.size();
+
+          operand = get_multi_operand_operand(--multi_operand_index_offset_);
+        }
+
+        break;
       }
     }
 
