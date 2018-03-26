@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* Add a BlockBasedTableOption to align uncompressed data blocks on the smaller of block size or page size boundary, to reduce flash reads by avoiding reads spanning 4K pages.
 
 ### New Features
 
