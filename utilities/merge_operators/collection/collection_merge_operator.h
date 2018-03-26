@@ -7,6 +7,9 @@
 #pragma once
 #include <cstdint>
 #include <deque>
+#include <fstream>
+#include <functional>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <string>
@@ -71,10 +74,17 @@ class CollectionMergeOperator : public MergeOperator {
    * @param comparator if records should be ordered, a comparator to order them.
    * @param unique_constraint A constraint on whether records should be unique
    *     or not, controls Set vs Vector behaviour.
+   * @param trace true if input and output to the CollectionMergeOperator should
+   *     be written to the trace file /tmp/CollectionMergeOperator.trace.
+   * @param trace_record_serializer a function which knows how to serialize
+   *     your records into some format that is readable for you. The default
+   *     is just a simple hex serialization.
    */
   CollectionMergeOperator(const uint16_t fixed_record_len,
       const Comparator* comparator = nullptr,
-      const UniqueConstraint unique_constraint = UniqueConstraint::kNone);
+      const UniqueConstraint unique_constraint = UniqueConstraint::kNone,
+      const bool trace = false,
+      const std::function<std::string(const char* const, size_t, const size_t)> trace_record_serializer = [](const char* const str, size_t offset, const size_t len){ return CollectionMergeOperator::toHex(str+offset, len); });
   virtual const char* Name() const override;
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
       MergeOperationOutput* merge_out) const override;
@@ -186,6 +196,10 @@ class CollectionMergeOperator : public MergeOperator {
   const uint16_t fixed_record_len_;
   const Comparator* const comparator_;
   const UniqueConstraint unique_constraint_;
+  const bool trace_;
+  const std::function<std::string(const char* const, size_t, const size_t)> trace_record_serializer_;
+
+  static constexpr const char* const TRACE_FILE = "/tmp/CollectionMergeOperator.trace";
 
   /**
    * A comparator for Slices.
@@ -238,10 +252,16 @@ class CollectionMergeOperator : public MergeOperator {
   bool append(const char* value, const size_t value_len, std::string& existing,
       Logger* logger, const bool debug) const;
   bool exists(Slice& value_record, std::string& existing) const;
-  
-  /* PartialMergeMulti implementation */
   bool fm_remove(const char* value, const size_t value_len, std::string& existing,
       Logger* logger, const bool debug) const;
+  void fm_trace_start(const MergeOperationInput& merge_in,
+      MergeOperationOutput* merge_out) const;
+  void fm_trace_start_process_op(Slice *slice, std::ofstream& trace_file) const;
+  void fm_trace_start_records(Slice *slice, const size_t len,
+      std::ofstream& trace_file) const;
+  void fm_trace_end(MergeOperationOutput* merge_out) const;
+
+  /* PartialMergeMulti implementation */
   void pm_clear(Operations& operations,
       OperationsIndex& operations_index,
       Logger* logger, const bool debug) const;
@@ -265,6 +285,14 @@ class CollectionMergeOperator : public MergeOperator {
     Operations::iterator& it_prev_operation) const;
   void pm_contiguous_operations(Operations& operations) const;
   void pm_serialize(Operations& operations, std::string* new_value) const;
+  void pm_trace_start(const Slice& key,
+      const std::deque<Slice>& operand_list, std::string* new_value) const;
+  void pm_trace_end(std::string* new_value) const;
+  void pm_trace_end_process_op(std::string* new_value, size_t& i,
+      std::ofstream& trace_file) const;
+  void pm_trace_end_records(std::string* new_value, size_t& i,
+      std::ofstream& trace_file) const;
+  void trace_exit(const char* const msg, const bool success) const;
 
 /**
  * Produces a hex string representation of a byte string.

@@ -18,10 +18,13 @@ namespace rocksdb {
 
 CollectionMergeOperator::CollectionMergeOperator(
     const uint16_t fixed_record_len, const Comparator* comparator,
-    const UniqueConstraint unique_constraint)
+    const UniqueConstraint unique_constraint, const bool trace,
+    const std::function<std::string(const char* const, size_t, const size_t)> trace_record_serializer)
         : fixed_record_len_(fixed_record_len),
         comparator_(comparator),
-        unique_constraint_(unique_constraint) {
+        unique_constraint_(unique_constraint),
+        trace_(trace),
+        trace_record_serializer_(trace_record_serializer) {
 }
 
 const char* CollectionMergeOperator::Name() const {
@@ -31,8 +34,15 @@ const char* CollectionMergeOperator::Name() const {
 bool CollectionMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
     MergeOperationOutput* merge_out) const {
 
+  if (trace_) {
+    fm_trace_start(merge_in, merge_out);
+  }
+
   if (merge_in.operand_list.empty()) {
     merge_out->existing_operand = *merge_in.existing_value;
+    if (trace_) {
+      trace_exit("Empty Operand List", true);
+    }
     return true; 
   }
 
@@ -96,18 +106,27 @@ bool CollectionMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
       
       case CollectionOperation::kAdd:
         if (!fm_add(value, operand->size() - sizeof(CollectionOperation), merge_out->new_value, logger, debug)) {
+          if (trace_) {
+            trace_exit("fm_add failed", false);
+          }
           return false;
         }
         break;
       
       case CollectionOperation::kRemove:
         if (!fm_remove(value, operand->size() - sizeof(CollectionOperation), merge_out->new_value, logger, debug)) {
+          if (trace_) {
+            trace_exit("fm_remove failed", false);
+          }
           return false;
         }
         break;
 
       default:
         Log(InfoLogLevel::ERROR_LEVEL, logger, "Unknown Collection operation: %x", collection_op);
+        if (trace_) {
+          trace_exit("unknown operation", false);
+        }
         return false;
     }
   }
@@ -117,12 +136,20 @@ bool CollectionMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
     Log(InfoLogLevel::DEBUG_LEVEL, logger, "CollectionMergeOperator::FullMergeV2 OK");
   }
 
+  if (trace_) {
+    fm_trace_end(merge_out);
+  }
+
   return true;
 }
 
 bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
     const std::deque<Slice>& operand_list, std::string* new_value,
     Logger* logger) const {
+
+  if (trace_) {
+    pm_trace_start(key, operand_list, new_value);
+  }
 
   // is debug level logging enabled?
   const bool debug = logger->GetInfoLogLevel() == InfoLogLevel::DEBUG_LEVEL;
@@ -134,6 +161,9 @@ bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
   }
 
   if (operand_list.empty()) {
+    if (trace_) {
+      trace_exit("operand_list is empty", true);
+    }
     return true;
   }
 
@@ -169,19 +199,28 @@ bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
     } else if(collection_op == CollectionOperation::kAdd) {
       if (!pm_add(operations, operations_index, record_ptr, operand->size() - sizeof(CollectionOperation), logger, debug)) {
         new_value->clear();  // we should leave new_value unchanged, so cleanup any progress so far
+        if (trace_) {
+          trace_exit("pm_add failed", false);
+        }
         return false;
       }
 
     } else if (collection_op == CollectionOperation::kRemove) {
-          if (!pm_remove(operations, operations_index, record_ptr, operand->size() - sizeof(CollectionOperation), logger, debug)) {
-          new_value->clear();  // we should leave new_value unchanged, so cleanup any progress so far
-          return false;
+      if (!pm_remove(operations, operations_index, record_ptr, operand->size() - sizeof(CollectionOperation), logger, debug)) {
+        new_value->clear();  // we should leave new_value unchanged, so cleanup any progress so far
+        if (trace_) {
+          trace_exit("pm_remove failed", false);
         }
+        return false;
+      }
 
     } else {
-        Log(InfoLogLevel::ERROR_LEVEL, logger, "Unknown Collection operation: %x", collection_op);
-        new_value->clear();  // we should leave new_value unchanged, so cleanup any progress so far
-        return false;
+      Log(InfoLogLevel::ERROR_LEVEL, logger, "Unknown Collection operation: %x", collection_op);
+      new_value->clear();  // we should leave new_value unchanged, so cleanup any progress so far
+      if (trace_) {
+        trace_exit("unknown operation", false);
+      }
+      return false;
     }
   }
 
@@ -191,6 +230,10 @@ bool CollectionMergeOperator::PartialMergeMulti(const Slice& key,
   if (debug) {
     Log(InfoLogLevel::DEBUG_LEVEL, logger, "Updated new_value=[%s]", toHex(new_value->c_str(), new_value->length()).c_str());
     Log(InfoLogLevel::DEBUG_LEVEL, logger, "CollectionMergeOperator::PartialMergeMulti OK");
+  }
+
+  if (trace_) {
+    pm_trace_end(new_value);
   }
 
   return true;
@@ -693,6 +736,237 @@ bool CollectionMergeOperator::fm_remove(const char* value, const size_t value_le
   }
 
   return true;
+}
+
+void CollectionMergeOperator::fm_trace_start(const MergeOperationInput& merge_in,
+    MergeOperationOutput* merge_out) const {
+  std::ofstream trace_file;
+  trace_file.open (TRACE_FILE, std::ofstream::out | std::ofstream::app);
+  trace_file << "# FullMergeV2" << std::endl;
+  trace_file << "* key: [" << merge_in.key.ToString(true) << "]" << std::endl;
+  trace_file << "* existing_value: ";
+  if (merge_in.existing_value == nullptr) {
+    trace_file << "nullptr" << std::endl;
+  } else {
+    trace_file << "[" << merge_in.existing_value->ToString(true) << "]" << std::endl;
+  }
+  trace_file << "* new_value: [" << toHex(merge_out->new_value.c_str(), merge_out->new_value.size()) << "]" << std::endl;
+  trace_file << "* existing_operand: [";
+  if (merge_out->existing_operand.size() > 0) {
+    trace_file << merge_out->existing_operand.ToString(true);
+  }
+  trace_file << "]" << std::endl;
+  size_t i= 0;
+  trace_file << "* operand_list(size=" << merge_in.operand_list.size() << "): {" << std::endl;
+  for (auto it = merge_in.operand_list.begin(); it != merge_in.operand_list.end(); ++it) {
+    Slice slice(*it);
+    trace_file << "\toperand(" << i++ << ", size=" << slice.size() << ")=[";
+    if (slice.size() > 0) {
+      fm_trace_start_process_op(&slice, trace_file);
+    }
+    trace_file << "]" << std::endl;
+  }
+  trace_file << "}" << std::endl;
+  trace_file.close();
+}
+
+void CollectionMergeOperator::fm_trace_start_process_op(Slice *slice, std::ofstream& trace_file) const {
+  const char collection_op = (*slice)[0];
+  slice->remove_prefix(1);
+
+  switch (collection_op) {
+
+    case CollectionOperation::kClear:
+      trace_file << "Clear:";
+      break;
+
+    case CollectionOperation::kAdd:
+      trace_file << "Add:";
+      fm_trace_start_records(slice, slice->size(), trace_file);
+      break;
+
+    case CollectionOperation::kRemove:
+      trace_file << "Remove:";
+      fm_trace_start_records(slice, slice->size(), trace_file);
+      break;
+
+    case CollectionOperation::_kMulti:
+      trace_file << "Multi:" << std::endl;
+      while (slice->size() > 0) {
+        const size_t op_records_len = DecodeFixed32(slice->data());
+        slice->remove_prefix(4);
+        const char sub_collection_op = (*slice)[0];
+        slice->remove_prefix(1);
+
+        switch (sub_collection_op) {
+          case CollectionOperation::kClear:
+            trace_file << "\t\tClear" << std::endl;
+            break;
+
+          case CollectionOperation::kAdd:
+            trace_file << "\t\tAdd:";
+            fm_trace_start_records(slice, op_records_len, trace_file);
+            slice->remove_prefix(op_records_len);
+            trace_file << std::endl;
+            break;
+
+          case CollectionOperation::kRemove:
+            trace_file << "\t\tRemove:";
+            fm_trace_start_records(slice, op_records_len, trace_file);
+            slice->remove_prefix(op_records_len);
+            trace_file << std::endl;
+            break;
+
+          default:
+          trace_file << "\t\tUNKNOWN" << std::endl;
+          break;
+        }
+      }
+      trace_file << "]";
+      break;
+
+    default:
+      trace_file << "UNKNOWN";
+      break;
+  }
+}
+
+void CollectionMergeOperator::fm_trace_start_records(Slice *slice, const size_t len, std::ofstream& trace_file) const {
+  for (size_t j = 0; j < len; j += fixed_record_len_) {
+    trace_file << trace_record_serializer_(slice->data(), j, fixed_record_len_);
+    if (j + fixed_record_len_ < len) {
+      trace_file << ",";
+    }
+  }
+}
+
+void CollectionMergeOperator::fm_trace_end(MergeOperationOutput* merge_out) const {
+  std::ofstream trace_file;
+  trace_file.open (TRACE_FILE, std::ofstream::out | std::ofstream::app);
+  trace_file << "## IMPLEMENTATION..." << std::endl;
+  trace_file << "* new_value: [";
+  for (size_t i = 0; i < merge_out->new_value.size(); i+= fixed_record_len_) {
+    trace_file << trace_record_serializer_(merge_out->new_value.data(), i, fixed_record_len_);
+    if (i + fixed_record_len_ < merge_out->new_value.size()) {
+      trace_file << ",";
+    }
+  }
+  trace_file << "]" << std::endl;
+  trace_file << std::endl;
+  trace_file.close();
+}
+
+void CollectionMergeOperator::pm_trace_start(const Slice& key,
+    const std::deque<Slice>& operand_list, std::string* new_value) const {
+  std::ofstream trace_file;
+  trace_file.open (TRACE_FILE, std::ofstream::out | std::ofstream::app);
+  trace_file << "# PartialMergeMulti" << std::endl;
+  trace_file << "* key: [" << key.ToString(true) << "]" << std::endl;
+  trace_file << "* new_value: [" << toHex(new_value->c_str(), new_value->size()) << "]" << std::endl;
+  size_t i= 0;
+  trace_file << "* operand_list(size=" << operand_list.size() << "): {" << std::endl;
+  for (auto it = operand_list.begin(); it != operand_list.end(); ++it) {
+    Slice slice = *it;
+    trace_file << "\t operand(" << i++ << ", size=" << slice.size() << ")=[";
+    if (slice.size() > 0) {
+      const char collection_op = slice[0];
+      switch (collection_op) {
+        case CollectionOperation::kClear:
+          trace_file << "Clear:";
+          break;
+        case CollectionOperation::kAdd:
+          trace_file << "Add:";
+          break;
+        case CollectionOperation::kRemove:
+          trace_file << "Remove:";
+          break;
+        case CollectionOperation::_kMulti:
+          trace_file << "Multi:";
+          break;
+        default:
+          trace_file << "UNKNOWN:";
+          break;
+      }
+      slice.remove_prefix(1);
+
+      for (size_t j = 0; j < slice.size(); j += fixed_record_len_) {
+        trace_file << trace_record_serializer_(slice.data(), j, fixed_record_len_);
+        if (j + fixed_record_len_ < slice.size()) {
+          trace_file << ",";
+        }
+      }
+    }
+    trace_file << "]" << std::endl;
+  }
+  trace_file << "}" << std::endl;
+  trace_file.close();
+}
+
+void CollectionMergeOperator::pm_trace_end(std::string* new_value) const {
+  std::ofstream trace_file;
+  trace_file.open (TRACE_FILE, std::ofstream::out | std::ofstream::app);
+  trace_file << "## IMPLEMENTATION..." << std::endl;
+  if(new_value == nullptr) {
+    trace_file << "* new_value: nullptr" << std::endl;
+  } else if(new_value->size() == 0) {
+    trace_file << "* new_value: []" << std::endl;
+  } else {
+    trace_file << "* new_value(size=" << new_value->size() << ")=[" << std::endl;
+
+    size_t i = 0;
+    while (i < new_value->size()) {
+      pm_trace_end_process_op(new_value, i, trace_file);
+    }
+
+    trace_file << "]" << std::endl;
+  }
+  trace_file << std::endl;
+  trace_file.close();
+}
+
+void CollectionMergeOperator::pm_trace_end_process_op(std::string* new_value, size_t& i, std::ofstream& trace_file) const {
+  const char collection_op = new_value->at(i++);
+  switch (collection_op) {
+    case CollectionOperation::kClear:
+      trace_file << "\tClear" << std::endl;
+      break;
+    case CollectionOperation::kAdd:
+      trace_file << "\tAdd(";
+      pm_trace_end_records(new_value, i, trace_file);
+      trace_file << ")" << std::endl;
+      break;
+    case CollectionOperation::kRemove:
+      trace_file << "\tRemove(";
+      pm_trace_end_records(new_value, i, trace_file);
+      trace_file << ")" << std::endl;
+      break;
+    case CollectionOperation::_kMulti:
+      trace_file << "\tMulti: TODO";
+      i = new_value->size();  // TODO(AR) implement
+      break;
+    default:
+      assert(false);
+      i = new_value->size();
+      break;
+  }
+}
+
+void CollectionMergeOperator::pm_trace_end_records(std::string* new_value, size_t& i, std::ofstream& trace_file) const {
+  while(i < new_value->size()) {
+    trace_file << trace_record_serializer_(new_value->data(), i, fixed_record_len_);
+    if (i + fixed_record_len_ < new_value->size()) {
+      trace_file << ",";
+    }
+    i += fixed_record_len_;
+  }
+}
+
+void CollectionMergeOperator::trace_exit(const char* const msg, const bool success) const {
+  std::ofstream trace_file;
+  trace_file.open (TRACE_FILE, std::ofstream::out | std::ofstream::app);
+  trace_file << "## EXIT(success=" << std::boolalpha << success << "): " << msg << std::endl;
+  trace_file << std::endl;
+  trace_file.close();
 }
 
 }  // end rocksdb namespace
