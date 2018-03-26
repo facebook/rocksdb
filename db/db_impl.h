@@ -737,6 +737,7 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+  friend class DBTest_ConcurrentFlushWAL_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
