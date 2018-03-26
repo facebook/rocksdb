@@ -485,33 +485,43 @@ bool CollectionMergeOperator::pm_remove(Operations& operations,
       const auto it_operation_record_offsets = operation_idx->second.rbegin();
       auto prev_operation = operations[it_operation_record_offsets->first];
 
-      switch (unique_constraint_) {
-        case UniqueConstraint::kMakeUnique:
-          /* this is a kRemove operation and a following
-            instruction for this record was also a kRemove
-            to ensure the uniqueness constraint, we just ignore it */
-            if (debug) {
-              Log(InfoLogLevel::DEBUG_LEVEL, logger, "encountered new record for kRemove which is a duplicate of another new record, skipping as UniqueConstraint::kMakeUnique is set. (value=%s)", record.ToString(true).c_str());
-            }
-          break;
+      // we need to consider what the prev_operation is!!!
+      if (prev_operation.operation_ == CollectionOperation::kRemove) { 
+        switch (unique_constraint_) {
+          case UniqueConstraint::kMakeUnique:
+            /* this is a kRemove operation and a following
+              instruction for this record was also a kRemove
+              to ensure the uniqueness constraint, we just ignore it */
+              if (debug) {
+                Log(InfoLogLevel::DEBUG_LEVEL, logger, "encountered new record for kRemove which is a duplicate of another new record, skipping as UniqueConstraint::kMakeUnique is set. (value=%s)", record.ToString(true).c_str());
+              }
+            break;
 
-        case UniqueConstraint::kEnforceUnique:
-          /* this is a kRemove operation and a following
-            instruction for this record was also a kRemove
-            this violates the uniqueness constraint */
-          Log(InfoLogLevel::ERROR_LEVEL, logger, "encountered new record for kRemove which is a duplicate of another new record, but UniqueConstraint::kEnforceUnique is set. (value=%s)", record.ToString(true).c_str());
-          return false;  // PartialMergeMulti failed!
-          break;
+          case UniqueConstraint::kEnforceUnique:
+            /* this is a kRemove operation and a following
+              instruction for this record was also a kRemove
+              this violates the uniqueness constraint */
+            Log(InfoLogLevel::ERROR_LEVEL, logger, "encountered new record for kRemove which is a duplicate of another new record, but UniqueConstraint::kEnforceUnique is set. (value=%s)", record.ToString(true).c_str());
+            return false;  // PartialMergeMulti failed!
+            break;
 
-        case UniqueConstraint::kNone:
-          /* we don't know how many kRemove are before
-              the final kAdd or kRemove for a record
-              so we always emit this record */
+          case UniqueConstraint::kNone:
+            /* we don't know how many kRemove are before
+                the final kAdd or kRemove for a record
+                so we always emit this record */
 
-          // record an operation for the record
-          push_or_mergeprev_operation_record(operations, operations_index, operation_idx, CollectionOperation::kRemove, record);
-          break;
-      }
+            // record an operation for the record
+            push_or_mergeprev_operation_record(operations, operations_index, operation_idx, CollectionOperation::kRemove, record);
+            break;
+        }
+     } else {
+        /* we don't know how many kRemove are before
+                the final kAdd or kRemove for a record
+                so we always emit this record */
+
+        // record an operation for the record
+        push_or_mergeprev_operation_record(operations, operations_index, operation_idx, CollectionOperation::kRemove, record);
+     }
     }
   }
 

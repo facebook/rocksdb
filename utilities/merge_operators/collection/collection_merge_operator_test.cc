@@ -2886,6 +2886,350 @@ TEST(PartialMergeMulti, MultiComplex2) {
     new_value);
 }
 
+TEST(PartialMergeMulti, Complex1) {
+  auto operand_list = {
+    Add({
+      "0594",
+      "0592",
+      "0593"
+    }),
+    Remove("0593"),
+    Remove("0592"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0593",
+      "0592"
+    }),
+    Remove("0592"),
+    Remove("0593"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0592",
+      "0593"
+    }),
+    Remove("0593"),
+    Remove("0592"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0593",
+      "0592"
+    }),
+    Remove("0592"),
+    Remove("0593"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0593",
+      "0592"
+    }),
+    Remove("0592"),
+    Remove("0593"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0592",
+      "0593"
+    }),
+    Remove("0593"),
+    Remove("0592"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0593",
+      "0592"
+    }),
+    Remove("0592"),
+    Remove("0593"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0592",
+      "0593"
+    }),
+    Remove("0593"),
+    Remove("0592"),
+    Remove("0594"),
+    Add({
+      "0594",
+      "0593",
+      "0592"
+    })
+  };
+
+  std::string new_value;
+  const bool result = test_PartialMergeMulti(operand_list, &new_value);
+
+  ASSERT_TRUE(result);
+  ASSERT_EQ(
+    Add({
+      "0594",
+      "0593",
+      "0592"
+    }),
+    new_value);
+}
+
+TEST(PartialMergeMulti, Complex1_uint32) {
+  auto operand_list = {
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    })
+  };
+
+  std::string new_value;
+  const bool result = test_PartialMergeMulti(operand_list, &new_value);
+   ASSERT_EQ(
+    Add({
+      594,
+      593,
+      592
+    }),
+    new_value);
+
+  ASSERT_TRUE(result);
+}
+
+TEST(PartialMergeMulti, Complex1_uint32_MakeUnique) {
+  auto operand_list = {
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    })
+  };
+
+  std::string new_value;
+  const bool result = test_PartialMergeMulti(operand_list, &new_value, nullptr, UniqueConstraint::kMakeUnique);
+   ASSERT_EQ(
+    Add({
+      594,
+      593,
+      592
+    }),
+    new_value);
+
+  ASSERT_TRUE(result);
+}
+
+TEST(PartialMergeMulti, Complex1_uint32_EnforceUnique) {
+  auto operand_list = {
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    }),
+    Remove(592),
+    Remove(593),
+    Remove(594),
+    Add({
+      594,
+      592,
+      593
+    }),
+    Remove(593),
+    Remove(592),
+    Remove(594),
+    Add({
+      594,
+      593,
+      592
+    })
+  };
+
+  std::string new_value;
+  const bool result = test_PartialMergeMulti(operand_list, &new_value, nullptr, UniqueConstraint::kEnforceUnique);
+   ASSERT_EQ(
+    Add({
+      594,
+      593,
+      592
+    }),
+    new_value);
+
+  ASSERT_TRUE(result);
+}
+
 }  // end rocksdb namespace
 
 int main(int argc, char** argv) {
