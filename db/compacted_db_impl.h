@@ -84,6 +84,13 @@ class CompactedDBImpl : public DBImpl {
       const IngestExternalFileOptions& /*ingestion_options*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+  using DB::ImportExternalFile;
+  virtual Status ImportExternalFile(
+      ColumnFamilyHandle* /*column_family*/,
+      const std::vector<ImportFileMetaData>& /*import_files_metadata*/,
+      const ImportExternalFileOptions& /*import_options*/) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
 
  private:
   friend class DB;

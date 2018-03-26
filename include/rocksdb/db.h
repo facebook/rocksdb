@@ -1019,6 +1019,23 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
+  // ImportExternalFile() will import external SST files into the specified
+  // _empty_ column family.
+  //
+  // (1) External SST files can be created using SstFileWriter
+  // (2) External SST files can be from a particular column family in
+  // existing DB.
+  virtual Status ImportExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<ImportFileMetaData>& import_files,
+      const ImportExternalFileOptions& options) = 0;
+
+  virtual Status ImportExternalFile(
+      const std::vector<ImportFileMetaData>& import_files,
+      const ImportExternalFileOptions& options) {
+    return ImportExternalFile(DefaultColumnFamily(), import_files, options);
+  }
+
   virtual Status VerifyChecksum() = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()

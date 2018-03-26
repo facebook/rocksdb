@@ -100,4 +100,20 @@ struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
   int level;               // Level at which this file resides.
 };
+
+// The metadata that describes an SST file, as needed by ImportExternalFile().
+struct ImportFileMetaData {
+  ImportFileMetaData(std::string _name, int _level,
+                     SequenceNumber _smallest_seqnum,
+                     SequenceNumber _largest_seqnum)
+      : name(_name),
+        level(_level),
+        smallest_seqnum(_smallest_seqnum),
+        largest_seqnum(_largest_seqnum) {}
+
+  std::string name;  // The name (full path) of the file.
+  int level;         // Level at which this file resides.
+  SequenceNumber smallest_seqnum;  // Smallest sequence number in file.
+  SequenceNumber largest_seqnum;   // Largest sequence number in file.
+};
 }  // namespace rocksdb

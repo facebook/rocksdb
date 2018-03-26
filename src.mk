@@ -28,6 +28,7 @@ LIB_SOURCES =                                                   \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
+  db/external_sst_file_import_job.cc                            \
   db/file_indexer.cc                                            \
   db/flush_job.cc                                               \
   db/flush_scheduler.cc                                         \

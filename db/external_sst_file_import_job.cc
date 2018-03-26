@@ -1,0 +1,325 @@
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#ifndef ROCKSDB_LITE
+
+#include "db/external_sst_file_import_job.h"
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "db/version_edit.h"
+#include "table/merging_iterator.h"
+#include "table/scoped_arena_iterator.h"
+#include "table/sst_file_writer_collectors.h"
+#include "table/table_builder.h"
+#include "util/file_reader_writer.h"
+#include "util/file_util.h"
+#include "util/stop_watch.h"
+#include "util/sync_point.h"
+
+namespace rocksdb {
+
+Status ExternalSstFileImportJob::Prepare() {
+  Status status;
+
+  // Read the information of files we are importing
+  for (const auto& elem : import_files_metadata_) {
+    IngestedFileInfo file_to_import;
+    status = GetIngestedFileInfo(elem.name, &file_to_import);
+    if (!status.ok()) {
+      return status;
+    }
+    files_to_import_.push_back(file_to_import);
+  }
+
+  const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
+  auto num_files = files_to_import_.size();
+  if (num_files == 0) {
+    return Status::InvalidArgument("The list of files is empty");
+  } else if (num_files > 1) {
+    // Verify that passed files don't have overlapping ranges in any particular
+    // level.
+    int min_level = 1;  // Check for overlaps in Level 1 and above.
+    int max_level = -1;
+    for (const auto& file_metadata : import_files_metadata_) {
+      if (file_metadata.level > max_level) {
+        max_level = file_metadata.level;
+      }
+    }
+    for (int level = min_level; level <= max_level; ++level) {
+      autovector<const IngestedFileInfo*> sorted_files;
+      for (size_t i = 0; i < num_files; i++) {
+        if (import_files_metadata_[i].level == level) {
+          sorted_files.push_back(&files_to_import_[i]);
+        }
+      }
+
+      std::sort(sorted_files.begin(), sorted_files.end(),
+                [&ucmp](const IngestedFileInfo* info1,
+                        const IngestedFileInfo* info2) {
+                  return ucmp->Compare(info1->smallest_user_key,
+                                       info2->smallest_user_key) < 0;
+                });
+
+      for (int i = 0; i < (int)sorted_files.size() - 1; i++) {
+        if (ucmp->Compare(sorted_files[i]->largest_user_key,
+                          sorted_files[i + 1]->smallest_user_key) >= 0) {
+          return Status::NotSupported("Files have overlapping ranges");
+        }
+      }
+    }
+  }
+
+  for (IngestedFileInfo& f : files_to_import_) {
+    if (f.num_entries == 0) {
+      return Status::InvalidArgument("File contain no entries");
+    }
+
+    if (!f.smallest_internal_key().Valid() ||
+        !f.largest_internal_key().Valid()) {
+      return Status::Corruption("Generated table have corrupted keys");
+    }
+  }
+
+  // Copy/Move external files into DB
+  for (IngestedFileInfo& f : files_to_import_) {
+    f.fd = FileDescriptor(versions_->NewFileNumber(), 0, f.file_size);
+
+    const std::string path_outside_db = f.external_file_path;
+    const std::string path_inside_db =
+        TableFileName(db_options_.db_paths, f.fd.GetNumber(), f.fd.GetPathId());
+
+    if (import_options_.move_files) {
+      status = env_->LinkFile(path_outside_db, path_inside_db);
+      if (status.IsNotSupported()) {
+        // Original file is on a different FS, use copy instead of hard linking
+        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                          db_options_.use_fsync);
+      }
+    } else {
+      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync);
+    }
+    TEST_SYNC_POINT("DBImpl::AddFile:FileCopied");
+    if (!status.ok()) {
+      break;
+    }
+    f.internal_file_path = path_inside_db;
+  }
+
+  if (!status.ok()) {
+    // We failed, remove all files that we copied into the db
+    for (IngestedFileInfo& f : files_to_import_) {
+      if (f.internal_file_path == "") {
+        break;
+      }
+      Status s = env_->DeleteFile(f.internal_file_path);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
+      }
+    }
+  }
+
+  return status;
+}
+
+Status ExternalSstFileImportJob::NeedsFlush(bool* flush_needed,
+                                               SuperVersion* super_version) {
+  autovector<Range> ranges;
+  for (const auto& file_to_import : files_to_import_) {
+    ranges.emplace_back(file_to_import.smallest_user_key,
+                        file_to_import.largest_user_key);
+  }
+  Status status =
+      cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
+  if (status.ok() && *flush_needed) {
+    status = Status::InvalidArgument("External file requires flush");
+  }
+  return status;
+}
+
+// REQUIRES: we have become the only writer by entering both write_thread_ and
+// nonmem_write_thread_
+Status ExternalSstFileImportJob::Run() {
+  Status status;
+  SuperVersion* super_version = cfd_->GetSuperVersion();
+#ifndef NDEBUG
+  // We should never run the job with a memtable that is overlapping
+  // with the files we are importing
+  bool need_flush = false;
+  status = NeedsFlush(&need_flush, super_version);
+  assert(status.ok() && need_flush == false);
+#endif
+
+  edit_.SetColumnFamily(cfd_->GetID());
+
+  // Check for overlap with existing files at all levels.
+  for (unsigned int i = 0; i < files_to_import_.size(); ++i) {
+    auto& f = files_to_import_[i];
+    status = CheckLevelOverlapForImportFile(super_version, &f);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
+  for (unsigned int i = 0; i < files_to_import_.size(); ++i) {
+    auto& f = files_to_import_[i];
+    auto& import_metadata = import_files_metadata_[i];
+    edit_.AddFile(import_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
+                    f.fd.GetFileSize(), f.smallest_internal_key(),
+                    f.largest_internal_key(), import_metadata.smallest_seqnum,
+                    import_metadata.largest_seqnum, false);
+    if (import_metadata.largest_seqnum > versions_->LastSequence()) {
+      versions_->SetLastAllocatedSequence(import_metadata.largest_seqnum);
+      versions_->SetLastPublishedSequence(import_metadata.largest_seqnum);
+      versions_->SetLastSequence(import_metadata.largest_seqnum);
+    }
+  }
+
+  return status;
+}
+
+Status ExternalSstFileImportJob::CheckLevelOverlapForImportFile(
+    SuperVersion* sv, IngestedFileInfo* file_to_import) {
+  Status status;
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  auto* vstorage = cfd_->current()->storage_info();
+
+  for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
+    if (lvl > 0 && lvl < vstorage->base_level()) {
+      continue;
+    }
+
+    if (vstorage->NumLevelFiles(lvl) > 0) {
+      bool overlap_with_level = false;
+      status = sv->current->OverlapWithLevelIterator(
+          ro, env_options_, file_to_import->smallest_user_key,
+          file_to_import->largest_user_key, lvl, &overlap_with_level);
+      if (status.ok() && overlap_with_level) {
+        status = Status::InvalidArgument(
+            "External file overlaps with existing file");
+      }
+      if (!status.ok()) {
+        break;
+      }
+    }
+  }
+  return status;
+}
+
+void ExternalSstFileImportJob::UpdateStats() {
+  // TBD: Add stats for import.
+}
+
+void ExternalSstFileImportJob::Cleanup(const Status& status) {
+  if (!status.ok()) {
+    // We failed to add the files to the database
+    // remove all the files we copied
+    for (IngestedFileInfo& f : files_to_import_) {
+      Status s = env_->DeleteFile(f.internal_file_path);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
+      }
+    }
+  } else if (status.ok() && import_options_.move_files) {
+    // The files were moved and added successfully, remove original file links
+    for (IngestedFileInfo& f : files_to_import_) {
+      Status s = env_->DeleteFile(f.external_file_path);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "%s was added to DB successfully but failed to remove original "
+            "file link : %s",
+            f.external_file_path.c_str(), s.ToString().c_str());
+      }
+    }
+  }
+}
+
+Status ExternalSstFileImportJob::GetIngestedFileInfo(
+    const std::string& external_file, IngestedFileInfo* file_to_import) {
+  file_to_import->external_file_path = external_file;
+
+  // Get external file size
+  Status status = env_->GetFileSize(external_file, &file_to_import->file_size);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Create TableReader for external file
+  std::unique_ptr<TableReader> table_reader;
+  std::unique_ptr<RandomAccessFile> sst_file;
+  std::unique_ptr<RandomAccessFileReader> sst_file_reader;
+
+  status = env_->NewRandomAccessFile(external_file, &sst_file, env_options_);
+  if (!status.ok()) {
+    return status;
+  }
+  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
+                                                   external_file));
+
+  status = cfd_->ioptions()->table_factory->NewTableReader(
+      TableReaderOptions(*cfd_->ioptions(), env_options_,
+                         cfd_->internal_comparator()),
+      std::move(sst_file_reader), file_to_import->file_size, &table_reader);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Get the external file properties
+  auto props = table_reader->GetTableProperties();
+
+  // Set original_seqno to 0.
+  file_to_import->original_seqno = 0;
+
+  // Get number of entries in table
+  file_to_import->num_entries = props->num_entries;
+
+  ParsedInternalKey key;
+  ReadOptions ro;
+  // During reading the external file we can cache blocks that we read into
+  // the block cache, if we later change the global seqno of this file, we will
+  // have block in cache that will include keys with wrong seqno.
+  // We need to disable fill_cache so that we read from the file without
+  // updating the block cache.
+  ro.fill_cache = false;
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro));
+
+  // Get first (smallest) key from file
+  iter->SeekToFirst();
+  if (!ParseInternalKey(iter->key(), &key)) {
+    return Status::Corruption("external file have corrupted keys");
+  }
+  file_to_import->smallest_user_key = key.user_key.ToString();
+
+  // Get last (largest) key from file
+  iter->SeekToLast();
+  if (!ParseInternalKey(iter->key(), &key)) {
+    return Status::Corruption("external file have corrupted keys");
+  }
+  file_to_import->largest_user_key = key.user_key.ToString();
+
+  file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
+
+  file_to_import->table_properties = *props;
+
+  return status;
+}
+
+}  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE

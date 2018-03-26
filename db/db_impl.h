@@ -23,6 +23,7 @@
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/external_sst_file_import_job.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -323,6 +324,12 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
+
+  using DB::ImportExternalFile;
+  virtual Status ImportExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<ImportFileMetaData>& import_files_metadata,
+      const ImportExternalFileOptions& import_options) override;
 
   virtual Status VerifyChecksum() override;
 
@@ -676,6 +683,8 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
+  void NotifyOnExternalFileImported(
+      ColumnFamilyData* cfd, const ExternalSstFileImportJob& import_job);
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;

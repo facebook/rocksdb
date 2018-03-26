@@ -2272,6 +2272,14 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
+  using DB::ImportExternalFile;
+  virtual Status ImportExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<ImportFileMetaData>& import_files_metadata,
+      const ImportExternalFileOptions& import_options) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
   virtual Status VerifyChecksum() override {
     return Status::NotSupported("Not implemented.");
   }

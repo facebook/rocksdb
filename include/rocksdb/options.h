@@ -1233,6 +1233,11 @@ struct IngestExternalFileOptions {
   bool ingest_behind = false;
 };
 
+// ImportExternalFileOptions is used by ImportExternalFile()
+struct ImportExternalFileOptions {
+  // Can be set to true to move the files instead of copying them.
+  bool move_files = false;
+};
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
