@@ -808,7 +808,21 @@ Status DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   assert(log_size != nullptr);
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
+  // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
+  // from the two queues anyway and log_write_mutex_ is already held. Otherwise
+  // if manual_wal_flush_ is enabled we need to protect log_writer->AddRecord
+  // from possible concurrent calls via the FlushWAL by the application.
+  const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+  // Due to performance cocerns of missed branch prediction penalize the new
+  // manual_wal_flush_ feature (by UNLIKELY) instead of the more common case
+  // when we do not need any locking.
+  if (UNLIKELY(needs_locking)) {
+    log_write_mutex_.Lock();
+  }
   Status status = log_writer->AddRecord(log_entry);
+  if (UNLIKELY(needs_locking)) {
+    log_write_mutex_.Unlock();
+  }
   if (log_used != nullptr) {
     *log_used = logfile_number_;
   }

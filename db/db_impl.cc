@@ -693,7 +693,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(
 }
 
 Status DBImpl::FlushWAL(bool sync) {
-  {
+  if (manual_wal_flush_) {
     // We need to lock log_write_mutex_ since logs_ might change concurrently
     InstrumentedMutexLock wl(&log_write_mutex_);
     log::Writer* cur_log_writer = logs_.back().writer;
@@ -706,6 +706,9 @@ Status DBImpl::FlushWAL(bool sync) {
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
       return s;
     }
+  }
+  if (!sync) {
+    return Status::OK();
   }
   // sync = true
   ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=true");

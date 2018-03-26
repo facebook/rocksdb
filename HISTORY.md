@@ -6,6 +6,7 @@
 
 ### Bug Fixes
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
+* Fix WAL corruption caused by race condition between user write thread and FlushWAL when two_write_queue is not set.
 
 ### Java API Changes
 * Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.

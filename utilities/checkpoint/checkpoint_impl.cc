@@ -222,9 +222,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
     TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
     TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
-    if (db_options.manual_wal_flush) {
-      db_->FlushWAL(false /* sync */);
-    }
+    db_->FlushWAL(false /* sync */);
   }
   // if we have more than one column family, we need to also get WAL files
   if (s.ok()) {
