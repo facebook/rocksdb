@@ -707,6 +707,9 @@ Status DBImpl::FlushWAL(bool sync) {
       return s;
     }
   }
+  if (!sync) {
+    return Status::OK();
+  }
   // sync = true
   ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=true");
   return SyncWAL();
