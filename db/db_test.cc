@@ -3348,6 +3348,39 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
   }
 }
 
+TEST_F(DBTest, ConcurrentFlushWAL) {
+  const size_t cnt = 100;
+  Options options;
+  WriteOptions wopt;
+  // options.manual_wal_flush = true;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::vector<port::Thread> threads;
+  threads.emplace_back([&] {
+    for (size_t i = 0; i < cnt; i++) {
+      auto istr = ToString(i);
+      db_->Put(wopt, db_->DefaultColumnFamily(), "a" + istr, "b" + istr);
+    }
+  });
+  threads.emplace_back([&] {
+    for (size_t i = 0; i < cnt * 100; i++) {
+      db_->FlushWAL(false);
+    }
+  });
+  for (auto& t : threads) {
+    t.join();
+  }
+  ReadOptions ropt;
+  options.create_if_missing = false;
+  Reopen(options);
+  for (size_t i = 0; i < cnt; i++) {
+    PinnableSlice pval;
+    auto istr = ToString(i);
+    ASSERT_OK(db_->Get(ropt, db_->DefaultColumnFamily(), "a" + istr, &pval));
+    ASSERT_TRUE(pval == ("b" + istr));
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;
