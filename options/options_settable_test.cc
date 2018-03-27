@@ -300,12 +300,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
-template <typename T1, typename T2>
-inline int offset_of(T1 T2::*member) {
-  static T2 obj;
-  return int(size_t(&(obj.*member)) - size_t(&obj));
-}
-
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
@@ -319,74 +313,60 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // options in the blacklist need to appear in the same order as in
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsBlacklist = {
-      {offset_of(&ColumnFamilyOptions::inplace_callback),
+      {offsetof(struct ColumnFamilyOptions, inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
-      {offset_of(
-           &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
+      {offsetof(
+           struct ColumnFamilyOptions, memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&ColumnFamilyOptions::compression_per_level),
+      {offsetof(struct ColumnFamilyOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
-      {offset_of(
-           &ColumnFamilyOptions::max_bytes_for_level_multiplier_additional),
+      {offsetof(
+           struct ColumnFamilyOptions, max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
-      {offset_of(&ColumnFamilyOptions::memtable_factory),
+      {offsetof(struct ColumnFamilyOptions, memtable_factory),
        sizeof(std::shared_ptr<MemTableRepFactory>)},
-      {offset_of(&ColumnFamilyOptions::table_properties_collector_factories),
+      {offsetof(struct ColumnFamilyOptions, table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
-      {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
-      {offset_of(&ColumnFamilyOptions::merge_operator),
+      {offsetof(struct  ColumnFamilyOptions, comparator), sizeof(Comparator*)},
+      {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter),
+      {offsetof(struct ColumnFamilyOptions, compaction_filter),
        sizeof(const CompactionFilter*)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
+      {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
-      {offset_of(&ColumnFamilyOptions::prefix_extractor),
+      {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&ColumnFamilyOptions::table_factory),
+      {offsetof(struct ColumnFamilyOptions, table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
 
   // Count padding bytes by setting all bytes in the memory to a special char,
-  // copy a well constructed struct to this memory and see how many special
-  // bytes left.
-  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
+  // then, default construct the object to make sure that everything
+  // initialized by default, then count the special chars
   FillWithSpecialChar(options_ptr, sizeof(ColumnFamilyOptions),
                       kColumnFamilyOptionsBlacklist);
-  // It based on the behavior of compiler that padding bytes are not changed
-  // when copying the struct. It's prone to failure when compiler behavior
-  // changes. We verify there is unset bytes to detect the case.
-  *options = ColumnFamilyOptions();
+  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
-  // Deprecatd option which is not initialized. Need to set it to avoid
-  // Valgrind error
+  // Make sure this is inited
   options->max_mem_compaction_level = 0;
 
   int unset_bytes_base = NumUnsetBytes(options_ptr, sizeof(ColumnFamilyOptions),
                                        kColumnFamilyOptionsBlacklist);
   ASSERT_GT(unset_bytes_base, 0);
-  options->~ColumnFamilyOptions();
 
-  options = new (options_ptr) ColumnFamilyOptions();
-  FillWithSpecialChar(options_ptr, sizeof(ColumnFamilyOptions),
-                      kColumnFamilyOptionsBlacklist);
-
-  // Following options are not settable through
-  // GetColumnFamilyOptionsFromString():
-  options->rate_limit_delay_max_milliseconds = 33;
-  options->compaction_options_universal = CompactionOptionsUniversal();
-  options->compression_opts = CompressionOptions();
-  options->hard_rate_limit = 0;
-  options->soft_rate_limit = 0;
-  options->purge_redundant_kvs_while_flush = false;
-  options->max_mem_compaction_level = 0;
-
+  // Here we do the reverse, do a well constructed object
+  // and then fill the gaps between the complicated objects
+  // so if any of them are not initied then the count of uninited
+  // bytes would be greater
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =
       new (new_options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(new_options_ptr, sizeof(ColumnFamilyOptions),
                       kColumnFamilyOptionsBlacklist);
+
+  new_options->max_mem_compaction_level = 0;
 
   // Need to update the option string if a new option is added.
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -411,7 +391,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "write_buffer_size=1653;"
       "max_compaction_bytes=64;"
       "max_bytes_for_level_multiplier=60;"
-      "memtable_factory=SkipListFactory;"
+      "memtable=skip_list;"
       "compression=kNoCompression;"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
