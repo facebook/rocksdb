@@ -1,11 +1,11 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #include "cloud/aws/aws_env.h"
+#include <unistd.h>
 #include <chrono>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <unistd.h>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
@@ -129,8 +129,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                const std::string& dest_bucket_region,
                const CloudEnvOptions& _cloud_env_options,
                std::shared_ptr<Logger> info_log)
-    : CloudEnvImpl(_cloud_env_options.cloud_type,
-                   _cloud_env_options.log_type,
+    : CloudEnvImpl(_cloud_env_options.cloud_type, _cloud_env_options.log_type,
                    underlying_env),
       info_log_(info_log),
       cloud_env_options(_cloud_env_options),
@@ -267,12 +266,13 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     if (cloud_env_options.log_type == kLogKinesis) {
       std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
-      kinesis_client.reset(creds ? new Aws::Kinesis::KinesisClient(*creds, config)
-                                 : new Aws::Kinesis::KinesisClient(config));
+      kinesis_client.reset(creds
+                               ? new Aws::Kinesis::KinesisClient(*creds, config)
+                               : new Aws::Kinesis::KinesisClient(config));
 
       if (!kinesis_client) {
         create_bucket_status_ =
-          Status::IOError("Error in creating Kinesis client");
+            Status::IOError("Error in creating Kinesis client");
       }
 
       if (create_bucket_status_.ok()) {
@@ -285,12 +285,11 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
         }
       }
     } else {
-      create_bucket_status_ = Status::NotSupported(
-          "We currently only support Kinesis");
+      create_bucket_status_ =
+          Status::NotSupported("We currently only support Kinesis");
 
       Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Unknown log type %d. %s",
-          cloud_env_options.log_type,
+          "[aws] NewAwsEnv Unknown log type %d. %s", cloud_env_options.log_type,
           create_bucket_status_.ToString().c_str());
     }
 
