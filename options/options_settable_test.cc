@@ -300,9 +300,14 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
-// GCC warning enabled for non-POD structures but it should give meaningful results
-// anyway
-#define offset_of(s,m) ((size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
+// GCC warning enabled for non-POD structures invalid-offsetof
+template <typename T1, typename T2>
+inline int OffsetOf(T1 T2::*member) {
+  static T2 obj;
+  return int(size_t(&(obj.*member)) - size_t(&obj));
+}
+
+#define offset_of(s,m) OffsetOf(&s::m)
 
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
@@ -317,30 +322,30 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // options in the blacklist need to appear in the same order as in
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsBlacklist = {
-      {offset_of(struct ColumnFamilyOptions, inplace_callback),
+      {offset_of(ColumnFamilyOptions, inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
       {offset_of(
-           struct ColumnFamilyOptions, memtable_insert_with_hint_prefix_extractor),
+           ColumnFamilyOptions, memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(struct ColumnFamilyOptions, compression_per_level),
+      {offset_of(ColumnFamilyOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
       {offset_of(
-           struct ColumnFamilyOptions, max_bytes_for_level_multiplier_additional),
+           ColumnFamilyOptions, max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
-      {offset_of(struct ColumnFamilyOptions, memtable_factory),
+      {offset_of(ColumnFamilyOptions, memtable_factory),
        sizeof(std::shared_ptr<MemTableRepFactory>)},
-      {offset_of(struct ColumnFamilyOptions, table_properties_collector_factories),
+      {offset_of(ColumnFamilyOptions, table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
-      {offset_of(struct  ColumnFamilyOptions, comparator), sizeof(Comparator*)},
-      {offset_of(struct ColumnFamilyOptions, merge_operator),
+      {offset_of(ColumnFamilyOptions, comparator), sizeof(Comparator*)},
+      {offset_of(ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
-      {offset_of(struct ColumnFamilyOptions, compaction_filter),
+      {offset_of(ColumnFamilyOptions, compaction_filter),
        sizeof(const CompactionFilter*)},
-      {offset_of(struct ColumnFamilyOptions, compaction_filter_factory),
+      {offset_of(ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
-      {offset_of(struct ColumnFamilyOptions, prefix_extractor),
+      {offset_of(ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(struct ColumnFamilyOptions, table_factory),
+      {offset_of(ColumnFamilyOptions, table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
   };
 
