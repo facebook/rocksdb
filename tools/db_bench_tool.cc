@@ -452,6 +452,9 @@ DEFINE_bool(enable_index_compression,
             rocksdb::BlockBasedTableOptions().enable_index_compression,
             "Compress the index block");
 
+DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
+            "Align data blocks on page size");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -3140,6 +3143,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
+      block_based_options.block_align = FLAGS_block_align;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;
