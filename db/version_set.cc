@@ -3690,7 +3690,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     printf(
         "next_file_number %lu last_sequence "
         "%lu  prev_log_number %lu max_column_family %u deleted_log_number "
-        "%lu\n",
+        "%" PRIu64 "\n",
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)previous_log_number,
         column_family_set_->GetMaxColumnFamily(), latest_deleted_log_number());

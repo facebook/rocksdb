@@ -23,7 +23,7 @@ class DBWALTest : public DBTestBase {
 // A SpecialEnv enriched to give more insight about deleted files
 class EnrichedSpecialEnv : public SpecialEnv {
  public:
-  EnrichedSpecialEnv(Env* base) : SpecialEnv(base) {}
+  explicit EnrichedSpecialEnv(Env* base) : SpecialEnv(base) {}
   Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
                            const EnvOptions& soptions) override {
     InstrumentedMutexLock l(&env_mutex_);
