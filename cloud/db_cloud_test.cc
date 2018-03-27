@@ -683,8 +683,9 @@ TEST_F(CloudTest, Encryption) {
   CloseDB();
 }
 
-// TODO(igor): determine why this fails
-TEST_F(DISABLED_CloudTest, KeepLocalLogKinesis) {
+// TODO(igor): determine why this fails,
+// https://github.com/rockset/rocksdb-cloud/issues/35
+TEST_F(CloudTest, DISABLED_KeepLocalLogKinesis) {
   cloud_env_options_.keep_local_log_files = false;
   cloud_env_options_.log_type = LogType::kLogKinesis;
 
