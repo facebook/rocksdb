@@ -30,8 +30,8 @@ before_script:
   # Increase the maximum number of open file descriptors, since some tests use
   # more FDs than the default limit.
   - ulimit -n 8192
-  - wget https://github.com/aws/aws-sdk-cpp/archive/1.3.50.tar.gz -O /tmp/aws-sdk.tar.gz && tar -xvf /tmp/aws-sdk.tar.gz > /dev/null
-  - pushd aws-sdk-cpp-1.3.50 && cmake -DBUILD_ONLY="s3;kinesis" . && make -j4 all && sudo make install && popd
+  - pushd /tmp && wget https://github.com/aws/aws-sdk-cpp/archive/1.3.50.tar.gz -O /tmp/aws-sdk.tar.gz && tar -xvf /tmp/aws-sdk.tar.gz > /dev/null && popd
+  - pushd /tmp/aws-sdk-cpp-1.3.50 && cmake -DBUILD_ONLY="s3;kinesis" . && make -j4 all && sudo make install && popd
 
 script:
   # Note: We remove flaky tests that don't have much to do with our cloud code (like MergeTestTime and UnsupportedManualSync)
