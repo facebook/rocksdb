@@ -181,7 +181,7 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  port::Thread userThread([&]() {
+  port::Thread user_thread([&]() {
     JobContext jobCxt(0);
     TEST_SYNC_POINT("ObsoleteFilesTest::RaceForObsoleteFileDeletion:1");
     dbi->TEST_LockMutex();
@@ -193,7 +193,7 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
     jobCxt.Clean();
   });
 
-  userThread.join();
+  user_thread.join();
 
   CloseDB();
 }

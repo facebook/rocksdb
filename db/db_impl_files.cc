@@ -225,7 +225,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // file under race conditions. See
         // https://github.com/facebook/rocksdb/issues/3573
         if (!ParseFileName(file, &number, info_log_prefix.prefix, &type) ||
-            !ShouldIPurge(number)) {
+            !ShouldPurge(number)) {
           continue;
         }
 
@@ -342,7 +342,8 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }
-  TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion", &file_deletion_status);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion",
+      &file_deletion_status);
   if (file_deletion_status.ok()) {
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", job_id,
