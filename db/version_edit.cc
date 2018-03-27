@@ -45,6 +45,11 @@ enum Tag {
 enum CustomTag {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
+  // Since Manifest is not entirely currently forward-compatible, and the only
+  // forward-compatbile part is the CutsomtTag of kNewFile, we currently encode
+  // kDeletedLogNumber as part of a CustomTag as a hack. This should be removed
+  // when manifest becomes forward-comptabile.
+  kDeletedLogNumberHack = 3,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -101,7 +106,21 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
   }
   if (has_deleted_log_number_) {
-    PutVarint32Varint64(dst, kDeletedLogNumber, deleted_log_number_);
+    // TODO(myabandeh): uncomment me when manifest is forward-compatible
+    // PutVarint32Varint64(dst, kDeletedLogNumber, deleted_log_number_);
+    // Since currently manifest is not forward compatible we encode this entry
+    // disguised as a kNewFile4 entry which has forward-compatible extensions.
+    PutVarint32(dst, kNewFile4);
+    PutVarint32Varint64(dst, 0u, 0ull); // level and number
+    PutVarint64(dst, 0ull); // file size
+    InternalKey dummy_key(Slice("dummy_key"), 0ull, ValueType::kTypeValue);
+    PutLengthPrefixedSlice(dst, dummy_key.Encode()); // smallest
+    PutLengthPrefixedSlice(dst, dummy_key.Encode()); // largest
+    PutVarint64Varint64(dst, 0ull, 0ull); // smallest_seqno and largerst
+    PutVarint32(dst, CustomTag::kDeletedLogNumberHack);
+    PutLengthPrefixedSlice(dst, Slice()); // custom field slice
+    PutVarint64(dst, deleted_log_number_);
+    PutVarint32(dst, CustomTag::kTerminate);
   }
 
   for (const auto& deleted : deleted_files_) {
@@ -224,6 +243,10 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   uint64_t number;
   uint32_t path_id = 0;
   uint64_t file_size;
+  // Since this is the only forward-compatible part of the code, we hack new
+  // extension into this record. When we do, we set this boolean to distinguish
+  // the record from the normal NewFile records.
+  bool this_is_not_a_new_file_record = false;
   if (GetLevel(input, &level, &msg) && GetVarint64(input, &number) &&
       GetVarint64(input, &file_size) && GetInternalKey(input, &f.smallest) &&
       GetInternalKey(input, &f.largest) &&
@@ -258,6 +281,16 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           f.marked_for_compaction = (field[0] == 1);
           break;
+        case kDeletedLogNumberHack:
+          // This is a hack to encode kDeletedLogNumber in a forward-compatbile
+          // fashion.
+          this_is_not_a_new_file_record = true;
+          if (GetVarint64(input, &deleted_log_number_)) {
+            has_deleted_log_number_ = true;
+          } else {
+            return "deleted log number (in the hack)";
+          }
+          break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
@@ -268,6 +301,10 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
     }
   } else {
     return "new-file4 entry";
+  }
+  if (this_is_not_a_new_file_record) {
+    // Since this has nothing to do with NewFile, return immediately.
+    return nullptr;
   }
   f.fd = FileDescriptor(number, path_id, file_size);
   new_files_.push_back(std::make_pair(level, f));
