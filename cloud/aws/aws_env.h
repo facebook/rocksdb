@@ -255,6 +255,8 @@ class AwsEnv : public CloudEnvImpl {
     return cloud_env_options;
   }
 
+  std::string GetWALCacheDir();
+
   std::shared_ptr<Logger> info_log_;  // informational messages
 
   // The S3 client

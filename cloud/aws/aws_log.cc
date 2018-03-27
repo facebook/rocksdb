@@ -24,6 +24,9 @@ CloudLogWritableFile::CloudLogWritableFile(
 
 CloudLogWritableFile::~CloudLogWritableFile() {}
 
+const std::chrono::microseconds CloudLogController::kRetryPeriod =
+  std::chrono::seconds(30);
+
 CloudLogController::CloudLogController(
     AwsEnv* env, std::shared_ptr<Logger> info_log)
   : env_(env), info_log_(info_log) {

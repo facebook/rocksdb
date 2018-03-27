@@ -3,7 +3,10 @@
 #pragma once
 #ifdef USE_AWS
 
+#include <chrono>
+
 #include "cloud/aws/aws_env.h"
+#include "cloud/aws/aws_log.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -50,7 +53,7 @@ class CloudLogController {
   static constexpr const char* kCacheDir = "/tmp/ROCKSET";
 
   // Delay in Cloud Log stream: writes to read visibility
-  static const uint64_t retry_period_micros = 30 * 1000000L;  // 30 seconds
+  static const std::chrono::microseconds kRetryPeriod;
 
   static const uint32_t kAppend = 0x1;  // add a new record to a logfile
   static const uint32_t kDelete = 0x2;  // delete a log file

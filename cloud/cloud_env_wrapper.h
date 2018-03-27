@@ -17,7 +17,7 @@ class CloudEnvWrapper : public CloudEnvImpl {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit CloudEnvWrapper(Env* t) : CloudEnvImpl(
-      CloudType::kNone, t) {
+      CloudType::kCloudNone, LogType::kLogNone, t) {
     notsup_ = Status::NotSupported();
   }
 

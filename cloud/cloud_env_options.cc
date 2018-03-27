@@ -11,7 +11,8 @@
 namespace rocksdb {
 
 void CloudEnvOptions::Dump(Logger* log) const {
-  Header(log, "                               COptions.type: %u", cloud_type);
+  Header(log, "                         COptions.cloud_type: %u", cloud_type);
+  Header(log, "                           COptions.log_type: %u", log_type);
   Header(log, "               COptions.keep_local_sst_files: %d",
          keep_local_sst_files);
   Header(log, "               COptions.keep_local_log_files: %d",

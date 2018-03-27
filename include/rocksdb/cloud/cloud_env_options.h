@@ -12,15 +12,22 @@ namespace rocksdb {
 class BucketObjectMetadata;
 
 enum CloudType : unsigned char {
-  kNone = 0x0,       // Not really a cloud env
-  kAws = 0x1,        // AWS
-  kGoogle = 0x2,     // Google
-  kAzure = 0x3,      // Microsoft Azure
-  kRackspace = 0x4,  // Rackspace
-  kEnd = 0x5,
+  kCloudNone = 0x0,       // Not really a cloud env
+  kCloudAws = 0x1,        // AWS
+  kCloudGoogle = 0x2,     // Google
+  kCloudAzure = 0x3,      // Microsoft Azure
+  kCloudRackspace = 0x4,  // Rackspace
+  kCloudEnd = 0x5,
 };
 
-// Credentials needed to access cloud service
+enum LogType : unsigned char {
+  kLogNone = 0x0,       // Not really a log env
+  kLogKinesis = 0x1,    // Kinesis
+  kLogKafka = 0x2,      // Kafka
+  kLogEnd = 0x3,
+};
+
+// Credentials needed to access AWS cloud service
 class AwsCloudAccessCredentials {
  public:
   std::string access_key_id;
@@ -47,6 +54,10 @@ class CloudEnvOptions {
  public:
   // Specify the type of cloud-service to use.
   CloudType cloud_type;
+
+  // If keep_local_log_files is false, this specifies what service to use
+  // for storage of write-ahead log.
+  LogType log_type;
 
   // Access credentials
   AwsCloudAccessCredentials credentials;
@@ -117,7 +128,8 @@ class CloudEnvOptions {
   bool skip_dbid_verification;
 
   CloudEnvOptions(
-      CloudType _cloud_type = CloudType::kAws,
+      CloudType _cloud_type = CloudType::kCloudAws,
+      LogType _log_type = LogType::kLogKinesis,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
       uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
       bool _validate_filesize = true,
@@ -126,6 +138,7 @@ class CloudEnvOptions {
       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
       bool _run_purger = false, bool _skip_dbid_verification = false)
       : cloud_type(_cloud_type),
+        log_type(_log_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
         purger_periodicity_millis(_purger_periodicity_millis),
