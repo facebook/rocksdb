@@ -41,8 +41,8 @@ Status KinesisWritableFile::Append(const Slice& data) {
 
   // serialize write record
   std::string buffer;
-  KinesisController::SerializeLogRecordAppend(fname_, data, current_offset_,
-                                          &buffer);
+  CloudLogController::SerializeLogRecordAppend(fname_, data, current_offset_,
+                                              &buffer);
   request.SetData(Aws::Utils::ByteBuffer((const unsigned char*)buffer.c_str(),
                                          buffer.size()));
 
@@ -76,7 +76,7 @@ Status KinesisWritableFile::Close() {
 
   // serialize write record
   std::string buffer;
-  KinesisController::SerializeLogRecordClosed(fname_, current_offset_, &buffer);
+  CloudLogController::SerializeLogRecordClosed(fname_, current_offset_, &buffer);
   request.SetData(Aws::Utils::ByteBuffer((const unsigned char*)buffer.c_str(),
                                          buffer.size()));
 
@@ -113,7 +113,7 @@ Status KinesisWritableFile::LogDelete() {
 
   // serialize write record
   std::string buffer;
-  KinesisController::SerializeLogRecordDelete(fname_, &buffer);
+  CloudLogController::SerializeLogRecordDelete(fname_, &buffer);
   request.SetData(Aws::Utils::ByteBuffer((const unsigned char*)buffer.c_str(),
                                          buffer.size()));
 
@@ -149,7 +149,7 @@ KinesisController::KinesisController(
 
 KinesisController::~KinesisController() {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] KinesisSystem closed ", GetTypeName().c_str());
+      "[%s] KinesisController closed", GetTypeName().c_str());
 }
 
 Status KinesisController::TailStream() {
@@ -263,7 +263,7 @@ Status KinesisController::WaitForStreamReady(const std::string& bucket_prefix) {
   Aws::String topic = GetAwsStreamName(bucket_prefix);
 
   // Keep looping if the stream is being initialized
-  uint64_t start = env_->NowMicros();
+  const std::chrono::microseconds start(env_->NowMicros());
   bool isSuccess = false;
   Status st;
 
@@ -293,7 +293,7 @@ Status KinesisController::WaitForStreamReady(const std::string& bucket_prefix) {
     if (!isSuccess) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
-    if (start + retry_period_micros < env_->NowMicros()) {
+    if (start + kRetryPeriod < std::chrono::microseconds(env_->NowMicros())) {
       break;
     }
   }

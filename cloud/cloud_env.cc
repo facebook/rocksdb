@@ -20,8 +20,10 @@ CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
 
-CloudEnvImpl::CloudEnvImpl(CloudType cloud_type, Env* base_env)
-    : cloud_type_(cloud_type), base_env_(base_env), purger_is_running_(true) {}
+CloudEnvImpl::CloudEnvImpl(
+      CloudType cloud_type, LogType log_type, Env* base_env)
+    : cloud_type_(cloud_type), log_type_(log_type),
+      base_env_(base_env), purger_is_running_(true) {}
 
 CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
 
@@ -53,7 +55,7 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
 }
 
 std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
-  if (UNLIKELY(GetCloudType() == CloudType::kNone) ||
+  if (UNLIKELY(GetCloudType() == CloudType::kCloudNone) ||
       UNLIKELY(test_disable_cloud_manifest_)) {
     return logical_path;
   }

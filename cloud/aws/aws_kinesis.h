@@ -63,7 +63,6 @@ class KinesisWritableFile : public CloudLogWritableFile {
 
  private:
   std::shared_ptr<KinesisClient> kinesis_client_;
-  std::unique_ptr<WritableFile> temp_file_;  // handle to the temporary file
   Aws::String topic_;
   uint64_t current_offset_;
 };

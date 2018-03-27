@@ -110,7 +110,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     return st;
   }
 
-  if (!read_only && cenv->GetCloudType() != CloudType::kNone) {
+  if (!read_only && cenv->GetCloudType() != CloudType::kCloudNone) {
     st = DBCloudImpl::MaybeMigrateManifestFile(local_env, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
@@ -557,11 +557,11 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   EnvOptions soptions;
 
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
-  if (cenv->GetCloudType() == CloudType::kNone) {
+  if (cenv->GetCloudType() == CloudType::kCloudNone) {
     // We don't need to SanitizeDirectory()
     return Status::OK();
   }
-  if (cenv->GetCloudType() != CloudType::kAws) {
+  if (cenv->GetCloudType() != CloudType::kCloudAws) {
     return Status::NotSupported("We only support AWS for now.");
   }
   // acquire the local env

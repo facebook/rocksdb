@@ -20,11 +20,12 @@ class CloudEnvImpl : public CloudEnv {
 
  public:
   // Constructor
-  CloudEnvImpl(CloudType cloudtype, Env* base_env);
+  CloudEnvImpl(CloudType cloud_type, LogType log_type, Env* base_env);
 
   virtual ~CloudEnvImpl();
 
   const CloudType& GetCloudType() const { return cloud_type_; }
+  const LogType& GetLogType() const { return log_type_; }
 
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
@@ -65,6 +66,9 @@ class CloudEnvImpl : public CloudEnv {
  protected:
   // The type of cloud service e.g. AWS, Azure, Google,  etc.
   const CloudType cloud_type_;
+
+  // The type of cloud service used for WAL (Kinesis, etc.)
+  const LogType log_type_;
 
   // The dbid of the source database that is cloned
   std::string src_dbid_;

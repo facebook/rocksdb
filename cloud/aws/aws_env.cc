@@ -1,10 +1,11 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #include "cloud/aws/aws_env.h"
-#include <unistd.h>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <unistd.h>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
@@ -128,7 +129,9 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                const std::string& dest_bucket_region,
                const CloudEnvOptions& _cloud_env_options,
                std::shared_ptr<Logger> info_log)
-    : CloudEnvImpl(_cloud_env_options.cloud_type, underlying_env),
+    : CloudEnvImpl(_cloud_env_options.cloud_type,
+                   _cloud_env_options.log_type,
+                   underlying_env),
       info_log_(info_log),
       cloud_env_options(_cloud_env_options),
       src_bucket_prefix_(src_bucket_prefix),
@@ -260,25 +263,35 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
         create_bucket_status_.ToString().c_str());
   }
 
-  // create Kinesis client for storing/reading logs
+  // create cloud log client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
-    std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
-    kinesis_client.reset(creds ? new Aws::Kinesis::KinesisClient(*creds, config)
-                               : new Aws::Kinesis::KinesisClient(config));
+    if (cloud_env_options.log_type == kLogKinesis) {
+      std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
+      kinesis_client.reset(creds ? new Aws::Kinesis::KinesisClient(*creds, config)
+                                 : new Aws::Kinesis::KinesisClient(config));
 
-    if (!kinesis_client) {
-      create_bucket_status_ =
-          Status::IOError("Error in creating Kinesis client");
-    }
-
-    if (create_bucket_status_.ok()) {
-      cloud_log_controller_.reset(
-          new KinesisController(this, info_log_, std::move(kinesis_client)));
-
-      if (!cloud_log_controller_) {
+      if (!kinesis_client) {
         create_bucket_status_ =
-            Status::IOError("Error in creating Kinesis controller");
+          Status::IOError("Error in creating Kinesis client");
       }
+
+      if (create_bucket_status_.ok()) {
+        cloud_log_controller_.reset(
+            new KinesisController(this, info_log_, std::move(kinesis_client)));
+
+        if (!cloud_log_controller_) {
+          create_bucket_status_ =
+              Status::IOError("Error in creating Kinesis controller");
+        }
+      }
+    } else {
+      create_bucket_status_ = Status::NotSupported(
+          "We currently only support Kinesis");
+
+      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+          "[aws] NewAwsEnv Unknown log type %d. %s",
+          cloud_env_options.log_type,
+          create_bucket_status_.ToString().c_str());
     }
 
     // Create Kinesis stream and wait for it to be ready
@@ -287,7 +300,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
           cloud_log_controller_->CreateStream(GetSrcBucketPrefix());
       if (!create_bucket_status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log,
-            "[aws] NewAwsEnv Unable to  create stream %s",
+            "[aws] NewAwsEnv Unable to create stream %s",
             create_bucket_status_.ToString().c_str());
       }
     }
@@ -1739,13 +1752,16 @@ std::string AwsEnv::GetTestBucketSuffix() {
   return name;
 }
 
+std::string AwsEnv::GetWALCacheDir() {
+  return cloud_log_controller_->GetCacheDir();
+}
+
 //
 // Keep retrying the command until it is successful or the timeout has expired
 //
 Status CloudLogController::Retry(Env* env, RetryType func) {
-  using namespace std::chrono;
   Status stat;
-  uint64_t start = env->NowMicros();
+  std::chrono::microseconds start(env->NowMicros());
 
   while (true) {
     // If command is successful, return immediately
@@ -1755,9 +1771,10 @@ Status CloudLogController::Retry(Env* env, RetryType func) {
     }
     // sleep for some time
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     // If timeout has expired, return error
-    uint64_t now = env->NowMicros();
-    if (start + CloudLogController::retry_period_micros < now) {
+    std::chrono::microseconds now(env->NowMicros());
+    if (start + CloudLogController::kRetryPeriod < now) {
       stat = Status::TimedOut();
       break;
     }
