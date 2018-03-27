@@ -185,9 +185,9 @@ class MergeOperator {
 
   // Determines whether the MergeOperator can be called with just a single
   // merge operand.
-  // Override and return true for allowing a single operand. FullMergeV2 and
-  // PartialMerge/PartialMergeMulti should be implemented accordingly to handle
-  // a single operand.
+  // Override and return true for allowing a single operand. Both FullMergeV2
+  // and PartialMerge/PartialMergeMulti should be overridden and implemented
+  // correctly to handle a single operand.
   virtual bool AllowSingleOperand() const { return false; }
 
   // Allows to control when to invoke a full merge during Get.
