@@ -45,6 +45,7 @@ class RandomRWFile;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
+struct MutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -151,6 +152,16 @@ class Env {
                                      unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options)
                                      = 0;
+  // These values match Linux definition
+  // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
+  enum WriteLifeTimeHint {
+    WLTH_NOT_SET = 0, // No hint information set
+    WLTH_NONE,        // No hints about write life time
+    WLTH_SHORT,       // Data written has a short life time
+    WLTH_MEDIUM,      // Data written has a medium life time
+    WLTH_LONG,        // Data written has a long life time
+    WLTH_EXTREME,     // Data written has an extremely long life time
+  };
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -259,6 +270,11 @@ class Env {
   // Hard Link file src to target.
   virtual Status LinkFile(const std::string& src, const std::string& target) {
     return Status::NotSupported("LinkFile is not supported for this Env");
+  }
+
+  virtual Status AreFilesSame(const std::string& first,
+                              const std::string& second, bool* res) {
+    return Status::NotSupported("AreFilesSame is not supported for this Env");
   }
 
   // Lock the specified file.  Used to prevent concurrent access to
@@ -406,7 +422,7 @@ class Env {
   // table files.
   virtual EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
-      const ImmutableDBOptions& db_options) const;
+      const ImmutableDBOptions& immutable_ops) const;
 
   // OptimizeForCompactionTableWrite will create a new EnvOptions object that
   // is a copy of the EnvOptions in the parameters, but is optimized for reading
@@ -567,7 +583,8 @@ class WritableFile {
   WritableFile()
     : last_preallocated_block_(0),
       preallocation_block_size_(0),
-      io_priority_(Env::IO_TOTAL) {
+      io_priority_(Env::IO_TOTAL),
+      write_hint_(Env::WLTH_NOT_SET) {
   }
   virtual ~WritableFile();
 
@@ -644,6 +661,11 @@ class WritableFile {
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
 
+  virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
+    write_hint_ = hint;
+  }
+
+  virtual Env::WriteLifeTimeHint GetWriteLifeTimeHint() { return write_hint_; }
   /*
    * Get the size of valid data in the file.
    */
@@ -732,6 +754,7 @@ class WritableFile {
   friend class WritableFileMirror;
 
   Env::IOPriority io_priority_;
+  Env::WriteLifeTimeHint write_hint_;
 };
 
 // A file abstraction for random reading and writing.
@@ -980,6 +1003,11 @@ class EnvWrapper : public Env {
     return target_->LinkFile(s, t);
   }
 
+  Status AreFilesSame(const std::string& first, const std::string& second,
+                      bool* res) override {
+    return target_->AreFilesSame(first, second, res);
+  }
+
   Status LockFile(const std::string& f, FileLock** l) override {
     return target_->LockFile(f, l);
   }
@@ -1010,6 +1038,7 @@ class EnvWrapper : public Env {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
+  uint64_t NowNanos() override { return target_->NowNanos(); }
 
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
@@ -1057,6 +1086,32 @@ class EnvWrapper : public Env {
 
   std::string GenerateUniqueId() override {
     return target_->GenerateUniqueId();
+  }
+
+  EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
+    return target_->OptimizeForLogRead(env_options);
+  }
+  EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestRead(env_options);
+  }
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override {
+    return target_->OptimizeForLogWrite(env_options, db_options);
+  }
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestWrite(env_options);
+  }
+  EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& immutable_ops) const override {
+    return target_->OptimizeForCompactionTableWrite(env_options, immutable_ops);
+  }
+  EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForCompactionTableRead(env_options, db_options);
   }
 
  private:

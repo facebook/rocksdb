@@ -85,6 +85,10 @@
 #       db_bench.  Default: 4.
 #   MAX_BACKGROUND_COMPACTIONS:  The maximum number of concurrent compactions
 #       in db_bench.  Default: 16.
+#   NUM_HIGH_PRI_THREADS:  The number of high-pri threads available for
+#       concurrent flushes in db_bench.  Default: 4.
+#   NUM_LOW_PRI_THREADS:  The number of low-pri threads available for
+#       concurrent compactions in db_bench.  Default: 16.
 #   SEEK_NEXTS:  Controls how many Next() will be called after seek.
 #       Default: 10.
 #   SEED:  random seed that controls the randomness of the benchmark.
@@ -182,6 +186,8 @@ function init_arguments {
   STATS_INTERVAL_SECONDS=${STATS_INTERVAL_SECONDS:-600}
   MAX_BACKGROUND_FLUSHES=${MAX_BACKGROUND_FLUSHES:-4}
   MAX_BACKGROUND_COMPACTIONS=${MAX_BACKGROUND_COMPACTIONS:-16}
+  NUM_HIGH_PRI_THREADS=${NUM_HIGH_PRI_THREADS:-4}
+  NUM_LOW_PRI_THREADS=${NUM_LOW_PRI_THREADS:-16}
   DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
   SEED=${SEED:-$( date +%s )}
@@ -231,6 +237,8 @@ function run_db_bench {
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
       --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
+      --num_high_pri_threads=$NUM_HIGH_PRI_THREADS \
+      --num_low_pri_threads=$NUM_LOW_PRI_THREADS \
       --seed=$SEED) 2>&1"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
@@ -368,7 +376,7 @@ function build_db_bench_and_ldb {
   make clean
   exit_on_error $?
 
-  DEBUG_LEVEL=0 make db_bench ldb -j32
+  DEBUG_LEVEL=0 PORTABLE=1 make db_bench ldb -j32
   exit_on_error $?
 }
 
@@ -457,4 +465,5 @@ function cleanup_test_directory {
 
 ############################################################################
 
+# shellcheck disable=SC2068
 main $@

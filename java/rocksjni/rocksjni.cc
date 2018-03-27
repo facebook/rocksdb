@@ -2196,3 +2196,30 @@ void Java_org_rocksdb_RocksDB_ingestExternalFile(
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    destroyDB
+ * Signature: (Ljava/lang/String;J)V
+ */
+void Java_org_rocksdb_RocksDB_destroyDB(
+    JNIEnv* env, jclass jcls, jstring jdb_path, jlong joptions_handle) {
+  const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
+  if(db_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  auto* options = reinterpret_cast<rocksdb::Options*>(joptions_handle);
+  if (options == nullptr) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env,
+        rocksdb::Status::InvalidArgument("Invalid Options."));
+  }
+
+  rocksdb::Status s = rocksdb::DestroyDB(db_path, *options);
+  env->ReleaseStringUTFChars(jdb_path, db_path);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}

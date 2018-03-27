@@ -64,7 +64,8 @@ class DBBlobIndexTest : public DBTestBase {
     read_options.snapshot = snapshot;
     PinnableSlice value;
     auto s = dbfull()->GetImpl(read_options, cfh(), key, &value,
-                               nullptr /*value_found*/, is_blob_index);
+                               nullptr /*value_found*/, nullptr /*callback*/,
+                               is_blob_index);
     if (s.IsNotFound()) {
       return "NOT_FOUND";
     }
@@ -88,9 +89,9 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    return dbfull()->NewIteratorImpl(ReadOptions(), cfd(),
-                                     dbfull()->GetLatestSequenceNumber(),
-                                     true /*allow_blob*/);
+    return dbfull()->NewIteratorImpl(
+        ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
+        nullptr /*read_callback*/, true /*allow_blob*/);
   }
 
   Options GetTestOptions() {

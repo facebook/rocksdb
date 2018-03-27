@@ -28,26 +28,28 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const InternalKeySliceTransform* int_key_slice_transform,
     const BlockBasedTableOptions& table_opt) {
+  IndexBuilder* result = nullptr;
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
-      return new ShortenedIndexBuilder(comparator,
+      result =  new ShortenedIndexBuilder(comparator,
                                        table_opt.index_block_restart_interval);
     }
+  break;
     case BlockBasedTableOptions::kHashSearch: {
-      return new HashIndexBuilder(comparator, int_key_slice_transform,
+      result = new HashIndexBuilder(comparator, int_key_slice_transform,
                                   table_opt.index_block_restart_interval);
     }
+  break;
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
-      return PartitionedIndexBuilder::CreateIndexBuilder(comparator, table_opt);
+      result = PartitionedIndexBuilder::CreateIndexBuilder(comparator, table_opt);
     }
+    break;
     default: {
       assert(!"Do not recognize the index type ");
-      return nullptr;
     }
+  break;
   }
-  // impossible.
-  assert(false);
-  return nullptr;
+  return result;
 }
 
 PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(

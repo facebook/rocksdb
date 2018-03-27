@@ -136,6 +136,7 @@ void BlockIter::Prev() {
 }
 
 void BlockIter::Seek(const Slice& target) {
+  PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -401,6 +402,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
+      restart_offset_(0),
       global_seqno_(_global_seqno) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker

@@ -13,7 +13,6 @@
 #ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 
-#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <vector>
 #include "rocksdb/env.h"
@@ -23,11 +22,12 @@
 #include "table/format.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/compression.h"
+#include "util/gflags_compat.h"
 #include "util/stop_watch.h"
 #include "utilities/col_buf_encoder.h"
 #include "utilities/column_aware_encoding_util.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_string(encoded_file, "", "file to store encoded data blocks");
 DEFINE_string(decoded_file, "",
               "file to store decoded data blocks after encoding");

@@ -10,6 +10,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "db/read_callback.h"
+
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -40,7 +42,7 @@ class WriteBatchWithIndex;
 
 class TransactionUtil {
  public:
-  // Verifies there have been no writes to this key in the db since this
+  // Verifies there have been no commits to this key in the db since this
   // sequence number.
   //
   // If cache_only is true, then this function will not attempt to read any
@@ -52,7 +54,8 @@ class TransactionUtil {
   static Status CheckKeyForConflicts(DBImpl* db_impl,
                                      ColumnFamilyHandle* column_family,
                                      const std::string& key,
-                                     SequenceNumber key_seq, bool cache_only);
+                                     SequenceNumber snap_seq, bool cache_only,
+                                     ReadCallback* snap_checker = nullptr);
 
   // For each key,SequenceNumber pair in the TransactionKeyMap, this function
   // will verify there have been no writes to the key in the db since that
@@ -69,8 +72,9 @@ class TransactionUtil {
 
  private:
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
-                         SequenceNumber earliest_seq, SequenceNumber key_seq,
-                         const std::string& key, bool cache_only);
+                         SequenceNumber earliest_seq, SequenceNumber snap_seq,
+                         const std::string& key, bool cache_only,
+                         ReadCallback* snap_checker = nullptr);
 };
 
 }  // namespace rocksdb

@@ -126,6 +126,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
       {false, false, true, false, true},
   };
 
+  for (auto& seq_per_batch : {true, false}) {
   for (auto& two_queues : {true, false}) {
     for (auto& allow_parallel : {true, false}) {
       for (auto& allow_batching : {true, false}) {
@@ -136,14 +137,33 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               options.create_if_missing = true;
               options.allow_concurrent_memtable_write = allow_parallel;
               options.enable_pipelined_write = enable_pipelined_write;
-              options.concurrent_prepare = two_queues;
+              options.two_write_queues = two_queues;
+              if (options.enable_pipelined_write && seq_per_batch) {
+                // This combination is not supported
+                continue;
+              }
+              if (options.enable_pipelined_write && options.two_write_queues) {
+                // This combination is not supported
+                continue;
+              }
 
               ReadOptions read_options;
               DB* db;
               DBImpl* db_impl;
 
               DestroyDB(dbname, options);
-              ASSERT_OK(DB::Open(options, dbname, &db));
+
+              DBOptions db_options(options);
+              ColumnFamilyOptions cf_options(options);
+              std::vector<ColumnFamilyDescriptor> column_families;
+              column_families.push_back(
+                  ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+              std::vector<ColumnFamilyHandle*> handles;
+              auto open_s = DBImpl::Open(db_options, dbname, column_families,
+                                         &handles, &db, seq_per_batch);
+              ASSERT_OK(open_s);
+              assert(handles.size() == 1);
+              delete handles[0];
 
               db_impl = dynamic_cast<DBImpl*>(db);
               ASSERT_TRUE(db_impl);
@@ -259,16 +279,36 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                   string sval(10, my_key);
                   write_op.Put(skey, sval);
 
-                  if (!write_op.callback_.should_fail_) {
+                  if (!write_op.callback_.should_fail_ && !seq_per_batch) {
                     seq.fetch_add(1);
                   }
+                }
+                if (!write_op.callback_.should_fail_ && seq_per_batch) {
+                  seq.fetch_add(1);
                 }
 
                 WriteOptions woptions;
                 woptions.disableWAL = !enable_WAL;
                 woptions.sync = enable_WAL;
-                Status s = db_impl->WriteWithCallback(
-                    woptions, &write_op.write_batch_, &write_op.callback_);
+                Status s;
+                if (seq_per_batch && two_queues) {
+                  class PublishSeqCallback : public PreReleaseCallback {
+                   public:
+                    PublishSeqCallback(DBImpl* db_impl_in)
+                        : db_impl_(db_impl_in) {}
+                    virtual Status Callback(SequenceNumber last_seq) {
+                      db_impl_->SetLastPublishedSequence(last_seq);
+                      return Status::OK();
+                    }
+                    DBImpl* db_impl_;
+                  } publish_seq_callback(db_impl);
+                  s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
+                                         &write_op.callback_, nullptr, 0, false,
+                                         nullptr, &publish_seq_callback);
+                } else {
+                  s = db_impl->WriteWithCallback(
+                      woptions, &write_op.write_batch_, &write_op.callback_);
+                }
 
                 if (write_op.callback_.should_fail_) {
                   ASSERT_TRUE(s.IsBusy());
@@ -305,7 +345,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 }
               }
 
-              ASSERT_EQ(seq.load(), db_impl->GetLatestSequenceNumber());
+              ASSERT_EQ(seq.load(), db_impl->TEST_GetLastVisibleSequence());
 
               delete db;
               DestroyDB(dbname, options);
@@ -314,6 +354,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
         }
       }
     }
+}
 }
 }
 

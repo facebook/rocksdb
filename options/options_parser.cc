@@ -587,8 +587,38 @@ bool AreEqualOptions(
     case OptionType::kInfoLogLevel:
       return (*reinterpret_cast<const InfoLogLevel*>(offset1) ==
               *reinterpret_cast<const InfoLogLevel*>(offset2));
+    case OptionType::kCompactionOptionsFIFO: {
+      CompactionOptionsFIFO lhs =
+          *reinterpret_cast<const CompactionOptionsFIFO*>(offset1);
+      CompactionOptionsFIFO rhs =
+          *reinterpret_cast<const CompactionOptionsFIFO*>(offset2);
+      if (lhs.max_table_files_size == rhs.max_table_files_size &&
+          lhs.ttl == rhs.ttl && lhs.allow_compaction == rhs.allow_compaction) {
+        return true;
+      }
+      return false;
+    }
+    case OptionType::kCompactionOptionsUniversal: {
+      CompactionOptionsUniversal lhs =
+          *reinterpret_cast<const CompactionOptionsUniversal*>(offset1);
+      CompactionOptionsUniversal rhs =
+          *reinterpret_cast<const CompactionOptionsUniversal*>(offset2);
+      if (lhs.size_ratio == rhs.size_ratio &&
+          lhs.min_merge_width == rhs.min_merge_width &&
+          lhs.max_merge_width == rhs.max_merge_width &&
+          lhs.max_size_amplification_percent ==
+              rhs.max_size_amplification_percent &&
+          lhs.compression_size_percent == rhs.compression_size_percent &&
+          lhs.stop_style == rhs.stop_style &&
+          lhs.allow_trivial_move == rhs.allow_trivial_move) {
+        return true;
+      }
+      return false;
+    }
     default:
       if (type_info.verification == OptionVerificationType::kByName ||
+          type_info.verification ==
+              OptionVerificationType::kByNameAllowFromNull ||
           type_info.verification == OptionVerificationType::kByNameAllowNull) {
         std::string value1;
         bool result =
@@ -606,6 +636,11 @@ bool AreEqualOptions(
           if (type_info.verification ==
               OptionVerificationType::kByNameAllowNull) {
             if (iter->second == kNullptrString || value1 == kNullptrString) {
+              return true;
+            }
+          } else if (type_info.verification ==
+                     OptionVerificationType::kByNameAllowFromNull) {
+            if (iter->second == kNullptrString) {
               return true;
             }
           }

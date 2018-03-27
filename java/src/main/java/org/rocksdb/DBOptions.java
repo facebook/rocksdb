@@ -390,8 +390,20 @@ public class DBOptions
   }
 
   @Override
-  public DBOptions setMaxLogFileSize(
-      final long maxLogFileSize) {
+  public DBOptions setMaxBackgroundJobs(final int maxBackgroundJobs) {
+    assert(isOwningHandle());
+    setMaxBackgroundJobs(nativeHandle_, maxBackgroundJobs);
+    return this;
+  }
+
+  @Override
+  public int maxBackgroundJobs() {
+    assert(isOwningHandle());
+    return maxBackgroundJobs(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setMaxLogFileSize(final long maxLogFileSize) {
     assert(isOwningHandle());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
@@ -998,6 +1010,8 @@ public class DBOptions
   private native void setMaxBackgroundFlushes(
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
+  private native void setMaxBackgroundJobs(long handle, int maxBackgroundJobs);
+  private native int maxBackgroundJobs(long handle);
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
       throws IllegalArgumentException;
   private native long maxLogFileSize(long handle);

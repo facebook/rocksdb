@@ -6,6 +6,7 @@
 #include "table/get_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/read_callback.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -33,12 +34,15 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(
-    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
-    Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
-    RangeDelAggregator* _range_del_agg, Env* env, SequenceNumber* seq,
-    PinnedIteratorsManager* _pinned_iters_mgr, bool* is_blob_index)
+GetContext::GetContext(const Comparator* ucmp,
+                       const MergeOperator* merge_operator, Logger* logger,
+                       Statistics* statistics, GetState init_state,
+                       const Slice& user_key, PinnableSlice* pinnable_val,
+                       bool* value_found, MergeContext* merge_context,
+                       RangeDelAggregator* _range_del_agg, Env* env,
+                       SequenceNumber* seq,
+                       PinnedIteratorsManager* _pinned_iters_mgr,
+                       ReadCallback* callback, bool* is_blob_index)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -53,6 +57,7 @@ GetContext::GetContext(
       seq_(seq),
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
+      callback_(callback),
       is_blob_index_(is_blob_index) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
@@ -82,11 +87,23 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   }
 }
 
+void GetContext::RecordCounters(Tickers ticker, size_t val) {
+  if (ticker == Tickers::TICKER_ENUM_MAX) {
+    return;
+  }
+  tickers_value[ticker] += static_cast<uint64_t>(val);
+}
+
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, Cleanable* value_pinner) {
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+    // If the value is not in the snapshot, skip it
+    if (!CheckCallback(parsed_key.sequence)) {
+      return true;  // to continue to the next seq
+    }
+
     appendToReplayLog(replay_log_, parsed_key.type, value);
 
     if (seq_ != nullptr) {
@@ -174,6 +191,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           merge_context_->PushOperand(value, true /*value_pinned*/);
         } else {
           merge_context_->PushOperand(value, false);
+        }
+        if (merge_operator_ != nullptr &&
+            merge_operator_->ShouldMerge(merge_context_->GetOperands())) {
+          state_ = kFound;
+          if (LIKELY(pinnable_val_ != nullptr)) {
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_, nullptr,
+                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                logger_, statistics_, env_);
+            pinnable_val_->PinSelf();
+            if (!merge_status.ok()) {
+              state_ = kCorrupt;
+            }
+          }
+          return false;
         }
         return true;
 

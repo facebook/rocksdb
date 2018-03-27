@@ -13,7 +13,6 @@ namespace rocksdb {
 namespace cassandra {
 extern const char kData[];
 extern const char kExpiringData[];
-extern const int32_t kLocalDeletionTime;
 extern const int32_t kTtl;
 extern const int8_t kColumn;
 extern const int8_t kTombstone;
@@ -23,6 +22,10 @@ extern const int8_t kExpiringColumn;
 std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask,
                                              int8_t index,
                                              int64_t timestamp);
+
+std::tuple<int8_t, int8_t, int64_t> CreateTestColumnSpec(int8_t mask,
+                                                         int8_t index,
+                                                         int64_t timestamp);
 
 RowValue CreateTestRowValue(
     std::vector<std::tuple<int8_t, int8_t, int64_t>> column_specs);
@@ -38,6 +41,6 @@ void VerifyRowValueColumns(
 );
 
 int64_t ToMicroSeconds(int64_t seconds);
-
+int32_t ToSeconds(int64_t microseconds);
 }
 }

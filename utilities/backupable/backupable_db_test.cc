@@ -810,9 +810,9 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
-      "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
+      "/shared/.00010.sst.tmp",    "/shared/.00011.sst.tmp",
       "/private/1.tmp/CURRENT",   "/private/1.tmp/MANIFEST-01",
-      "/private/1.tmp/00011.log", "/meta/1.tmp"};
+      "/private/1.tmp/00011.log", "/meta/.1.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -828,9 +828,9 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
 
-  should_have_written = {"/shared/00015.sst.tmp", "/private/2.tmp/CURRENT",
+  should_have_written = {"/shared/.00015.sst.tmp", "/private/2.tmp/CURRENT",
                          "/private/2.tmp/MANIFEST-01",
-                         "/private/2.tmp/00011.log", "/meta/2.tmp"};
+                         "/private/2.tmp/00011.log", "/meta/.2.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -843,7 +843,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00015.sst"));
 
   // MANIFEST file size should be only 100
-  uint64_t size;
+  uint64_t size = 0;
   test_backup_env_->GetFileSize(backupdir_ + "/private/2/MANIFEST-01", &size);
   ASSERT_EQ(100UL, size);
   test_backup_env_->GetFileSize(backupdir_ + "/shared/00015.sst", &size);
@@ -1169,7 +1169,7 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
     } else {
       shared_tmp += "/shared";
     }
-    shared_tmp += "/00006.sst.tmp";
+    shared_tmp += "/.00006.sst.tmp";
     std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
     std::string private_tmp_file = private_tmp_dir + "/00003.sst";
     file_manager_->WriteToFile(shared_tmp, "tmp");
@@ -1525,6 +1525,54 @@ TEST_F(BackupableDBTest, LimitBackupsOpened) {
   ASSERT_EQ(4, backup_infos[1].backup_id);
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
+}
+
+TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
+  // we should pick an ID greater than corrupted backups' IDs so creation can
+  // succeed even when latest backup is corrupted.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0 /* from */, kNumKeys);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            true /* flush_before_backup */));
+  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/1",
+                                       3 /* bytes_to_corrupt */));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            true /* flush_before_backup */));
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
+}
+
+TEST_F(BackupableDBTest, WriteOnlyEngine) {
+  // Verify we can open a backup engine and create new ones even if reading old
+  // backups would fail with IOError. IOError is a more serious condition than
+  // corruption and would cause the engine to fail opening. So the only way to
+  // avoid is by not reading old backups at all, i.e., respecting
+  // `max_valid_backups_to_open == 0`.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0 /* from */, kNumKeys);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  backupable_options_->max_valid_backups_to_open = 0;
+  // cause any meta-file reads to fail with IOError during Open
+  test_backup_env_->SetDummySequentialFile(true);
+  test_backup_env_->SetDummySequentialFileFailReads(true);
+  OpenDBAndBackupEngine();
+  test_backup_env_->SetDummySequentialFileFailReads(false);
+  test_backup_env_->SetDummySequentialFile(false);
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
 }
 
 }  // anon namespace

@@ -16,6 +16,8 @@
 #include <unordered_map>
 #include <inttypes.h>
 
+#include "cache/lru_cache.h"
+#include "cache/sharded_cache.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "options/options_sanity_check.h"
@@ -32,8 +34,8 @@
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
 #else
-#include <gflags/gflags.h>
-using GFLAGS::ParseCommandLineFlags;
+#include "util/gflags_compat.h"
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
@@ -529,6 +531,101 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
+  // Check block cache options are overwritten when specified
+  // in new format as a struct.
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "block_cache={capacity=1M;num_shard_bits=4;"
+             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
+             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
+             &new_opt));
+  ASSERT_TRUE(new_opt.block_cache != nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
+                0.5);
+
+  // Set only block cache capacity. Check other values are
+  // reset to default values.
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "block_cache={capacity=2M};"
+             "block_cache_compressed={capacity=2M}",
+             &new_opt));
+  ASSERT_TRUE(new_opt.block_cache != nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
+  // Default values
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(),
+                GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
+  ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache)->GetHighPriPoolRatio(), 0.0);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2*1024UL*1024UL);
+  // Default values
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(),
+                GetDefaultCacheShardBits(
+                    new_opt.block_cache_compressed->GetCapacity()));
+  ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
+                0.0);
+
+  // Set couple of block cache options.
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "block_cache={num_shard_bits=5;high_pri_pool_ratio=0.5;};"
+             "block_cache_compressed={num_shard_bits=5;"
+             "high_pri_pool_ratio=0.5;}",
+             &new_opt));
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(), 5);
+  ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 0);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(), 5);
+  ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
+                0.5);
+
+  // Set couple of block cache options.
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "block_cache={capacity=1M;num_shard_bits=4;"
+             "strict_capacity_limit=true;};"
+             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+             "strict_capacity_limit=true;}",
+             &new_opt));
+  ASSERT_TRUE(new_opt.block_cache != nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache)->GetHighPriPoolRatio(), 0.0);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
+                0.0);
 }
 #endif  // !ROCKSDB_LITE
 
@@ -658,6 +755,25 @@ TEST_F(OptionsTest, DBOptionsSerialization) {
   ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_options_file_content,
                                    &new_options));
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_options, new_options));
+}
+
+TEST_F(OptionsTest, OptionsComposeDecompose) {
+  // build an Options from DBOptions + CFOptions, then decompose it to verify
+  // we get same constituent options.
+  DBOptions base_db_opts;
+  ColumnFamilyOptions base_cf_opts;
+
+  Random rnd(301);
+  test::RandomInitDBOptions(&base_db_opts, &rnd);
+  test::RandomInitCFOptions(&base_cf_opts, &rnd);
+
+  Options base_opts(base_db_opts, base_cf_opts);
+  DBOptions new_db_opts(base_opts);
+  ColumnFamilyOptions new_cf_opts(base_opts);
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opts, new_db_opts));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opts, new_cf_opts));
+  delete new_cf_opts.compaction_filter;
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
@@ -1525,6 +1641,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
   // merge_operator
   {
+    // Test when going from nullptr -> merge operator
+    opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+
     for (int test = 0; test < 5; ++test) {
       // change the merge operator
       opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
@@ -1535,6 +1660,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
       ASSERT_OK(PersistCFOptions(opts));
       ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
     }
+
+    // Test when going from merge operator -> nullptr
+    opts.merge_operator = nullptr;
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
   }
 
   // compaction_filter

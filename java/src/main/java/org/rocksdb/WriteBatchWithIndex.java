@@ -60,8 +60,21 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final AbstractComparator<? extends AbstractSlice<?>>
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
-    super(newWriteBatchWithIndex(fallbackIndexComparator.getNativeHandle(),
-        reservedBytes, overwriteKey));
+    super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
+        fallbackIndexComparator.getComparatorType().getValue(), reservedBytes,
+        overwriteKey));
+  }
+
+  /**
+   * <p>Private WriteBatchWithIndex constructor which is used to construct
+   * WriteBatchWithIndex instances from C++ side. As the reference to this
+   * object is also managed from C++ side the handle will be disowned.</p>
+   *
+   * @param nativeHandle address of native instance.
+   */
+  WriteBatchWithIndex(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
   }
 
   /**
@@ -244,10 +257,14 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
-  @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen);
-  @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle);
+  @Override final native void delete(final long handle, final byte[] key,
+      final int keyLen) throws RocksDBException;
+  @Override final native void delete(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
+  @Override final native void singleDelete(final long handle, final byte[] key,
+      final int keyLen) throws RocksDBException;
+  @Override final native void singleDelete(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen);
@@ -255,15 +272,20 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle, final byte[] blob,
-      final int blobLen);
+      final int blobLen) throws RocksDBException;
   @Override final native void clear0(final long handle);
   @Override final native void setSavePoint0(final long handle);
   @Override final native void rollbackToSavePoint0(final long handle);
+  @Override final native void popSavePoint(final long handle) throws RocksDBException;
+  @Override final native void setMaxBytes(final long nativeHandle,
+      final long maxBytes);
+  @Override final native WriteBatch getWriteBatch(final long handle);
 
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);
   private native static long newWriteBatchWithIndex(
-      final long fallbackIndexComparatorHandle, final int reservedBytes,
+      final long fallbackIndexComparatorHandle,
+      final byte comparatorType, final int reservedBytes,
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);

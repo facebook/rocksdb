@@ -109,8 +109,8 @@ struct BackupableDBOptions {
   uint64_t callback_trigger_interval_size;
 
   // When Open() is called, it will open at most this many of the latest
-  // non-corrupted backups. If 0, it will open all available backups.
-  // Default: 0
+  // non-corrupted backups.
+  // Default: INT_MAX
   int max_valid_backups_to_open;
 
   void Dump(Logger* logger) const;
@@ -122,7 +122,7 @@ struct BackupableDBOptions {
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
-      int _max_valid_backups_to_open = 0)
+      int _max_valid_backups_to_open = INT_MAX)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),

@@ -99,7 +99,7 @@ class Repairer {
         env_(db_options.env),
         env_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
-        immutable_db_options_(db_options_),
+        immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(default_cf_opts),
         default_cf_iopts_(
@@ -254,14 +254,21 @@ class Repairer {
     }
 
     // search wal_dir if user uses a customize wal_dir
-    if (!db_options_.wal_dir.empty() && 
-        db_options_.wal_dir != dbname_) {
-        to_search_paths.push_back(db_options_.wal_dir);
+    bool same = false;
+    Status status = env_->AreFilesSame(db_options_.wal_dir, dbname_, &same);
+    if (status.IsNotSupported()) {
+      same = db_options_.wal_dir == dbname_;
+      status = Status::OK();
+    } else if (!status.ok()) {
+      return status;
+    }
+
+    if (!same) {
+      to_search_paths.push_back(db_options_.wal_dir);
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
-      Status status =
-          env_->GetChildren(to_search_paths[path_id], &filenames);
+      status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
@@ -390,23 +397,23 @@ class Repairer {
       ro.total_order_seek = true;
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
-      EnvOptions optimized_env_options =
-          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
-
       int64_t _current_time = 0;
       status = env_->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
+      SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
+      auto write_hint = cfd->CalculateSSTWriteHint(0);
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          optimized_env_options, table_cache_, iter.get(),
+          env_options_, table_cache_, iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
-          {}, kMaxSequenceNumber, kNoCompression, CompressionOptions(), false,
-          nullptr /* internal_stats */, TableFileCreationReason::kRecovery,
-          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
-          nullptr /* table_properties */, -1 /* level */, current_time);
+          {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,
+          CompressionOptions(), false, nullptr /* internal_stats */,
+          TableFileCreationReason::kRecovery, nullptr /* event_logger */,
+          0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
+          -1 /* level */, current_time, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -541,7 +548,8 @@ class Repairer {
         max_sequence = tables_[i].max_sequence;
       }
     }
-    vset_.SetLastToBeWrittenSequence(max_sequence);
+    vset_.SetLastAllocatedSequence(max_sequence);
+    vset_.SetLastPublishedSequence(max_sequence);
     vset_.SetLastSequence(max_sequence);
 
     for (const auto& cf_id_and_tables : cf_id_to_tables) {
@@ -560,6 +568,8 @@ class Repairer {
                      table->meta.largest, table->min_sequence,
                      table->max_sequence, table->meta.marked_for_compaction);
       }
+      assert(next_file_number_ > 0);
+      vset_.MarkFileNumberUsed(next_file_number_ - 1);
       mutex_.Lock();
       Status status = vset_.LogAndApply(
           cfd, *cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
@@ -611,11 +621,13 @@ Status GetDefaultCFOptions(
 }  // anonymous namespace
 
 Status RepairDB(const std::string& dbname, const DBOptions& db_options,
-                const std::vector<ColumnFamilyDescriptor>& column_families) {
+                const std::vector<ColumnFamilyDescriptor>& column_families
+                ) {
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+    Repairer repairer(dbname, db_options, column_families,
+                      default_cf_opts,
                       ColumnFamilyOptions() /* unknown_cf_opts */,
                       false /* create_unknown_cfs */);
     status = repairer.Run();
@@ -629,7 +641,8 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+    Repairer repairer(dbname, db_options,
+                      column_families, default_cf_opts,
                       unknown_cf_opts, true /* create_unknown_cfs */);
     status = repairer.Run();
   }
@@ -639,7 +652,8 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 Status RepairDB(const std::string& dbname, const Options& options) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
-  Repairer repairer(dbname, db_options, {}, cf_options /* default_cf_opts */,
+  Repairer repairer(dbname, db_options,
+                    {}, cf_options /* default_cf_opts */,
                     cf_options /* unknown_cf_opts */,
                     true /* create_unknown_cfs */);
   return repairer.Run();

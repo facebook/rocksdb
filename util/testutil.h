@@ -72,6 +72,7 @@ class ErrorEnv : public EnvWrapper {
   }
 };
 
+#ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
 // user comparator in it. Can be used to test entities that have no dependency
 // on internal key structure but consumes InternalKeyComparator, like
@@ -94,6 +95,7 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
     user_comparator()->FindShortSuccessor(key);
   }
 };
+#endif
 
 // A test comparator which compare two strings in this way:
 // (1) first compare prefix of 8 bytes in alphabet order,

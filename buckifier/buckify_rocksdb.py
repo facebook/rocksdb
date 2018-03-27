@@ -36,7 +36,7 @@ def parse_src_mk(repo_path):
 # get all .cc / .c files
 def get_cc_files(repo_path):
     cc_files = []
-    for root, dirnames, filenames in os.walk(repo_path):
+    for root, dirnames, filenames in os.walk(repo_path):  # noqa: B007 T25377293 Grandfathered in
         root = root[(len(repo_path) + 1):]
         if "java" in root:
             # Skip java

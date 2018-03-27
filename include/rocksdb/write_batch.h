@@ -250,6 +250,10 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkEndPrepare() handler not defined.");
     }
 
+    virtual Status MarkNoop(bool empty_batch) {
+      return Status::InvalidArgument("MarkNoop() handler not defined.");
+    }
+
     virtual Status MarkRollback(const Slice& xid) {
       return Status::InvalidArgument(
           "MarkRollbackPrepare() handler not defined.");
@@ -263,6 +267,10 @@ class WriteBatch : public WriteBatchBase {
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
     virtual bool Continue();
+
+   protected:
+    friend class WriteBatch;
+    virtual bool WriteAfterCommit() const { return true; }
   };
   Status Iterate(Handler* handler) const;
 
@@ -309,7 +317,7 @@ class WriteBatch : public WriteBatchBase {
   explicit WriteBatch(const std::string& rep);
 
   WriteBatch(const WriteBatch& src);
-  WriteBatch(WriteBatch&& src);
+  WriteBatch(WriteBatch&& src) noexcept;
   WriteBatch& operator=(const WriteBatch& src);
   WriteBatch& operator=(WriteBatch&& src);
 
@@ -323,6 +331,10 @@ class WriteBatch : public WriteBatchBase {
  private:
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
+  // TODO(myabandeh): this is needed for a hack to collapse the write batch and
+  // remove duplicate keys. Remove it when the hack is replaced with a propper
+  // solution.
+  friend class WriteBatchWithIndex;
   SavePoints* save_points_;
 
   // When sending a WriteBatch through WriteImpl we might want to
@@ -338,6 +350,12 @@ class WriteBatch : public WriteBatchBase {
 
   // Maximum size of rep_.
   size_t max_bytes_;
+
+  // Is the content of the batch the application's latest state that meant only
+  // to be used for recovery? Refer to
+  // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
+  // more details.
+  bool is_latest_persistent_state_ = false;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

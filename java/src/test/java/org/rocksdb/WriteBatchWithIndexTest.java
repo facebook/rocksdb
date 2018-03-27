@@ -14,11 +14,11 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 
 public class WriteBatchWithIndexTest {
@@ -75,8 +75,8 @@ public class WriteBatchWithIndexTest {
         assertThat(it.key()).isEqualTo(k2);
         assertThat(it.value()).isEqualTo(v2Other);
 
-        //remove k1 and make sure we can read back the write
-        wbwi.remove(k1);
+        //delete k1 and make sure we can read back the write
+        wbwi.delete(k1);
         it.seek(k1);
         assertThat(it.key()).isNotEqualTo(k1);
 
@@ -87,6 +87,19 @@ public class WriteBatchWithIndexTest {
         assertThat(it.isValid()).isTrue();
         assertThat(it.key()).isEqualTo(k1);
         assertThat(it.value()).isEqualTo(v1Other);
+
+        //single remove k3 and make sure we can read back the write
+        wbwi.singleDelete(k3);
+        it.seek(k3);
+        assertThat(it.isValid()).isEqualTo(false);
+
+        //reinsert k3 and make sure we see the new value
+        final byte[] v3Other = "otherValue3".getBytes();
+        wbwi.put(k3, v3Other);
+        it.seek(k3);
+        assertThat(it.isValid()).isTrue();
+        assertThat(it.key()).isEqualTo(k3);
+        assertThat(it.value()).isEqualTo(v3Other);
       }
     }
   }
@@ -124,22 +137,39 @@ public class WriteBatchWithIndexTest {
       final String v2 = "value2";
       final String k3 = "key3";
       final String v3 = "value3";
-      final byte[] k1b = k1.getBytes();
-      final byte[] v1b = v1.getBytes();
-      final byte[] k2b = k2.getBytes();
-      final byte[] v2b = v2.getBytes();
-      final byte[] k3b = k3.getBytes();
-      final byte[] v3b = v3.getBytes();
+      final String k4 = "key4";
+      final String k5 = "key5";
+      final String k6 = "key6";
+      final String k7 = "key7";
+      final String v8 = "value8";
+      final byte[] k1b = k1.getBytes(UTF_8);
+      final byte[] v1b = v1.getBytes(UTF_8);
+      final byte[] k2b = k2.getBytes(UTF_8);
+      final byte[] v2b = v2.getBytes(UTF_8);
+      final byte[] k3b = k3.getBytes(UTF_8);
+      final byte[] v3b = v3.getBytes(UTF_8);
+      final byte[] k4b = k4.getBytes(UTF_8);
+      final byte[] k5b = k5.getBytes(UTF_8);
+      final byte[] k6b = k6.getBytes(UTF_8);
+      final byte[] k7b = k7.getBytes(UTF_8);
+      final byte[] v8b = v8.getBytes(UTF_8);
 
-      //add put records
+      // add put records
       wbwi.put(k1b, v1b);
       wbwi.put(k2b, v2b);
       wbwi.put(k3b, v3b);
 
-      //add a deletion record
-      final String k4 = "key4";
-      final byte[] k4b = k4.getBytes();
-      wbwi.remove(k4b);
+      // add a deletion record
+      wbwi.delete(k4b);
+
+      // add a single deletion record
+      wbwi.singleDelete(k5b);
+
+      // add a delete range record
+      wbwi.deleteRange(k6b, k7b);
+
+      // add a log record
+      wbwi.putLogData(v8b);
 
       final WBWIRocksIterator.WriteEntry[] expected = {
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
@@ -149,12 +179,16 @@ public class WriteBatchWithIndexTest {
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
               new DirectSlice(k3), new DirectSlice(v3)),
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE,
-              new DirectSlice(k4), DirectSlice.NONE)
+              new DirectSlice(k4), DirectSlice.NONE),
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.SINGLE_DELETE,
+              new DirectSlice(k5), DirectSlice.NONE),
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE_RANGE,
+              new DirectSlice(k6), new DirectSlice(k7)),
       };
 
       try (final WBWIRocksIterator it = wbwi.newIterator()) {
         //direct access - seek to key offsets
-        final int[] testOffsets = {2, 0, 1, 3};
+        final int[] testOffsets = {2, 0, 3, 4, 1, 5};
 
         for (int i = 0; i < testOffsets.length; i++) {
           final int testOffset = testOffsets[i];
@@ -164,26 +198,26 @@ public class WriteBatchWithIndexTest {
           assertThat(it.isValid()).isTrue();
 
           final WBWIRocksIterator.WriteEntry entry = it.entry();
-          assertThat(entry.equals(expected[testOffset])).isTrue();
+          assertThat(entry).isEqualTo(expected[testOffset]);
         }
 
         //forward iterative access
         int i = 0;
         for (it.seekToFirst(); it.isValid(); it.next()) {
-          assertThat(it.entry().equals(expected[i++])).isTrue();
+          assertThat(it.entry()).isEqualTo(expected[i++]);
         }
 
         //reverse iterative access
         i = expected.length - 1;
         for (it.seekToLast(); it.isValid(); it.prev()) {
-          assertThat(it.entry().equals(expected[i--])).isTrue();
+          assertThat(it.entry()).isEqualTo(expected[i--]);
         }
       }
     }
   }
 
   @Test
-  public void zeroByteTests() {
+  public void zeroByteTests() throws RocksDBException {
     try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
       final byte[] zeroByteValue = new byte[]{0, 0};
       //add zero byte value
@@ -207,8 +241,7 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
-  public void savePoints()
-      throws UnsupportedEncodingException, RocksDBException {
+  public void savePoints() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
@@ -228,7 +261,7 @@ public class WriteBatchWithIndexTest {
 
         wbwi.setSavePoint();
 
-        wbwi.remove("k2".getBytes());
+        wbwi.delete("k2".getBytes());
         wbwi.put("k3".getBytes(), "v3-2".getBytes());
 
         assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k2"))
@@ -272,6 +305,27 @@ public class WriteBatchWithIndexTest {
     }
   }
 
+  @Test
+  public void restorePoints() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+
+      wbwi.put("k1".getBytes(UTF_8), "v1".getBytes(UTF_8));
+      wbwi.put("k2".getBytes(UTF_8), "v2".getBytes(UTF_8));
+
+      wbwi.setSavePoint();
+
+      wbwi.put("k1".getBytes(UTF_8), "123456789".getBytes(UTF_8));
+      wbwi.delete("k2".getBytes(UTF_8));
+
+      wbwi.rollbackToSavePoint();
+
+      try(final DBOptions options = new DBOptions()) {
+        assertThat(wbwi.getFromBatch(options,"k1".getBytes(UTF_8))).isEqualTo("v1".getBytes());
+        assertThat(wbwi.getFromBatch(options,"k2".getBytes(UTF_8))).isEqualTo("v2".getBytes());
+      }
+    }
+  }
+
   @Test(expected = RocksDBException.class)
   public void restorePoints_withoutSavePoints() throws RocksDBException {
     try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
@@ -288,6 +342,78 @@ public class WriteBatchWithIndexTest {
 
       // without previous corresponding setSavePoint
       wbwi.rollbackToSavePoint();
+    }
+  }
+
+  @Test
+  public void popSavePoint() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+
+      wbwi.put("k1".getBytes(), "v1".getBytes());
+      wbwi.put("k2".getBytes(), "v2".getBytes());
+
+      wbwi.setSavePoint();
+
+      wbwi.put("k1".getBytes(), "123456789".getBytes());
+      wbwi.delete("k2".getBytes());
+
+      wbwi.setSavePoint();
+
+      wbwi.popSavePoint();
+
+      wbwi.rollbackToSavePoint();
+
+      try(final DBOptions options = new DBOptions()) {
+        assertThat(wbwi.getFromBatch(options,"k1".getBytes(UTF_8))).isEqualTo("v1".getBytes());
+        assertThat(wbwi.getFromBatch(options,"k2".getBytes(UTF_8))).isEqualTo("v2".getBytes());
+      }
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void popSavePoint_withoutSavePoints() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+      wbwi.popSavePoint();
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void popSavePoint_withoutSavePoints_nested() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+
+      wbwi.setSavePoint();
+      wbwi.popSavePoint();
+
+      // without previous corresponding setSavePoint
+      wbwi.popSavePoint();
+    }
+  }
+
+  @Test
+  public void maxBytes() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+      wbwi.setMaxBytes(19);
+
+      wbwi.put("k1".getBytes(), "v1".getBytes());
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void maxBytes_over() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+      wbwi.setMaxBytes(1);
+
+      wbwi.put("k1".getBytes(), "v1".getBytes());
+    }
+  }
+
+  @Test
+  public void getWriteBatch() {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+
+      final WriteBatch wb = wbwi.getWriteBatch();
+      assertThat(wb).isNotNull();
+      assertThat(wb.isOwningHandle()).isFalse();
     }
   }
 
@@ -329,7 +455,7 @@ public class WriteBatchWithIndexTest {
       assertThat(wbwi.getFromBatch(dbOptions, k3)).isEqualTo(v3);
       assertThat(wbwi.getFromBatch(dbOptions, k4)).isNull();
 
-      wbwi.remove(k2);
+      wbwi.delete(k2);
 
       assertThat(wbwi.getFromBatch(dbOptions, k2)).isNull();
     }
@@ -372,7 +498,7 @@ public class WriteBatchWithIndexTest {
         assertThat(wbwi.getFromBatchAndDB(db, readOptions, k3)).isEqualTo(v3);
         assertThat(wbwi.getFromBatchAndDB(db, readOptions, k4)).isEqualTo(v4);
 
-        wbwi.remove(k4);
+        wbwi.delete(k4);
 
         assertThat(wbwi.getFromBatchAndDB(db, readOptions, k4)).isNull();
       }

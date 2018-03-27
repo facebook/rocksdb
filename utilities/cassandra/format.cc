@@ -129,7 +129,7 @@ std::shared_ptr<Tombstone> ExpiringColumn::ToTombstone() const {
   int64_t marked_for_delete_at =
     std::chrono::duration_cast<std::chrono::microseconds>(expired_at).count();
   return std::make_shared<Tombstone>(
-    ColumnTypeMask::DELETION_MASK,
+    static_cast<int8_t>(ColumnTypeMask::DELETION_MASK),
     Index(),
     local_deletion_time,
     marked_for_delete_at);
@@ -174,6 +174,13 @@ void Tombstone::Serialize(std::string* dest) const {
   ColumnBase::Serialize(dest);
   rocksdb::cassandra::Serialize<int32_t>(local_deletion_time_, dest);
   rocksdb::cassandra::Serialize<int64_t>(marked_for_delete_at_, dest);
+}
+
+bool Tombstone::Collectable(int32_t gc_grace_period_in_seconds) const {
+  auto local_deleted_at = std::chrono::time_point<std::chrono::system_clock>(
+      std::chrono::seconds(local_deletion_time_));
+  auto gc_grace_period = std::chrono::seconds(gc_grace_period_in_seconds);
+  return local_deleted_at + gc_grace_period < std::chrono::system_clock::now();
 }
 
 std::shared_ptr<Tombstone> Tombstone::Deserialize(const char *src,
@@ -231,7 +238,7 @@ void RowValue::Serialize(std::string* dest) const {
   }
 }
 
-RowValue RowValue::PurgeTtl(bool* changed) const {
+RowValue RowValue::RemoveExpiredColumns(bool* changed) const {
   *changed = false;
   Columns new_columns;
   for (auto& column : columns_) {
@@ -250,7 +257,7 @@ RowValue RowValue::PurgeTtl(bool* changed) const {
   return RowValue(std::move(new_columns), last_modified_time_);
 }
 
-RowValue RowValue::ExpireTtl(bool* changed) const {
+RowValue RowValue::ConvertExpiredColumnsToTombstones(bool* changed) const {
   *changed = false;
   Columns new_columns;
   for (auto& column : columns_) {
@@ -265,6 +272,23 @@ RowValue RowValue::ExpireTtl(bool* changed) const {
         continue;
       }
     }
+    new_columns.push_back(column);
+  }
+  return RowValue(std::move(new_columns), last_modified_time_);
+}
+
+RowValue RowValue::RemoveTombstones(int32_t gc_grace_period) const {
+  Columns new_columns;
+  for (auto& column : columns_) {
+    if (column->Mask() == ColumnTypeMask::DELETION_MASK) {
+      std::shared_ptr<Tombstone> tombstone =
+          std::static_pointer_cast<Tombstone>(column);
+
+      if (tombstone->Collectable(gc_grace_period)) {
+        continue;
+      }
+    }
+
     new_columns.push_back(column);
   }
   return RowValue(std::move(new_columns), last_modified_time_);

@@ -5,11 +5,12 @@
 //
 #pragma once
 
-#include <string>
-#include <list>
-#include <vector>
-#include <set>
 #include <deque>
+#include <limits>
+#include <list>
+#include <set>
+#include <string>
+#include <vector>
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
@@ -55,14 +56,15 @@ class MemTableListVersion {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts,
-           bool* is_blob_index = nullptr);
+           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts, bool* is_blob_index = nullptr) {
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
+           bool* is_blob_index = nullptr) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
-               is_blob_index);
+               callback, is_blob_index);
   }
 
   // Similar to Get(), but searches the Memtable history of memtables that
@@ -121,7 +123,9 @@ class MemTableListVersion {
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, Status* s, MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts, bool* is_blob_index = nullptr);
+                   const ReadOptions& read_opts,
+                   ReadCallback* callback = nullptr,
+                   bool* is_blob_index = nullptr);
 
   void AddMemTable(MemTable* m);
 
@@ -240,6 +244,22 @@ class MemTableList {
   size_t* current_memory_usage() { return &current_memory_usage_; }
 
   uint64_t GetMinLogContainingPrepSection();
+
+  uint64_t GetEarliestMemTableID() const {
+    auto& memlist = current_->memlist_;
+    if (memlist.empty()) {
+      return std::numeric_limits<uint64_t>::max();
+    }
+    return memlist.back()->GetID();
+  }
+
+  uint64_t GetLatestMemTableID() const {
+    auto& memlist = current_->memlist_;
+    if (memlist.empty()) {
+      return 0;
+    }
+    return memlist.front()->GetID();
+  }
 
  private:
   // DB mutex held

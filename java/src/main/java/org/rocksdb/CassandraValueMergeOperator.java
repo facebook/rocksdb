@@ -10,11 +10,16 @@ package org.rocksdb;
  * values.
  */
 public class CassandraValueMergeOperator extends MergeOperator {
-    public CassandraValueMergeOperator() {
-        super(newSharedCassandraValueMergeOperator());
+  public CassandraValueMergeOperator(int gcGracePeriodInSeconds) {
+    super(newSharedCassandraValueMergeOperator(gcGracePeriodInSeconds, 0));
     }
 
-    private native static long newSharedCassandraValueMergeOperator();
+    public CassandraValueMergeOperator(int gcGracePeriodInSeconds, int operandsLimit) {
+      super(newSharedCassandraValueMergeOperator(gcGracePeriodInSeconds, operandsLimit));
+    }
+
+    private native static long newSharedCassandraValueMergeOperator(
+        int gcGracePeriodInSeconds, int limit);
 
     @Override protected final native void disposeInternal(final long handle);
 }

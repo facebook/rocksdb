@@ -4,6 +4,7 @@
 
 #pragma once
 #include <map>
+#include <memory>
 #include <string>
 #include "rocksdb/db.h"
 
@@ -18,11 +19,20 @@ namespace rocksdb {
 // This class contains APIs to stack rocksdb wrappers.Eg. Stack TTL over base d
 class StackableDB : public DB {
  public:
-  // StackableDB is the owner of db now!
+  // StackableDB take sole ownership of the underlying db.
   explicit StackableDB(DB* db) : db_(db) {}
 
+  // StackableDB take shared ownership of the underlying db.
+  explicit StackableDB(std::shared_ptr<DB> db)
+      : db_(db.get()), shared_db_ptr_(db) {}
+
   ~StackableDB() {
-    delete db_;
+    if (shared_db_ptr_ == nullptr) {
+      delete db_;
+    } else {
+      assert(shared_db_ptr_.get() == db_);
+    }
+    db_ = nullptr;
   }
 
   virtual DB* GetBaseDB() {
@@ -160,9 +170,9 @@ class StackableDB : public DB {
                            const Slice& property, std::string* value) override {
     return db_->GetProperty(column_family, property, value);
   }
-  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property,
-                              std::map<std::string, double>* value) override {
+  virtual bool GetMapProperty(
+      ColumnFamilyHandle* column_family, const Slice& property,
+      std::map<std::string, std::string>* value) override {
     return db_->GetMapProperty(column_family, property, value);
   }
 
@@ -304,6 +314,10 @@ class StackableDB : public DB {
     return db_->GetLatestSequenceNumber();
   }
 
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {
+    return db_->SetPreserveDeletesSequenceNumber(seqnum);
+  }
+
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
@@ -369,6 +383,7 @@ class StackableDB : public DB {
 
  protected:
   DB* db_;
+  std::shared_ptr<DB> shared_db_ptr_;
 };
 
 } //  namespace rocksdb

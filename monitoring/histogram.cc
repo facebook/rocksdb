@@ -202,6 +202,7 @@ std::string HistogramStat::ToString() const {
            Percentile(99.99));
   r.append(buf);
   r.append("------------------------------------------------------\n");
+  if (cur_num == 0) return r;   // all buckets are empty
   const double mult = 100.0 / cur_num;
   uint64_t cumulative_sum = 0;
   for (unsigned int b = 0; b < num_buckets_; b++) {
@@ -209,7 +210,8 @@ std::string HistogramStat::ToString() const {
     if (bucket_value <= 0.0) continue;
     cumulative_sum += bucket_value;
     snprintf(buf, sizeof(buf),
-             "[ %7" PRIu64 ", %7" PRIu64 " ) %8" PRIu64 " %7.3f%% %7.3f%% ",
+             "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
+             (b == 0) ? '[' : '(',
              (b == 0) ? 0 : bucketMapper.BucketLimit(b-1),  // left
               bucketMapper.BucketLimit(b),  // right
               bucket_value,                   // count

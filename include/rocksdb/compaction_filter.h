@@ -94,10 +94,6 @@ class CompactionFilter {
   // be used by a single thread that is doing the compaction run, and this
   // call does not need to be thread-safe.  However, multiple filters may be
   // in existence and operating concurrently.
-  //
-  // The last paragraph is not true if you set max_subcompactions to more than
-  // 1. In that case, subcompaction from multiple threads may call a single
-  // CompactionFilter concurrently.
   virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
                       std::string* new_value, bool* value_changed) const {
     return false;

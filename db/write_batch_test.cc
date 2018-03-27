@@ -18,7 +18,6 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/logging.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 
@@ -299,6 +298,10 @@ namespace {
       seen += "MarkEndPrepare(" + xid.ToString() + ")";
       return Status::OK();
     }
+    virtual Status MarkNoop(bool empty_batch) override {
+      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
+      return Status::OK();
+    }
     virtual Status MarkCommit(const Slice& xid) override {
       seen += "MarkCommit(" + xid.ToString() + ")";
       return Status::OK();
@@ -415,7 +418,7 @@ TEST_F(WriteBatchTest, PrepareCommit) {
 TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 4u;
-  static const uint32_t kNumUpdates = 3 << 30;
+  static const uint32_t kNumUpdates = uint32_t(3 << 30);
   std::string raw(kKeyValueSize, 'A');
   WriteBatch batch(kNumUpdates * (4 + kKeyValueSize * 2) + 1024u);
   char c = 'A';

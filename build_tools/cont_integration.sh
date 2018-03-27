@@ -13,10 +13,12 @@ error=0
 
 function log {
   DATE=`date +%Y-%m-%d:%H:%M:%S`
+  # shellcheck disable=SC2068
   echo $DATE $@
 }
 
 function log_err {
+  # shellcheck disable=SC2145
   log "ERROR: $@ Error code: $error."
 }
 

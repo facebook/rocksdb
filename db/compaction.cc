@@ -86,35 +86,23 @@ void Compaction::GetBoundaryKeys(
 bool Compaction::IsBottommostLevel(
     int output_level, VersionStorageInfo* vstorage,
     const std::vector<CompactionInputFiles>& inputs) {
-  if (inputs[0].level == 0 &&
-      inputs[0].files.back() != vstorage->LevelFiles(0).back()) {
-    return false;
+  int output_l0_idx;
+  if (output_level == 0) {
+    output_l0_idx = 0;
+    for (const auto* file : vstorage->LevelFiles(0)) {
+      if (inputs[0].files.back() == file) {
+        break;
+      }
+      ++output_l0_idx;
+    }
+    assert(static_cast<size_t>(output_l0_idx) < vstorage->LevelFiles(0).size());
+  } else {
+    output_l0_idx = -1;
   }
-
   Slice smallest_key, largest_key;
   GetBoundaryKeys(vstorage, inputs, &smallest_key, &largest_key);
-
-  // Checks whether there are files living beyond the output_level.
-  // If lower levels have files, it checks for overlap between files
-  // if the compaction process and those files.
-  // Bottomlevel optimizations can be made if there are no files in
-  // lower levels or if there is no overlap with the files in
-  // the lower levels.
-  for (int i = output_level + 1; i < vstorage->num_levels(); i++) {
-    // It is not the bottommost level if there are files in higher
-    // levels when the output level is 0 or if there are files in
-    // higher levels which overlap with files to be compacted.
-    // output_level == 0 means that we want it to be considered
-    // s the bottommost level only if the last file on the level
-    // is a part of the files to be compacted - this is verified by
-    // the first if condition in this function
-    if (vstorage->NumLevelFiles(i) > 0 &&
-        (output_level == 0 ||
-         vstorage->OverlapInLevel(i, &smallest_key, &largest_key))) {
-      return false;
-    }
-  }
-  return true;
+  return !vstorage->RangeMightExistAfterSortedRun(smallest_key, largest_key,
+                                                  output_level, output_l0_idx);
 }
 
 // test function to validate the functionality of IsBottommostLevel()
@@ -241,7 +229,7 @@ bool Compaction::IsTrivialMove() const {
 
   // Used in universal compaction, where trivial move can be done if the
   // input files are non overlapping
-  if ((immutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
+  if ((mutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
       (output_level_ != 0)) {
     return is_trivial_move_;
   }
@@ -284,10 +272,10 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(input_version_ != nullptr);
   assert(level_ptrs != nullptr);
   assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    if (output_level_ == 0) {
-      return false;
-    }
+  if (bottommost_level_) {
+    return true;
+  } else if (output_level_ != 0 &&
+             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     // Maybe use binary search to find right entry instead of linear search?
     const Comparator* user_cmp = cfd_->user_comparator();
     for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
@@ -307,9 +295,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
       }
     }
     return true;
-  } else {
-    return bottommost_level_;
   }
+  return false;
 }
 
 // Mark (or clear) each file that is being compacted

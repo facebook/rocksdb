@@ -241,6 +241,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void maxBackgroundJobs() {
+    try (final DBOptions opt = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxBackgroundJobs(intValue);
+      assertThat(opt.maxBackgroundJobs()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
   public void maxLogFileSize() throws RocksDBException {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();

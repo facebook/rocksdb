@@ -34,6 +34,18 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * <p>Constructor to be used by
+   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)},
+   * {@link ColumnFamilyDescriptor#columnFamilyOptions()}
+   * and also called via JNI.</p>
+   *
+   * @param handle native handle to ColumnFamilyOptions instance.
+   */
+  ColumnFamilyOptions(final long handle) {
+    super(handle);
+  }
+
+  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
@@ -130,7 +142,8 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isOwningHandle());
-    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
+    setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
+            comparator.getComparatorType().getValue());
     comparator_ = comparator;
     return this;
   }
@@ -153,11 +166,43 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  /**
+   * A single CompactionFilter instance to call into during compaction.
+   * Allows an application to modify/delete a key-value during background
+   * compaction.
+   *
+   * If the client requires a new compaction filter to be used for different
+   * compaction runs, it can specify call
+   * {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
+   * instead.
+   *
+   * The client should specify only set one of the two.
+   * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
+   * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
+   * if the client specifies both.
+   */
+  //TODO(AR) need to set a note on the concurrency of the compaction filter used from this method
   public ColumnFamilyOptions setCompactionFilter(
         final AbstractCompactionFilter<? extends AbstractSlice<?>>
             compactionFilter) {
     setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
     compactionFilter_ = compactionFilter;
+    return this;
+  }
+
+  /**
+   * This is a factory that provides {@link AbstractCompactionFilter} objects
+   * which allow an application to modify/delete a key-value during background
+   * compaction.
+   *
+   * A new filter will be created on each compaction run.  If multithreaded
+   * compaction is being used, each created CompactionFilter will only be used
+   * from a single thread and so does not need to be thread-safe.
+   */
+  public ColumnFamilyOptions setCompactionFilterFactory(final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory) {
+    assert (isOwningHandle());
+    setCompactionFilterFactoryHandle(nativeHandle_, compactionFilterFactory.nativeHandle_);
+    compactionFilterFactory_ = compactionFilterFactory;
     return this;
   }
 
@@ -735,16 +780,6 @@ public class ColumnFamilyOptions extends RocksObject
     return forceConsistencyChecks(nativeHandle_);
   }
 
-  /**
-   * <p>Private constructor to be used by
-   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
-   *
-   * @param handle native handle to ColumnFamilyOptions instance.
-   */
-  private ColumnFamilyOptions(final long handle) {
-    super(handle);
-  }
-
   private static native long getColumnFamilyOptionsFromProps(
       String optString);
 
@@ -760,11 +795,13 @@ public class ColumnFamilyOptions extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle);
+      long comparatorHandle, byte comparatorType);
   private native void setMergeOperatorName(long handle, String name);
   private native void setMergeOperator(long handle, long mergeOperatorHandle);
   private native void setCompactionFilterHandle(long handle,
       long compactionFilterHandle);
+  private native void setCompactionFilterFactoryHandle(long handle,
+      long compactionFilterFactoryHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
@@ -902,6 +939,8 @@ public class ColumnFamilyOptions extends RocksObject
   private TableFormatConfig tableFormatConfig_;
   private AbstractComparator<? extends AbstractSlice<?>> comparator_;
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
+  AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
+      compactionFilterFactory_;
   private CompactionOptionsUniversal compactionOptionsUniversal_;
   private CompactionOptionsFIFO compactionOptionsFIFO_;
   private CompressionOptions compressionOptions_;

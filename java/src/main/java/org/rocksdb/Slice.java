@@ -40,6 +40,29 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   /**
+   * <p>Package-private Slice constructor which is used to construct
+   * Slice instances from C++ side. As the reference to this
+   * object is also managed from C++ side the handle will be disowned.</p>
+   *
+   * @param nativeHandle address of native instance.
+   */
+  Slice(final long nativeHandle) {
+    this(nativeHandle, false);
+  }
+
+  /**
+   * <p>Package-private Slice constructor which is used to construct
+   * Slice instances using a handle. </p>
+   *
+   * @param nativeHandle address of native instance.
+   * @param owningNativeHandle whether to own this reference from the C++ side or not
+   */
+  Slice(final long nativeHandle, final boolean owningNativeHandle) {
+    super();
+    setNativeHandle(nativeHandle, owningNativeHandle);
+  }
+
+  /**
    * <p>Constructs a slice where the data is taken from
    * a String.</p>
    *

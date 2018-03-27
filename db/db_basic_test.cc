@@ -41,7 +41,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   Close();
 
   auto options = CurrentOptions();
-  assert(options.env = env_);
+  assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));

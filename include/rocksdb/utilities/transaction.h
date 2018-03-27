@@ -321,9 +321,9 @@ class Transaction {
   // gets committed successfully.  But unlike Transaction::Put(),
   // no conflict checking will be done for this key.
   //
-  // If this Transaction was created on a TransactionDB, this function will
-  // still acquire locks necessary to make sure this write doesn't cause
-  // conflicts in other transactions and may return Status::Busy().
+  // If this Transaction was created on a PessimisticTransactionDB, this
+  // function will still acquire locks necessary to make sure this write doesn't
+  // cause conflicts in other transactions and may return Status::Busy().
   virtual Status PutUntracked(ColumnFamilyHandle* column_family,
                               const Slice& key, const Slice& value) = 0;
   virtual Status PutUntracked(const Slice& key, const Slice& value) = 0;
@@ -344,6 +344,10 @@ class Transaction {
   virtual Status DeleteUntracked(ColumnFamilyHandle* column_family,
                                  const SliceParts& key) = 0;
   virtual Status DeleteUntracked(const SliceParts& key) = 0;
+  virtual Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                                       const Slice& key) = 0;
+
+  virtual Status SingleDeleteUntracked(const Slice& key) = 0;
 
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
@@ -456,9 +460,17 @@ class Transaction {
   TransactionState GetState() const { return txn_state_; }
   void SetState(TransactionState state) { txn_state_ = state; }
 
+  // NOTE: Experimental feature
+  // The globally unique id with which the transaction is identified. This id
+  // might or might not be set depending on the implementation. Similarly the
+  // implementation decides the point in lifetime of a transaction at which it
+  // assigns the id. Although currently it is the case, the id is not guaranteed
+  // to remain the same across restarts.
+  uint64_t GetId() { return id_; }
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
-  Transaction() {}
+  Transaction() : log_number_(0), txn_state_(STARTED) {}
 
   // the log in which the prepared section for this txn resides
   // (for two phase commit)
@@ -468,7 +480,14 @@ class Transaction {
   // Execution status of the transaction.
   std::atomic<TransactionState> txn_state_;
 
+  uint64_t id_ = 0;
+  virtual void SetId(uint64_t id) {
+    assert(id_ == 0);
+    id_ = id;
+  }
+
  private:
+  friend class PessimisticTransactionDB;
   // No copying allowed
   Transaction(const Transaction&);
   void operator=(const Transaction&);

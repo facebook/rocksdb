@@ -21,7 +21,7 @@ def generate_runtimes(total_runtime):
 
 def main(args):
     runtimes = generate_runtimes(int(args.runtime_sec))
-    print "Going to execute write stress for " + str(runtimes)
+    print "Going to execute write stress for " + str(runtimes)  # noqa: E999 T25377293 Grandfathered in
     first_time = True
 
     for runtime in runtimes:

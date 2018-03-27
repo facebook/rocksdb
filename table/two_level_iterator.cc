@@ -117,18 +117,6 @@ void TwoLevelIterator::Seek(const Slice& target) {
     SetSecondLevelIterator(nullptr);
     return;
   }
-  if (state_->OptimizeSuccessiveForwardSeeks() &&
-      second_level_iter_.iter() != nullptr && second_level_iter_.Valid() &&
-      state_->Compare(second_level_iter_.key(), target) <= 0) {
-    second_level_iter_.Seek(target);
-    if (second_level_iter_.Valid()) {
-      // we found what we are looking for in the same block! no need to seek the
-      // first level iterator.
-      SkipEmptyDataBlocksForward();
-      return;
-    }
-  }
-
   first_level_iter_.Seek(target);
 
   InitDataBlock();

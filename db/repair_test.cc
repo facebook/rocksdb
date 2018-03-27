@@ -108,6 +108,23 @@ TEST_F(RepairTest, IncompleteManifest) {
   ASSERT_EQ(Get("key2"), "val2");
 }
 
+TEST_F(RepairTest, PostRepairSstFileNumbering) {
+  // Verify after a DB is repaired, new files will be assigned higher numbers
+  // than old files.
+  Put("key", "val");
+  Flush();
+  Put("key2", "val2");
+  Flush();
+  uint64_t pre_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
+  Close();
+
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
+
+  Reopen(CurrentOptions());
+  uint64_t post_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
+  ASSERT_GE(post_repair_file_num, pre_repair_file_num);
+}
+
 TEST_F(RepairTest, LostSst) {
   // Delete one of the SST files but preserve the manifest that refers to it,
   // then verify the DB is still usable for the intact SST.
@@ -309,6 +326,25 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   }
 }
 
+TEST_F(RepairTest, DbNameContainsTrailingSlash) {
+  {
+    bool tmp;
+    if (env_->AreFilesSame("", "", &tmp).IsNotSupported()) {
+      fprintf(stderr,
+              "skipping RepairTest.DbNameContainsTrailingSlash due to "
+              "unsupported Env::AreFilesSame\n");
+      return;
+    }
+  }
+
+  Put("key", "val");
+  Flush();
+  Close();
+
+  ASSERT_OK(RepairDB(dbname_ + "/", CurrentOptions()));
+  Reopen(CurrentOptions());
+  ASSERT_EQ(Get("key"), "val");
+}
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 

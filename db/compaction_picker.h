@@ -88,6 +88,10 @@ class CompactionPicker {
 
   // Takes a list of CompactionInputFiles and returns a (manual) Compaction
   // object.
+  //
+  // Caller must provide a set of input files that has been passed through
+  // `SanitizeCompactionInputFiles` earlier. The lock should not be released
+  // between that call and this one.
   Compaction* CompactFiles(const CompactionOptions& compact_options,
                            const std::vector<CompactionInputFiles>& input_files,
                            int output_level, VersionStorageInfo* vstorage,

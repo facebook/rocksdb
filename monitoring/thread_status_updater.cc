@@ -177,19 +177,15 @@ Status ThreadStatusUpdater::GetThreadList(
     // use "memory_order_relaxed" to load the cf_key.
     auto cf_key = thread_data->cf_key.load(
         std::memory_order_relaxed);
-    auto iter = cf_info_map_.find(cf_key);
-    auto* cf_info = iter != cf_info_map_.end() ?
-        iter->second.get() : nullptr;
-    const std::string* db_name = nullptr;
-    const std::string* cf_name = nullptr;
+    
     ThreadStatus::OperationType op_type = ThreadStatus::OP_UNKNOWN;
     ThreadStatus::OperationStage op_stage = ThreadStatus::STAGE_UNKNOWN;
     ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
     uint64_t op_elapsed_micros = 0;
     uint64_t op_props[ThreadStatus::kNumOperationProperties] = {0};
-    if (cf_info != nullptr) {
-      db_name = &cf_info->db_name;
-      cf_name = &cf_info->cf_name;
+
+    auto iter = cf_info_map_.find(cf_key);
+    if (iter != cf_info_map_.end()) {
       op_type = thread_data->operation_type.load(
           std::memory_order_acquire);
       // display lower-level info only when higher-level info is available.
@@ -206,10 +202,11 @@ Status ThreadStatusUpdater::GetThreadList(
         }
       }
     }
+
     thread_list->emplace_back(
         thread_id, thread_type,
-        db_name ? *db_name : "",
-        cf_name ? *cf_name : "",
+        iter != cf_info_map_.end() ? iter->second.db_name : "",
+        iter != cf_info_map_.end() ? iter->second.cf_name : "",
         op_type, op_elapsed_micros, op_stage, op_props,
         state_type);
   }
@@ -236,8 +233,9 @@ void ThreadStatusUpdater::NewColumnFamilyInfo(
   // a consistent view of global column family table (cf_info_map).
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
 
-  cf_info_map_[cf_key].reset(
-      new ConstantColumnFamilyInfo(db_key, db_name, cf_name));
+  cf_info_map_.emplace(std::piecewise_construct,
+      std::make_tuple(cf_key),
+      std::make_tuple(db_key, db_name, cf_name));
   db_key_map_[db_key].insert(cf_key);
 }
 
@@ -245,25 +243,20 @@ void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
   // Acquiring same lock as GetThreadList() to guarantee
   // a consistent view of global column family table (cf_info_map).
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
+  
   auto cf_pair = cf_info_map_.find(cf_key);
-  if (cf_pair == cf_info_map_.end()) {
-    return;
+  if (cf_pair != cf_info_map_.end()) {
+    // Remove its entry from db_key_map_ by the following steps:
+    // 1. Obtain the entry in db_key_map_ whose set contains cf_key
+    // 2. Remove it from the set.
+    ConstantColumnFamilyInfo& cf_info = cf_pair->second;
+    auto db_pair = db_key_map_.find(cf_info.db_key);
+    assert(db_pair != db_key_map_.end());
+    size_t result __attribute__((unused));
+    result = db_pair->second.erase(cf_key);
+    assert(result);
+    cf_info_map_.erase(cf_pair);
   }
-
-  auto* cf_info = cf_pair->second.get();
-  assert(cf_info);
-
-  // Remove its entry from db_key_map_ by the following steps:
-  // 1. Obtain the entry in db_key_map_ whose set contains cf_key
-  // 2. Remove it from the set.
-  auto db_pair = db_key_map_.find(cf_info->db_key);
-  assert(db_pair != db_key_map_.end());
-  size_t result __attribute__((unused)) = db_pair->second.erase(cf_key);
-  assert(result);
-
-  cf_pair->second.reset();
-  result = cf_info_map_.erase(cf_key);
-  assert(result);
 }
 
 void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
@@ -277,15 +270,11 @@ void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
     return;
   }
 
-  size_t result __attribute__((unused)) = 0;
   for (auto cf_key : db_pair->second) {
     auto cf_pair = cf_info_map_.find(cf_key);
-    if (cf_pair == cf_info_map_.end()) {
-      continue;
+    if (cf_pair != cf_info_map_.end()) {
+      cf_info_map_.erase(cf_pair);
     }
-    cf_pair->second.reset();
-    result = cf_info_map_.erase(cf_key);
-    assert(result);
   }
   db_key_map_.erase(db_key);
 }

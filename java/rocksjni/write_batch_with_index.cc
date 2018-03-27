@@ -39,14 +39,34 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__Z(
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    newWriteBatchWithIndex
- * Signature: (JIZ)J
+ * Signature: (JBIZ)J
  */
-jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JIZ(
+jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JBIZ(
     JNIEnv* env, jclass jcls, jlong jfallback_index_comparator_handle,
-    jint jreserved_bytes, jboolean joverwrite_key) {
+    jbyte jcomparator_type, jint jreserved_bytes, jboolean joverwrite_key) {
+  rocksdb::Comparator *fallback_comparator = nullptr;
+  switch(jcomparator_type) {
+      // JAVA_COMPARATOR
+      case 0x0:
+        fallback_comparator =
+            reinterpret_cast<rocksdb::ComparatorJniCallback*>(jfallback_index_comparator_handle);
+        break;
+
+      // JAVA_DIRECT_COMPARATOR
+      case 0x1:
+        fallback_comparator =
+            reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jfallback_index_comparator_handle);
+        break;
+
+      // JAVA_NATIVE_COMPARATOR_WRAPPER
+      case 0x2:
+        fallback_comparator =
+            reinterpret_cast<rocksdb::Comparator*>(jfallback_index_comparator_handle);
+        break;
+  }
   auto* wbwi =
       new rocksdb::WriteBatchWithIndex(
-          reinterpret_cast<rocksdb::Comparator*>(jfallback_index_comparator_handle),
+          fallback_comparator,
           static_cast<size_t>(jreserved_bytes), static_cast<bool>(joverwrite_key));
   return reinterpret_cast<jlong>(wbwi);
 }
@@ -75,10 +95,13 @@ void Java_org_rocksdb_WriteBatchWithIndex_put__J_3BI_3BI(
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
   auto put = [&wbwi] (rocksdb::Slice key, rocksdb::Slice value) {
-    wbwi->Put(key, value);
+    return wbwi->Put(key, value);
   };
-  rocksdb::JniUtil::kv_op(put, env, jobj, jkey, jkey_len, jentry_value,
-      jentry_value_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::kv_op(put, env,
+      jobj, jkey, jkey_len, jentry_value, jentry_value_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -95,10 +118,13 @@ void Java_org_rocksdb_WriteBatchWithIndex_put__J_3BI_3BIJ(
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   assert(cf_handle != nullptr);
   auto put = [&wbwi, &cf_handle] (rocksdb::Slice key, rocksdb::Slice value) {
-    wbwi->Put(cf_handle, key, value);
+    return wbwi->Put(cf_handle, key, value);
   };
-  rocksdb::JniUtil::kv_op(put, env, jobj, jkey, jkey_len, jentry_value,
-      jentry_value_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::kv_op(put, env,
+      jobj, jkey, jkey_len, jentry_value, jentry_value_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -112,10 +138,13 @@ void Java_org_rocksdb_WriteBatchWithIndex_merge__J_3BI_3BI(
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
   auto merge = [&wbwi] (rocksdb::Slice key, rocksdb::Slice value) {
-    wbwi->Merge(key, value);
+    return wbwi->Merge(key, value);
   };
-  rocksdb::JniUtil::kv_op(merge, env, jobj, jkey, jkey_len, jentry_value,
-      jentry_value_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::kv_op(merge, env,
+      jobj, jkey, jkey_len, jentry_value, jentry_value_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -132,34 +161,41 @@ void Java_org_rocksdb_WriteBatchWithIndex_merge__J_3BI_3BIJ(
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   assert(cf_handle != nullptr);
   auto merge = [&wbwi, &cf_handle] (rocksdb::Slice key, rocksdb::Slice value) {
-    wbwi->Merge(cf_handle, key, value);
+    return wbwi->Merge(cf_handle, key, value);
   };
-  rocksdb::JniUtil::kv_op(merge, env, jobj, jkey, jkey_len, jentry_value,
-      jentry_value_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::kv_op(merge, env,
+      jobj, jkey, jkey_len, jentry_value, jentry_value_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
- * Method:    remove
+ * Method:    delete
  * Signature: (J[BI)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_remove__J_3BI(
+void Java_org_rocksdb_WriteBatchWithIndex_delete__J_3BI(
     JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
     jint jkey_len) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
   auto remove = [&wbwi] (rocksdb::Slice key) {
-    wbwi->Delete(key);
+    return wbwi->Delete(key);
   };
-  rocksdb::JniUtil::k_op(remove, env, jobj, jkey, jkey_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(remove, env,
+      jobj, jkey, jkey_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
- * Method:    remove
+ * Method:    delete
  * Signature: (J[BIJ)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_remove__J_3BIJ(
+void Java_org_rocksdb_WriteBatchWithIndex_delete__J_3BIJ(
     JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
     jint jkey_len, jlong jcf_handle) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
@@ -167,9 +203,55 @@ void Java_org_rocksdb_WriteBatchWithIndex_remove__J_3BIJ(
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   assert(cf_handle != nullptr);
   auto remove = [&wbwi, &cf_handle] (rocksdb::Slice key) {
-    wbwi->Delete(cf_handle, key);
+    return wbwi->Delete(cf_handle, key);
   };
-  rocksdb::JniUtil::k_op(remove, env, jobj, jkey, jkey_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(remove, env,
+      jobj, jkey, jkey_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    singleDelete
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BI(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
+    jint jkey_len) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+  auto single_delete = [&wbwi] (rocksdb::Slice key) {
+    return wbwi->SingleDelete(key);
+  };
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(single_delete,
+      env, jobj, jkey, jkey_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    singleDelete
+ * Signature: (J[BIJ)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BIJ(
+  JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
+  jint jkey_len, jlong jcf_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  assert(cf_handle != nullptr);
+  auto single_delete = [&wbwi, &cf_handle] (rocksdb::Slice key) {
+    return wbwi->SingleDelete(cf_handle, key);
+  };
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(single_delete,
+      env, jobj, jkey, jkey_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -183,10 +265,14 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteRange__J_3BI_3BI(
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
   auto deleteRange = [&wbwi](rocksdb::Slice beginKey, rocksdb::Slice endKey) {
-    wbwi->DeleteRange(beginKey, endKey);
+    return wbwi->DeleteRange(beginKey, endKey);
   };
-  rocksdb::JniUtil::kv_op(deleteRange, env, jobj, jbegin_key, jbegin_key_len,
-                          jend_key, jend_key_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::kv_op(
+      deleteRange, env, jobj, jbegin_key, jbegin_key_len, jend_key,
+      jend_key_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -203,11 +289,15 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteRange__J_3BI_3BIJ(
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   assert(cf_handle != nullptr);
   auto deleteRange = [&wbwi, &cf_handle](rocksdb::Slice beginKey,
-                                         rocksdb::Slice endKey) {
-    wbwi->DeleteRange(cf_handle, beginKey, endKey);
+      rocksdb::Slice endKey) {
+    return wbwi->DeleteRange(cf_handle, beginKey, endKey);
   };
-  rocksdb::JniUtil::kv_op(deleteRange, env, jobj, jbegin_key, jbegin_key_len,
-                          jend_key, jend_key_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::kv_op(
+      deleteRange, env, jobj, jbegin_key, jbegin_key_len, jend_key,
+      jend_key_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -221,9 +311,13 @@ void Java_org_rocksdb_WriteBatchWithIndex_putLogData(
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
   auto putLogData = [&wbwi] (rocksdb::Slice blob) {
-    wbwi->PutLogData(blob);
+    return wbwi->PutLogData(blob);
   };
-  rocksdb::JniUtil::k_op(putLogData, env, jobj, jblob, jblob_len);
+  std::unique_ptr<rocksdb::Status> status = rocksdb::JniUtil::k_op(putLogData,
+      env, jobj, jblob, jblob_len);
+  if (status != nullptr && !status->ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+  }
 }
 
 /*
@@ -269,6 +363,54 @@ void Java_org_rocksdb_WriteBatchWithIndex_rollbackToSavePoint0(
   }
 
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    popSavePoint
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_popSavePoint(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  auto s = wbwi->PopSavePoint();
+
+  if (s.ok()) {
+    return;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    setMaxBytes
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_setMaxBytes(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jmax_bytes) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  wbwi->SetMaxBytes(static_cast<size_t>(jmax_bytes));
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    getWriteBatch
+ * Signature: (J)Lorg/rocksdb/WriteBatch;
+ */
+jobject Java_org_rocksdb_WriteBatchWithIndex_getWriteBatch(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  auto* wb = wbwi->GetWriteBatch();
+
+  // TODO(AR) is the `wb` object owned by us?
+  return rocksdb::WriteBatchJni::construct(env, wb);
 }
 
 /*
@@ -493,6 +635,29 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(
 
 /*
  * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekForPrev0
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(
+    JNIEnv* env, jobject jobj, jlong handle, jbyteArray jtarget,
+    jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
+  if(target == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  rocksdb::Slice target_slice(
+      reinterpret_cast<char*>(target), jtarget_len);
+
+  it->SeekForPrev(target_slice);
+
+  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
  * Method:    status0
  * Signature: (J)V
  */
@@ -520,33 +685,15 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
 
   jlong results[3];
 
-  //set the type of the write entry
-  switch (we.type) {
-    case rocksdb::kPutRecord:
-      results[0] = 0x1;
-      break;
+  // set the type of the write entry
+  results[0] = rocksdb::WriteTypeJni::toJavaWriteType(we.type);
 
-    case rocksdb::kMergeRecord:
-      results[0] = 0x2;
-      break;
-
-    case rocksdb::kDeleteRecord:
-      results[0] = 0x4;
-      break;
-
-    case rocksdb::kLogDataRecord:
-      results[0] = 0x8;
-      break;
-
-    default:
-      results[0] = 0x0;
-  }
-
-  // key_slice and value_slice will be freed by org.rocksdb.DirectSlice#close
+  // NOTE: key_slice and value_slice will be freed by org.rocksdb.DirectSlice#close
 
   auto* key_slice = new rocksdb::Slice(we.key.data(), we.key.size());
   results[1] = reinterpret_cast<jlong>(key_slice);
   if (we.type == rocksdb::kDeleteRecord
+      || we.type == rocksdb::kSingleDeleteRecord
       || we.type == rocksdb::kLogDataRecord) {
     // set native handle of value slice to null if no value available
     results[2] = 0;

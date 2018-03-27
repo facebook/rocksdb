@@ -27,9 +27,14 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
   bool value_changed = false;
   RowValue row_value = RowValue::Deserialize(
     existing_value.data(), existing_value.size());
-  RowValue compacted = purge_ttl_on_expiration_ ?
-    row_value.PurgeTtl(&value_changed) :
-    row_value.ExpireTtl(&value_changed);
+  RowValue compacted =
+      purge_ttl_on_expiration_
+          ? row_value.RemoveExpiredColumns(&value_changed)
+          : row_value.ConvertExpiredColumnsToTombstones(&value_changed);
+
+  if (value_type == ValueType::kValue) {
+    compacted = compacted.RemoveTombstones(gc_grace_period_in_seconds_);
+  }
 
   if(compacted.Empty()) {
     return Decision::kRemove;

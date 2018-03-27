@@ -28,6 +28,7 @@
 #include <limits>
 #include <condition_variable>
 #include <malloc.h>
+#include <intrin.h>
 
 #include <stdint.h>
 
@@ -80,19 +81,8 @@ namespace rocksdb {
 
 namespace port {
 
-// VS 15
-#if (defined _MSC_VER) && (_MSC_VER >= 1900)
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const int kMaxInt32 = std::numeric_limits<int>::max();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
-#else //_MSC_VER
+// VS < 2015
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
 
 // VS 15 has snprintf
 #define snprintf _snprintf
@@ -111,6 +101,17 @@ const size_t kMaxSizet = UINT64_MAX;
 #else
 const size_t kMaxSizet = UINT_MAX;
 #endif
+
+#else // VS >= 2015 or MinGW
+
+#define ROCKSDB_NOEXCEPT noexcept
+
+// For use at db/file_indexer.h kLevelMaxIndex
+const int kMaxInt32 = std::numeric_limits<int>::max();
+const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
+
+const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 #endif //_MSC_VER
 
@@ -240,13 +241,31 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define CACHE_LINE_SIZE 64U
 #endif
 
+#ifdef ROCKSDB_JEMALLOC
+#include "jemalloc/jemalloc.h"
+// Separate inlines so they can be replaced if needed
+inline void* jemalloc_aligned_alloc( size_t size, size_t alignment) {
+  return je_aligned_alloc(alignment, size);
+}
+inline void jemalloc_aligned_free(void* p) {
+  je_free(p);
+}
+#endif
 
 inline void *cacheline_aligned_alloc(size_t size) {
-  return _aligned_malloc(CACHE_LINE_SIZE, size);
+#ifdef ROCKSDB_JEMALLOC
+  return jemalloc_aligned_alloc(size, CACHE_LINE_SIZE);
+#else
+  return _aligned_malloc(size, CACHE_LINE_SIZE);
+#endif
 }
 
 inline void cacheline_aligned_free(void *memblock) {
+#ifdef ROCKSDB_JEMALLOC
+  jemalloc_aligned_free(memblock);
+#else
   _aligned_free(memblock);
+#endif
 }
 
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32

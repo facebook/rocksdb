@@ -239,6 +239,7 @@ class InlineSkipList {
   // point to a node that is before the key, and after should point to
   // a node that is after the key.  after should be nullptr if a good after
   // node isn't conveniently available.
+  template<bool prefetch_before>
   void FindSpliceForLevel(const char* key, Node* before, Node* after, int level,
                           Node** out_prev, Node** out_next);
 
@@ -446,6 +447,9 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   Node* last_bigger = nullptr;
   while (true) {
     Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     // Make sure we haven't overshot during our search
@@ -483,11 +487,16 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
   // KeyIsAfter(key, last_not_after) is definitely false
   Node* last_not_after = nullptr;
   while (true) {
+    assert(x != nullptr);
     Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     assert(x == head_ || KeyIsAfterNode(key, x));
     if (next != last_not_after && KeyIsAfterNode(key, next)) {
       // Keep searching in this list
+      assert(next != nullptr);
       x = next;
     } else {
       if (prev != nullptr) {
@@ -533,6 +542,9 @@ uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
   while (true) {
     assert(x == head_ || compare_(x->Key(), key) < 0);
     Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
     if (next == nullptr || compare_(next->Key(), key) >= 0) {
       if (level == 0) {
         return count;
@@ -553,8 +565,8 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
                                            Allocator* allocator,
                                            int32_t max_height,
                                            int32_t branching_factor)
-    : kMaxHeight_(max_height),
-      kBranching_(branching_factor),
+    : kMaxHeight_(static_cast<uint16_t>(max_height)),
+      kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
       allocator_(allocator),
@@ -640,12 +652,21 @@ void InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
 }
 
 template <class Comparator>
+template <bool prefetch_before>
 void InlineSkipList<Comparator>::FindSpliceForLevel(const char* key,
                                                     Node* before, Node* after,
                                                     int level, Node** out_prev,
                                                     Node** out_next) {
   while (true) {
     Node* next = before->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
+    if (prefetch_before == true) {
+      if (next != nullptr && level>0) {
+        PREFETCH(next->Next(level-1), 0, 1);
+      }
+    }
     assert(before == head_ || next == nullptr ||
            KeyIsAfterNode(next->Key(), before));
     assert(before == head_ || KeyIsAfterNode(key, before));
@@ -666,7 +687,7 @@ void InlineSkipList<Comparator>::RecomputeSpliceLevels(const char* key,
   assert(recompute_level > 0);
   assert(recompute_level <= splice->height_);
   for (int i = recompute_level - 1; i >= 0; --i) {
-    FindSpliceForLevel(key, splice->prev_[i + 1], splice->next_[i + 1], i,
+    FindSpliceForLevel<true>(key, splice->prev_[i + 1], splice->next_[i + 1], i,
                        &splice->prev_[i], &splice->next_[i]);
   }
 }
@@ -794,7 +815,7 @@ void InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         // search, because it should be unlikely that lots of nodes have
         // been inserted between prev[i] and next[i]. No point in using
         // next[i] as the after hint, because we know it is stale.
-        FindSpliceForLevel(key, splice->prev_[i], nullptr, i, &splice->prev_[i],
+        FindSpliceForLevel<false>(key, splice->prev_[i], nullptr, i, &splice->prev_[i],
                            &splice->next_[i]);
 
         // Since we've narrowed the bracket for level i, we might have
@@ -809,7 +830,7 @@ void InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     for (int i = 0; i < height; ++i) {
       if (i >= recompute_height &&
           splice->prev_[i]->Next(i) != splice->next_[i]) {
-        FindSpliceForLevel(key, splice->prev_[i], nullptr, i, &splice->prev_[i],
+        FindSpliceForLevel<false>(key, splice->prev_[i], nullptr, i, &splice->prev_[i],
                            &splice->next_[i]);
       }
       assert(splice->next_[i] == nullptr ||
@@ -863,6 +884,7 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
   // levels.
   Node* nodes[kMaxPossibleHeight];
   int max_height = GetMaxHeight();
+  assert(max_height > 0);
   for (int i = 0; i < max_height; i++) {
     nodes[i] = head_;
   }
@@ -892,7 +914,7 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
     }
   }
   for (int i = 1; i < max_height; i++) {
-    assert(nodes[i]->Next(i) == nullptr);
+    assert(nodes[i] != nullptr && nodes[i]->Next(i) == nullptr);
   }
 }
 

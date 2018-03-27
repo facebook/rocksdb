@@ -17,6 +17,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
+#include "db/read_callback.h"
 #include "db/version_edit.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
@@ -186,14 +187,15 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts,
-           bool* is_blob_index = nullptr);
+           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts, bool* is_blob_index = nullptr) {
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
+           bool* is_blob_index = nullptr) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
-               is_blob_index);
+               callback, is_blob_index);
   }
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -366,6 +368,11 @@ class MemTable {
     return oldest_key_time_.load(std::memory_order_relaxed);
   }
 
+  // REQUIRES: db_mutex held.
+  void SetID(uint64_t id) { id_ = id; }
+
+  uint64_t GetID() const { return id_; }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -434,6 +441,9 @@ class MemTable {
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;
+
+  // Memtable id to track flush.
+  uint64_t id_ = 0;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;

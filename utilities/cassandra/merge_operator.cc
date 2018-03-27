@@ -22,13 +22,6 @@ bool CassandraValueMergeOperator::FullMergeV2(
     MergeOperationOutput* merge_out) const {
   // Clear the *new_value for writing.
   merge_out->new_value.clear();
-
-  if (merge_in.existing_value == nullptr && merge_in.operand_list.size() == 1) {
-    // Only one operand
-    merge_out->existing_operand = merge_in.operand_list.back();
-    return true;
-  }
-
   std::vector<RowValue> row_values;
   if (merge_in.existing_value) {
     row_values.push_back(
@@ -41,6 +34,7 @@ bool CassandraValueMergeOperator::FullMergeV2(
   }
 
   RowValue merged = RowValue::Merge(std::move(row_values));
+  merged = merged.RemoveTombstones(gc_grace_period_in_seconds_);
   merge_out->new_value.reserve(merged.Size());
   merged.Serialize(&(merge_out->new_value));
 
@@ -71,10 +65,5 @@ const char* CassandraValueMergeOperator::Name() const  {
 }
 
 } // namespace cassandra
-
-std::shared_ptr<MergeOperator>
-    MergeOperators::CreateCassandraMergeOperator() {
-  return std::make_shared<rocksdb::cassandra::CassandraValueMergeOperator>();
-}
 
 } // namespace rocksdb

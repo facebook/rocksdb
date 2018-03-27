@@ -96,11 +96,21 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
-# if we're compiling for release, compile without debug code (-DNDEBUG) and
-# don't treat warnings as errors
+ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
+CXXFLAGS += -DHAS_ALTIVEC
+CFLAGS += -DHAS_ALTIVEC
+HAS_ALTIVEC=1
+endif
+
+ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
+CXXFLAGS += -DHAVE_POWER8
+CFLAGS +=  -DHAVE_POWER8
+HAVE_POWER8=1
+endif
+
+# if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
-DISABLE_WARNING_AS_ERROR=1
 
 ifneq ($(USE_RTTI), 1)
 	CXXFLAGS += -fno-rtti
@@ -227,6 +237,11 @@ ifdef COMPILE_WITH_UBSAN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 endif
 
+ifdef ROCKSDB_VALGRIND_RUN
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
+endif
+
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
@@ -290,6 +305,9 @@ LDFLAGS += $(LUA_LIB)
 
 endif
 
+ifeq ($(NO_THREEWAY_CRC32C), 1)
+	CXXFLAGS += -DNO_THREEWAY_CRC32C
+endif
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
@@ -322,6 +340,14 @@ util/build_version.cc: FORCE
 endif
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
+ifeq ($(HAVE_POWER8),1)
+LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
+LIBOBJECTS += $(LIB_SOURCES_C:.c=.o)
+LIBOBJECTS += $(LIB_SOURCES_ASM:.S=.o)
+else
+LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
+endif
+
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
 
@@ -479,11 +505,13 @@ TESTS = \
 	object_registry_test \
 	repair_test \
 	env_timed_test \
+	write_prepared_transaction_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
 	db_compaction_filter_test \
 	db_compaction_test \
+	db_merge_operator_test \
 	db_sst_test \
 	db_test \
 	db_universal_compaction_test \
@@ -494,7 +522,8 @@ PARALLEL_TEST = \
 	manual_compaction_test \
 	persistent_cache_test \
 	table_test \
-	transaction_test
+	transaction_test \
+	write_prepared_transaction_test \
 
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
@@ -574,14 +603,35 @@ $(SHARED2): $(SHARED4)
 $(SHARED3): $(SHARED4)
 	ln -fs $(SHARED4) $(SHARED3)
 endif
-
+ifeq ($(HAVE_POWER8),1)
+SHARED_C_OBJECTS = $(LIB_SOURCES_C:.c=.o)
+SHARED_ASM_OBJECTS = $(LIB_SOURCES_ASM:.S=.o)
+SHARED_C_LIBOBJECTS = $(patsubst %.o,shared-objects/%.o,$(SHARED_C_OBJECTS))
+SHARED_ASM_LIBOBJECTS = $(patsubst %.o,shared-objects/%.o,$(SHARED_ASM_OBJECTS))
+shared_libobjects = $(patsubst %,shared-objects/%,$(LIB_CC_OBJECTS))
+else
 shared_libobjects = $(patsubst %,shared-objects/%,$(LIBOBJECTS))
-CLEAN_FILES += shared-objects
+endif
 
+CLEAN_FILES += shared-objects
+shared_all_libobjects = $(shared_libobjects)
+
+ifeq ($(HAVE_POWER8),1)
+shared-ppc-objects = $(SHARED_C_LIBOBJECTS) $(SHARED_ASM_LIBOBJECTS)
+
+shared-objects/util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+shared-objects/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+endif
 $(shared_libobjects): shared-objects/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@
 
-$(SHARED4): $(shared_libobjects)
+ifeq ($(HAVE_POWER8),1)
+shared_all_libobjects = $(shared_libobjects) $(shared-ppc-objects)
+endif
+$(SHARED4): $(shared_all_libobjects)
 	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_libobjects) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
@@ -703,7 +753,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*SnapshotConcurrentAccessTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -833,7 +883,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_test:
-	DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
@@ -1233,7 +1283,7 @@ env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+rate_limiter_test: util/rate_limiter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 delete_scheduler_test: util/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1398,6 +1448,9 @@ heap_test: util/heap_test.o $(GTEST)
 transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+write_prepared_transaction_test: utilities/transactions/write_prepared_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
@@ -1511,11 +1564,11 @@ BZIP2_DOWNLOAD_BASE ?= http://www.bzip.org
 SNAPPY_VER ?= 1.1.4
 SNAPPY_SHA256 ?= 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
-LZ4_VER ?= 1.7.5
-LZ4_SHA256 ?= 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+LZ4_VER ?= 1.8.0
+LZ4_SHA256 ?= 2ca482ea7a9bb103603108b5a7510b7592b90158c151ff50a28f1ca8389fccf6
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.2.0
-ZSTD_SHA256 ?= 4a7e4593a3638276ca7f2a09dc4f38e674d8317bbea51626393ca73fc047cbfb
+ZSTD_VER ?= 1.3.3
+ZSTD_SHA256 ?= a77c47153ee7de02626c5b2a097005786b71688be61e9fb81806a011f90b297b
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
@@ -1529,7 +1582,7 @@ else
 endif
 endif
 ifeq ($(PLATFORM), OS_FREEBSD)
-	JAVA_INCLUDE += -I$(JAVA_HOME)/include/freebsd
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/freebsd
 	ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-freebsd$(ARCH).jar
 endif
@@ -1555,7 +1608,7 @@ libz.a:
 		exit 1; \
 	fi
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
-	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && make
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
 	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
@@ -1567,7 +1620,7 @@ libbz2.a:
 		exit 1; \
 	fi
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
-	cd bzip2-$(BZIP2_VER) && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 libsnappy.a:
@@ -1580,7 +1633,7 @@ libsnappy.a:
 	fi
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	cd snappy-$(SNAPPY_VER) && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --with-pic --enable-static --disable-shared
-	cd snappy-$(SNAPPY_VER) && make ${SNAPPY_MAKE_TARGET}
+	cd snappy-$(SNAPPY_VER) && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/.libs/libsnappy.a .
 
 liblz4.a:
@@ -1593,7 +1646,7 @@ liblz4.a:
 		exit 1; \
 	fi
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
+	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 libzstd.a:
@@ -1606,29 +1659,45 @@ libzstd.a:
 		exit 1; \
 	fi
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
-	cd zstd-$(ZSTD_VER)/lib && make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
+	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' install
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
-java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
+java_static_libobjects = $(patsubst %,jls/%,$(LIB_CC_OBJECTS))
 CLEAN_FILES += jls
+java_static_all_libobjects = $(java_static_libobjects)
 
 ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
 JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib/include
+
+ifeq ($(HAVE_POWER8),1)
+JAVA_STATIC_C_LIBOBJECTS = $(patsubst %.c.o,jls/%.c.o,$(LIB_SOURCES_C:.c=.o))
+JAVA_STATIC_ASM_LIBOBJECTS = $(patsubst %.S.o,jls/%.S.o,$(LIB_SOURCES_ASM:.S=.o))
+
+java_static_ppc_libobjects = $(JAVA_STATIC_C_LIBOBJECTS) $(JAVA_STATIC_ASM_LIBOBJECTS)
+
+jls/util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+
+jls/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+
+java_static_all_libobjects += $(java_static_ppc_libobjects)
+endif
 
 $(java_static_libobjects): jls/%.o: %.cc $(JAVA_COMPRESSIONS)
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-rocksdbjavastatic: $(java_static_libobjects)
+rocksdbjavastatic: $(java_static_all_libobjects)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
-	  $(java_static_libobjects) $(COVERAGEFLAGS) \
+	  $(java_static_all_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
 	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
@@ -1658,6 +1727,14 @@ rocksdbjavastaticreleasedocker: rocksdbjavastatic
 	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 
+rocksdbjavastaticdockerppc64le:
+	mkdir -p java/target
+	DOCKER_LINUX_PPC64LE_CONTAINER=`docker ps -aqf name=rocksdb_linux_ppc64le-be`; \
+	if [ -z "$$DOCKER_LINUX_PPC64LE_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_ppc64le-be evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_ppc64le-be
+
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 
 rocksdbjavastaticpublishdocker: rocksdbjavastaticreleasedocker rocksdbjavastaticpublishcentral
@@ -1672,13 +1749,36 @@ rocksdbjavastaticpublishcentral:
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC
-java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
+ifeq ($(HAVE_POWER8),1)
+JAVA_CC_OBJECTS = $(SHARED_CC_OBJECTS)
+JAVA_C_OBJECTS = $(SHARED_C_OBJECTS)
+JAVA_ASM_OBJECTS = $(SHARED_ASM_OBJECTS)
+
+JAVA_C_LIBOBJECTS = $(patsubst %.c.o,jl/%.c.o,$(JAVA_C_OBJECTS))
+JAVA_ASM_LIBOBJECTS = $(patsubst %.S.o,jl/%.S.o,$(JAVA_ASM_OBJECTS))
+endif
+
+java_libobjects = $(patsubst %,jl/%,$(LIB_CC_OBJECTS))
 CLEAN_FILES += jl
+java_all_libobjects = $(java_libobjects)
+
+ifeq ($(HAVE_POWER8),1)
+java_ppc_libobjects = $(JAVA_C_LIBOBJECTS) $(JAVA_ASM_LIBOBJECTS)
+
+jl/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+java_all_libobjects += $(java_ppc_libobjects)
+endif
 
 $(java_libobjects): jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-rocksdbjava: $(java_libobjects)
+
+
+rocksdbjava: $(java_all_libobjects)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
@@ -1733,30 +1833,54 @@ IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBu
 	lipo ios-x86/$@ ios-arm/$@ -create -output $@
 
 else
+ifeq ($(HAVE_POWER8),1)
+util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+endif
 .cc.o:
 	$(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
 .c.o:
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
-
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
 all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(EXP_LIB_SOURCES)
-DEPFILES = $(all_sources:.cc=.d)
+DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to
 # rebuild.
 
 # The .d file indicates .cc file's dependencies on .h files. We generate such
 # dependency by g++'s -MM option, whose output is a make dependency rule.
-$(DEPFILES): %.d: %.cc
+%.cc.d: %.cc
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.cc=.o)' "$<" -o '$@'
 
+ifeq ($(HAVE_POWER8),1)
+DEPFILES_C = $(LIB_SOURCES_C:.c=.c.d)
+DEPFILES_ASM = $(LIB_SOURCES_ASM:.S=.S.d)
+
+%.c.d: %.c
+	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.c=.o)' "$<" -o '$@'
+
+%.S.d: %.S
+	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.S=.o)' "$<" -o '$@'
+
+$(DEPFILES_C): %.c.d
+
+$(DEPFILES_ASM): %.S.d
+depend: $(DEPFILES) $(DEPFILES_C) $(DEPFILES_ASM)
+else
 depend: $(DEPFILES)
+endif
 
 # if the make goal is either "clean" or "format", we shouldn't
 # try to import the *.d files.

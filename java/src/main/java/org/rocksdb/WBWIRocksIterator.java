@@ -45,6 +45,7 @@ public class WBWIRocksIterator
   @Override final native void next0(long handle);
   @Override final native void prev0(long handle);
   @Override final native void seek0(long handle, byte[] target, int targetLen);
+  @Override final native void seekForPrev0(long handle, byte[] target, int targetLen);
   @Override final native void status0(long handle) throws RocksDBException;
 
   private native long[] entry1(final long handle);
@@ -54,10 +55,13 @@ public class WBWIRocksIterator
    * that created the record in the Write Batch
    */
   public enum WriteType {
-    PUT((byte)0x1),
-    MERGE((byte)0x2),
-    DELETE((byte)0x4),
-    LOG((byte)0x8);
+    PUT((byte)0x0),
+    MERGE((byte)0x1),
+    DELETE((byte)0x2),
+    SINGLE_DELETE((byte)0x3),
+    DELETE_RANGE((byte)0x4),
+    LOG((byte)0x5),
+    XID((byte)0x6);
 
     final byte id;
     WriteType(final byte id) {

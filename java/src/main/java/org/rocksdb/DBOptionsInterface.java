@@ -269,7 +269,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * Statistics objects should not be shared between DB instances as
    * it does not use any locks to prevent concurrent updates.</p>
    *
+   * @param statistics The statistics to set
+   *
    * @return the instance of the current object.
+   *
    * @see RocksDB#open(org.rocksdb.Options, String)
    */
   T setStatistics(final Statistics statistics);
@@ -277,7 +280,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   /**
    * <p>Returns statistics object.</p>
    *
-   * @return the instance of the statistics object or null if there is no statistics object.
+   * @return the instance of the statistics object or null if there is no
+   * statistics object.
+   *
    * @see #setStatistics(Statistics)
    */
   Statistics statistics();
@@ -446,6 +451,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @param baseBackgroundCompactions Suggested number of background compaction
    *     jobs
+   *
+   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
    */
   void setBaseBackgroundCompactions(int baseBackgroundCompactions);
 
@@ -485,6 +492,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return the maximum number of concurrent background compaction jobs.
    * @see RocksEnv#setBackgroundThreads(int)
    * @see RocksEnv#setBackgroundThreads(int, int)
+   *
+   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
    */
   int maxBackgroundCompactions();
 
@@ -522,6 +531,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @see RocksEnv#setBackgroundThreads(int)
    * @see RocksEnv#setBackgroundThreads(int, int)
    * @see #maxBackgroundCompactions()
+   *
+   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
    */
   T setMaxBackgroundFlushes(int maxBackgroundFlushes);
 
@@ -536,6 +547,25 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @see RocksEnv#setBackgroundThreads(int, int)
    */
   int maxBackgroundFlushes();
+
+  /**
+   * Specifies the maximum number of concurrent background jobs (both flushes
+   * and compactions combined).
+   * Default: 2
+   *
+   * @param maxBackgroundJobs number of max concurrent background jobs
+   * @return the instance of the current object.
+   */
+  T setMaxBackgroundJobs(int maxBackgroundJobs);
+
+  /**
+   * Returns the maximum number of concurrent background jobs (both flushes
+   * and compactions combined).
+   * Default: 2
+   *
+   * @return the maximum number of concurrent background jobs.
+   */
+  int maxBackgroundJobs();
 
   /**
    * Specifies the maximum size of a info log file. If the current log file

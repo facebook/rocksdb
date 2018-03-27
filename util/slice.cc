@@ -182,7 +182,7 @@ bool Slice::DecodeHex(std::string* result) const {
     if (h2 < 0) {
       return false;
     }
-    result->push_back((h1 << 4) | h2);
+    result->push_back(static_cast<char>((h1 << 4) | h2));
   }
   return true;
 }

@@ -122,6 +122,19 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
       == 0);
 }
 
+TEST(TombstoneTest, TombstoneCollectable) {
+  int32_t now = (int32_t)time(nullptr);
+  int32_t gc_grace_seconds = 16440;
+  EXPECT_TRUE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                        now - gc_grace_seconds,
+                        ToMicroSeconds(now - gc_grace_seconds))
+                  .Collectable(gc_grace_seconds));
+  EXPECT_FALSE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                         now - gc_grace_seconds + 1,
+                         ToMicroSeconds(now - gc_grace_seconds + 1))
+                   .Collectable(gc_grace_seconds));
+}
+
 TEST(TombstoneTest, Tombstone) {
   int8_t mask = ColumnTypeMask::DELETION_MASK;
   int8_t index = 2;
@@ -304,21 +317,21 @@ TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired) {
   int64_t now = time(nullptr);
 
   auto row_value = CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
-    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
-    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
+    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
+    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
   });
 
   bool changed = false;
-  auto purged = row_value.PurgeTtl(&changed);
+  auto purged = row_value.RemoveExpiredColumns(&changed);
   EXPECT_TRUE(changed);
   EXPECT_EQ(purged.columns_.size(), 3);
   VerifyRowValueColumns(purged.columns_, 0, kColumn, 0, ToMicroSeconds(now));
   VerifyRowValueColumns(purged.columns_, 1, kExpiringColumn, 2, ToMicroSeconds(now));
   VerifyRowValueColumns(purged.columns_, 2, kTombstone, 3, ToMicroSeconds(now));
 
-  purged.PurgeTtl(&changed);
+  purged.RemoveExpiredColumns(&changed);
   EXPECT_FALSE(changed);
 }
 
@@ -326,14 +339,14 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   int64_t now = time(nullptr);
 
   auto row_value = CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
-    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
-    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
+    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
+    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
   });
 
   bool changed = false;
-  auto compacted = row_value.ExpireTtl(&changed);
+  auto compacted = row_value.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_TRUE(changed);
   EXPECT_EQ(compacted.columns_.size(), 4);
   VerifyRowValueColumns(compacted.columns_, 0, kColumn, 0, ToMicroSeconds(now));
@@ -341,7 +354,7 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   VerifyRowValueColumns(compacted.columns_, 2, kExpiringColumn, 2, ToMicroSeconds(now));
   VerifyRowValueColumns(compacted.columns_, 3, kTombstone, 3, ToMicroSeconds(now));
 
-  compacted.ExpireTtl(&changed);
+  compacted.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_FALSE(changed);
 }
 } // namespace cassandra

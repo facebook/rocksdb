@@ -25,8 +25,8 @@ class Logger;
 class SstFileManagerImpl : public SstFileManager {
  public:
   explicit SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
-                              const std::string& trash_dir,
-                              int64_t rate_bytes_per_sec);
+                              int64_t rate_bytes_per_sec,
+                              double max_trash_db_ratio);
 
   ~SstFileManagerImpl();
 
@@ -68,7 +68,13 @@ class SstFileManagerImpl : public SstFileManager {
   // Update the delete rate limit in bytes per second.
   virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
 
-  // Move file to trash directory and schedule it's deletion.
+  // Return trash/DB size ratio where new files will be deleted immediately
+  virtual double GetMaxTrashDBRatio() override;
+
+  // Update trash/DB size ratio where new files will be deleted immediately
+  virtual void SetMaxTrashDBRatio(double ratio) override;
+
+  // Mark file as trash and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path);
 
   // Wait for all files being deleteing in the background to finish or for
@@ -94,9 +100,7 @@ class SstFileManagerImpl : public SstFileManager {
   std::unordered_map<std::string, uint64_t> tracked_files_;
   // The maximum allowed space (in bytes) for sst files.
   uint64_t max_allowed_space_;
-  // DeleteScheduler used to throttle file deletition, if SstFileManagerImpl was
-  // created with rate_bytes_per_sec == 0 or trash_dir == "", delete_scheduler_
-  // rate limiting will be disabled and will simply delete the files.
+  // DeleteScheduler used to throttle file deletition.
   DeleteScheduler delete_scheduler_;
 };
 

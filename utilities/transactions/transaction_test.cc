@@ -9,7 +9,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
+#include "utilities/transactions/transaction_test.h"
+
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -18,6 +19,7 @@
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -38,114 +40,26 @@ using std::string;
 
 namespace rocksdb {
 
-class TransactionTest : public ::testing::TestWithParam<
-                            std::tuple<bool, bool, TxnDBWritePolicy>> {
- public:
-  TransactionDB* db;
-  FaultInjectionTestEnv* env;
-  string dbname;
-  Options options;
-
-  TransactionDBOptions txn_db_options;
-
-  TransactionTest() {
-    options.create_if_missing = true;
-    options.max_write_buffer_number = 2;
-    options.write_buffer_size = 4 * 1024;
-    options.level0_file_num_compaction_trigger = 2;
-    options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env = new FaultInjectionTestEnv(Env::Default());
-    options.env = env;
-    options.concurrent_prepare = std::get<1>(GetParam());
-    dbname = test::TmpDir() + "/transaction_testdb";
-
-    DestroyDB(dbname, options);
-    txn_db_options.transaction_lock_timeout = 0;
-    txn_db_options.default_lock_timeout = 0;
-    txn_db_options.write_policy = std::get<2>(GetParam());
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    assert(s.ok());
-  }
-
-  ~TransactionTest() {
-    delete db;
-    DestroyDB(dbname, options);
-    delete env;
-  }
-
-  Status ReOpenNoDelete() {
-    delete db;
-    db = nullptr;
-    env->AssertNoOpenFile();
-    env->DropUnsyncedFileData();
-    env->ResetState();
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
-  Status ReOpen() {
-    delete db;
-    DestroyDB(dbname, options);
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
-  Status OpenWithStackableDB() {
-    std::vector<size_t> compaction_enabled_cf_indices;
-    std::vector<ColumnFamilyDescriptor> column_families{ColumnFamilyDescriptor(
-        kDefaultColumnFamilyName, ColumnFamilyOptions(options))};
-
-    TransactionDB::PrepareWrap(&options, &column_families,
-                               &compaction_enabled_cf_indices);
-    std::vector<ColumnFamilyHandle*> handles;
-    DB* root_db;
-    Options options_copy(options);
-    Status s =
-        DB::Open(options_copy, dbname, column_families, &handles, &root_db);
-    if (s.ok()) {
-      assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(
-          new StackableDB(root_db), txn_db_options,
-          compaction_enabled_cf_indices, handles, &db);
-      delete handles[0];
-    }
-    return s;
-  }
-};
-
-class MySQLStyleTransactionTest : public TransactionTest {};
-class WritePreparedTransactionTest : public TransactionTest {};
-
-static const TxnDBWritePolicy wc = WRITE_COMMITTED;
-static const TxnDBWritePolicy wp = WRITE_PREPARED;
-// TODO(myabandeh): Instantiate the tests with other write policies
-INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, wc)));
-INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false, wc)));
-INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, wc),
-                                          std::make_tuple(false, true, wc),
-                                          std::make_tuple(true, false, wc),
-                                          std::make_tuple(true, true, wc)));
-INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
-                        WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, true, wp)));
+INSTANTIATE_TEST_CASE_P(
+    DBAsBaseDB, TransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED)));
+INSTANTIATE_TEST_CASE_P(
+    StackableDBAsBaseDB, TransactionTest,
+    ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
+                      std::make_tuple(true, true, WRITE_PREPARED)));
+INSTANTIATE_TEST_CASE_P(
+    MySQLStyleTransactionTest, MySQLStyleTransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(true, false, WRITE_COMMITTED),
+                      std::make_tuple(true, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(true, false, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_PREPARED)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -198,6 +112,46 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+// This test clarifies the contract of ValidateSnapshot
+TEST_P(TransactionTest, ValidateSnapshotTest) {
+  for (bool with_2pc : {true, false}) {
+    ReOpen();
+    WriteOptions write_options;
+    ReadOptions read_options;
+    string value;
+    Status s;
+
+    Transaction* txn1 =
+        db->BeginTransaction(write_options, TransactionOptions());
+    ASSERT_TRUE(txn1);
+    s = txn1->Put(Slice("foo"), Slice("bar1"));
+    ASSERT_OK(s);
+    if (with_2pc) {
+      s = txn1->SetName("xid1");
+      ASSERT_OK(s);
+      s = txn1->Prepare();
+      ASSERT_OK(s);
+    }
+
+    Transaction* txn2 =
+        db->BeginTransaction(write_options, TransactionOptions());
+    ASSERT_TRUE(txn2);
+    txn2->SetSnapshot();
+
+    s = txn1->Commit();
+    ASSERT_OK(s);
+    delete txn1;
+
+    auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
+    // Test the simple case where the key is not tracked yet
+    auto trakced_seq = kMaxSequenceNumber;
+    s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
+                                   &trakced_seq);
+    ASSERT_TRUE(s.IsBusy());
+    delete txn2;
+  }
+}
+
 TEST_P(TransactionTest, WaitingTxn) {
   WriteOptions write_options;
   ReadOptions read_options;
@@ -234,15 +188,18 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(cf_id, 0);
       });
 
+  get_perf_context()->Reset();
   // lock key in default cf
   s = txn1->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   // lock key in cfa
   s = txn1->GetForUpdate(read_options, cfa, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   auto lock_data = db->GetLockStatusData();
   // Locked keys exist in both column family.
@@ -278,6 +235,8 @@ TEST_P(TransactionTest, WaitingTxn) {
   s = txn2->GetForUpdate(read_options, "foo", &value);
   ASSERT_TRUE(s.IsTimedOut());
   ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 1);
+  ASSERT_GE(get_perf_context()->key_lock_wait_time, 0);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -792,101 +751,131 @@ TEST_P(TransactionTest, CommitTimeBatchFailTest) {
 }
 
 TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
-  WriteOptions write_options;
-  ReadOptions read_options;
+  for (bool cwb4recovery : {true, false}) {
+    ReOpen();
+    WriteOptions write_options;
+    ReadOptions read_options;
 
-  TransactionOptions txn_options;
+    TransactionOptions txn_options;
+    txn_options.use_only_the_last_commit_time_batch_for_recovery = cwb4recovery;
 
-  string value;
-  Status s;
+    string value;
+    Status s;
 
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
-  s = txn->SetName("xid");
-  ASSERT_OK(s);
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    s = txn->SetName("xid");
+    ASSERT_OK(s);
 
-  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+    ASSERT_EQ(db->GetTransactionByName("xid"), txn);
 
-  // transaction put
-  s = txn->Put(Slice("foo"), Slice("bar"));
-  ASSERT_OK(s);
-  ASSERT_EQ(1, txn->GetNumPuts());
+    // transaction put
+    s = txn->Put(Slice("foo"), Slice("bar"));
+    ASSERT_OK(s);
+    ASSERT_EQ(1, txn->GetNumPuts());
 
-  // regular db put
-  s = db->Put(write_options, Slice("foo2"), Slice("bar2"));
-  ASSERT_OK(s);
-  ASSERT_EQ(1, txn->GetNumPuts());
+    // regular db put
+    s = db->Put(write_options, Slice("foo2"), Slice("bar2"));
+    ASSERT_OK(s);
+    ASSERT_EQ(1, txn->GetNumPuts());
 
-  // regular db read
-  db->Get(read_options, "foo2", &value);
-  ASSERT_EQ(value, "bar2");
+    // regular db read
+    db->Get(read_options, "foo2", &value);
+    ASSERT_EQ(value, "bar2");
 
-  // commit time put
-  txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs"));
-  txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats"));
+    // commit time put
+    txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs"));
+    txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats"));
 
-  // nothing has been prepped yet
-  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+    // nothing has been prepped yet
+    ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  s = txn->Prepare();
-  ASSERT_OK(s);
+    s = txn->Prepare();
+    ASSERT_OK(s);
 
-  // data not im mem yet
-  s = db->Get(read_options, Slice("foo"), &value);
-  ASSERT_TRUE(s.IsNotFound());
-  s = db->Get(read_options, Slice("gtid"), &value);
-  ASSERT_TRUE(s.IsNotFound());
+    // data not im mem yet
+    s = db->Get(read_options, Slice("foo"), &value);
+    ASSERT_TRUE(s.IsNotFound());
+    s = db->Get(read_options, Slice("gtid"), &value);
+    ASSERT_TRUE(s.IsNotFound());
 
-  // find trans in list of prepared transactions
-  std::vector<Transaction*> prepared_trans;
-  db->GetAllPreparedTransactions(&prepared_trans);
-  ASSERT_EQ(prepared_trans.size(), 1);
-  ASSERT_EQ(prepared_trans.front()->GetName(), "xid");
+    // find trans in list of prepared transactions
+    std::vector<Transaction*> prepared_trans;
+    db->GetAllPreparedTransactions(&prepared_trans);
+    ASSERT_EQ(prepared_trans.size(), 1);
+    ASSERT_EQ(prepared_trans.front()->GetName(), "xid");
 
-  auto log_containing_prep =
-      db_impl->TEST_FindMinLogContainingOutstandingPrep();
-  ASSERT_GT(log_containing_prep, 0);
+    auto log_containing_prep =
+        db_impl->TEST_FindMinLogContainingOutstandingPrep();
+    ASSERT_GT(log_containing_prep, 0);
 
-  // make commit
-  s = txn->Commit();
-  ASSERT_OK(s);
+    // make commit
+    s = txn->Commit();
+    ASSERT_OK(s);
 
-  // value is now available
-  s = db->Get(read_options, "foo", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "bar");
+    // value is now available
+    s = db->Get(read_options, "foo", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, "bar");
 
-  s = db->Get(read_options, "gtid", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "dogs");
+    if (!cwb4recovery) {
+      s = db->Get(read_options, "gtid", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "dogs");
 
-  s = db->Get(read_options, "gtid2", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "cats");
+      s = db->Get(read_options, "gtid2", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "cats");
+    }
 
-  // we already committed
-  s = txn->Commit();
-  ASSERT_EQ(s, Status::InvalidArgument());
+    // we already committed
+    s = txn->Commit();
+    ASSERT_EQ(s, Status::InvalidArgument());
 
-  // no longer is prpared results
-  db->GetAllPreparedTransactions(&prepared_trans);
-  ASSERT_EQ(prepared_trans.size(), 0);
-  ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
+    // no longer is prepared results
+    db->GetAllPreparedTransactions(&prepared_trans);
+    ASSERT_EQ(prepared_trans.size(), 0);
+    ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
 
-  // heap should not care about prepared section anymore
-  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+    // heap should not care about prepared section anymore
+    ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // but now our memtable should be referencing the prep section
-  ASSERT_EQ(log_containing_prep,
-            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+    switch (txn_db_options.write_policy) {
+      case WRITE_COMMITTED:
+        // but now our memtable should be referencing the prep section
+        ASSERT_EQ(log_containing_prep,
+                  db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+        break;
+      case WRITE_PREPARED:
+      case WRITE_UNPREPARED:
+        // In these modes memtable do not ref the prep sections
+        ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+        break;
+      default:
+        assert(false);
+    }
 
-  db_impl->TEST_FlushMemTable(true);
+    db_impl->TEST_FlushMemTable(true);
 
-  // after memtable flush we can now relese the log
-  ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+    // after memtable flush we can now relese the log
+    ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
-  delete txn;
+    delete txn;
+
+    if (cwb4recovery) {
+      // kill and reopen to trigger recovery
+      s = ReOpenNoDelete();
+      ASSERT_OK(s);
+      s = db->Get(read_options, "gtid", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "dogs");
+
+      s = db->Get(read_options, "gtid2", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "cats");
+    }
+  }
 }
 
 TEST_P(TransactionTest, TwoPhaseNameTest) {
@@ -947,44 +936,67 @@ TEST_P(TransactionTest, TwoPhaseNameTest) {
 }
 
 TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
-  Status s;
-  std::string value;
+  for (bool cwb4recovery : {true, false}) {
+    for (bool test_with_empty_wal : {true, false}) {
+      if (!cwb4recovery && test_with_empty_wal) {
+        continue;
+      }
+      ReOpen();
+      Status s;
+      std::string value;
 
-  WriteOptions write_options;
-  ReadOptions read_options;
-  TransactionOptions txn_options;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn1);
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn2);
+      WriteOptions write_options;
+      ReadOptions read_options;
+      TransactionOptions txn_options;
+      txn_options.use_only_the_last_commit_time_batch_for_recovery =
+          cwb4recovery;
+      Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+      ASSERT_TRUE(txn1);
+      Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+      ASSERT_TRUE(txn2);
 
-  s = txn1->SetName("joe");
-  ASSERT_OK(s);
+      s = txn1->SetName("joe");
+      ASSERT_OK(s);
 
-  s = txn2->SetName("bob");
-  ASSERT_OK(s);
+      s = txn2->SetName("bob");
+      ASSERT_OK(s);
 
-  s = txn1->Prepare();
-  ASSERT_OK(s);
+      s = txn1->Prepare();
+      ASSERT_OK(s);
 
-  s = txn1->Commit();
-  ASSERT_OK(s);
+      s = txn1->Commit();
+      ASSERT_OK(s);
 
-  delete txn1;
+      delete txn1;
 
-  txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar"));
+      txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar"));
 
-  s = txn2->Prepare();
-  ASSERT_OK(s);
+      s = txn2->Prepare();
+      ASSERT_OK(s);
 
-  s = txn2->Commit();
-  ASSERT_OK(s);
+      s = txn2->Commit();
+      ASSERT_OK(s);
 
-  s = db->Get(read_options, "foo", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "bar");
-
-  delete txn2;
+      delete txn2;
+      if (!cwb4recovery) {
+        s = db->Get(read_options, "foo", &value);
+        ASSERT_OK(s);
+        ASSERT_EQ(value, "bar");
+      } else {
+        if (test_with_empty_wal) {
+          DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          db_impl->TEST_FlushMemTable(true);
+        }
+        db->FlushWAL(true);
+        // kill and reopen to trigger recovery
+        s = ReOpenNoDelete();
+        ASSERT_OK(s);
+        s = db->Get(read_options, "foo", &value);
+        ASSERT_OK(s);
+        ASSERT_EQ(value, "bar");
+      }
+    }
+  }
 }
 
 TEST_P(TransactionTest, TwoPhaseExpirationTest) {
@@ -1178,7 +1190,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = txn->Commit();
   ASSERT_EQ(s, Status::InvalidArgument());
 
-  // no longer is prpared results
+  // no longer is prepared results
   prepared_trans.clear();
   db->GetAllPreparedTransactions(&prepared_trans);
   ASSERT_EQ(prepared_trans.size(), 0);
@@ -1189,9 +1201,20 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   // heap should not care about prepared section anymore
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // but now our memtable should be referencing the prep section
-  ASSERT_EQ(log_containing_prep,
-            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // but now our memtable should be referencing the prep section
+      ASSERT_EQ(log_containing_prep,
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   db_impl->TEST_FlushMemTable(true);
 
@@ -1221,11 +1244,11 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
     if (id % 2 == 0) {
       txn_options.expiration = 1000000;
     }
-    TransactionName name("xid_" + std::string(1, 'A' + id));
+    TransactionName name("xid_" + std::string(1, 'A' + static_cast<char>(id)));
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     ASSERT_OK(txn->SetName(name));
     for (int i = 0; i < 10; i++) {
-      std::string key(name + "_" + std::string(1, 'A' + i));
+      std::string key(name + "_" + std::string(1, static_cast<char>('A' + i)));
       ASSERT_OK(txn->Put(key, "val"));
     }
     ASSERT_OK(txn->Prepare());
@@ -1276,9 +1299,9 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   std::string value;
   Status s;
   for (uint32_t t = 0; t < NUM_TXN_THREADS; t++) {
-    TransactionName name("xid_" + std::string(1, 'A' + t));
+    TransactionName name("xid_" + std::string(1, 'A' + static_cast<char>(t)));
     for (int i = 0; i < 10; i++) {
-      std::string key(name + "_" + std::string(1, 'A' + i));
+      std::string key(name + "_" + std::string(1, static_cast<char>('A' + i)));
       s = db->Get(read_options, key, &value);
       ASSERT_OK(s);
       ASSERT_EQ(value, "val");
@@ -1536,9 +1559,20 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             txn2->GetLogNumber());
 
-  // we should see txn1s log refernced by the memtables
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn1->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // we should see txn1s log refernced by the memtables
+      ASSERT_EQ(txn1->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush default cf to crate new log
   s = db->Put(wopts, "foo", "bar2");
@@ -1556,17 +1590,39 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   // heap should not show any logs
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // should show the first txn log
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn1->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // should show the first txn log
+      ASSERT_EQ(txn1->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush only cfa memtable
   s = db_impl->TEST_FlushMemTable(true, cfa);
   ASSERT_OK(s);
 
-  // should show the first txn log
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn2->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // should show the first txn log
+      ASSERT_EQ(txn2->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush only cfb memtable
   s = db_impl->TEST_FlushMemTable(true, cfb);
@@ -1638,8 +1694,20 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   ASSERT_OK(s);
 
   ASSERT_GT(db_impl->TEST_LogfileNumber(), prepare_log_no);
-  ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
-  ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // This cf is empty and should ref the latest log
+      ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
+      ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
+      break;
+    case WRITE_PREPARED:
+      // This cf is not flushed yet and should ref the log that has its data
+      ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
+      break;
+    case WRITE_UNPREPARED:
+    default:
+      assert(false);
+  }
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             prepare_log_no);
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
@@ -1648,13 +1716,25 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), prepare_log_no);
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
+                prepare_log_no);
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
+      break;
+    default:
+      assert(false);
+  }
 
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
 
   // request a flush for all column families such that the earliest
   // alive log file can be killed
-  db_impl->TEST_HandleWALFull();
+  db_impl->TEST_SwitchWAL();
   // log cannot be flushed because txn2 has not been commited
   ASSERT_TRUE(!db_impl->TEST_IsLogGettingFlushed());
   ASSERT_TRUE(db_impl->TEST_UnableToFlushOldestLog());
@@ -1662,14 +1742,25 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   // assert that cfa has a flush requested
   ASSERT_TRUE(cfh_a->cfd()->imm()->HasFlushRequested());
 
-  // cfb should not be flushed becuse it has no data from LOG A
-  ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // cfb should not be flushed becuse it has no data from LOG A
+      ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // cfb should be flushed becuse it has prepared data from LOG A
+      ASSERT_TRUE(cfh_b->cfd()->imm()->HasFlushRequested());
+      break;
+    default:
+      assert(false);
+  }
 
   // cfb now has data from LOG A
   s = txn2->Commit();
   ASSERT_OK(s);
 
-  db_impl->TEST_HandleWALFull();
+  db_impl->TEST_SwitchWAL();
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
 
   // we should see that cfb now has a flush requested
@@ -2783,8 +2874,12 @@ TEST_P(TransactionTest, UntrackedWrites) {
   // Untracked writes should succeed even though key was written after snapshot
   s = txn->PutUntracked("untracked", "1");
   ASSERT_OK(s);
-  s = txn->MergeUntracked("untracked", "2");
-  ASSERT_OK(s);
+  if (txn_db_options.write_policy != WRITE_PREPARED) {
+    // WRITE_PREPARED does not currently support dup merge keys.
+    // TODO(myabandeh): remove this if-then when the support is added
+    s = txn->MergeUntracked("untracked", "2");
+    ASSERT_OK(s);
+  }
   s = txn->DeleteUntracked("untracked");
   ASSERT_OK(s);
 
@@ -4155,6 +4250,11 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 }
 
 TEST_P(TransactionTest, MergeTest) {
+  if (txn_db_options.write_policy == WRITE_PREPARED) {
+    // WRITE_PREPARED does not currently support dup merge keys.
+    // TODO(myabandeh): remove this if-then when the support is added
+    return;
+  }
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -4673,34 +4773,55 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }
 }  // namespace
 
+// Worker threads add a number to a key from each set of keys. The checker
+// threads verify that the sum of all keys in each set are equal.
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
-  const size_t num_threads = 4;
+  // Small write buffer to trigger more compactions
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
+  const size_t num_workers = 4;   // worker threads count
+  const size_t num_checkers = 2;  // checker threads count
   const size_t num_transactions_per_thread = 10000;
-  const size_t num_sets = 3;
+  const uint16_t num_sets = 3;
   const size_t num_keys_per_set = 100;
   // Setting the key-space to be 100 keys should cause enough write-conflicts
   // to make this test interesting.
 
   std::vector<port::Thread> threads;
+  std::atomic<uint32_t> finished = {0};
+  bool TAKE_SNAPSHOT = true;
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
                                             num_sets, num_keys_per_set));
+    finished++;
+  };
+  std::function<void()> call_checker = [&] {
+    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(seed);
+    // Verify that data is consistent
+    while (finished < num_workers) {
+      Status s = RandomTransactionInserter::Verify(
+          db, num_sets, num_keys_per_set, TAKE_SNAPSHOT, &rand);
+      ASSERT_OK(s);
+    }
   };
 
-  // Create N threads that use RandomTransactionInserter to write
-  // many transactions.
-  for (uint32_t i = 0; i < num_threads; i++) {
+  for (uint32_t i = 0; i < num_workers; i++) {
     threads.emplace_back(call_inserter);
   }
+  for (uint32_t i = 0; i < num_checkers; i++) {
+    threads.emplace_back(call_checker);
+  }
 
-  // Wait for all threads to run
+  // Wait for all threads to finish
   for (auto& t : threads) {
     t.join();
   }
 
   // Verify that data is consistent
-  Status s = RandomTransactionInserter::Verify(db, num_sets);
+  Status s = RandomTransactionInserter::Verify(db, num_sets, num_keys_per_set,
+                                               !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
 
@@ -4733,135 +4854,189 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   delete txn;
 }
 
-// Test WritePreparedTxnDB's IsInSnapshot against different ordering of
-// snapshot, max_committed_seq_, prepared, and commit entries.
-TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
-  WriteOptions wo;
-  // Use small commit cache to trigger lots of eviction and fast advance of
-  // max_evicted_seq_
-  // will take effect after ReOpen
-  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = 8;
-  // Same for snapshot cache size
-  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;
+// This test clarifies the existing expectation from the sequence number
+// algorithm. It could detect mistakes in updating the code but it is not
+// necessarily the one acceptable way. If the algorithm is legitimately changed,
+// this unit test should be updated as well.
+TEST_P(TransactionTest, SeqAdvanceTest) {
+  // TODO(myabandeh): must be test with false before new releases
+  const bool short_test = true;
+  WriteOptions wopts;
+  FlushOptions fopt;
 
-  // Take some preliminary snapshots first. This is to stress the data structure
-  // that holds the old snapshots as it will be designed to be efficient when
-  // only a few snapshots are below the max_evicted_seq_.
-  for (int max_snapshots = 1; max_snapshots < 20; max_snapshots++) {
-    // Leave some gap between the preliminary snapshots and the final snapshot
-    // that we check. This should test for also different overlapping scnearios
-    // between the last snapshot and the commits.
-    for (int max_gap = 1; max_gap < 10; max_gap++) {
-      // Since we do not actually write to db, we mock the seq as it would be
-      // increaased by the db. The only exception is that we need db seq to
-      // advance for our snapshots. for which we apply a dummy put each time we
-      // increase our mock of seq.
-      uint64_t seq = 0;
-      // At each step we prepare a txn and then we commit it in the next txn.
-      // This emulates the consecuitive transactions that write to the same key
-      uint64_t cur_txn = 0;
-      // Number of snapshots taken so far
-      int num_snapshots = 0;
-      std::vector<const Snapshot*> to_be_released;
-      // Number of gaps applied so far
-      int gap_cnt = 0;
-      // The final snapshot that we will inspect
-      uint64_t snapshot = 0;
-      bool found_committed = false;
-      // To stress the data structure that maintain prepared txns, at each cycle
-      // we add a new prepare txn. These do not mean to be committed for
-      // snapshot inspection.
-      std::set<uint64_t> prepared;
-      // We keep the list of txns comitted before we take the last snaphot.
-      // These should be the only seq numbers that will be found in the snapshot
-      std::set<uint64_t> committed_before;
-      ReOpen();  // to restart the db
-      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-      assert(wp_db);
-      assert(wp_db->db_impl_);
-      // We continue until max advances a bit beyond the snapshot.
-      while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
-        // do prepare for a transaction
-        wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
-        seq++;
-        ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
-        wp_db->AddPrepared(seq);
-        prepared.insert(seq);
+  options.disable_auto_compactions = true;
+  ReOpen();
 
-        // If cur_txn is not started, do prepare for it.
-        if (!cur_txn) {
-          wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
-          seq++;
-          ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
-          cur_txn = seq;
-          wp_db->AddPrepared(cur_txn);
-        } else {                                     // else commit it
-          wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
-          seq++;
-          ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
-          wp_db->AddCommitted(cur_txn, seq);
-          if (!snapshot) {
-            committed_before.insert(cur_txn);
-          }
-          cur_txn = 0;
-        }
+  // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
+  // of the branches. This is the same as counting a binary number where i-th
+  // bit represents whether we take branch i in the represented by the number.
+  const size_t NUM_BRANCHES = short_test ? 6 : 10;
+  // Helper function that shows if the branch is to be taken in the run
+  // represented by the number n.
+  auto branch_do = [&](size_t n, size_t* branch) {
+    assert(*branch < NUM_BRANCHES);
+    const size_t filter = static_cast<size_t>(1) << *branch;
+    return n & filter;
+  };
+  const size_t max_n = static_cast<size_t>(1) << NUM_BRANCHES;
+  for (size_t n = 0; n < max_n; n++, ReOpen()) {
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    size_t branch = 0;
+    auto seq = db_impl->GetLatestSequenceNumber();
+    exp_seq = seq;
+    txn_t0(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
 
-        if (num_snapshots < max_snapshots - 1) {
-          // Take preliminary snapshots
-          auto tmp_snapshot = db->GetSnapshot();
-          to_be_released.push_back(tmp_snapshot);
-          num_snapshots++;
-        } else if (gap_cnt < max_gap) {
-          // Wait for some gap before taking the final snapshot
-          gap_cnt++;
-        } else if (!snapshot) {
-          // Take the final snapshot if it is not already taken
-          auto tmp_snapshot = db->GetSnapshot();
-          to_be_released.push_back(tmp_snapshot);
-          snapshot = tmp_snapshot->GetSequenceNumber();
-          // We increase the db seq artificailly by a dummy Put. Check that this
-          // technique is effective and db seq is that same as ours.
-          ASSERT_EQ(snapshot, seq);
-          num_snapshots++;
-        }
-
-        // If the snapshot is taken, verify seq numbers visible to it. We redo
-        // it at each cycle to test that the system is still sound when
-        // max_evicted_seq_ advances.
-        if (snapshot) {
-          for (uint64_t s = 0; s <= seq; s++) {
-            bool was_committed =
-                (committed_before.find(s) != committed_before.end());
-            bool is_in_snapshot = wp_db->IsInSnapshot(s, snapshot);
-            if (was_committed != is_in_snapshot) {
-              printf("max_snapshots %d max_gap %d seq %" PRIu64 " max %" PRIu64
-                     " snapshot %" PRIu64
-                     " gap_cnt %d num_snapshots %d s %" PRIu64 "\n",
-                     max_snapshots, max_gap, seq,
-                     wp_db->max_evicted_seq_.load(), snapshot, gap_cnt,
-                     num_snapshots, s);
-            }
-            ASSERT_EQ(was_committed, is_in_snapshot);
-            found_committed = found_committed || is_in_snapshot;
-          }
-        }
-      }
-      // Safety check to make sure the test actually ran
-      ASSERT_TRUE(found_committed);
-      // As an extra check, check if prepared set will be properly empty after
-      // they are committed.
-      if (cur_txn) {
-        wp_db->AddCommitted(cur_txn, seq);
-      }
-      for (auto p : prepared) {
-        wp_db->AddCommitted(p, seq);
-      }
-      ASSERT_TRUE(wp_db->delayed_prepared_.empty());
-      ASSERT_TRUE(wp_db->prepared_txns_.empty());
-      for (auto s : to_be_released) {
-        db->ReleaseSnapshot(s);
-      }
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
     }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    // Doing it twice might detect some bugs
+    txn_t0(1);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
+    txn_t1(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t3(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t4(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t2(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+  }
+}
+
+// Test that the transactional db can handle duplicate keys in the write batch
+TEST_P(TransactionTest, DuplicateKeyTest) {
+  for (bool do_prepare : {true, false}) {
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    auto s = txn0->SetName("xid");
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0a"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo1"), Slice("bar1"));
+    ASSERT_OK(s);
+    s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo2"), Slice("bar2b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo3"), Slice("bar3"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo3"), Slice("bar3"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo4"), Slice("bar4"));
+    ASSERT_OK(s);
+    s = txn0->Delete(Slice("foo4"));
+    ASSERT_OK(s);
+    s = txn0->SingleDelete(Slice("foo4"));
+    ASSERT_OK(s);
+    if (do_prepare) {
+      s = txn0->Prepare();
+      ASSERT_OK(s);
+    }
+    s = txn0->Commit();
+    ASSERT_OK(s);
+    if (!do_prepare) {
+      auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+      pdb->UnregisterTransaction(txn0);
+    }
+    delete txn0;
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar1"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar2b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar3"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
+    ASSERT_TRUE(s.IsNotFound());
   }
 }
 

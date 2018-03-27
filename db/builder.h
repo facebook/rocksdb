@@ -29,6 +29,7 @@ struct FileMetaData;
 class Env;
 struct EnvOptions;
 class Iterator;
+class SnapshotChecker;
 class TableCache;
 class VersionEdit;
 class TableBuilder;
@@ -72,12 +73,13 @@ extern Status BuildTable(
     uint32_t column_family_id, const std::string& column_family_name,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const CompressionType compression,
+    SnapshotChecker* snapshot_checker, const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1,
-    const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0);
+    const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
+    Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET);
 
 }  // namespace rocksdb

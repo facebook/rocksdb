@@ -730,7 +730,8 @@ class RecoveryTestHelper {
         batch.Put(key, value);
         WriteBatchInternal::SetSequence(&batch, seq);
         current_log_writer->AddRecord(WriteBatchInternal::Contents(&batch));
-        versions->SetLastToBeWrittenSequence(seq);
+        versions->SetLastAllocatedSequence(seq);
+        versions->SetLastPublishedSequence(seq);
         versions->SetLastSequence(seq);
       }
     }
@@ -877,6 +878,39 @@ TEST_F(DBWALTest, kAbsoluteConsistency) {
 }
 
 // Test scope:
+// We don't expect the data store to be opened if there is any inconsistency
+// between WAL and SST files
+TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+
+  // Create DB with multiple column families.
+  CreateAndReopenWithCF({"one", "two"}, options);
+  ASSERT_OK(Put(1, "key1", "val1"));
+  ASSERT_OK(Put(2, "key2", "val2"));
+
+  // Record the offset at this point
+  Env* env = options.env;
+  int wal_file_id = RecoveryTestHelper::kWALFileOffset + 1;
+  std::string fname = LogFileName(dbname_, wal_file_id);
+  uint64_t offset_to_corrupt;
+  ASSERT_OK(env->GetFileSize(fname, &offset_to_corrupt));
+  ASSERT_GT(offset_to_corrupt, 0);
+
+  ASSERT_OK(Put(1, "key3", "val3"));
+  // Corrupt WAL at location of key3
+  RecoveryTestHelper::InduceCorruption(
+      fname, static_cast<size_t>(offset_to_corrupt), static_cast<size_t>(4));
+  ASSERT_OK(Put(2, "key4", "val4"));
+  ASSERT_OK(Put(1, "key5", "val5"));
+  Flush(2);
+
+  // PIT recovery & verify
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "one", "two"}, options));
+}
+
+// Test scope:
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
 TEST_F(DBWALTest, kPointInTimeRecovery) {
@@ -1007,7 +1041,7 @@ TEST_F(DBWALTest, AvoidFlushDuringRecovery) {
   Reopen(options);
   ASSERT_EQ("v11", Get("foo"));
   ASSERT_EQ("v12", Get("bar"));
-  ASSERT_EQ(2, TotalTableFiles());
+  ASSERT_EQ(3, TotalTableFiles());
 }
 
 TEST_F(DBWALTest, WalCleanupAfterAvoidFlushDuringRecovery) {
