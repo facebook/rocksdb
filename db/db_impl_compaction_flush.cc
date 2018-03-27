@@ -2076,6 +2076,33 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
       mutable_cf_options.max_write_buffer_number;
 }
 
+// ShouldIPurge is called by FindObsoleteFiles when doing a full scan,
+// and db mutex (mutex_) should already be held. This function performs a
+// linear scan of an vector (files_grabbed_for_purge_) in search of a
+// certain element. We expect FindObsoleteFiles with full scan to occur once
+// every 10 hours, and the size of the vector is small. Therefore, the cost
+// is affordable even if the mutex is held. In the future, if we want to
+// reduce the cost of search, we may try to keep the vector sorted.
+bool DBImpl::ShouldIPurge(uint64_t file_number) const {
+  for (auto fn : files_grabbed_for_purge_) {
+    if (file_number == fn) {
+      return false;
+    }
+  }
+  for (const auto& purge_file_info : purge_queue_) {
+    if (purge_file_info.number == file_number) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
+// (mutex_) should already be held.
+void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
+  files_grabbed_for_purge_.emplace_back(file_number);
+}
+
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   InstrumentedMutexLock l(&mutex_);
   // snapshot_checker_ should only set once. If we need to set it multiple

@@ -12,6 +12,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include <unordered_set>
 #include "db/event_helpers.h"
 #include "util/file_util.h"
 #include "util/sst_file_manager_impl.h"
@@ -187,6 +188,13 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                               &job_context->manifest_delete_files,
                               job_context->min_pending_output);
 
+  // Mark the elements in job_context->sst_delete_files as grabbedForPurge
+  // so that other threads calling FindObsoleteFiles with full_scan=true
+  // will not add these files to candidate list for purge.
+  for (const auto sst_to_del : job_context->sst_delete_files) {
+    MarkAsGrabbedForPurge(sst_to_del->fd.GetNumber());
+  }
+
   // store the current filenum, lognum, etc
   job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
@@ -206,17 +214,18 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       std::vector<std::string> files;
       env_->GetChildren(immutable_db_options_.db_paths[path_id].path,
                         &files);  // Ignore errors
-      for (std::string file : files) {
+      for (const std::string& file : files) {
         uint64_t number;
         FileType type;
         // 1. If we cannot parse the file name, we skip;
         // 2. If the file with file_number equals number has already been
-        // grabbed for purge by another compaction job, we also skip it if we
+        // grabbed for purge by another compaction job, or it has already been
+        // schedule for purge, we also skip it if we
         // are doing full scan in order to avoid double deletion of the same
         // file under race conditions. See
         // https://github.com/facebook/rocksdb/issues/3573
         if (!ParseFileName(file, &number, info_log_prefix.prefix, &type) ||
-            versions_->IsGrabbedForPurge(number)) {
+            !ShouldIPurge(number)) {
           continue;
         }
 
@@ -231,7 +240,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       std::vector<std::string> log_files;
       env_->GetChildren(immutable_db_options_.wal_dir,
                         &log_files);  // Ignore errors
-      for (std::string log_file : log_files) {
+      for (const std::string& log_file : log_files) {
         job_context->full_scan_candidate_files.emplace_back(log_file, 0);
       }
     }
@@ -334,10 +343,6 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
     file_deletion_status = env_->DeleteFile(fname);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion", &file_deletion_status);
-  {
-    InstrumentedMutexLock guard_lock(&mutex_);
-    versions_->MarkAsPurged(number);
-  }
   if (file_deletion_status.ok()) {
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", job_id,
@@ -429,6 +434,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
   std::vector<std::string> old_info_log_files;
   InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                 dbname_);
+  std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {
     std::string to_delete = candidate_file.file_name;
     uint32_t path_id = candidate_file.path_id;
@@ -457,6 +463,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
         // DontDeletePendingOutputs fail
         keep = (sst_live_map.find(number) != sst_live_map.end()) ||
                number >= state.min_pending_output;
+        if (!keep) {
+          files_to_del.insert(number);
+        }
         break;
       case kTempFile:
         // Any temp files that are currently being written to must
@@ -516,6 +525,19 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     } else {
       DeleteObsoleteFileImpl(state.job_id, fname, type, number, path_id);
     }
+  }
+
+  {
+    // After purging obsolete files, remove them from files_grabbed_for_purge_.
+    // Use a temporary vector to perform bulk deletion via swap.
+    InstrumentedMutexLock guard_lock(&mutex_);
+    std::vector<uint64_t> tmp;
+    for (auto fn : files_grabbed_for_purge_) {
+      if (files_to_del.count(fn) == 0) {
+        tmp.emplace_back(fn);
+      }
+    }
+    files_grabbed_for_purge_.swap(tmp);
   }
 
   // Delete old info log files.
