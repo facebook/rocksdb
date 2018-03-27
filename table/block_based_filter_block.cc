@@ -108,9 +108,9 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   Slice prefix = prefix_extractor_->Transform(key);
   // insert prefix only when it's different from the previous prefix.
   if (prev.size() == 0 || prefix != prev) {
-    AddKey(prefix);
     prev_prefix_start_ = entries_.size();
     prev_prefix_size_ = prefix.size();
+    AddKey(prefix);
   }
 }
 
