@@ -197,7 +197,8 @@ Status BuildTable(
       // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           ReadOptions(), env_options, internal_comparator, meta->fd,
-          nullptr /* range_del_agg */, nullptr,
+          nullptr /* range_del_agg */,
+          mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           false /* for_compaction */, nullptr /* arena */,

@@ -103,6 +103,14 @@ FullFilterBlockReader::FullFilterBlockReader(
   block_contents_ = std::move(contents);
 }
 
+bool FullFilterBlockReader::KeyMayMatch(const Slice& key,
+                                        const SliceTransform* /* prefix_extractor */,
+                                        uint64_t block_offset,
+                                        const bool no_io,
+                                        const Slice* const const_ikey_ptr) {
+  return KeyMayMatch(key, block_offset, no_io, const_ikey_ptr);
+}
+
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
                                         const bool /*no_io*/,
                                         const Slice* const /*const_ikey_ptr*/) {
@@ -114,6 +122,13 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
     return true;
   }
   return MayMatch(key);
+}
+
+bool FullFilterBlockReader::PrefixMayMatch(
+    const Slice& prefix, const SliceTransform* /* prefix_extractor */,
+    uint64_t block_offset, const bool no_io,
+    const Slice* const const_ikey_ptr) {
+  return PrefixMayMatch(prefix, block_offset, no_io, const_ikey_ptr);
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(

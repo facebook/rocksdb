@@ -969,7 +969,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
-          cfd->GetCurrentMutableCFOptions()->prefix_extractor != nullptr);
+          cfd->GetLatestMutableCFOptions()->prefix_extractor != nullptr);
   // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));

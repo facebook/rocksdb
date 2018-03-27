@@ -368,7 +368,8 @@ class VersionBuilder::Rep {
   }
 
   void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
-                         bool prefetch_index_and_filter_in_cache) {
+                         bool prefetch_index_and_filter_in_cache,
+                         const SliceTransform* prefix_extractor) {
     assert(table_cache_ != nullptr);
     // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
@@ -393,6 +394,7 @@ class VersionBuilder::Rep {
         table_cache_->FindTable(env_options_,
                                 *(base_vstorage_->InternalComparator()),
                                 file_meta->fd, &file_meta->table_reader_handle,
+                                prefix_extractor,
                                 false /*no_io */, true /* record_read_stats */,
                                 internal_stats->GetFileReadHist(level), false,
                                 level, prefetch_index_and_filter_in_cache);
@@ -457,9 +459,11 @@ void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
 
 void VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
-    bool prefetch_index_and_filter_in_cache) {
+    bool prefetch_index_and_filter_in_cache,
+    const SliceTransform* prefix_extractor) {
   rep_->LoadTableHandlers(internal_stats, max_threads,
-                          prefetch_index_and_filter_in_cache);
+                          prefetch_index_and_filter_in_cache,
+                          prefix_extractor);
 }
 
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,

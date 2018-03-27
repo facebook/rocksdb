@@ -30,7 +30,8 @@ class MockedBlockBasedTable : public BlockBasedTable {
   virtual CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
       const bool /* unused */, bool /* unused */,
-      GetContext* /* unused */) const override {
+      GetContext* /* unused */,
+      const SliceTransform* /* unused */ ) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),
@@ -124,7 +125,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     const MutableCFOptions moptions(options);
     const EnvOptions env_options;
     table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
-        ioptions, moptions, env_options, table_options_, icomp, false)));
+        ioptions, env_options, table_options_, icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
         nullptr, *icomp.user_comparator(), table.get());

@@ -131,7 +131,7 @@ Status SstFileReader::NewTableReader(
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, moptions_, soptions_,
+        TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
                            internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
@@ -139,7 +139,7 @@ Status SstFileReader::NewTableReader(
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
-      TableReaderOptions(ioptions_, moptions_, soptions_, internal_comparator_),
+      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_, internal_comparator_),
       std::move(file_), file_size, &table_reader_);
 }
 
@@ -151,7 +151,8 @@ Status SstFileReader::DumpTable(const std::string& out_filename) {
   unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
   env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get());
+  Status s = table_reader_->DumpTable(out_file.get(),
+                                      moptions_.prefix_extractor.get());
   out_file->Close();
   return s;
 }
@@ -171,7 +172,7 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
       tb_options,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
-  unique_ptr<InternalIterator> iter(table_reader_->NewIterator(ReadOptions()));
+  unique_ptr<InternalIterator> iter(table_reader_->NewIterator(ReadOptions(), moptions_.prefix_extractor.get()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
       fputs(iter->status().ToString().c_str(), stderr);
@@ -297,7 +298,7 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num,
   }
 
   InternalIterator* iter =
-      table_reader_->NewIterator(ReadOptions(verify_checksum_, false));
+      table_reader_->NewIterator(ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get());
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;

@@ -149,7 +149,7 @@ class CuckooReaderTest : public testing::Test {
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
-    InternalIterator* it = reader.NewIterator(ReadOptions(), nullptr);
+    InternalIterator* it = reader.NewIterator(ReadOptions(), nullptr, false);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
     it->SeekToFirst();

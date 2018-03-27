@@ -79,8 +79,8 @@ PlainTableBuilder::PlainTableBuilder(
   if (store_index_in_file_) {
     assert(hash_table_ratio > 0 || IsTotalOrderMode());
     index_builder_.reset(new PlainTableIndexBuilder(
-        &arena_, ioptions, moptions, index_sparseness, hash_table_ratio,
-        huge_page_tlb_size_));
+        &arena_, ioptions, moptions.prefix_extractor.get(), index_sparseness,
+        hash_table_ratio, huge_page_tlb_size_));
     properties_.user_collected_properties
         [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
   }

@@ -132,6 +132,13 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
 bool PartitionedFilterBlockReader::KeyMayMatch(
     const Slice& key, uint64_t block_offset, const bool no_io,
     const Slice* const const_ikey_ptr) {
+  return KeyMayMatch(key, nullptr, block_offset, no_io, const_ikey_ptr);
+}
+
+bool PartitionedFilterBlockReader::KeyMayMatch(
+    const Slice& key, const SliceTransform* prefix_extractor,
+    uint64_t block_offset, const bool no_io,
+    const Slice* const const_ikey_ptr) {
   assert(const_ikey_ptr != nullptr);
   assert(block_offset == kNotValid);
   if (!whole_key_filtering_) {
@@ -146,7 +153,8 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   }
   bool cached = false;
   auto filter_partition = GetFilterPartition(nullptr /* prefetch_buffer */,
-                                             &filter_handle, no_io, &cached);
+                                             &filter_handle, no_io, &cached,
+                                             prefix_extractor);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
@@ -165,6 +173,12 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
 bool PartitionedFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, uint64_t block_offset, const bool no_io,
     const Slice* const const_ikey_ptr) {
+  return PrefixMayMatch(prefix, nullptr, block_offset, no_io, const_ikey_ptr);
+}
+bool PartitionedFilterBlockReader::PrefixMayMatch(
+    const Slice& prefix, const SliceTransform* prefix_extractor,
+    uint64_t block_offset, const bool no_io,
+    const Slice* const const_ikey_ptr) {
 #ifdef NDEBUG
   (void)block_offset;
 #endif
@@ -182,11 +196,13 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
   }
   bool cached = false;
   auto filter_partition = GetFilterPartition(nullptr /* prefetch_buffer */,
-                                             &filter_handle, no_io, &cached);
+                                             &filter_handle, no_io, &cached,
+                                             prefix_extractor);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
-  auto res = filter_partition.value->PrefixMayMatch(prefix, kNotValid, no_io);
+  auto res = filter_partition.value->PrefixMayMatch(prefix, prefix_extractor,
+                                                    kNotValid, no_io);
   if (cached) {
     return res;
   }
@@ -214,7 +230,7 @@ Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
 BlockBasedTable::CachableEntry<FilterBlockReader>
 PartitionedFilterBlockReader::GetFilterPartition(
     FilePrefetchBuffer* prefetch_buffer, Slice* handle_value, const bool no_io,
-    bool* cached) {
+    bool* cached, const SliceTransform* prefix_extractor) {
   BlockHandle fltr_blk_handle;
   auto s = fltr_blk_handle.DecodeFrom(handle_value);
   assert(s.ok());
@@ -237,10 +253,11 @@ PartitionedFilterBlockReader::GetFilterPartition(
     }
     return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
                              is_a_filter_partition, no_io,
-                             /* get_context */ nullptr);
+                             /* get_context */ nullptr, prefix_extractor);
   } else {
+    // TODO(Zhongyi): find out how to pass prefix_extractor to ReadFilter
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
-                                     is_a_filter_partition);
+                                     is_a_filter_partition, prefix_extractor);
     return {filter, nullptr};
   }
 }

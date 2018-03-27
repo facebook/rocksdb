@@ -70,21 +70,29 @@ struct PlainTableReaderFileInfo {
 class PlainTableReader: public TableReader {
  public:
   static Status Open(const ImmutableCFOptions& ioptions,
-                     const MutableCFOptions& moptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
                      uint64_t file_size, unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
-                     bool full_scan_mode);
+                     bool full_scan_mode,
+                     const SliceTransform* prefix_extractor = nullptr);
 
+  InternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor,
+      Arena* arena = nullptr,
+      bool skip_filters = false) override;
   InternalIterator* NewIterator(const ReadOptions&,
                                 Arena* arena = nullptr,
                                 bool skip_filters = false) override;
 
   void Prepare(const Slice& target) override;
 
+  Status Get(const ReadOptions& readOptions, const Slice& key,
+             GetContext* get_context,
+             const SliceTransform* prefix_extractor,
+             bool skip_filters = false) override;
   Status Get(const ReadOptions&, const Slice& key, GetContext* get_context,
              bool skip_filters = false) override;
 
@@ -102,12 +110,12 @@ class PlainTableReader: public TableReader {
   }
 
   PlainTableReader(const ImmutableCFOptions& ioptions,
-                   const MutableCFOptions& moptions,
                    unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,
-                   const TableProperties* table_properties);
+                   const TableProperties* table_properties,
+                   const SliceTransform* prefix_extractor);
   virtual ~PlainTableReader();
 
  protected:
@@ -155,7 +163,6 @@ class PlainTableReader: public TableReader {
   std::unique_ptr<char[]> bloom_block_alloc_;
 
   const ImmutableCFOptions& ioptions_;
-  const MutableCFOptions& moptions_;
   uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 

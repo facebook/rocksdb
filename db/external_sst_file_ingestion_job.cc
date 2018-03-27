@@ -305,8 +305,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
                                                    external_file));
 
+  // TODO(Zhongyi): is this table_reader blockbased?
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(), *cfd_->GetLatestMutableCFOptions(),
+      TableReaderOptions(*cfd_->ioptions(),
+                         cfd_->GetLatestMutableCFOptions()->prefix_extractor.get(),
                          env_options_, cfd_->internal_comparator()),
       std::move(sst_file_reader), file_to_ingest->file_size, &table_reader);
   if (!status.ok()) {
@@ -363,7 +365,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // We need to disable fill_cache so that we read from the file without
   // updating the block cache.
   ro.fill_cache = false;
-  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro));
+  // TODO(Zhongyi): is table_reader block based?
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro,
+    cfd_->GetLatestMutableCFOptions()->prefix_extractor.get()));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();

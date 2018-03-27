@@ -36,7 +36,6 @@ class InternalIterator;
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
-             const MutableCFOptions& moptions,
              const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
@@ -55,6 +54,7 @@ class TableCache {
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
       const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+      const SliceTransform* prefix_extractor = nullptr,
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
@@ -63,7 +63,8 @@ class TableCache {
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
       const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
-      bool skip_filters, int level);
+      bool skip_filters, int level,
+      const SliceTransform* prefix_extractor = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
@@ -76,7 +77,9 @@ class TableCache {
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
              const FileDescriptor& file_fd, const Slice& k,
-             GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
+             GetContext* get_context,
+             const SliceTransform* prefix_extractor = nullptr,
+             HistogramImpl* file_read_hist = nullptr,
              bool skip_filters = false, int level = -1);
 
   // Evict any entry for the specified file number
@@ -92,6 +95,7 @@ class TableCache {
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
+                   const SliceTransform* prefix_extractor = nullptr,
                    const bool no_io = false, bool record_read_stats = true,
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
@@ -110,6 +114,7 @@ class TableCache {
                             const InternalKeyComparator& internal_comparator,
                             const FileDescriptor& file_meta,
                             std::shared_ptr<const TableProperties>* properties,
+                            const SliceTransform* prefix_extractor = nullptr,
                             bool no_io = false);
 
   // Return total memory usage of the table reader of the file.
@@ -117,7 +122,8 @@ class TableCache {
   size_t GetMemoryUsageByTableReader(
       const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& fd);
+      const FileDescriptor& fd,
+      const SliceTransform* prefix_extractor = nullptr);
 
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
@@ -134,12 +140,12 @@ class TableCache {
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,
+                        const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,
                         bool for_compaction = false);
 
   const ImmutableCFOptions& ioptions_;
-  const MutableCFOptions& moptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;

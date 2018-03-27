@@ -1183,7 +1183,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     // to cache it here for further user reads
     InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
-        nullptr /* range_del_agg */, nullptr,
+        nullptr /* range_del_agg */,
+        cfd->GetLatestMutableCFOptions()->prefix_extractor.get(), nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),
         false, nullptr /* arena */, false /* skip_filters */,

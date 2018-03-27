@@ -59,7 +59,7 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
                                      std::move(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 0));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", static_cast<uint64_t>(0)));
   ASSERT_TRUE(reader.KeyMayMatch("foo", 100000));
 }
 
@@ -112,10 +112,10 @@ TEST_F(FilterBlockTest, MultiChunk) {
                                      std::move(block), nullptr);
 
   // Check first filter
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 0));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", static_cast<uint64_t>(0)));
   ASSERT_TRUE(reader.KeyMayMatch("bar", 2000));
-  ASSERT_TRUE(!reader.KeyMayMatch("box", 0));
-  ASSERT_TRUE(!reader.KeyMayMatch("hello", 0));
+  ASSERT_TRUE(!reader.KeyMayMatch("box", static_cast<uint64_t>(0)));
+  ASSERT_TRUE(!reader.KeyMayMatch("hello", static_cast<uint64_t>(0)));
 
   // Check second filter
   ASSERT_TRUE(reader.KeyMayMatch("box", 3100));
@@ -156,7 +156,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
       nullptr, table_options_, true, std::move(block), nullptr);
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 0));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", static_cast<uint64_t>(0)));
   ASSERT_TRUE(reader->KeyMayMatch("foo", 100000));
 
   delete builder;
@@ -215,10 +215,10 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
       nullptr, table_options_, true, std::move(block), nullptr);
 
   // Check first filter
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 0));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", static_cast<uint64_t>(0)));
   ASSERT_TRUE(reader->KeyMayMatch("bar", 2000));
-  ASSERT_TRUE(!reader->KeyMayMatch("box", 0));
-  ASSERT_TRUE(!reader->KeyMayMatch("hello", 0));
+  ASSERT_TRUE(!reader->KeyMayMatch("box", static_cast<uint64_t>(0)));
+  ASSERT_TRUE(!reader->KeyMayMatch("hello", static_cast<uint64_t>(0)));
 
   // Check second filter
   ASSERT_TRUE(reader->KeyMayMatch("box", 3100));

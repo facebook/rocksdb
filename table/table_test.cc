@@ -358,8 +358,8 @@ class TableConstructor: public Constructor {
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     const bool skip_filters = false;
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions, soptions, internal_comparator,
-                           skip_filters, level_),
+        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
+                           internal_comparator, skip_filters, level_),
         std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
@@ -387,7 +387,7 @@ class TableConstructor: public Constructor {
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions, soptions, *last_internal_key_),
+        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions, *last_internal_key_),
         std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
@@ -3157,7 +3157,7 @@ TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
             new test::StringSource(ss_rw.contents(), 73342, true)));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions, EnvOptions(), ikc),
+        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), EnvOptions(), ikc),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(ReadOptions());
@@ -3268,12 +3268,13 @@ TEST_F(BlockBasedTableTest, BlockAlignTest) {
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
   std::string column_family_name;
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
+      TableBuilderOptions(ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
                           kNoCompression, CompressionOptions(),
                           nullptr /* compression_dict */,
                           false /* skip_filters */, column_family_name, -1),
@@ -3320,8 +3321,10 @@ TEST_F(BlockBasedTableTest, BlockAlignTest) {
   Options options2;
   options2.table_factory.reset(NewBlockBasedTableFactory(bbto));
   ImmutableCFOptions ioptions2(options2);
+  const MutableCFOptions moptions2(options2);
+
   ASSERT_OK(ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions2, EnvOptions(),
+      TableReaderOptions(ioptions2, moptions2.prefix_extractor.get(), EnvOptions(),
                          GetPlainInternalComparator(options2.comparator)),
       std::move(file_reader), ss_rw.contents().size(), &table_reader));
 

@@ -105,7 +105,6 @@ class Repairer {
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
         default_cf_iopts_(
             ImmutableCFOptions(immutable_db_options_, default_cf_opts_)),
-        default_cf_mopts_(MutableCFOptions(default_cf_opts)),
         unknown_cf_opts_(
             SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
@@ -113,8 +112,8 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(new TableCache(default_cf_iopts_, default_cf_mopts_,
-                                    env_options_, raw_table_cache_.get())),
+        table_cache_(new TableCache(default_cf_iopts_, env_options_,
+                                    raw_table_cache_.get())),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,
@@ -231,7 +230,6 @@ class Repairer {
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
   const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference
-  const MutableCFOptions default_cf_mopts_;
   const ColumnFamilyOptions unknown_cf_opts_;
   const bool create_unknown_cfs_;
   std::shared_ptr<Cache> raw_table_cache_;
@@ -464,6 +462,7 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
+      // TODO(Zhongyi): OK to use nullptr for prefix_extractor here?
       status = table_cache_->GetTableProperties(env_options_, icmp_, t->meta.fd,
                                                 &props);
     }
@@ -503,7 +502,8 @@ class Repairer {
     if (status.ok()) {
       InternalIterator* iter = table_cache_->NewIterator(
           ReadOptions(), env_options_, cfd->internal_comparator(), t->meta.fd,
-          nullptr /* range_del_agg */);
+          nullptr /* range_del_agg */,
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;

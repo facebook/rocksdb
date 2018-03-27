@@ -27,19 +27,19 @@ class Status;
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
-                     const MutableCFOptions& _moptions,
+                     const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, int _level = -1)
       : ioptions(_ioptions),
-        moptions(_moptions),
+        prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
         level(_level) {}
 
   const ImmutableCFOptions& ioptions;
-  const MutableCFOptions& moptions;
+  const SliceTransform* prefix_extractor;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
