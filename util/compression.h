@@ -172,6 +172,9 @@ inline bool Snappy_Compress(const CompressionOptions& /*opts*/,
   output->resize(outlen);
   return true;
 #else
+  (void)input;
+  (void)length;
+  (void)output;
   return false;
 #endif
 }
@@ -181,6 +184,9 @@ inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
 #ifdef SNAPPY
   return snappy::GetUncompressedLength(input, length, result);
 #else
+  (void)input;
+  (void)length;
+  (void)result;
   return false;
 #endif
 }
@@ -190,6 +196,9 @@ inline bool Snappy_Uncompress(const char* input, size_t length,
 #ifdef SNAPPY
   return snappy::RawUncompress(input, length, output);
 #else
+  (void)input;
+  (void)length;
+  (void)output;
   return false;
 #endif
 }
@@ -444,6 +453,10 @@ inline bool BZip2_Compress(const CompressionOptions& /*opts*/,
   BZ2_bzCompressEnd(&_stream);
   return compressed;
 #else
+  (void)compress_format_version;
+  (void)input;
+  (void)length;
+  (void)output;
   return false;
 #endif
 }
@@ -524,6 +537,10 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   BZ2_bzDecompressEnd(&_stream);
   return output;
 #else
+  (void)input_data;
+  (void)input_length;
+  (void)decompress_size;
+  (void)compress_format_version;
   return nullptr;
 #endif
 }
@@ -588,6 +605,11 @@ inline bool LZ4_Compress(const CompressionOptions& /*opts*/,
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
 #else  // LZ4
+  (void)compress_format_version;
+  (void)input;
+  (void)length;
+  (void)output;
+  (void)compression_dict;
   return false;
 #endif
 }
@@ -645,6 +667,11 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
   assert(*decompress_size == static_cast<int>(output_len));
   return output;
 #else  // LZ4
+  (void)input_data;
+  (void)input_length;
+  (void)decompress_size;
+  (void)compress_format_version;
+  (void)compression_dict;
   return nullptr;
 #endif
 }
@@ -718,6 +745,12 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
 #else  // LZ4
+  (void)opts;
+  (void)compress_format_version;
+  (void)input;
+  (void)length;
+  (void)output;
+  (void)compression_dict;
   return false;
 #endif
 }
@@ -782,6 +815,11 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   output->resize(output_header_len + outlen);
   return true;
 #else // ZSTD
+  (void)opts;
+  (void)input;
+  (void)length;
+  (void)output;
+  (void)compression_dict;
   return false;
 #endif
 }
@@ -814,6 +852,10 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   *decompress_size = static_cast<int>(actual_output_length);
   return output;
 #else // ZSTD
+  (void)input_data;
+  (void)input_length;
+  (void)decompress_size;
+  (void)compression_dict;
   return nullptr;
 #endif
 }
@@ -836,6 +878,9 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   return dict_data;
 #else   // up to v0.7.x
   assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
   return "";
 #endif  // ZSTD_VERSION_NUMBER >= 800
 }
@@ -852,6 +897,9 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
 #else   // up to v0.7.x
   assert(false);
+  (void)samples;
+  (void)sample_len_shift;
+  (void)max_dict_bytes;
   return "";
 #endif  // ZSTD_VERSION_NUMBER >= 800
 }

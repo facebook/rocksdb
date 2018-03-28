@@ -152,10 +152,10 @@ public:
   // Create a Row containing columns.
   RowValue(Columns columns,
            int64_t last_modified_time);
-  RowValue(const RowValue& that) = delete;
-  RowValue(RowValue&& that) noexcept = default;
-  RowValue& operator=(const RowValue& that) = delete;
-  RowValue& operator=(RowValue&& that) = default;
+  RowValue(const RowValue& /*that*/) = delete;
+  RowValue(RowValue&& /*that*/) noexcept = default;
+  RowValue& operator=(const RowValue& /*that*/) = delete;
+  RowValue& operator=(RowValue&& /*that*/) = default;
 
   std::size_t Size() const;;
   bool IsTombstone() const;
