@@ -474,6 +474,7 @@ TESTS = \
 	write_batch_with_index_test \
 	write_controller_test\
 	deletefile_test \
+	obsolete_files_test \
 	table_test \
 	geodb_test \
 	delete_scheduler_test \
@@ -1378,6 +1379,9 @@ options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+obsolete_files_test: db/obsolete_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)

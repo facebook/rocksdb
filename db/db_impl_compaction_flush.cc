@@ -1479,6 +1479,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
+    TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToClean() ||
@@ -1492,6 +1493,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       log_buffer.FlushBufferToLog();
       if (job_context.HaveSomethingToDelete()) {
         PurgeObsoleteFiles(job_context);
+        TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles");
       }
       job_context.Clean();
       mutex_.Lock();
@@ -2072,6 +2074,37 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
       max_total_in_memory_state_ - old_memtable_size +
       mutable_cf_options.write_buffer_size *
       mutable_cf_options.max_write_buffer_number;
+}
+
+// ShouldPurge is called by FindObsoleteFiles when doing a full scan,
+// and db mutex (mutex_) should already be held. This function performs a
+// linear scan of an vector (files_grabbed_for_purge_) in search of a
+// certain element. We expect FindObsoleteFiles with full scan to occur once
+// every 10 hours by default, and the size of the vector is small.
+// Therefore, the cost is affordable even if the mutex is held.
+// Actually, the current implementation of FindObsoleteFiles with
+// full_scan=true can issue I/O requests to obtain list of files in
+// directories, e.g. env_->getChildren while holding db mutex.
+// In the future, if we want to reduce the cost of search, we may try to keep
+// the vector sorted.
+bool DBImpl::ShouldPurge(uint64_t file_number) const {
+  for (auto fn : files_grabbed_for_purge_) {
+    if (file_number == fn) {
+      return false;
+    }
+  }
+  for (const auto& purge_file_info : purge_queue_) {
+    if (purge_file_info.number == file_number) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
+// (mutex_) should already be held.
+void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
+  files_grabbed_for_purge_.emplace_back(file_number);
 }
 
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
