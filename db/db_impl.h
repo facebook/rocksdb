@@ -621,6 +621,9 @@ class DBImpl : public DB {
 
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
+  // Not thread-safe.
+  void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
+
   InstrumentedMutex* mutex() { return &mutex_; }
 
   Status NewDB();
@@ -1353,6 +1356,10 @@ class DBImpl : public DB {
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
+
+  // Callback for when the cached_recoverable_state_ is written to memtable
+  // Only to be set during initialization
+  std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
   // No copying allowed
   DBImpl(const DBImpl&);
