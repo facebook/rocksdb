@@ -1186,6 +1186,10 @@ class DBImpl : public DB {
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;
 
+  // A vector to store the file numbers that have been assigned to certain
+  // JobContext. Current implementation tracks ssts only.
+  std::vector<uint64_t> files_grabbed_for_purge_;
+
   // A queue to store log writers to close
   std::deque<log::Writer*> logs_to_free_queue_;
   int unscheduled_flushes_;
@@ -1388,6 +1392,9 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+
+  bool ShouldPurge(uint64_t file_number) const;
+  void MarkAsGrabbedForPurge(uint64_t file_number);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() {

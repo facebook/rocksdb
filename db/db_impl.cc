@@ -300,6 +300,8 @@ Status DBImpl::CloseHelper() {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::CloseHelper:PendingPurgeFinished",
+      &files_grabbed_for_purge_);
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
 

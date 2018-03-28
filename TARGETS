@@ -656,6 +656,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "obsolete_files_test",
+        "db/obsolete_files_test.cc",
+        "serial",
+    ],
+    [
         "dynamic_bloom_test",
         "util/dynamic_bloom_test.cc",
         "serial",
