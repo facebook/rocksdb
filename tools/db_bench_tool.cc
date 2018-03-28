@@ -70,6 +70,7 @@
 #include "util/xxhash.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
+#include "utilities/merge_operators/bytesxor.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 #ifdef OS_WIN
@@ -107,6 +108,7 @@ DEFINE_string(
     "readwhilemerging,"
     "readrandomwriterandom,"
     "updaterandom,"
+    "xorupdaterandom,"
     "randomwithverify,"
     "fill100K,"
     "crc32c,"
@@ -151,6 +153,8 @@ DEFINE_string(
     "\tprefixscanrandom      -- prefix scan N times in random order\n"
     "\tupdaterandom  -- N threads doing read-modify-write for random "
     "keys\n"
+    "\txorupdaterandom  -- N threads doing read-XOR-write for "
+    "random keys\n"
     "\tappendrandom  -- N threads doing read-modify-write with "
     "growing values\n"
     "\tmergerandom   -- same as updaterandom/appendrandom using merge"
@@ -246,7 +250,7 @@ DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
 DEFINE_int64(batch_size, 1, "Batch size");
 
-static bool ValidateKeySize(const char* flagname, int32_t value) {
+static bool ValidateKeySize(const char* /*flagname*/, int32_t /*value*/) {
   return true;
 }
 
@@ -447,6 +451,9 @@ DEFINE_int32(read_amp_bytes_per_bit,
 DEFINE_bool(enable_index_compression,
             rocksdb::BlockBasedTableOptions().enable_index_compression,
             "Compress the index block");
+
+DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
+            "Align data blocks on page size");
 
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
@@ -682,7 +689,7 @@ DEFINE_bool(blob_db_enable_gc, false, "Enable BlobDB garbage collection.");
 
 DEFINE_bool(blob_db_is_fifo, false, "Enable FIFO eviction strategy in BlobDB.");
 
-DEFINE_uint64(blob_db_dir_size, 0,
+DEFINE_uint64(blob_db_max_db_size, 0,
               "Max size limit of the directory where blob files are stored.");
 
 DEFINE_uint64(blob_db_max_ttl_range, 86400,
@@ -2129,8 +2136,9 @@ class Benchmark {
     explicit ExpiredTimeFilter(
         const std::shared_ptr<TimestampEmulator>& timestamp_emulator)
         : timestamp_emulator_(timestamp_emulator) {}
-    bool Filter(int level, const Slice& key, const Slice& existing_value,
-                std::string* new_value, bool* value_changed) const override {
+    bool Filter(int /*level*/, const Slice& key,
+                const Slice& /*existing_value*/, std::string* /*new_value*/,
+                bool* /*value_changed*/) const override {
       return KeyExpired(timestamp_emulator_.get(), key);
     }
     const char* Name() const override { return "ExpiredTimeFilter"; }
@@ -2525,6 +2533,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::ReadRandomMergeRandom;
       } else if (name == "updaterandom") {
         method = &Benchmark::UpdateRandom;
+      } else if (name == "xorupdaterandom") {
+        method = &Benchmark::XORUpdateRandom;
       } else if (name == "appendrandom") {
         method = &Benchmark::AppendRandom;
       } else if (name == "mergerandom") {
@@ -3133,6 +3143,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
+      block_based_options.block_align = FLAGS_block_align;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;
@@ -3439,7 +3450,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
       blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
-      blob_db_options.blob_dir_size = FLAGS_blob_db_dir_size;
+      blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
       blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
       blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
       blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
@@ -3486,12 +3497,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   class KeyGenerator {
    public:
-    KeyGenerator(Random64* rand, WriteMode mode,
-        uint64_t num, uint64_t num_per_set = 64 * 1024)
-      : rand_(rand),
-        mode_(mode),
-        num_(num),
-        next_(0) {
+    KeyGenerator(Random64* rand, WriteMode mode, uint64_t num,
+                 uint64_t /*num_per_set*/ = 64 * 1024)
+        : rand_(rand), mode_(mode), num_(num), next_(0) {
       if (mode_ == UNIQUE_RANDOM) {
         // NOTE: if memory consumption of this approach becomes a concern,
         // we can either break it into pieces and only random shuffle a section
@@ -4742,6 +4750,58 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     snprintf(msg, sizeof(msg),
              "( updates:%" PRIu64 " found:%" PRIu64 ")", readwrites_, found);
     thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(msg);
+  }
+
+  // Read-XOR-write for random keys. Xors the existing value with a randomly
+  // generated value, and stores the result. Assuming A in the array of bytes
+  // representing the existing value, we generate an array B of the same size,
+  // then compute C = A^B as C[i]=A[i]^B[i], and store C
+  void XORUpdateRandom(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    RandomGenerator gen;
+    std::string existing_value;
+    int64_t found = 0;
+    Duration duration(FLAGS_duration, readwrites_);
+
+    BytesXOROperator xor_operator;
+
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    // the number of iterations is the larger of read_ or write_
+    while (!duration.Done(1)) {
+      DB* db = SelectDB(thread);
+      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+
+      auto status = db->Get(options, key, &existing_value);
+      if (status.ok()) {
+        ++found;
+      } else if (!status.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n",
+                status.ToString().c_str());
+        exit(1);
+      }
+
+      Slice value = gen.Generate(value_size_);
+      std::string new_value;
+
+      if (status.ok()) {
+        Slice existing_value_slice = Slice(existing_value);
+        xor_operator.XOR(&existing_value_slice, value, &new_value);
+      } else {
+        xor_operator.XOR(nullptr, value, &new_value);
+      }
+
+      Status s = db->Put(write_options_, key, Slice(new_value));
+      if (!s.ok()) {
+        fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+      thread->stats.FinishedOps(nullptr, db, 1);
+    }
+    char msg[100];
+    snprintf(msg, sizeof(msg),
+             "( updates:%" PRIu64 " found:%" PRIu64 ")", readwrites_, found);
     thread->stats.AddMessage(msg);
   }
 

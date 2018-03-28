@@ -100,7 +100,7 @@ public:
        gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
 
  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-     const CompactionFilter::Context& context) override {
+     const CompactionFilter::Context& /*context*/) override {
    return unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
        purge_ttl_on_expiration_, gc_grace_period_in_seconds_));
   }

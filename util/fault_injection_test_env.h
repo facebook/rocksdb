@@ -68,6 +68,13 @@ class TestWritableFile : public WritableFile {
   virtual Status Flush() override;
   virtual Status Sync() override;
   virtual bool IsSyncThreadSafe() const override { return true; }
+  virtual Status PositionedAppend(const Slice& data,
+                                  uint64_t offset) override {
+    return target_->PositionedAppend(data, offset);
+  }
+  virtual bool use_direct_io() const override {
+    return target_->use_direct_io();
+  };
 
  private:
   FileState state_;

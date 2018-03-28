@@ -25,7 +25,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval),
       p_index_builder_(p_index_builder),
-      filters_in_partition_(0) {
+      filters_in_partition_(0),
+      num_added_(0) {
   filters_per_partition_ =
       filter_bits_builder_->CalculateNumEntry(partition_size);
 }
@@ -53,6 +54,7 @@ void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
   MaybeCutAFilterBlock();
   filter_bits_builder_->AddKey(key);
   filters_in_partition_++;
+  num_added_++;
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(
@@ -88,7 +90,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     const SliceTransform* prefix_extractor, bool _whole_key_filtering,
-    BlockContents&& contents, FilterBitsReader* filter_bits_reader,
+    BlockContents&& contents, FilterBitsReader* /*filter_bits_reader*/,
     Statistics* stats, const Comparator& comparator,
     const BlockBasedTable* table)
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
@@ -279,7 +281,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   auto& file = table_->rep_->file;
   prefetch_buffer.reset(new FilePrefetchBuffer());
-  s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
+  s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
+    static_cast<size_t>(prefetch_len));
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();

@@ -219,6 +219,31 @@ Status WritableFileWriter::Append(const Slice& data) {
   return s;
 }
 
+Status WritableFileWriter::Pad(const size_t pad_bytes) {
+  assert(pad_bytes < kDefaultPageSize);
+  size_t left = pad_bytes;
+  size_t cap = buf_.Capacity() - buf_.CurrentSize();
+
+  // Assume pad_bytes is small compared to buf_ capacity. So we always
+  // use buf_ rather than write directly to file in certain cases like
+  // Append() does.
+  while (left) {
+    size_t append_bytes = std::min(cap, left);
+    buf_.PadWith(append_bytes, 0);
+    left -= append_bytes;
+    if (left > 0) {
+      Status s = Flush();
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    cap = buf_.Capacity() - buf_.CurrentSize();
+  }
+  pending_sync_ = true;
+  filesize_ += pad_bytes;
+  return Status::OK();
+}
+
 Status WritableFileWriter::Close() {
 
   // Do not quit immediately on failure the file MUST be closed
@@ -516,7 +541,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
       *result = Slice(scratch, cached_len);
       return Status::OK();
     }
-    size_t advanced_offset = offset + cached_len;
+    size_t advanced_offset = static_cast<size_t>(offset + cached_len);
     // In the case of cache hit advanced_offset is already aligned, means that
     // chunk_offset equals to advanced_offset
     size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
@@ -549,12 +574,13 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
       // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
       return Status::OK();
     }
-    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
+    size_t offset_ = static_cast<size_t>(offset);
+    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset_);
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
     }
     return ReadIntoBuffer(prefetch_offset,
-                          Roundup(offset + n, alignment_) - prefetch_offset);
+                          Roundup(offset_ + n, alignment_) - prefetch_offset);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
@@ -614,17 +640,18 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
                                     uint64_t offset, size_t n) {
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
-  uint64_t rounddown_offset = Rounddown(offset, alignment);
-  uint64_t roundup_end = Roundup(offset + n, alignment);
+  size_t offset_ = static_cast<size_t>(offset);
+  uint64_t rounddown_offset = Rounddown(offset_, alignment);
+  uint64_t roundup_end = Roundup(offset_ + n, alignment);
   uint64_t roundup_len = roundup_end - rounddown_offset;
   assert(roundup_len >= alignment);
   assert(roundup_len % alignment == 0);
   buffer_.Alignment(alignment);
-  buffer_.AllocateNewBuffer(roundup_len);
+  buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len));
 
   Slice result;
-  Status s = reader->Read(rounddown_offset, roundup_len, &result,
-                          buffer_.BufferStart());
+  Status s = reader->Read(rounddown_offset, static_cast<size_t>(roundup_len),
+                          &result, buffer_.BufferStart());
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
     buffer_len_ = result.size();

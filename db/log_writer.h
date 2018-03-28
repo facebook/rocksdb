@@ -49,7 +49,7 @@ namespace log {
  * |CRC (4B) | Size (2B) | Type (1B) | Payload   |
  * +---------+-----------+-----------+--- ... ---+
  *
- * CRC = 32bit hash computed over the payload using CRC
+ * CRC = 32bit hash computed over the record type and payload using CRC
  * Size = Length of the payload data
  * Type = Type of record
  *        (kZeroType, kFullType, kFirstType, kLastType, kMiddleType )

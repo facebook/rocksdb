@@ -35,11 +35,21 @@ class SstFileManager {
   // thread-safe.
   virtual void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) = 0;
 
+  // Set the amount of buffer room each compaction should be able to leave.
+  // In other words, at its maximum disk space consumption, the compaction
+  // should still leave compaction_buffer_size available on the disk so that
+  // other background functions may continue, such as logging and flushing.
+  virtual void SetCompactionBufferSize(uint64_t compaction_buffer_size) = 0;
+
   // Return true if the total size of SST files exceeded the maximum allowed
   // space usage.
   //
   // thread-safe.
   virtual bool IsMaxAllowedSpaceReached() = 0;
+
+  // Returns true if the total size of SST files as well as estimated size
+  // of ongoing compactions exceeds the maximums allowed space usage.
+  virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
 
   // Return the total size of all tracked files.
   // thread-safe
@@ -86,10 +96,14 @@ class SstFileManager {
 // @param max_trash_db_ratio: If the trash size constitutes for more than this
 //    fraction of the total DB size we will start deleting new files passed to
 //    DeleteScheduler immediately
+// @param bytes_max_delete_chunk: if a single file is larger than delete chunk,
+//    ftruncate the file by this size each time, rather than dropping the whole
+//    file. 0 means to always delete the whole file.
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
-    double max_trash_db_ratio = 0.25);
+    double max_trash_db_ratio = 0.25,
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
 
 }  // namespace rocksdb

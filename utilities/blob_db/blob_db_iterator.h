@@ -46,28 +46,36 @@ class BlobDBIterator : public Iterator {
     StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->SeekToFirst();
-    UpdateBlobValue();
+    while (UpdateBlobValue()) {
+      iter_->Next();
+    }
   }
 
   void SeekToLast() override {
     StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->SeekToLast();
-    UpdateBlobValue();
+    while (UpdateBlobValue()) {
+      iter_->Prev();
+    }
   }
 
   void Seek(const Slice& target) override {
     StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->Seek(target);
-    UpdateBlobValue();
+    while (UpdateBlobValue()) {
+      iter_->Next();
+    }
   }
 
   void SeekForPrev(const Slice& target) override {
     StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->SeekForPrev(target);
-    UpdateBlobValue();
+    while (UpdateBlobValue()) {
+      iter_->Prev();
+    }
   }
 
   void Next() override {
@@ -75,7 +83,9 @@ class BlobDBIterator : public Iterator {
     StopWatch next_sw(env_, statistics_, BLOB_DB_NEXT_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_NEXT);
     iter_->Next();
-    UpdateBlobValue();
+    while (UpdateBlobValue()) {
+      iter_->Next();
+    }
   }
 
   void Prev() override {
@@ -83,7 +93,9 @@ class BlobDBIterator : public Iterator {
     StopWatch prev_sw(env_, statistics_, BLOB_DB_PREV_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_PREV);
     iter_->Prev();
-    UpdateBlobValue();
+    while (UpdateBlobValue()) {
+      iter_->Prev();
+    }
   }
 
   Slice key() const override {
@@ -102,12 +114,23 @@ class BlobDBIterator : public Iterator {
   // Iterator::Refresh() not supported.
 
  private:
-  void UpdateBlobValue() {
+  // Return true if caller should continue to next value.
+  bool UpdateBlobValue() {
     TEST_SYNC_POINT("BlobDBIterator::UpdateBlobValue:Start:1");
     TEST_SYNC_POINT("BlobDBIterator::UpdateBlobValue:Start:2");
     value_.Reset();
-    if (iter_->Valid() && iter_->IsBlob()) {
-      status_ = blob_db_->GetBlobValue(iter_->key(), iter_->value(), &value_);
+    if (iter_->Valid() && iter_->status().ok() && iter_->IsBlob()) {
+      Status s = blob_db_->GetBlobValue(iter_->key(), iter_->value(), &value_);
+      if (s.IsNotFound()) {
+        return true;
+      } else {
+        if (!s.ok()) {
+          status_ = s;
+        }
+        return false;
+      }
+    } else {
+      return false;
     }
   }
 

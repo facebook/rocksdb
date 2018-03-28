@@ -191,7 +191,7 @@ public class Options extends RocksObject
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
-            comparator instanceof DirectComparator);
+            comparator.getComparatorType().getValue());
     comparator_ = comparator;
     return this;
   }
@@ -1756,7 +1756,7 @@ public class Options extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle, boolean isDirect);
+      long comparatorHandle, byte comparatorType);
   private native void setMergeOperatorName(
       long handle, String name);
   private native void setMergeOperator(

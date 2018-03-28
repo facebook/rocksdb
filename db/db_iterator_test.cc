@@ -50,7 +50,7 @@ class DBIteratorTest : public DBTestBase,
 
 class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
  public:
-  virtual bool Update(const Slice& key, const Slice& value) override {
+  virtual bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     if (!start_) {
       start_ = true;
       return false;
@@ -70,8 +70,8 @@ class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
   }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
-    const BlockBasedTableOptions& table_options,
-    const BlockBuilder& data_block_builder) const override {
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& /*data_block_builder*/) const override {
     return new FlushBlockEveryKeyPolicy;
   }
 };

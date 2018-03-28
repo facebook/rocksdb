@@ -36,7 +36,10 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   for (auto rtxn : rtxns) {
-    AddPrepared(rtxn.second->seq_);
+    auto cnt = rtxn.second->batch_cnt_ ? rtxn.second->batch_cnt_ : 1;
+    for (size_t i = 0; i < cnt; i++) {
+      AddPrepared(rtxn.second->seq_ + i);
+    }
   }
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
@@ -239,7 +242,7 @@ struct WritePreparedTxnDB::IteratorState {
 };
 
 namespace {
-static void CleanupWritePreparedTxnDBIterator(void* arg1, void* arg2) {
+static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
   delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
@@ -436,7 +439,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
 }
 
 void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
-                                          uint64_t rollback_seq) {
+                                          uint64_t /*rollback_seq*/) {
   ROCKS_LOG_DETAILS(
       info_log_, "Txn %" PRIu64 " rolling back with rollback seq of " PRIu64 "",
       prep_seq, rollback_seq);
@@ -475,7 +478,8 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
   CommitEntry64b evicted_64b;
   CommitEntry evicted;
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted_64b, &evicted);
-  if (to_be_evicted) {
+  if (LIKELY(to_be_evicted)) {
+    assert(evicted.prep_seq != prepare_seq);
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
     ROCKS_LOG_DETAILS(info_log_,
                       "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
@@ -491,7 +495,11 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
   }
   bool succ =
       ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
-  if (!succ) {
+  if (UNLIKELY(!succ)) {
+    ROCKS_LOG_ERROR(info_log_,
+                    "ExchangeCommitEntry failed on [%" PRIu64 "] %" PRIu64
+                    ",%" PRIu64 " retrying...",
+                    indexed_seq, prepare_seq, commit_seq);
     // A very rare event, in which the commit entry is updated before we do.
     // Here we apply a very simple solution of retrying.
     if (loop_cnt > 100) {
@@ -783,16 +791,21 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   db_impl_->CancelAllBackgroundWork(true /*wait*/);
 }
 
+void SubBatchCounter::InitWithComp(const uint32_t cf) {
+  auto cmp = comparators_[cf];
+  keys_[cf] = CFKeys(SetComparator(cmp));
+}
+
 void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
   CFKeys& cf_keys = keys_[cf];
   if (cf_keys.size() == 0) {  // just inserted
-    auto cmp = comparators_[cf];
-    keys_[cf] = CFKeys(SetComparator(cmp));
+    InitWithComp(cf);
   }
   auto it = cf_keys.insert(key);
   if (it.second == false) {  // second is false if a element already existed.
     batches_++;
     keys_.clear();
+    InitWithComp(cf);
     keys_[cf].insert(key);
   }
 }

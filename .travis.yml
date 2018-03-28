@@ -20,8 +20,9 @@ addons:
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
-  - TEST_GROUP=2 # 30-32 minutes
-  - TEST_GROUP=3 # ? minutes - under development
+  - TEST_GROUP=2 # 18-20 minutes
+  - TEST_GROUP=3 # 20-22 minutes
+  - TEST_GROUP=4 # 12-14 minutes
   # Run java tests
   - JOB_NAME=java_test # 4-11 minutes
   # Build ROCKSDB_LITE
@@ -39,6 +40,8 @@ matrix:
     env: TEST_GROUP=2
   - os: osx
     env: TEST_GROUP=3
+  - os: osx
+    env: TEST_GROUP=4
   - os : osx
     env: JOB_NAME=cmake-mingw
   - os : linux
@@ -65,9 +68,10 @@ script:
   - ${CXX} --version
   - if [ `command -v ccache` ]; then ccache -C; fi
   - if [ "${TEST_GROUP}" == 'platform_dependent' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 all_but_some_tests check_some; fi
-  - if [ "${TEST_GROUP}" == '1' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
-  - if [ "${TEST_GROUP}" == '2' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some; fi
-  - if [ "${TEST_GROUP}" == '3' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_prepared_transaction_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == '1' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=full_filter_block_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == '2' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=full_filter_block_test ROCKSDBTESTS_END=write_batch_with_index_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == '3' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_batch_with_index_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == '4' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_prepared_transaction_test make -j4 check_some; fi
   - if [ "${JOB_NAME}" == 'java_test' ]; then OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest; fi
   - if [ "${JOB_NAME}" == 'lite_build' ]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib tools; fi
   - if [ "${JOB_NAME}" == 'examples' ]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi

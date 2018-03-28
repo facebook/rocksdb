@@ -291,7 +291,17 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   bool exclusive = options.exclusive_manual_compaction;
 
   bool flush_needed = true;
-  if (!options.allow_write_stall) {
+  if (begin != nullptr && end != nullptr) {
+    // TODO(ajkr): We could also optimize away the flush in certain cases where
+    // one/both sides of the interval are unbounded. But it requires more
+    // changes to RangesOverlapWithMemtables.
+    Range range(*begin, *end);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    cfd->RangesOverlapWithMemtables({range}, super_version, &flush_needed);
+    CleanupSuperVersion(super_version);
+  }
+
+  if (!options.allow_write_stall && flush_needed) {
     InstrumentedMutexLock l(&mutex_);
     uint64_t orig_active_memtable_id = cfd->mem()->GetID();
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
@@ -451,7 +461,8 @@ Status DBImpl::CompactFiles(
     const CompactionOptions& compact_options,
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& input_file_names,
-    const int output_level, const int output_path_id) {
+    const int output_level, const int output_path_id,
+    std::vector<std::string>* const output_file_names) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
@@ -478,7 +489,7 @@ Status DBImpl::CompactFiles(
     WaitForIngestFile();
 
     s = CompactFilesImpl(compact_options, cfd, sv->current,
-                         input_file_names, output_level,
+                         input_file_names, output_file_names, output_level,
                          output_path_id, &job_context, &log_buffer);
   }
   if (sv->Unref()) {
@@ -522,6 +533,7 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
+    std::vector<std::string>* const output_file_names,
     const int output_level, int output_path_id, JobContext* job_context,
     LogBuffer* log_buffer) {
   mutex_.AssertHeld();
@@ -643,7 +655,7 @@ Status DBImpl::CompactFilesImpl(
   if (status.ok()) {
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
-       *c->mutable_cf_options());
+        *c->mutable_cf_options(), FlushReason::kManualCompaction);
   }
   c->ReleaseCompactionFiles(s);
 
@@ -667,6 +679,14 @@ Status DBImpl::CompactFilesImpl(
       if (!new_bg_error.ok()) {
         bg_error_ = new_bg_error;
       }
+    }
+  }
+
+  if (output_file_names != nullptr) {
+    for (const auto newf : c->edit()->GetNewFiles()) {
+      (*output_file_names).push_back(TableFileName(
+              immutable_db_options_.db_paths, newf.second.fd.GetNumber(),
+              newf.second.fd.GetPathId()) );
     }
   }
 
@@ -854,7 +874,7 @@ int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
   return cfh->cfd()->NumberLevels();
 }
 
-int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
+int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
   return 0;
 }
 
@@ -871,7 +891,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualCompaction);
+      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
@@ -1493,7 +1513,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     if (made_progress ||
         (bg_compaction_scheduled_ == 0 &&
          bg_bottom_compaction_scheduled_ == 0) ||
-        HasPendingManualCompaction()) {
+        HasPendingManualCompaction() || unscheduled_compactions_ == 0) {
       // signal if
       // * made_progress -- need to wakeup DelayWrite
       // * bg_{bottom,}_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
@@ -1556,6 +1576,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
+#ifndef ROCKSDB_LITE
+  bool sfm_bookkeeping = false;
+#endif  // ROCKSDB_LITE
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);
@@ -1618,27 +1641,66 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
       c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
+
+      bool enough_room = true;
       if (c != nullptr) {
-        // update statistics
-        MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
-                    c->inputs(0)->size());
-        // There are three things that can change compaction score:
-        // 1) When flush or compaction finish. This case is covered by
-        // InstallSuperVersionAndScheduleWork
-        // 2) When MutableCFOptions changes. This case is also covered by
-        // InstallSuperVersionAndScheduleWork, because this is when the new
-        // options take effect.
-        // 3) When we Pick a new compaction, we "remove" those files being
-        // compacted from the calculation, which then influences compaction
-        // score. Here we check if we need the new compaction even without the
-        // files that are currently being compacted. If we need another
-        // compaction, we might be able to execute it in parallel, so we add it
-        // to the queue and schedule a new thread.
-        if (cfd->NeedsCompaction()) {
-          // Yes, we need more compactions!
+#ifndef ROCKSDB_LITE
+        auto sfm = static_cast<SstFileManagerImpl*>(
+            immutable_db_options_.sst_file_manager.get());
+        if (sfm) {
+          enough_room = sfm->EnoughRoomForCompaction(c.get());
+          if (enough_room) {
+            sfm_bookkeeping = true;
+          }
+        }
+#endif  // ROCKSDB_LITE
+        if (!enough_room) {
+          // Just in case tests want to change the value of enough_room
+          TEST_SYNC_POINT_CALLBACK(
+              "DBImpl::BackgroundCompaction():CancelledCompaction",
+              &enough_room);
+        }
+        if (!enough_room) {
+          // Then don't do the compaction
+          c->ReleaseCompactionFiles(status);
+          c->column_family_data()
+              ->current()
+              ->storage_info()
+              ->ComputeCompactionScore(*(c->immutable_cf_options()),
+                                       *(c->mutable_cf_options()));
+
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "Cancelled compaction because not enough room");
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
-          MaybeScheduleFlushOrCompaction();
+
+          c.reset();
+          // Don't need to sleep here, because BackgroundCallCompaction
+          // will sleep if !s.ok()
+          status = Status::CompactionTooLarge();
+          RecordTick(stats_, COMPACTION_CANCELLED, 1);
+        } else {
+          // update statistics
+          MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
+                      c->inputs(0)->size());
+          // There are three things that can change compaction score:
+          // 1) When flush or compaction finish. This case is covered by
+          // InstallSuperVersionAndScheduleWork
+          // 2) When MutableCFOptions changes. This case is also covered by
+          // InstallSuperVersionAndScheduleWork, because this is when the new
+          // options take effect.
+          // 3) When we Pick a new compaction, we "remove" those files being
+          // compacted from the calculation, which then influences compaction
+          // score. Here we check if we need the new compaction even without the
+          // files that are currently being compacted. If we need another
+          // compaction, we might be able to execute it in parallel, so we add
+          // it to the queue and schedule a new thread.
+          if (cfd->NeedsCompaction()) {
+            // Yes, we need more compactions!
+            AddToCompactionQueue(cfd);
+            ++unscheduled_compactions_;
+            MaybeScheduleFlushOrCompaction();
+          }
         }
       }
     }
@@ -1665,7 +1727,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
-        *c->mutable_cf_options());
+        *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -1712,7 +1774,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
-        *c->mutable_cf_options());
+        *c->mutable_cf_options(), FlushReason::kAutoCompaction);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -1791,13 +1853,23 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
           c->column_family_data(), &job_context->superversion_context,
-          *c->mutable_cf_options());
+          *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     }
     *made_progress = true;
   }
   if (c != nullptr) {
     c->ReleaseCompactionFiles(status);
     *made_progress = true;
+
+#ifndef ROCKSDB_LITE
+    // Need to make sure SstFileManager does its bookkeeping
+    auto sfm = static_cast<SstFileManagerImpl*>(
+        immutable_db_options_.sst_file_manager.get());
+    if (sfm && sfm_bookkeeping) {
+      sfm->OnCompactionCompletion(c.get());
+    }
+#endif  // ROCKSDB_LITE
+
     NotifyOnCompactionCompleted(
         c->column_family_data(), c.get(), status,
         compaction_job_stats, job_context->job_id);
@@ -1805,7 +1877,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   // this will unref its input_version and column_family_data
   c.reset();
 
-  if (status.ok()) {
+  if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
@@ -1972,7 +2044,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, FlushReason flush_reason) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -1991,7 +2063,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush(cfd, FlushReason::kSuperVersionChange);
+  SchedulePendingFlush(cfd, flush_reason);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 

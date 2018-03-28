@@ -355,7 +355,7 @@ class NumberValT : public FbsonValue {
   unsigned int numPackedBytes() const { return sizeof(FbsonValue) + sizeof(T); }
 
   // catch all unknow specialization of the template class
-  bool setVal(T value) { return false; }
+  bool setVal(T /*value*/) { return false; }
 
  private:
   T num_;

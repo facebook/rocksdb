@@ -44,8 +44,8 @@ class WalFilter {
   // @params cf_name_id_map   column_family_name to column_family_id map
 
   virtual void ColumnFamilyLogNumberMap(
-    const std::map<uint32_t, uint64_t>& cf_lognumber_map,
-    const std::map<std::string, uint32_t>& cf_name_id_map) {}
+      const std::map<uint32_t, uint64_t>& /*cf_lognumber_map*/,
+      const std::map<std::string, uint32_t>& /*cf_name_id_map*/) {}
 
   // LogRecord is invoked for each log record encountered for all the logs
   // during replay on logs on recovery. This method can be used to:
@@ -75,11 +75,9 @@ class WalFilter {
   // @returns               Processing option for the current record.
   //                        Please see WalProcessingOption enum above for
   //                        details.
-  virtual WalProcessingOption LogRecordFound(unsigned long long log_number,
-                                        const std::string& log_file_name,
-                                        const WriteBatch& batch,
-                                        WriteBatch* new_batch,
-                                        bool* batch_changed) {
+  virtual WalProcessingOption LogRecordFound(
+      unsigned long long /*log_number*/, const std::string& /*log_file_name*/,
+      const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed) {
     // Default implementation falls back to older function for compatibility
     return LogRecord(batch, new_batch, batch_changed);
   }
@@ -87,9 +85,9 @@ class WalFilter {
   // Please see the comments for LogRecord above. This function is for 
   // compatibility only and contains a subset of parameters. 
   // New code should use the function above.
-  virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-                                        WriteBatch* new_batch,
-                                        bool* batch_changed) const {
+  virtual WalProcessingOption LogRecord(const WriteBatch& /*batch*/,
+                                        WriteBatch* /*new_batch*/,
+                                        bool* /*batch_changed*/) const {
     return WalProcessingOption::kContinueProcessing;
   }
 

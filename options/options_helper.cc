@@ -96,6 +96,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
+  options.enable_pipelined_write = immutable_db_options.enable_pipelined_write;
   options.allow_concurrent_memtable_write =
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
@@ -917,6 +918,17 @@ Status ParseColumnFamilyOption(const std::string& name,
               "unable to parse the specified CF option " + name);
         }
         new_options->compression_opts.max_dict_bytes =
+            ParseInt(value.substr(start, value.size() - start));
+        end = value.find(':', start);
+      }
+      // zstd_max_train_bytes is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->compression_opts.zstd_max_train_bytes =
             ParseInt(value.substr(start, value.size() - start));
       }
     } else {

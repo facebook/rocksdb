@@ -48,58 +48,61 @@ uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
   return min_log;
 }
 
-// TODO(myabandeh): Avoid using locks
 void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
   assert(log != 0);
-  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
+  std::lock_guard<std::mutex> lock(prepared_section_completed_mutex_);
   auto it = prepared_section_completed_.find(log);
-  assert(it != prepared_section_completed_.end());
-  it->second += 1;
+  if (UNLIKELY(it == prepared_section_completed_.end())) {
+    prepared_section_completed_[log] = 1;
+  } else {
+    it->second += 1;
+  }
 }
 
-// TODO(myabandeh): Avoid using locks
 void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
   assert(log != 0);
-  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
-  min_log_with_prep_.push(log);
-  auto it = prepared_section_completed_.find(log);
-  if (it == prepared_section_completed_.end()) {
-    prepared_section_completed_[log] = 0;
+  std::lock_guard<std::mutex> lock(logs_with_prep_mutex_);
+
+  auto rit = logs_with_prep_.rbegin();
+  bool updated = false;
+  // Most probably the last log is the one that is being marked for
+  // having a prepare section; so search from the end.
+  for (; rit != logs_with_prep_.rend() && rit->log >= log; ++rit) {
+    if (rit->log == log) {
+      rit->cnt++;
+      updated = true;
+      break;
+    }
+  }
+  if (!updated) {
+    // We are either at the start, or at a position with rit->log < log
+    logs_with_prep_.insert(rit.base(), {log, 1});
   }
 }
 
 uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
-
-  if (!allow_2pc()) {
-    return 0;
-  }
-
-  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
-  uint64_t min_log = 0;
-
-  // first we look in the prepared heap where we keep
-  // track of transactions that have been prepared (written to WAL)
-  // but not yet committed.
-  while (!min_log_with_prep_.empty()) {
-    min_log = min_log_with_prep_.top();
-
-    auto it = prepared_section_completed_.find(min_log);
-
-    // value was marked as 'deleted' from heap
-    if (it != prepared_section_completed_.end() && it->second > 0) {
-      it->second -= 1;
-      min_log_with_prep_.pop();
-
-      // back to squere one...
-      min_log = 0;
-      continue;
-    } else {
-      // found a valid value
-      break;
+  std::lock_guard<std::mutex> lock(logs_with_prep_mutex_);
+  auto it = logs_with_prep_.begin();
+  // start with the smallest log
+  for (; it != logs_with_prep_.end();) {
+    auto min_log = it->log;
+    {
+      std::lock_guard<std::mutex> lock2(prepared_section_completed_mutex_);
+      auto completed_it = prepared_section_completed_.find(min_log);
+      if (completed_it == prepared_section_completed_.end() ||
+          completed_it->second < it->cnt) {
+        return min_log;
+      }
+      assert(completed_it != prepared_section_completed_.end() &&
+             completed_it->second == it->cnt);
+      prepared_section_completed_.erase(completed_it);
     }
+    // erase from beginning in vector is not efficient but this function is not
+    // on the fast path.
+    it = logs_with_prep_.erase(it);
   }
-
-  return min_log;
+  // no such log found
+  return 0;
 }
 
 uint64_t DBImpl::MinLogNumberToKeep() {
@@ -110,11 +113,11 @@ uint64_t DBImpl::MinLogNumberToKeep() {
     // sections of outstanding transactions.
     //
     // We must check min logs with outstanding prep before we check
-    // logs referneces by memtables because a log referenced by the
+    // logs references by memtables because a log referenced by the
     // first data structure could transition to the second under us.
     //
     // TODO(horuff): iterating over all column families under db mutex.
-    // should find more optimial solution
+    // should find more optimal solution
     auto min_log_in_prep_heap = FindMinLogContainingOutstandingPrep();
 
     if (min_log_in_prep_heap != 0 && min_log_in_prep_heap < log_number) {
@@ -150,7 +153,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   bool doing_the_full_scan = false;
 
-  // logic for figurint out if we're doing the full scan
+  // logic for figuring out if we're doing the full scan
   if (no_full_scan) {
     doing_the_full_scan = false;
   } else if (force ||
@@ -170,7 +173,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // threads
   // Since job_context->min_pending_output is set, until file scan finishes,
   // mutex_ cannot be released. Otherwise, we might see no min_pending_output
-  // here but later find newer generated unfinalized files while scannint.
+  // here but later find newer generated unfinalized files while scanning.
   if (!pending_outputs_.empty()) {
     job_context->min_pending_output = *pending_outputs_.begin();
   } else {
@@ -341,7 +344,7 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
 }
 
 // Diffs the files listed in filenames and those that do not
-// belong to live files are posibly removed. Also, removes all the
+// belong to live files are possibly removed. Also, removes all the
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {

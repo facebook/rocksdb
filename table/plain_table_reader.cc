@@ -191,7 +191,7 @@ void PlainTableReader::SetupForCompaction() {
 
 InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                                 Arena* arena,
-                                                bool skip_filters) {
+                                                bool /*skip_filters*/) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
@@ -537,8 +537,8 @@ void PlainTableReader::Prepare(const Slice& target) {
   }
 }
 
-Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
-                             GetContext* get_context, bool skip_filters) {
+Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
+                             GetContext* get_context, bool /*skip_filters*/) {
   // Check bloom filter first.
   Slice prefix_slice;
   uint32_t prefix_hash;
@@ -602,7 +602,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   return Status::OK();
 }
 
-uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& key) {
+uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/) {
   return 0;
 }
 
@@ -706,7 +706,7 @@ void PlainTableIterator::Seek(const Slice& target) {
   }
 }
 
-void PlainTableIterator::SeekForPrev(const Slice& target) {
+void PlainTableIterator::SeekForPrev(const Slice& /*target*/) {
   assert(false);
   status_ =
       Status::NotSupported("SeekForPrev() is not supported in PlainTable");

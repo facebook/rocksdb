@@ -150,7 +150,7 @@ class EncryptedRandomAccessFile : public RandomAccessFile {
   // may not have been modified.
   //
   // This function guarantees, for IDs from a given environment, two unique ids
-  // cannot be made equal to eachother by adding arbitrary bytes to one of
+  // cannot be made equal to each other by adding arbitrary bytes to one of
   // them. That is, no unique ID is the prefix of another.
   //
   // This function guarantees that the returned ID will not be interpretable as
@@ -584,7 +584,7 @@ class EncryptedEnv : public EnvWrapper {
     return Status::OK();
   }
 
-  // Open `fname` for random read and write, if file dont exist the file
+  // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
@@ -828,7 +828,7 @@ Status CTRCipherStream::DecryptBlock(uint64_t blockIndex, char *data, char* scra
 // GetPrefixLength returns the length of the prefix that is added to every file
 // and used for storing encryption options.
 // For optimal performance, the prefix length should be a multiple of 
-// the a page size.
+// the page size.
 size_t CTREncryptionProvider::GetPrefixLength() {
   return defaultPrefixLength;
 }
@@ -844,7 +844,9 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
 
 // CreateNewPrefix initialized an allocated block of prefix memory 
 // for a new file.
-Status CTREncryptionProvider::CreateNewPrefix(const std::string& fname, char *prefix, size_t prefixLength) {
+Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
+                                              char* prefix,
+                                              size_t prefixLength) {
   // Create & seed rnd.
   Random rnd((uint32_t)Env::Default()->NowMicros());
   // Fill entire prefix block with random values.
@@ -873,7 +875,9 @@ Status CTREncryptionProvider::CreateNewPrefix(const std::string& fname, char *pr
 // in plain text.
 // Returns the amount of space (starting from the start of the prefix)
 // that has been initialized.
-size_t CTREncryptionProvider::PopulateSecretPrefixPart(char *prefix, size_t prefixLength, size_t blockSize) {
+size_t CTREncryptionProvider::PopulateSecretPrefixPart(char* /*prefix*/,
+                                                       size_t /*prefixLength*/,
+                                                       size_t /*blockSize*/) {
   // Nothing to do here, put in custom data in override when needed.
   return 0;
 }
@@ -898,8 +902,10 @@ Status CTREncryptionProvider::CreateCipherStream(const std::string& fname, const
 
 // CreateCipherStreamFromPrefix creates a block access cipher stream for a file given
 // given name and options. The given prefix is already decrypted.
-Status CTREncryptionProvider::CreateCipherStreamFromPrefix(const std::string& fname, const EnvOptions& options,
-    uint64_t initialCounter, const Slice& iv, const Slice& prefix, unique_ptr<BlockAccessCipherStream>* result) {
+Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
+    const std::string& /*fname*/, const EnvOptions& /*options*/,
+    uint64_t initialCounter, const Slice& iv, const Slice& /*prefix*/,
+    unique_ptr<BlockAccessCipherStream>* result) {
   (*result) = unique_ptr<BlockAccessCipherStream>(new CTRCipherStream(cipher_, iv.data(), initialCounter));
   return Status::OK();
 }

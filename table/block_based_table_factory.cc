@@ -92,8 +92,7 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
 }
 
 Status BlockBasedTableFactory::SanitizeOptions(
-    const DBOptions& db_opts,
-    const ColumnFamilyOptions& cf_opts) const {
+    const DBOptions& /*db_opts*/, const ColumnFamilyOptions& cf_opts) const {
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
     return Status::InvalidArgument("Hash index is specified for block-based "
@@ -114,6 +113,15 @@ Status BlockBasedTableFactory::SanitizeOptions(
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
+  }
+  if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
+    return Status::InvalidArgument("Enable block_align, but compression "
+        "enabled");
+  }
+  if (table_options_.block_align &&
+      (table_options_.block_size & (table_options_.block_size - 1))) {
+    return Status::InvalidArgument(
+        "Block alignment requested but block size is not a power of 2");
   }
   return Status::OK();
 }
@@ -225,6 +233,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  block_align: %d\n",
+           table_options_.block_align);
   ret.append(buffer);
   return ret;
 }

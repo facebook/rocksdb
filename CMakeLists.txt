@@ -56,7 +56,7 @@ if(MSVC)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
-    # FreeBSD has jemaloc as default malloc
+    # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
   else()
@@ -569,12 +569,14 @@ set(SOURCES
         util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
+        util/sync_point_impl.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
         util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
+        utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
         utilities/blob_db/blob_dump_tool.cc
@@ -602,6 +604,7 @@ set(SOURCES
         utilities/leveldb_options/leveldb_options.cc
         utilities/lua/rocks_lua_compaction_filter.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
         utilities/merge_operators/string_append/stringappend.cc

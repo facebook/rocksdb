@@ -54,6 +54,18 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   * <p>Constructor to be used by
+   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)},
+   * {@link ColumnFamilyDescriptor#columnFamilyOptions()}
+   * and also called via JNI.</p>
+   *
+   * @param handle native handle to ColumnFamilyOptions instance.
+   */
+  ColumnFamilyOptions(final long handle) {
+    super(handle);
+  }
+
+  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
@@ -151,7 +163,7 @@ public class ColumnFamilyOptions extends RocksObject
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isOwningHandle());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
-            comparator instanceof DirectComparator);
+            comparator.getComparatorType().getValue());
     comparator_ = comparator;
     return this;
   }
@@ -788,17 +800,6 @@ public class ColumnFamilyOptions extends RocksObject
     return forceConsistencyChecks(nativeHandle_);
   }
 
-  /**
-   * <p>Constructor to be used by
-   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
-   * and also called via JNI.
-   *
-   * @param handle native handle to ColumnFamilyOptions instance.
-   */
-  public ColumnFamilyOptions(final long handle) {
-    super(handle);
-  }
-
   private static native long getColumnFamilyOptionsFromProps(
       String optString);
 
@@ -815,7 +816,7 @@ public class ColumnFamilyOptions extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle, boolean isDirect);
+      long comparatorHandle, byte comparatorType);
   private native void setMergeOperatorName(long handle, String name);
   private native void setMergeOperator(long handle, long mergeOperatorHandle);
   private native void setCompactionFilterHandle(long handle,

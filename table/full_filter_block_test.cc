@@ -163,11 +163,13 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
 TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockBuilder builder(
       nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+  ASSERT_EQ(0, builder.NumAdded());
   builder.Add("foo");
   builder.Add("bar");
   builder.Add("box");
   builder.Add("box");
   builder.Add("hello");
+  ASSERT_EQ(5, builder.NumAdded());
   Slice block = builder.Finish();
   FullFilterBlockReader reader(
       nullptr, true, block,

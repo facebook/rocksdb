@@ -84,8 +84,12 @@ class ExternalSstFileIngestionJob {
   // Check if we need to flush the memtable before running the ingestion job
   // This will be true if the files we are ingesting are overlapping with any
   // key range in the memtable.
-  // REQUIRES: Mutex held
-  Status NeedsFlush(bool* flush_needed);
+  //
+  // @param super_version A referenced SuperVersion that will be held for the
+  //    duration of this function.
+  //
+  // Thread-safe
+  Status NeedsFlush(bool* flush_needed, SuperVersion* super_version);
 
   // Will execute the ingestion job and prepare edit() to be applied.
   // REQUIRES: Mutex held
@@ -110,10 +114,6 @@ class ExternalSstFileIngestionJob {
   Status GetIngestedFileInfo(const std::string& external_file,
                              IngestedFileInfo* file_to_ingest);
 
-  // Check if the files we are ingesting overlap with any memtable.
-  // REQUIRES: Mutex held
-  Status IngestedFilesOverlapWithMemtables(SuperVersion* sv, bool* overlap);
-
   // Assign `file_to_ingest` the appropriate sequence number and  the lowest
   // possible level that it can be ingested to according to compaction_style.
   // REQUIRES: Mutex held
@@ -132,17 +132,6 @@ class ExternalSstFileIngestionJob {
   // Set the file global sequence number to `seqno`
   Status AssignGlobalSeqnoForIngestedFile(IngestedFileInfo* file_to_ingest,
                                           SequenceNumber seqno);
-
-  // Check if `file_to_ingest` key range overlap with the range `iter` represent
-  // REQUIRES: Mutex held
-  Status IngestedFileOverlapWithIteratorRange(
-      const IngestedFileInfo* file_to_ingest, InternalIterator* iter,
-      bool* overlap);
-
-  // Check if `file_to_ingest` key range overlap with level
-  // REQUIRES: Mutex held
-  Status IngestedFileOverlapWithLevel(SuperVersion* sv,
-    IngestedFileInfo* file_to_ingest, int lvl, bool* overlap_with_level);
 
   // Check if `file_to_ingest` can fit in level `level`
   // REQUIRES: Mutex held

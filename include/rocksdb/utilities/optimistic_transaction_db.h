@@ -62,7 +62,7 @@ class OptimisticTransactionDB {
 
  protected:
   // To Create an OptimisticTransactionDB, call Open()
-  explicit OptimisticTransactionDB(DB* db) {}
+  explicit OptimisticTransactionDB(DB* /*db*/) {}
   OptimisticTransactionDB() {}
 
  private:

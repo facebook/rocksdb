@@ -78,6 +78,33 @@ int FindFileInRange(const InternalKeyComparator& icmp,
   return right;
 }
 
+Status OverlapWithIterator(const Comparator* ucmp,
+    const Slice& smallest_user_key,
+    const Slice& largest_user_key,
+    InternalIterator* iter,
+    bool* overlap) {
+  InternalKey range_start(smallest_user_key, kMaxSequenceNumber,
+                          kValueTypeForSeek);
+  iter->Seek(range_start.Encode());
+  if (!iter->status().ok()) {
+    return iter->status();
+  }
+
+  *overlap = false;
+  if (iter->Valid()) {
+    ParsedInternalKey seek_result;
+    if (!ParseInternalKey(iter->key(), &seek_result)) {
+      return Status::Corruption("DB have corrupted keys");
+    }
+
+    if (ucmp->Compare(seek_result.user_key, largest_user_key) <= 0) {
+      *overlap = true;
+    }
+  }
+
+  return iter->status();
+}
+
 // Class to help choose the next file to search for the particular key.
 // Searches and returns files level by level.
 // We can search level-by-level since entries never hop across
@@ -891,6 +918,15 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
   }
 }
 
+uint64_t Version::GetSstFilesSize() {
+  uint64_t sst_files_size = 0;
+  for (int level = 0; level < storage_info_.num_levels_; level++) {
+    for (const auto& file_meta : storage_info_.LevelFiles(level)) {
+      sst_files_size += file_meta->fd.GetFileSize();
+    }
+  }
+  return sst_files_size;
+}
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // Estimation will be inaccurate when:
@@ -999,6 +1035,59 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         false /* for_compaction */, IsFilterSkipped(level), level,
         range_del_agg));
   }
+}
+
+Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
+                                         const EnvOptions& env_options,
+                                         const Slice& smallest_user_key,
+                                         const Slice& largest_user_key,
+                                         int level, bool* overlap) {
+  assert(storage_info_.finalized_);
+
+  auto icmp = cfd_->internal_comparator();
+  auto ucmp = icmp.user_comparator();
+
+  Arena arena;
+  Status status;
+  RangeDelAggregator range_del_agg(icmp, {}, false);
+
+  *overlap = false;
+
+  if (level == 0) {
+    for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
+      const auto file = &storage_info_.LevelFilesBrief(0).files[i];
+      if (AfterFile(ucmp, &smallest_user_key, file) ||
+          BeforeFile(ucmp, &largest_user_key, file)) {
+        continue;
+      }
+      ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
+          read_options, env_options, cfd_->internal_comparator(), file->fd,
+          &range_del_agg, nullptr, cfd_->internal_stats()->GetFileReadHist(0),
+          false, &arena, false /* skip_filters */, 0 /* level */));
+      status = OverlapWithIterator(
+          ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
+      if (!status.ok() || *overlap) {
+        break;
+      }
+    }
+  } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
+    auto mem = arena.AllocateAligned(sizeof(LevelIterator));
+    ScopedArenaIterator iter(new (mem) LevelIterator(
+        cfd_->table_cache(), read_options, env_options,
+        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+        should_sample_file_read(),
+        cfd_->internal_stats()->GetFileReadHist(level),
+        false /* for_compaction */, IsFilterSkipped(level), level,
+        &range_del_agg));
+    status = OverlapWithIterator(
+        ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
+  }
+
+  if (status.ok() && *overlap == false &&
+      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key)) {
+    *overlap = true;
+  }
+  return status;
 }
 
 VersionStorageInfo::VersionStorageInfo(
@@ -1745,7 +1834,8 @@ void SortFileByOverlappingRatio(
 
 void VersionStorageInfo::UpdateFilesByCompactionPri(
     CompactionPri compaction_pri) {
-  if (compaction_style_ == kCompactionStyleFIFO ||
+  if (compaction_style_ == kCompactionStyleNone ||
+      compaction_style_ == kCompactionStyleFIFO ||
       compaction_style_ == kCompactionStyleUniversal) {
     // don't need this
     return;
@@ -2898,7 +2988,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 }
 
 void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
-                                   VersionBuilder* builder, Version* v,
+                                   VersionBuilder* builder, Version* /*v*/,
                                    VersionEdit* edit, InstrumentedMutex* mu) {
   mu->AssertHeld();
   assert(!edit->IsColumnFamilyManipulation());
@@ -3006,7 +3096,7 @@ Status VersionSet::Recover(
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(NULL, std::move(manifest_file_reader), &reporter,
+    log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;
@@ -3275,7 +3365,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   column_family_names.insert({0, kDefaultColumnFamilyName});
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(NULL, std::move(file_reader), &reporter, true /*checksum*/,
+  log::Reader reader(nullptr, std::move(file_reader), &reporter, true /*checksum*/,
                      0 /*initial_offset*/, 0);
   Slice record;
   std::string scratch;
@@ -3435,7 +3525,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(NULL, std::move(file_reader), &reporter,
+    log::Reader reader(nullptr, std::move(file_reader), &reporter,
                        true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;

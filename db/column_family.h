@@ -244,6 +244,7 @@ class ColumnFamilyData {
   void SetCurrent(Version* _current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
+  uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
     uint64_t memtable_id = last_memtable_id_.fetch_add(1) + 1;
     new_mem->SetID(memtable_id);
@@ -273,6 +274,16 @@ class ColumnFamilyData {
   bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
                                   const Slice& largest_user_key,
                                   int level) const;
+
+  // Check if the passed ranges overlap with any unflushed memtables
+  // (immutable or mutable).
+  //
+  // @param super_version A referenced SuperVersion that will be held for the
+  //    duration of this function.
+  //
+  // Thread-safe
+  Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
+                                    SuperVersion* super_version, bool* overlap);
 
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.
@@ -358,6 +369,10 @@ class ColumnFamilyData {
   void set_initialized() { initialized_.store(true); }
 
   bool initialized() const { return initialized_.load(); }
+
+  const ColumnFamilyOptions& initial_cf_options() {
+    return initial_cf_options_;
+  }
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 

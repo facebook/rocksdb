@@ -53,7 +53,7 @@ class FlushedFileCollector : public EventListener {
   FlushedFileCollector() {}
   ~FlushedFileCollector() {}
 
-  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
     flushed_files_.push_back(info.file_path);
   }
@@ -2751,6 +2751,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
+  options.target_file_size_base = 100000000;
   options.write_buffer_size = 100000000;
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
@@ -3315,6 +3316,64 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   ASSERT_EQ(ToString(1), num_keys_in_memtable);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
+  // Verify memtable only gets flushed if it contains data overlapping the range
+  // provided to `CompactRange`. Tests all kinds of overlap/non-overlap.
+  const int kNumEndpointKeys = 5;
+  std::string keys[kNumEndpointKeys] = {"a", "b", "c", "d", "e"};
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // One extra iteration for nullptr, which means left side of interval is
+  // unbounded.
+  for (int i = 0; i <= kNumEndpointKeys; ++i) {
+    Slice begin;
+    Slice* begin_ptr;
+    if (i == 0) {
+      begin_ptr = nullptr;
+    } else {
+      begin = keys[i - 1];
+      begin_ptr = &begin;
+    }
+    // Start at `i` so right endpoint comes after left endpoint. One extra
+    // iteration for nullptr, which means right side of interval is unbounded.
+    for (int j = std::max(0, i - 1); j <= kNumEndpointKeys; ++j) {
+      Slice end;
+      Slice* end_ptr;
+      if (j == kNumEndpointKeys) {
+        end_ptr = nullptr;
+      } else {
+        end = keys[j];
+        end_ptr = &end;
+      }
+      ASSERT_OK(Put("b", "val"));
+      ASSERT_OK(Put("d", "val"));
+      CompactRangeOptions compact_range_opts;
+      ASSERT_OK(db_->CompactRange(compact_range_opts, begin_ptr, end_ptr));
+
+      uint64_t get_prop_tmp, num_memtable_entries = 0;
+      ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesImmMemTables,
+                                      &get_prop_tmp));
+      num_memtable_entries += get_prop_tmp;
+      ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+                                      &get_prop_tmp));
+      num_memtable_entries += get_prop_tmp;
+      if (begin_ptr == nullptr || end_ptr == nullptr ||
+          (i <= 4 && j >= 1 && (begin != "c" || end != "c"))) {
+        // In this case `CompactRange`'s range overlapped in some way with the
+        // memtable's range, so flush should've happened. Then "b" and "d" won't
+        // be in the memtable.
+        ASSERT_EQ(0, num_memtable_entries);
+      } else {
+        ASSERT_EQ(2, num_memtable_entries);
+        // flush anyways to prepare for next iteration
+        db_->Flush(FlushOptions());
+      }
+    }
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,

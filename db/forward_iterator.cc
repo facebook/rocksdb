@@ -104,7 +104,7 @@ class ForwardLevelIterator : public InternalIterator {
     file_iter_->Seek(internal_key);
     valid_ = file_iter_->Valid();
   }
-  void SeekForPrev(const Slice& internal_key) override {
+  void SeekForPrev(const Slice& /*internal_key*/) override {
     status_ = Status::NotSupported("ForwardLevelIterator::SeekForPrev()");
     valid_ = false;
   }

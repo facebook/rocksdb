@@ -66,9 +66,13 @@ class DummyPropertiesCollector : public TablePropertiesCollector {
  public:
   const char* Name() const { return ""; }
 
-  Status Finish(UserCollectedProperties* properties) { return Status::OK(); }
+  Status Finish(UserCollectedProperties* /*properties*/) {
+    return Status::OK();
+  }
 
-  Status Add(const Slice& user_key, const Slice& value) { return Status::OK(); }
+  Status Add(const Slice& /*user_key*/, const Slice& /*value*/) {
+    return Status::OK();
+  }
 
   virtual UserCollectedProperties GetReadableProperties() const {
     return UserCollectedProperties{};
@@ -79,7 +83,7 @@ class DummyPropertiesCollectorFactory1
     : public TablePropertiesCollectorFactory {
  public:
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) {
+      TablePropertiesCollectorFactory::Context /*context*/) {
     return new DummyPropertiesCollector();
   }
   const char* Name() const { return "DummyPropertiesCollector1"; }
@@ -89,7 +93,7 @@ class DummyPropertiesCollectorFactory2
     : public TablePropertiesCollectorFactory {
  public:
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) {
+      TablePropertiesCollectorFactory::Context /*context*/) {
     return new DummyPropertiesCollector();
   }
   const char* Name() const { return "DummyPropertiesCollector2"; }
@@ -207,11 +211,11 @@ class BlockConstructor: public Constructor {
   ~BlockConstructor() {
     delete block_;
   }
-  virtual Status FinishImpl(const Options& options,
-                            const ImmutableCFOptions& ioptions,
-                            const BlockBasedTableOptions& table_options,
-                            const InternalKeyComparator& internal_comparator,
-                            const stl_wrappers::KVMap& kv_map) override {
+  virtual Status FinishImpl(
+      const Options& /*options*/, const ImmutableCFOptions& /*ioptions*/,
+      const BlockBasedTableOptions& table_options,
+      const InternalKeyComparator& /*internal_comparator*/,
+      const stl_wrappers::KVMap& kv_map) override {
     delete block_;
     block_ = nullptr;
     BlockBuilder builder(table_options.block_restart_interval);
@@ -305,7 +309,7 @@ class TableConstructor: public Constructor {
 
   virtual Status FinishImpl(const Options& options,
                             const ImmutableCFOptions& ioptions,
-                            const BlockBasedTableOptions& table_options,
+                            const BlockBasedTableOptions& /*table_options*/,
                             const InternalKeyComparator& internal_comparator,
                             const stl_wrappers::KVMap& kv_map) override {
     Reset();
@@ -433,10 +437,11 @@ class MemTableConstructor: public Constructor {
   ~MemTableConstructor() {
     delete memtable_->Unref();
   }
-  virtual Status FinishImpl(const Options&, const ImmutableCFOptions& ioptions,
-                            const BlockBasedTableOptions& table_options,
-                            const InternalKeyComparator& internal_comparator,
-                            const stl_wrappers::KVMap& kv_map) override {
+  virtual Status FinishImpl(
+      const Options&, const ImmutableCFOptions& ioptions,
+      const BlockBasedTableOptions& /*table_options*/,
+      const InternalKeyComparator& /*internal_comparator*/,
+      const stl_wrappers::KVMap& kv_map) override {
     delete memtable_->Unref();
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
@@ -499,11 +504,11 @@ class DBConstructor: public Constructor {
   ~DBConstructor() {
     delete db_;
   }
-  virtual Status FinishImpl(const Options& options,
-                            const ImmutableCFOptions& ioptions,
-                            const BlockBasedTableOptions& table_options,
-                            const InternalKeyComparator& internal_comparator,
-                            const stl_wrappers::KVMap& kv_map) override {
+  virtual Status FinishImpl(
+      const Options& /*options*/, const ImmutableCFOptions& /*ioptions*/,
+      const BlockBasedTableOptions& /*table_options*/,
+      const InternalKeyComparator& /*internal_comparator*/,
+      const stl_wrappers::KVMap& kv_map) override {
     delete db_;
     db_ = nullptr;
     NewDB();
@@ -665,7 +670,7 @@ class FixedOrLessPrefixTransform : public SliceTransform {
     return Slice(src.data(), prefix_len_);
   }
 
-  virtual bool InDomain(const Slice& src) const override { return true; }
+  virtual bool InDomain(const Slice& /*src*/) const override { return true; }
 
   virtual bool InRange(const Slice& dst) const override {
     return (dst.size() <= prefix_len_);
@@ -795,7 +800,7 @@ class HarnessTest : public testing::Test {
     TestRandomAccess(rnd, keys, data);
   }
 
-  void TestForwardScan(const std::vector<std::string>& keys,
+  void TestForwardScan(const std::vector<std::string>& /*keys*/,
                        const stl_wrappers::KVMap& data) {
     InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
@@ -813,7 +818,7 @@ class HarnessTest : public testing::Test {
     }
   }
 
-  void TestBackwardScan(const std::vector<std::string>& keys,
+  void TestBackwardScan(const std::vector<std::string>& /*keys*/,
                         const stl_wrappers::KVMap& data) {
     InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
@@ -1595,7 +1600,7 @@ static std::string RandomString(Random* rnd, int len) {
 }
 
 void AddInternalKey(TableConstructor* c, const std::string& prefix,
-                    int suffix_len = 800) {
+                    int /*suffix_len*/ = 800) {
   static Random rnd(1023);
   InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);
   c->Add(k.Encode().ToString(), "v");
@@ -2957,7 +2962,7 @@ class TestPrefixExtractor : public rocksdb::SliceTransform {
     return true;
   }
 
-  bool InRange(const rocksdb::Slice& dst) const override { return true; }
+  bool InRange(const rocksdb::Slice& /*dst*/) const override { return true; }
 
   bool IsValid(const rocksdb::Slice& src) const {
     if (src.size() != 4) {
@@ -3190,6 +3195,110 @@ TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
   }
 
   delete iter;
+}
+
+TEST_F(BlockBasedTableTest, BlockAlignTest) {
+  BlockBasedTableOptions bbto;
+  bbto.block_align = true;
+  test::StringSink* sink = new test::StringSink();
+  unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
+  Options options;
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const ImmutableCFOptions ioptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::string column_family_name;
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
+                          kNoCompression, CompressionOptions(),
+                          nullptr /* compression_dict */,
+                          false /* skip_filters */, column_family_name, -1),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      file_writer.get()));
+
+  for (int i = 1; i <= 10000; ++i) {
+    std::ostringstream ostr;
+    ostr << std::setfill('0') << std::setw(5) << i;
+    std::string key = ostr.str();
+    std::string value = "val";
+    InternalKey ik(key, 0, kTypeValue);
+
+    builder->Add(ik.Encode(), value);
+  }
+  ASSERT_OK(builder->Finish());
+  file_writer->Flush();
+
+  test::RandomRWStringSink ss_rw(sink);
+  unique_ptr<RandomAccessFileReader> file_reader(
+      test::GetRandomAccessFileReader(
+          new test::StringSource(ss_rw.contents(), 73342, true)));
+
+  // Helper function to get version, global_seqno, global_seqno_offset
+  std::function<void()> VerifyBlockAlignment = [&]() {
+    TableProperties* props = nullptr;
+    ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
+                                  kBlockBasedTableMagicNumber, ioptions,
+                                  &props));
+
+    uint64_t data_block_size = props->data_size / props->num_data_blocks;
+    ASSERT_EQ(data_block_size, 4096);
+    ASSERT_EQ(props->data_size, data_block_size * props->num_data_blocks);
+    delete props;
+  };
+
+  VerifyBlockAlignment();
+
+  // The below block of code verifies that we can read back the keys. Set
+  // block_align to false when creating the reader to ensure we can flip between
+  // the two modes without any issues
+  std::unique_ptr<TableReader> table_reader;
+  bbto.block_align = false;
+  Options options2;
+  options2.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ImmutableCFOptions ioptions2(options2);
+  ASSERT_OK(ioptions.table_factory->NewTableReader(
+      TableReaderOptions(ioptions2, EnvOptions(),
+                         GetPlainInternalComparator(options2.comparator)),
+      std::move(file_reader), ss_rw.contents().size(), &table_reader));
+
+  std::unique_ptr<InternalIterator> db_iter(
+      table_reader->NewIterator(ReadOptions()));
+
+  int expected_key = 1;
+  for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+    std::ostringstream ostr;
+    ostr << std::setfill('0') << std::setw(5) << expected_key++;
+    std::string key = ostr.str();
+    std::string value = "val";
+
+    ASSERT_OK(db_iter->status());
+    ASSERT_EQ(ExtractUserKey(db_iter->key()).ToString(), key);
+    ASSERT_EQ(db_iter->value().ToString(), value);
+  }
+  expected_key--;
+  ASSERT_EQ(expected_key, 10000);
+  table_reader.reset();
+}
+
+TEST_F(BlockBasedTableTest, BadOptions) {
+  rocksdb::Options options;
+  options.compression = kNoCompression;
+  rocksdb::BlockBasedTableOptions bbto;
+  bbto.block_size = 4000;
+  bbto.block_align = true;
+
+  const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyDB(kDBPath, options);
+  rocksdb::DB* db;
+  ASSERT_NOK(rocksdb::DB::Open(options, kDBPath, &db));
+
+  bbto.block_size = 4096;
+  options.compression = kSnappyCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_NOK(rocksdb::DB::Open(options, kDBPath, &db));
 }
 
 }  // namespace rocksdb

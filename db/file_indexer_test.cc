@@ -36,10 +36,10 @@ class IntComparator : public Comparator {
 
   const char* Name() const override { return "IntComparator"; }
 
-  void FindShortestSeparator(std::string* start,
-                             const Slice& limit) const override {}
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
 
-  void FindShortSuccessor(std::string* key) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 class FileIndexerTest : public testing::Test {

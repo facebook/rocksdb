@@ -278,6 +278,10 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
 
+ifeq ($(PLATFORM), OS_OPENBSD)
+	WARNING_FLAGS += -Wno-unused-lambda-capture
+endif
+
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror
 endif
@@ -406,7 +410,6 @@ TESTS = \
 	db_range_del_test \
 	db_sst_test \
 	db_tailing_iter_test \
-	db_universal_compaction_test \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
@@ -508,6 +511,7 @@ TESTS = \
 	repair_test \
 	env_timed_test \
 	write_prepared_transaction_test \
+	db_universal_compaction_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -674,7 +678,7 @@ coverage:
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
 	cd coverage && ./coverage_test.sh
         # Delete intermediate files
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
 ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
@@ -791,7 +795,7 @@ check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
-valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized
+valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
 .PHONY: valgrind_check_0
 valgrind_check_0:
@@ -821,7 +825,7 @@ CLEAN_FILES += t LOG $(TMPD)
 # regardless of their duration. As with any use of "watch", hit ^C to
 # interrupt.
 watch-log:
-	watch --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
+	$(WATCH) --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
 
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
@@ -986,14 +990,14 @@ rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 clean:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
-	find . -name "*.[oda]" -exec rm -f {} \;
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
+	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 	rm -rf bzip2* snappy* zlib* lz4* zstd*
 	cd java; $(MAKE) clean
 
 tags:
-	ctags * -R
-	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
+	ctags -R .
+	cscope -b `$(FIND) . -name '*.cc'` `$(FIND) . -name '*.h'` `$(FIND) . -name '*.c'`
 	ctags -e -R -o etags *
 
 format:
@@ -1510,10 +1514,10 @@ uninstall:
 
 install-headers:
 	install -d $(INSTALL_PATH)/lib
-	for header_dir in `find "include/rocksdb" -type d`; do \
+	for header_dir in `$(FIND) "include/rocksdb" -type d`; do \
 		install -d $(INSTALL_PATH)/$$header_dir; \
 	done
-	for header in `find "include/rocksdb" -type f -name *.h`; do \
+	for header in `$(FIND) "include/rocksdb" -type f -name *.h`; do \
 		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
 	done
 
@@ -1540,6 +1544,12 @@ install: install-static
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
+else ifeq ($(PLATFORM), OS_OPENBSD)
+	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64))
+		ARCH := 64
+	else
+		ARCH := 32
+	endif
 else
 	ARCH := $(shell getconf LONG_BIT)
 endif
@@ -1570,6 +1580,7 @@ LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 ZSTD_VER ?= 1.3.3
 ZSTD_SHA256 ?= a77c47153ee7de02626c5b2a097005786b71688be61e9fb81806a011f90b297b
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
+CURL_SSL_OPTS ?= --tlsv1
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -1598,6 +1609,11 @@ ifeq ($(PLATFORM), OS_AIX)
 	EXTRACT_SOURCES = gunzip < TAR_GZ | tar xvf -
 	SNAPPY_MAKE_TARGET = libsnappy.la
 endif
+ifeq ($(PLATFORM), OS_OPENBSD)
+        JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
+	ROCKSDBJNILIB = librocksdbjni-openbsd$(ARCH).so
+        ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-openbsd$(ARCH).jar
+endif
 
 libz.a:
 	-rm -rf zlib-$(ZLIB_VER)
@@ -1625,7 +1641,7 @@ libbz2.a:
 
 libsnappy.a:
 	-rm -rf snappy-$(SNAPPY_VER)
-	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
+	curl -O -L ${CURL_SSL_OPTS} ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
 	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
 		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
@@ -1638,7 +1654,7 @@ libsnappy.a:
 
 liblz4.a:
 	-rm -rf lz4-$(LZ4_VER)
-	curl -O -L ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
+	curl -O -L ${CURL_SSL_OPTS} ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
 	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
 	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
@@ -1651,7 +1667,7 @@ liblz4.a:
 
 libzstd.a:
 	-rm -rf zstd-$(ZSTD_VER)
-	curl -O -L ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
+	curl -O -L ${CURL_SSL_OPTS} ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
 	mv v$(ZSTD_VER).tar.gz zstd-$(ZSTD_VER).tar.gz
 	ZSTD_SHA256_ACTUAL=`$(SHA256_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZSTD_SHA256)" != "$$ZSTD_SHA256_ACTUAL" ]; then \

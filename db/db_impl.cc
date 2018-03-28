@@ -404,9 +404,7 @@ Status DBImpl::CloseHelper() {
   return ret;
 }
 
-Status DBImpl::CloseImpl() {
-  return CloseHelper();
-}
+Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
   if (!closed_) {
@@ -675,8 +673,9 @@ Status DBImpl::SetDBOptions(
 }
 
 // return the same level if it cannot be moved
-int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
-    const MutableCFOptions& mutable_cf_options, int level) {
+int DBImpl::FindMinimumEmptyLevelFitting(
+    ColumnFamilyData* cfd, const MutableCFOptions& /*mutable_cf_options*/,
+    int level) {
   mutex_.AssertHeld();
   const auto* vstorage = cfd->current()->storage_info();
   int minimum_level = level;
@@ -694,7 +693,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::FlushWAL(bool sync) {
-  {
+  if (manual_wal_flush_) {
     // We need to lock log_write_mutex_ since logs_ might change concurrently
     InstrumentedMutexLock wl(&log_write_mutex_);
     log::Writer* cur_log_writer = logs_.back().writer;
@@ -707,6 +706,9 @@ Status DBImpl::FlushWAL(bool sync) {
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
       return s;
     }
+  }
+  if (!sync) {
+    return Status::OK();
   }
   // sync = true
   ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=true");
@@ -897,7 +899,7 @@ struct IterState {
   bool background_purge;
 };
 
-static void CleanupIteratorState(void* arg1, void* arg2) {
+static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
 
   if (state->super_version->Unref()) {
@@ -2146,9 +2148,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(
-          cfd, &job_context.superversion_context,
-          *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
+                                         *cfd->GetLatestMutableCFOptions(),
+                                         FlushReason::kDeleteFiles);
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2230,9 +2232,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(
-          cfd, &job_context.superversion_context,
-          *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
+                                         *cfd->GetLatestMutableCFOptions(),
+                                         FlushReason::kDeleteFiles);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2335,31 +2337,31 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 }
 
 // Default implementation -- returns not supported status
-Status DB::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
-                              const std::string& column_family_name,
-                              ColumnFamilyHandle** handle) {
+Status DB::CreateColumnFamily(const ColumnFamilyOptions& /*cf_options*/,
+                              const std::string& /*column_family_name*/,
+                              ColumnFamilyHandle** /*handle*/) {
   return Status::NotSupported("");
 }
 
 Status DB::CreateColumnFamilies(
-    const ColumnFamilyOptions& cf_options,
-    const std::vector<std::string>& column_family_names,
-    std::vector<ColumnFamilyHandle*>* handles) {
+    const ColumnFamilyOptions& /*cf_options*/,
+    const std::vector<std::string>& /*column_family_names*/,
+    std::vector<ColumnFamilyHandle*>* /*handles*/) {
   return Status::NotSupported("");
 }
 
 Status DB::CreateColumnFamilies(
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles) {
+    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
+    std::vector<ColumnFamilyHandle*>* /*handles*/) {
   return Status::NotSupported("");
 }
 
-Status DB::DropColumnFamily(ColumnFamilyHandle* column_family) {
+Status DB::DropColumnFamily(ColumnFamilyHandle* /*column_family*/) {
   return Status::NotSupported("");
 }
 
 Status DB::DropColumnFamilies(
-    const std::vector<ColumnFamilyHandle*>& column_families) {
+    const std::vector<ColumnFamilyHandle*>& /*column_families*/) {
   return Status::NotSupported("");
 }
 
@@ -2388,10 +2390,13 @@ Snapshot::~Snapshot() {
 }
 
 Status DestroyDB(const std::string& dbname, const Options& options) {
-  const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
 
+  // Reset the logger because it holds a handle to the
+  // log file and prevents cleanup and directory removal
+  soptions.info_log.reset();
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
 
@@ -2832,7 +2837,7 @@ Status DBImpl::IngestExternalFile(
     // Figure out if we need to flush the memtable first
     if (status.ok()) {
       bool need_flush = false;
-      status = ingestion_job.NeedsFlush(&need_flush);
+      status = ingestion_job.NeedsFlush(&need_flush, cfd->GetSuperVersion());
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {
@@ -2857,8 +2862,8 @@ Status DBImpl::IngestExternalFile(
                                  &mutex_, directories_.GetDbDir());
     }
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context,
-                                         *mutable_cf_options);
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context, *mutable_cf_options,
+                                         FlushReason::kExternalFileIngestion);
     }
 
     // Resume writes to the DB

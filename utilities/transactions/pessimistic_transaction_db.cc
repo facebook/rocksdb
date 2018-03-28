@@ -142,6 +142,11 @@ Status PessimisticTransactionDB::Initialize(
     }
 
     s = real_trx->RebuildFromWriteBatch(recovered_trx->batch_);
+    // WriteCommitted set this to to disable this check that is specific to
+    // WritePrepared txns
+    assert(recovered_trx->batch_cnt_ == 0 ||
+           real_trx->GetWriteBatch()->SubBatchCnt() ==
+               recovered_trx->batch_cnt_);
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
       break;
@@ -368,7 +373,7 @@ Transaction* PessimisticTransactionDB::BeginInternalTransaction(
 //
 // Put(), Merge(), and Delete() only lock a single key per call.  Write() will
 // sort its keys before locking them.  This guarantees that TransactionDB write
-// methods cannot deadlock with eachother (but still could deadlock with a
+// methods cannot deadlock with each other (but still could deadlock with a
 // Transaction).
 Status PessimisticTransactionDB::Put(const WriteOptions& options,
                                      ColumnFamilyHandle* column_family,

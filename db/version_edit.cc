@@ -198,7 +198,7 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
   }
 }
 
-bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
+bool VersionEdit::GetLevel(Slice* input, int* level, const char** /*msg*/) {
   uint32_t v;
   if (GetVarint32(input, &v)) {
     *level = v;

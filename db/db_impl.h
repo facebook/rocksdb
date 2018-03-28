@@ -14,7 +14,6 @@
 #include <limits>
 #include <list>
 #include <map>
-#include <queue>
 #include <set>
 #include <string>
 #include <utility>
@@ -186,7 +185,9 @@ class DBImpl : public DB {
                               ColumnFamilyHandle* column_family,
                               const std::vector<std::string>& input_file_names,
                               const int output_level,
-                              const int output_path_id = -1) override;
+                              const int output_path_id = -1,
+                              std::vector<std::string>* const output_file_names
+                              = nullptr) override;
 
   virtual Status PauseBackgroundWork() override;
   virtual Status ContinueBackgroundWork() override;
@@ -222,6 +223,8 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
+  // REQUIRES: joined the main write queue if two_write_queues is disabled, and
+  // the second write queue otherwise.
   virtual void SetLastPublishedSequence(SequenceNumber seq);
   // Returns LastSequence in last_seq_same_as_publish_seq_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
@@ -379,7 +382,9 @@ class DBImpl : public DB {
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
   // Wait for any compaction
-  Status TEST_WaitForCompact();
+  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
+  // is only for the special test of CancelledCompactions
+  Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
@@ -433,6 +438,8 @@ class DBImpl : public DB {
 
   uint64_t TEST_FindMinLogContainingOutstandingPrep();
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();
+  size_t TEST_PreparedSectionCompletedSize();
+  size_t TEST_LogsWithPrepSize();
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
@@ -466,7 +473,7 @@ class DBImpl : public DB {
                          bool no_full_scan = false);
 
   // Diffs the files listed in filenames and those that do not
-  // belong to live files are posibly removed. Also, removes all the
+  // belong to live files are possibly removed. Also, removes all the
   // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
   // If FindObsoleteFiles() was run, we need to also run
@@ -549,9 +556,18 @@ class DBImpl : public DB {
     WriteBatch* batch_;
     // The seq number of the first key in the batch
     SequenceNumber seq_;
+    // Number of sub-batched. A new sub-batch is created if we txn attempts to
+    // inserts a duplicate key,seq to memtable. This is currently used in
+    // WritePrparedTxn
+    size_t batch_cnt_;
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch, SequenceNumber seq)
-        : log_number_(log), name_(name), batch_(batch), seq_(seq) {}
+                                  WriteBatch* batch, SequenceNumber seq,
+                                  size_t batch_cnt)
+        : log_number_(log),
+          name_(name),
+          batch_(batch),
+          seq_(seq),
+          batch_cnt_(batch_cnt) {}
 
     ~RecoveredTransaction() { delete batch_; }
   };
@@ -573,9 +589,10 @@ class DBImpl : public DB {
   }
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch, SequenceNumber seq) {
+                                  WriteBatch* batch, SequenceNumber seq,
+                                  size_t batch_cnt) {
     recovered_transactions_[name] =
-        new RecoveredTransaction(log, name, batch, seq);
+        new RecoveredTransaction(log, name, batch, seq, batch_cnt);
     MarkLogAsContainingPrepSection(log);
   }
 
@@ -720,6 +737,7 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+  friend class DBTest_ConcurrentFlushWAL_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -818,7 +836,8 @@ class DBImpl : public DB {
 
   Status ScheduleFlushes(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                        FlushReason flush_reason = FlushReason::kOthers);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
@@ -858,7 +877,7 @@ class DBImpl : public DB {
                               size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
-  void WriteCallbackStatusCheck(const Status& status);
+  void WriteStatusCheck(const Status& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
@@ -868,6 +887,7 @@ class DBImpl : public DB {
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
+                          std::vector<std::string>* const output_file_names,
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer);
 
@@ -1298,27 +1318,33 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // minimum log number still containing prepared data.
+  // REQUIRES: logs_with_prep_mutex_ held
+  //
+  // sorted list of log numbers still containing prepared data.
   // this is used by FindObsoleteFiles to determine which
   // flushed logs we must keep around because they still
-  // contain prepared data which has not been flushed or rolled back
-  std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
-      min_log_with_prep_;
+  // contain prepared data which has not been committed or rolled back
+  struct LogCnt {
+    uint64_t log;  // the log number
+    uint64_t cnt;  // number of prepared sections in the log
+  };
+  std::vector<LogCnt> logs_with_prep_;
+  std::mutex logs_with_prep_mutex_;
 
-  // to be used in conjunction with min_log_with_prep_.
+  // REQUIRES: prepared_section_completed_mutex_ held
+  //
+  // to be used in conjunction with logs_with_prep_.
   // once a transaction with data in log L is committed or rolled back
-  // rather than removing the value from the heap we add that value
-  // to prepared_section_completed_ which maps LOG -> instance_count
-  // since a log could contain multiple prepared sections
+  // rather than updating logs_with_prep_ directly we keep track of that
+  // in prepared_section_completed_ which maps LOG -> instance_count. This helps
+  // avoiding contention between a commit thread and the prepare threads.
   //
   // when trying to determine the minimum log still active we first
-  // consult min_log_with_prep_. while that root value maps to
-  // a value > 0 in prepared_section_completed_ we decrement the
-  // instance_count for that log and pop the root value in
-  // min_log_with_prep_. This will work the same as a min_heap
-  // where we are deleteing arbitrary elements and the up heaping.
+  // consult logs_with_prep_. while that root value maps to
+  // an equal value in prepared_section_completed_ we erase the log from
+  // both logs_with_prep_ and prepared_section_completed_.
   std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
-  std::mutex prep_heap_mutex_;
+  std::mutex prepared_section_completed_mutex_;
 
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
@@ -1337,7 +1363,8 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options);
+      const MutableCFOptions& mutable_cf_options,
+      FlushReason flush_reason = FlushReason::kOthers);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
@@ -1367,8 +1394,8 @@ class DBImpl : public DB {
     return Env::WLTH_SHORT;
   }
 
-  // When set, we use a seprate queue for writes that dont write to memtable. In
-  // 2PC these are the writes at Prepare phase.
+  // When set, we use a separate queue for writes that dont write to memtable.
+  // In 2PC these are the writes at Prepare phase.
   const bool two_write_queues_;
   const bool manual_wal_flush_;
   // Increase the sequence number after writing each batch, whether memtable is

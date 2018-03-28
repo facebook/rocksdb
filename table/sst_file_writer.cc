@@ -50,7 +50,7 @@ struct SstFileWriter::Rep {
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
   // If true, We will give the OS a hint that this file pages is not needed
-  // everytime we write 1MB to the file.
+  // every time we write 1MB to the file.
   bool invalidate_page_cache;
   // The size of the file during the last time we called Fadvise to remove
   // cached pages from page cache.

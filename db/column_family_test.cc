@@ -1168,13 +1168,14 @@ TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
 #endif  // !ROCKSDB_LITE
 
 class TestComparator : public Comparator {
-  int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const override {
+  int Compare(const rocksdb::Slice& /*a*/,
+              const rocksdb::Slice& /*b*/) const override {
     return 0;
   }
   const char* Name() const override { return "Test"; }
-  void FindShortestSeparator(std::string* start,
-                             const rocksdb::Slice& limit) const override {}
-  void FindShortSuccessor(std::string* key) const override {}
+  void FindShortestSeparator(std::string* /*start*/,
+                             const rocksdb::Slice& /*limit*/) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 static TestComparator third_comparator;
@@ -2788,6 +2789,18 @@ TEST_F(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   vstorage->set_l0_delay_trigger_count(0);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+}
+
+TEST_F(ColumnFamilyTest, CreateAndDestoryOptions) {
+  std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
+  ColumnFamilyHandle* cfh;
+  Open();
+  ASSERT_OK(db_->CreateColumnFamily(*(cfo.get()), "yoyo", &cfh));
+  cfo.reset();
+  ASSERT_OK(db_->Put(WriteOptions(), cfh, "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
 #ifndef ROCKSDB_LITE

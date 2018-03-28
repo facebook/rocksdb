@@ -188,7 +188,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, std::string* value);
 
-  // An overload of the the above method that receives a PinnableSlice
+  // An overload of the above method that receives a PinnableSlice
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, PinnableSlice* value);
 
@@ -196,7 +196,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
 
-  // An overload of the the above method that receives a PinnableSlice
+  // An overload of the above method that receives a PinnableSlice
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);
@@ -227,6 +227,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override;
 
  private:
+  friend class PessimisticTransactionDB;
   friend class WritePreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
   // Returns the number of sub-batches inside the write batch. A sub-batch

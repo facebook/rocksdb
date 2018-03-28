@@ -83,7 +83,7 @@ enum class CompactionReason {
 };
 
 enum class FlushReason : int {
-  kUnknown = 0x00,
+  kOthers = 0x00,
   kGetLiveFiles = 0x01,
   kShutDown = 0x02,
   kExternalFileIngestion = 0x03,
@@ -91,7 +91,9 @@ enum class FlushReason : int {
   kWriteBufferManager = 0x05,
   kWriteBufferFull = 0x06,
   kTest = 0x07,
-  kSuperVersionChange = 0x08,
+  kDeleteFiles = 0x08,
+  kAutoCompaction = 0x09,
+  kManualFlush = 0x0a,
 };
 
 enum class BackgroundErrorReason {
@@ -227,30 +229,6 @@ struct ExternalFileIngestionInfo {
   TableProperties table_properties;
 };
 
-// A call-back function to RocksDB which will be called when the compaction
-// iterator is compacting values. It is meant to be returned from
-// EventListner::GetCompactionEventListner() at the beginning of compaction
-// job.
-class CompactionEventListener {
- public:
-  enum CompactionListenerValueType {
-    kValue,
-    kMergeOperand,
-    kDelete,
-    kSingleDelete,
-    kRangeDelete,
-    kBlobIndex,
-    kInvalid,
-  };
-
-  virtual void OnCompaction(int level, const Slice& key,
-                            CompactionListenerValueType value_type,
-                            const Slice& existing_value,
-                            const SequenceNumber& sn, bool is_new) = 0;
-
-  virtual ~CompactionEventListener() = default;
-};
-
 // EventListener class contains a set of call-back functions that will
 // be called when specific RocksDB event happens such as flush.  It can
 // be used as a building block for developing custom features such as
@@ -379,8 +357,8 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   // @param handle is a pointer to the column family handle to be deleted
   // which will become a dangling pointer after the deletion.
-  virtual void OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle) {
-  }
+  virtual void OnColumnFamilyHandleDeletionStarted(
+      ColumnFamilyHandle* /*handle*/) {}
 
   // A call-back function for RocksDB which will be called after an external
   // file is ingested using IngestExternalFile.
@@ -412,12 +390,6 @@ class EventListener {
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
-
-  // Factory method to return CompactionEventListener. If multiple listeners
-  // provides CompactionEventListner, only the first one will be used.
-  virtual CompactionEventListener* GetCompactionEventListener() {
-    return nullptr;
-  }
 
   virtual ~EventListener() {}
 };

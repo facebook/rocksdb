@@ -69,7 +69,7 @@ class IndexBuilder {
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
-  virtual void OnKeyAdded(const Slice& key) {}
+  virtual void OnKeyAdded(const Slice& /*key*/) {}
 
   // Inform the index builder that all entries has been written. Block builder
   // may therefore perform any operation required for block finalization.
@@ -137,7 +137,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   using IndexBuilder::Finish;
   virtual Status Finish(
       IndexBlocks* index_blocks,
-      const BlockHandle& last_partition_block_handle) override {
+      const BlockHandle& /*last_partition_block_handle*/) override {
     index_blocks->index_block_contents = index_block_builder_.Finish();
     return Status::OK();
   }
