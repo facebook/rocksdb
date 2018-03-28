@@ -76,7 +76,9 @@ ifeq ($(MAKECMDGOALS),install)
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
-	DEBUG_LEVEL=0
+	ifneq ($(DEBUG_LEVEL),2)
+		DEBUG_LEVEL=0
+	endif
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
@@ -1719,7 +1721,9 @@ rocksdbjavastatic: $(java_static_all_libobjects)
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_static_all_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
-	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
+	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
+		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
+	fi
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
