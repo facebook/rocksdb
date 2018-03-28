@@ -913,6 +913,16 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     }
 
     db_impl->TEST_FlushMemTable(true);
+    // After flush the recoverable state must be visible
+    if (cwb4recovery) {
+      s = db->Get(read_options, "gtid", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "dogs");
+
+      s = db->Get(read_options, "gtid2", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "cats");
+    }
 
     // after memtable flush we can now relese the log
     ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
@@ -1044,6 +1054,10 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
         if (test_with_empty_wal) {
           DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
           db_impl->TEST_FlushMemTable(true);
+          // After flush the state must be visible
+          s = db->Get(read_options, "foo", &value);
+          ASSERT_OK(s);
+          ASSERT_EQ(value, "bar");
         }
         db->FlushWAL(true);
         // kill and reopen to trigger recovery
