@@ -45,6 +45,11 @@ Status DBImpl::SingleDelete(const WriteOptions& write_options,
   return DB::SingleDelete(write_options, column_family, key);
 }
 
+void DBImpl::SetRecoverableStatePreReleaseCallback(
+    PreReleaseCallback* callback) {
+  recoverable_state_pre_release_callback_.reset(callback);
+}
+
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   return WriteImpl(write_options, my_batch, nullptr, nullptr);
 }
@@ -975,6 +980,14 @@ Status DBImpl::WriteRecoverableState() {
     versions_->SetLastPublishedSequence(last_seq);
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
+    }
+    if (status.ok() && recoverable_state_pre_release_callback_) {
+      const bool DISABLE_MEMTABLE = true;
+      for (uint64_t sub_batch_seq = seq + 1;
+           sub_batch_seq < next_seq && status.ok(); sub_batch_seq++) {
+        status = recoverable_state_pre_release_callback_->Callback(
+            sub_batch_seq, !DISABLE_MEMTABLE);
+      }
     }
     if (status.ok()) {
       cached_recoverable_state_.Clear();

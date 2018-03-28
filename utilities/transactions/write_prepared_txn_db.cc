@@ -46,6 +46,24 @@ Status WritePreparedTxnDB::Initialize(
   AdvanceMaxEvictedSeq(prev_max, last_seq);
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
+  // A callback to commit a single sub-batch
+  class CommitSubBatchPreReleaseCallback : public PreReleaseCallback {
+   public:
+    explicit CommitSubBatchPreReleaseCallback(WritePreparedTxnDB* db)
+        : db_(db) {}
+    virtual Status Callback(SequenceNumber commit_seq,
+                            bool is_mem_disabled) override {
+      assert(!is_mem_disabled);
+      const bool PREPARE_SKIPPED = true;
+      db_->AddCommitted(commit_seq, commit_seq, PREPARE_SKIPPED);
+      return Status::OK();
+    }
+
+   private:
+    WritePreparedTxnDB* db_;
+  };
+  db_impl_->SetRecoverableStatePreReleaseCallback(
+      new CommitSubBatchPreReleaseCallback(this));
 
   auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
                                                 handles);
