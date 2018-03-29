@@ -965,7 +965,12 @@ Status DBImpl::WriteRecoverableState() {
     if (two_write_queues_) {
       log_write_mutex_.Lock();
     }
-    SequenceNumber seq = versions_->LastSequence();
+    SequenceNumber seq;
+    if (two_write_queues_) {
+      seq = versions_->FetchAddLastAllocatedSequence(0);
+    } else {
+      seq = versions_->LastSequence();
+    }
     WriteBatchInternal::SetSequence(&cached_recoverable_state_, seq + 1);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
@@ -975,9 +980,9 @@ Status DBImpl::WriteRecoverableState() {
     auto last_seq = next_seq - 1;
     if (two_write_queues_) {
       versions_->FetchAddLastAllocatedSequence(last_seq - seq);
+      versions_->SetLastPublishedSequence(last_seq);
     }
     versions_->SetLastSequence(last_seq);
-    versions_->SetLastPublishedSequence(last_seq);
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
     }
