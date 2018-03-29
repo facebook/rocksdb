@@ -377,6 +377,7 @@ MAIN_SOURCES =                                                          \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 
 JNI_NATIVE_SOURCES =                                          \
+  java/rocksjni/init.cc                                       \
   java/rocksjni/backupenginejni.cc                            \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
@@ -430,4 +431,6 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \
-  java/rocksjni/write_batch_with_index.cc
+  java/rocksjni/write_batch_with_index.cc                     \
+  java/rocksjni/abstract_associative_merge_operator.cc        \
+  java/rocksjni/abstract_not_associative_merge_operator.cc

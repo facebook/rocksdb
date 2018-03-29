@@ -26,7 +26,7 @@ class CompactionFilterFactoryJniCallback : public JniCallback, public Compaction
     virtual const char* Name() const;
 
  private:
-    std::unique_ptr<const char[]> m_name;
+    std::unique_ptr<char[]> m_name;
     jmethodID m_jcreate_compaction_filter_methodid;
 };
 

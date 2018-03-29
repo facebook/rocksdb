@@ -33,6 +33,7 @@
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
+#include "rocksjni/init.h"
 
 // Remove macro on windows
 #ifdef DELETE
@@ -4097,6 +4098,7 @@ class JniUtil {
       assert(jvm != nullptr);
 
       JNIEnv *env;
+    /*
       const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
           JNI_VERSION_1_2);
 
@@ -4122,7 +4124,10 @@ class JniUtil {
       } else {
         std::cerr << "JniUtil::getJinEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
         return nullptr;
-      }
+      }*/
+      env=rocksdb::getEnv();
+      *attached = JNI_FALSE;
+        return env;
     }
 
     /**
@@ -4222,7 +4227,7 @@ class JniUtil {
      * @return A pointer to the copied string, or a
      *     nullptr if has_exception == JNI_TRUE
      */
-    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
+    static std::unique_ptr<char[] > copyString(JNIEnv* env, jstring js,
         jboolean* has_exception) {
       const char *utf = env->GetStringUTFChars(js, nullptr);
       if(utf == nullptr) {

@@ -62,7 +62,10 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.WriteBatch.Handler\
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
-	org.rocksdb.WBWIRocksIterator
+	org.rocksdb.WBWIRocksIterator\
+    org.rocksdb.AbstractAssociativeMergeOperator\
+    org.rocksdb.AbstractNotAssociativeMergeOperator\
+    org.rocksdb.util.Environment\
 
 NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
     org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper\
