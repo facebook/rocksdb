@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
+#include "util/coding.h"
 
 /**
  * Simple functions which form a DSL
@@ -47,7 +48,9 @@ std::string Add(const std::initializer_list<uint32_t> records) {
   std::string str_add;
   str_add.push_back(CollectionOperation::kAdd);
   for (auto it = records.begin(); it != records.end(); ++it) {
-    str_add.append(CollectionMergeOperator::uintToStringBE(*it));
+    char buf[sizeof(uint32_t)];
+    EncodeFixed32(buf, *it);
+    str_add.append(buf, sizeof(uint32_t));
   }
   return str_add;
 }
@@ -73,7 +76,9 @@ std::string Remove(const std::initializer_list<uint32_t> records) {
   std::string str_remove;
   str_remove.push_back(CollectionOperation::kRemove);
   for (auto it = records.begin(); it != records.end(); ++it) {
-    str_remove.append(CollectionMergeOperator::uintToStringBE(*it));
+    char buf[sizeof(uint32_t)];
+    EncodeFixed32(buf, *it);
+    str_remove.append(buf, sizeof(uint32_t));
   }
   return str_remove;
 }
@@ -88,8 +93,9 @@ std::string Multi(const std::initializer_list<std::string> operations) {
   for (auto it = operations.begin(); it != operations.end(); ++it) {
     std::string operation = *it;
     // _kMulti sub-operations are prefixed with records length
-    str_multi.append(CollectionMergeOperator::uintToStringLE(
-        (operation.size() & 0xFFFFFFFF) - (sizeof(CollectionOperation) & 0xFFFFFFFF)));
+    char buf[sizeof(uint32_t)];
+    EncodeFixed32(buf, (operation.size() & 0xFFFFFFFF) - (sizeof(CollectionOperation) & 0xFFFFFFFF));
+    str_multi.append(buf, sizeof(uint32_t));
     str_multi.append(operation);
   }
   return str_multi;

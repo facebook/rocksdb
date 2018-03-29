@@ -7,6 +7,7 @@
 #include "collection_merge_operator.h"
 #include "multi_operand_list.h"
 
+#include "util/coding.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -259,36 +260,38 @@ void CollectionMergeOperator::pm_contiguous_operations(Operations& operations) c
 }
 
 void CollectionMergeOperator::pm_serialize(Operations& operations, std::string* new_value) const {
- const bool is_multi_op = operations.size() > 1;
- // did we merge to a single operation?
- if (is_multi_op) {
-   // nope, so add _kMulti prefix
-   new_value->push_back(CollectionOperation::_kMulti);
- }
+  const bool is_multi_op = operations.size() > 1;
+  // did we merge to a single operation?
+  if (is_multi_op) {
+    // nope, so add _kMulti prefix
+    new_value->push_back(CollectionOperation::_kMulti);
+  }
 
- // serialize each operation
- while (!operations.empty()) {
-   const auto operation = operations.back();
+  // serialize each operation
+  while (!operations.empty()) {
+    const auto operation = operations.back();
 
-   const size_t start_operation_offset = new_value->size();
-   new_value->push_back(operation.operation_);
+    const size_t start_operation_offset = new_value->size();
+    new_value->push_back(operation.operation_);
 
-   // serialize records
-   size_t records_len = 0;
-   if (operation.operation_ != CollectionOperation::kClear) {
-     for(auto it = operation.records_.rbegin(); it != operation.records_.rend(); ++it) {
-       new_value->append(it->data(), it->size());
-       records_len += it->size();
-     }
-   }
+    // serialize records
+    size_t records_len = 0;
+    if (operation.operation_ != CollectionOperation::kClear) {
+      for(auto it = operation.records_.rbegin(); it != operation.records_.rend(); ++it) {
+        new_value->append(it->data(), it->size());
+        records_len += it->size();
+      }
+    }
 
-   // add records size indicator
-   if (is_multi_op) {
-     new_value->insert(start_operation_offset, uintToStringLE(records_len & 0xFFFFFFFF));
-   }
+    // add records size indicator
+    if (is_multi_op) {
+      char str_records_len[4];
+      EncodeFixed32(str_records_len, records_len & 0xFFFFFFFF);
+      new_value->insert(start_operation_offset, str_records_len, 4);
+    }
 
-   operations.pop_back();
- }
+    operations.pop_back();
+  }
 }
 
 void CollectionMergeOperator::pm_clear(Operations& operations,

@@ -7,8 +7,10 @@
 #include "collection_merge_operator.h"
 #include "collection_merge_operator_test_dsl.h"
 
+#include "port/port.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
+#include "util/coding.h"
 #include "test_util/testharness.h"
 
 namespace rocksdb {
@@ -232,7 +234,11 @@ TEST(FullMergeV2, Add_Ordered_uint32) {
   const bool result = test_FullMergeV2(operand_list, merge_out, nullptr, comparator);
 
   ASSERT_TRUE(result);
-  ASSERT_EQ(Add({1000,2000,3000,5000,6000,7000}).substr(1), merge_out.new_value);
+  if (port::kLittleEndian) {
+    ASSERT_EQ(Add({7000,6000,5000,3000,2000,1000}).substr(1), merge_out.new_value);
+  } else {
+    ASSERT_EQ(Add({1000,2000,3000,5000,6000,7000}).substr(1), merge_out.new_value);
+  }
   ASSERT_EQ(0, merge_out.existing_operand.size());
 }
 
@@ -1374,10 +1380,12 @@ TEST(FullMergeV2, Add_MultiRemoveAdd_uint32) {
 
   ASSERT_TRUE(result);
 
-  std::string expected = CollectionMergeOperator::uintToStringBE(594);
-  expected.append(CollectionMergeOperator::uintToStringBE(592));
-  expected.append(CollectionMergeOperator::uintToStringBE(593));
+  char buf[sizeof(uint32_t) * 3];
+  EncodeFixed32(buf, 594);
+  EncodeFixed32(buf + sizeof(uint32_t), 592);
+  EncodeFixed32(buf + sizeof(uint32_t) * 2, 593);
 
+  std::string expected(buf, sizeof(uint32_t) * 3);
   ASSERT_EQ(expected, merge_out.new_value);
   ASSERT_EQ(0, merge_out.existing_operand.size());
 }

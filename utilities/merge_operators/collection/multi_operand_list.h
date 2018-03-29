@@ -12,6 +12,7 @@
 
 #include "collection_merge_operator.h"
 #include "rocksdb/slice.h"
+#include "util/coding.h"
 
 namespace rocksdb {
 
@@ -298,7 +299,7 @@ class MultiOperandListIterator
 
   const Slice* get_multi_operand_operand(const size_t multi_operand_index_offset) const {
     const char* multi_operand_ptr = multi_operand_index_.at(multi_operand_index_offset);
-    const uint32_t records_len = CollectionMergeOperator::uintFromStringLE(multi_operand_ptr, 0);
+    const uint32_t records_len = DecodeFixed32(multi_operand_ptr);
     multi_operand_ptr += sizeof(uint32_t);
 
     const Slice* operand = new Slice(multi_operand_ptr, sizeof(CollectionOperation) + records_len);
@@ -409,7 +410,7 @@ class MultiOperandListIterator
     while (data_ptr < end_ptr) {
       multi_operand_index_.push_back(data_ptr);
 
-      const size_t records_len = CollectionMergeOperator::uintFromStringLE(data_ptr, 0);
+      const size_t records_len = DecodeFixed32(data_ptr);
       data_ptr += sizeof(uint32_t) + sizeof(CollectionOperation) + records_len;
     }
   }
