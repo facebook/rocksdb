@@ -73,6 +73,14 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
+mode_t GetDBFileMode(bool allow_dbfile_access_non_owner) {
+  if (allow_dbfile_access_non_owner) {
+    return 0644;
+  } else {
+    return 0600;
+  }
+}
+
 // list of pathnames that are locked
 static std::set<std::string> lockedFiles;
 static port::Mutex mutex_lockedFiles;
@@ -163,7 +171,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, 0644);
+      fd = open(fname.c_str(), flags, GetDBFileMode(options.allow_dbfile_access_non_owner));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       return IOError(fname, errno);
@@ -208,7 +216,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, 0644);
+      fd = open(fname.c_str(), flags, GetDBFileMode(options.allow_dbfile_access_non_owner));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       return IOError(fname, errno);
@@ -275,7 +283,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, 0644);
+      fd = open(fname.c_str(), flags, GetDBFileMode(options.allow_dbfile_access_non_owner));
     } while (fd < 0 && errno == EINTR);
 
     if (fd < 0) {
@@ -339,7 +347,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(old_fname.c_str(), flags, 0644);
+      fd = open(old_fname.c_str(), flags, GetDBFileMode(options.allow_dbfile_access_non_owner));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       s = IOError(fname, errno);
@@ -392,7 +400,7 @@ class PosixEnv : public Env {
     int fd = -1;
     while (fd < 0) {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+      fd = open(fname.c_str(), O_CREAT | O_RDWR, GetDBFileMode(options.allow_dbfile_access_non_owner));
       if (fd < 0) {
         // Error while opening the file
         if (errno == EINTR) {

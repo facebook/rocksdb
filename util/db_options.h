@@ -52,6 +52,7 @@ struct ImmutableDBOptions {
   bool use_direct_writes;
   bool allow_fallocate;
   bool is_fd_close_on_exec;
+  bool allow_dbfile_access_non_owner;
   unsigned int stats_dump_period_sec;
   bool advise_random_on_open;
   size_t db_write_buffer_size;

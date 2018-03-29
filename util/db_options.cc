@@ -56,6 +56,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       use_direct_writes(options.use_direct_writes),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
+      allow_dbfile_access_non_owner(options.allow_dbfile_access_non_owner),
       stats_dump_period_sec(options.stats_dump_period_sec),
       advise_random_on_open(options.advise_random_on_open),
       db_write_buffer_size(options.db_write_buffer_size),

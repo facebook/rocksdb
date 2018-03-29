@@ -257,6 +257,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
+                             "allow_dbfile_access_non_owner=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
                              "enable_thread_tracking=false;"

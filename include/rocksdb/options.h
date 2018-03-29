@@ -1138,6 +1138,11 @@ struct DBOptions {
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;
 
+  // If true, then users other than the owner of the db files
+  // can have read permission. If false, then only the owner
+  // of the db files have read and write permissions on the files.
+  bool allow_dbfile_access_non_owner = true;
+
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec = true;
 

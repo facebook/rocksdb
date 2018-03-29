@@ -158,6 +158,7 @@ DBOptions::DBOptions(const Options& options)
       use_direct_reads(options.use_direct_reads),
       use_direct_writes(options.use_direct_writes),
       allow_fallocate(options.allow_fallocate),
+      allow_dbfile_access_non_owner(options.allow_dbfile_access_non_owner),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       skip_log_error_on_recovery(options.skip_log_error_on_recovery),
       stats_dump_period_sec(options.stats_dump_period_sec),
