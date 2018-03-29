@@ -838,6 +838,11 @@ class SharedState {
     bool values_init_needed = false;
     Status status;
     if (!FLAGS_expected_values_path.empty()) {
+      if (!std::atomic<uint32_t>{}.is_lock_free()) {
+        status = Status::InvalidArgument(
+            "Cannot use --expected_values_path on platforms without lock-free "
+            "std::atomic<uint32_t>");
+      }
       size_t size;
       status = FLAGS_env->GetFileSize(FLAGS_expected_values_path, &size);
       unique_ptr<WritableFile> wfile;
@@ -860,7 +865,7 @@ class SharedState {
         values_ = static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->base);
         assert(values_ != nullptr);
       } else {
-        fprintf(stderr, "Failed opening expected file '%s' with error: %s\n",
+        fprintf(stderr, "Failed opening shared file '%s' with error: %s\n",
                 FLAGS_expected_values_path.c_str(), status.ToString().c_str());
         assert(values_ == nullptr);
       }
