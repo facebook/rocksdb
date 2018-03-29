@@ -13,6 +13,7 @@
 
 ### Java API Changes
 * Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
+* Added SstFileManager to the Java API to allow managing SST files across DB instances.
 
 ## 5.13.0 (3/20/2018)
 ### Public API Change
