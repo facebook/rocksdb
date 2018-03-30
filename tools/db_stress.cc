@@ -844,7 +844,9 @@ class SharedState {
             "std::atomic<uint32_t>");
       }
       size_t size;
-      status = FLAGS_env->GetFileSize(FLAGS_expected_values_path, &size);
+      if (status.ok()) {
+        status = FLAGS_env->GetFileSize(FLAGS_expected_values_path, &size);
+      }
       unique_ptr<WritableFile> wfile;
       if (status.ok() && size == 0) {
         const EnvOptions soptions;
@@ -862,7 +864,8 @@ class SharedState {
       }
       if (status.ok()) {
         assert(expected_mmap_buffer_->length == expected_values_size);
-        values_ = static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->base);
+        values_ =
+            static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->base);
         assert(values_ != nullptr);
       } else {
         fprintf(stderr, "Failed opening shared file '%s' with error: %s\n",
@@ -871,7 +874,8 @@ class SharedState {
       }
     }
     if (values_ == nullptr) {
-      values_ = static_cast<std::atomic<uint32_t>*>(malloc(expected_values_size));
+      values_ =
+          static_cast<std::atomic<uint32_t>*>(malloc(expected_values_size));
       values_init_needed = true;
     }
     assert(values_ != nullptr);
@@ -1006,7 +1010,16 @@ class SharedState {
   //    guaranteed finished. This is useful for crash-recovery testing when the
   //    process may crash before updating the expected values array.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    Value(cf, key) = pending ? UNKNOWN_SENTINEL : value_base;
+    if (!pending) {
+      // prevent expected-value update from reordering before Write
+      std::atomic_thread_fence(std::memory_order_release);
+    }
+    Value(cf, key).store(pending ? UNKNOWN_SENTINEL : value_base,
+                         std::memory_order_relaxed);
+    if (pending) {
+      // prevent Write from reordering before expected-value update
+      std::atomic_thread_fence(std::memory_order_release);
+    }
   }
 
   uint32_t Get(int cf, int64_t key) const { return Value(cf, key); }
