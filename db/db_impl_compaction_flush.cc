@@ -1594,16 +1594,48 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
                        (m->end ? m->end->DebugString().c_str() : "(end)"));
     } else {
-      ROCKS_LOG_BUFFER(
-          log_buffer,
-          "[%s] Manual compaction from level-%d to level-%d from %s .. "
-          "%s; will stop at %s\n",
-          m->cfd->GetName().c_str(), m->input_level, c->output_level(),
-          (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-          (m->end ? m->end->DebugString().c_str() : "(end)"),
-          ((m->done || m->manual_end == nullptr)
-               ? "(end)"
-               : m->manual_end->DebugString().c_str()));
+      // First check if we have enough room to do the compaction
+      bool enough_room = true;
+#ifndef ROCKSDB_LITE
+      auto sfm = static_cast<SstFileManagerImpl*>(
+          immutable_db_options_.sst_file_manager.get());
+      if (sfm) {
+        enough_room = sfm->EnoughRoomForCompaction(c.get());
+        if (enough_room) {
+          sfm_bookkeeping = true;
+        }
+      }
+#endif  // ROCKSDB_LITE
+      if (!enough_room) {
+        // Just in case tests want to change the value of enough_room
+        TEST_SYNC_POINT_CALLBACK(
+            "DBImpl::BackgroundCompaction():CancelledManualCompaction",
+            &enough_room);
+      }
+      if (!enough_room) {
+        // Then don't do the compaction
+        c->ReleaseCompactionFiles(status);
+        ROCKS_LOG_BUFFER(log_buffer,
+            "Cancelled compaction because not enough room");
+        c.reset();
+        // Don't need to sleep here, because BackgroundCallCompaction
+        // will sleep if !s.ok()
+        // m's vars will get set properly at the end of this function,
+        // as long as status == CompactionTooLarge
+        status = Status::CompactionTooLarge();
+        RecordTick(stats_, COMPACTION_CANCELLED, 1);
+      } else {
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Manual compaction from level-%d to level-%d from %s .. "
+            "%s; will stop at %s\n",
+            m->cfd->GetName().c_str(), m->input_level, c->output_level(),
+            (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+            (m->end ? m->end->DebugString().c_str() : "(end)"),
+            ((m->done || m->manual_end == nullptr)
+             ? "(end)"
+             : m->manual_end->DebugString().c_str()));
+      }
     }
   } else if (!is_prepicked && !compaction_queue_.empty()) {
     if (HasExclusiveManualCompaction()) {
