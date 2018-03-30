@@ -42,7 +42,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
-class MemoryMappedFileBuffer;
+struct MemoryMappedFileBuffer;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
