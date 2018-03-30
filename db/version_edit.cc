@@ -118,8 +118,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, dummy_key.Encode()); // largest
     PutVarint64Varint64(dst, 0ull, 0ull); // smallest_seqno and largerst
     PutVarint32(dst, CustomTag::kDeletedLogNumberHack);
-    PutLengthPrefixedSlice(dst, Slice()); // custom field slice
-    PutVarint64(dst, deleted_log_number_);
+    std::string buf;
+    PutFixed64(&buf, deleted_log_number_);
+    PutLengthPrefixedSlice(dst, Slice(buf));
     PutVarint32(dst, CustomTag::kTerminate);
   }
 
@@ -285,11 +286,10 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           // This is a hack to encode kDeletedLogNumber in a forward-compatbile
           // fashion.
           this_is_not_a_new_file_record = true;
-          if (GetVarint64(input, &deleted_log_number_)) {
-            has_deleted_log_number_ = true;
-          } else {
-            return "deleted log number (in the hack)";
+          if (!GetFixed64(&field, &deleted_log_number_)) {
+            return "deleted log number malformatted";
           }
+          has_deleted_log_number_ = true;
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
