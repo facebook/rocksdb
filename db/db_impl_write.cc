@@ -1033,7 +1033,8 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   }
 
   auto oldest_alive_log = alive_log_files_.begin()->number;
-  auto oldest_log_with_uncommited_prep = FindMinLogContainingOutstandingPrep();
+  auto oldest_log_with_uncommited_prep =
+      logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
 
   if (allow_2pc() &&
       oldest_log_with_uncommited_prep > 0 &&

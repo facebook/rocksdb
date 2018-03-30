@@ -27,6 +27,7 @@
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
+#include "db/logs_with_prep_tracker.h"
 #include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
@@ -353,6 +354,10 @@ class DBImpl : public DB {
       Arena* arena, RangeDelAggregator* range_del_agg,
       ColumnFamilyHandle* column_family = nullptr);
 
+  LogsWithPrepTracker* logs_with_prep_tracker() {
+    return &logs_with_prep_tracker_;
+  }
+
 #ifndef NDEBUG
   // Extra methods (for testing) that are not in the public DB interface
   // Implemented in db_impl_debug.cc
@@ -593,7 +598,7 @@ class DBImpl : public DB {
                                   size_t batch_cnt) {
     recovered_transactions_[name] =
         new RecoveredTransaction(log, name, batch, seq, batch_cnt);
-    MarkLogAsContainingPrepSection(log);
+    logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }
 
   void DeleteRecoveredTransaction(const std::string& name) {
@@ -601,7 +606,7 @@ class DBImpl : public DB {
     assert(it != recovered_transactions_.end());
     auto* trx = it->second;
     recovered_transactions_.erase(it);
-    MarkLogAsHavingPrepSectionFlushed(trx->log_number_);
+    logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(trx->log_number_);
     delete trx;
   }
 
@@ -613,8 +618,6 @@ class DBImpl : public DB {
     recovered_transactions_.clear();
   }
 
-  void MarkLogAsHavingPrepSectionFlushed(uint64_t log);
-  void MarkLogAsContainingPrepSection(uint64_t log);
   void AddToLogsToFreeQueue(log::Writer* log_writer) {
     logs_to_free_queue_.push_back(log_writer);
   }
@@ -727,7 +730,6 @@ class DBImpl : public DB {
                           uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
                           PreReleaseCallback* pre_release_callback = nullptr);
 
-  uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
@@ -1335,33 +1337,7 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // REQUIRES: logs_with_prep_mutex_ held
-  //
-  // sorted list of log numbers still containing prepared data.
-  // this is used by FindObsoleteFiles to determine which
-  // flushed logs we must keep around because they still
-  // contain prepared data which has not been committed or rolled back
-  struct LogCnt {
-    uint64_t log;  // the log number
-    uint64_t cnt;  // number of prepared sections in the log
-  };
-  std::vector<LogCnt> logs_with_prep_;
-  std::mutex logs_with_prep_mutex_;
-
-  // REQUIRES: prepared_section_completed_mutex_ held
-  //
-  // to be used in conjunction with logs_with_prep_.
-  // once a transaction with data in log L is committed or rolled back
-  // rather than updating logs_with_prep_ directly we keep track of that
-  // in prepared_section_completed_ which maps LOG -> instance_count. This helps
-  // avoiding contention between a commit thread and the prepare threads.
-  //
-  // when trying to determine the minimum log still active we first
-  // consult logs_with_prep_. while that root value maps to
-  // an equal value in prepared_section_completed_ we erase the log from
-  // both logs_with_prep_ and prepared_section_completed_.
-  std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
-  std::mutex prepared_section_completed_mutex_;
+  LogsWithPrepTracker logs_with_prep_tracker_;
 
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held

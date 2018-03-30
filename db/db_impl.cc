@@ -3019,5 +3019,4 @@ void DBImpl::WaitForIngestFile() {
 }
 
 #endif  // ROCKSDB_LITE
-
 }  // namespace rocksdb

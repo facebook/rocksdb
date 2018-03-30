@@ -184,17 +184,43 @@ Status DBImpl::TEST_GetAllImmutableCFOptions(
 }
 
 uint64_t DBImpl::TEST_FindMinLogContainingOutstandingPrep() {
-  return FindMinLogContainingOutstandingPrep();
+  return logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
 }
 
 size_t DBImpl::TEST_PreparedSectionCompletedSize() {
-  return prepared_section_completed_.size();
+  return logs_with_prep_tracker_.TEST_PreparedSectionCompletedSize();
 }
 
-size_t DBImpl::TEST_LogsWithPrepSize() { return logs_with_prep_.size(); }
+size_t DBImpl::TEST_LogsWithPrepSize() {
+  return logs_with_prep_tracker_.TEST_LogsWithPrepSize();
+}
 
 uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
-  return FindMinPrepLogReferencedByMemTable();
+  uint64_t min_log = 0;
+
+  // we must look through the memtables for two phase transactions
+  // that have been committed but not yet flushed
+  for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
+    if (loop_cfd->IsDropped()) {
+      continue;
+    }
+
+    autovector<MemTable*> empty_list;
+    auto log =
+        loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(empty_list);
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+
+    log = loop_cfd->mem()->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
 }
 
 Status DBImpl::TEST_GetLatestMutableCFOptions(
