@@ -397,6 +397,9 @@ class Env {
   // Lower IO priority for threads from the specified pool.
   virtual void LowerThreadPoolIOPriority(Priority /*pool*/ = LOW) {}
 
+  // Lower CPU priority for threads from the specified pool.
+  virtual void LowerThreadPoolCPUPriority(Priority /*pool*/ = LOW) {}
+
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
 
@@ -1090,6 +1093,10 @@ class EnvWrapper : public Env {
 
   void LowerThreadPoolIOPriority(Priority pool = LOW) override {
     target_->LowerThreadPoolIOPriority(pool);
+  }
+
+  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+    target_->LowerThreadPoolCPUPriority(pool);
   }
 
   std::string TimeToString(uint64_t time) override {
