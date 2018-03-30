@@ -20,6 +20,106 @@ class DBWALTest : public DBTestBase {
   DBWALTest() : DBTestBase("/db_wal_test") {}
 };
 
+// A SpecialEnv enriched to give more insight about deleted files
+class EnrichedSpecialEnv : public SpecialEnv {
+ public:
+  explicit EnrichedSpecialEnv(Env* base) : SpecialEnv(base) {}
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) override {
+    InstrumentedMutexLock l(&env_mutex_);
+    if (f == skipped_wal) {
+      deleted_wal_reopened = true;
+      if (IsWAL(f) && largetest_deleted_wal.size() != 0 &&
+          f.compare(largetest_deleted_wal) <= 0) {
+        gap_in_wals = true;
+      }
+    }
+    return SpecialEnv::NewSequentialFile(f, r, soptions);
+  }
+  Status DeleteFile(const std::string& fname) override {
+    if (IsWAL(fname)) {
+      deleted_wal_cnt++;
+      InstrumentedMutexLock l(&env_mutex_);
+      // If this is the first WAL, remember its name and skip deleting it. We
+      // remember its name partly because the application might attempt to
+      // delete the file again.
+      if (skipped_wal.size() != 0 && skipped_wal != fname) {
+        if (largetest_deleted_wal.size() == 0 ||
+            largetest_deleted_wal.compare(fname) < 0) {
+          largetest_deleted_wal = fname;
+        }
+      } else {
+        skipped_wal = fname;
+        return Status::OK();
+      }
+    }
+    return SpecialEnv::DeleteFile(fname);
+  }
+  bool IsWAL(const std::string& fname) {
+    // printf("iswal %s\n", fname.c_str());
+    return fname.compare(fname.size() - 3, 3, "log") == 0;
+  }
+
+  InstrumentedMutex env_mutex_;
+  // the wal whose actual delete was skipped by the env
+  std::string skipped_wal = "";
+  // the largest WAL that was requested to be deleted
+  std::string largetest_deleted_wal = "";
+  // number of WALs that were successfully deleted
+  std::atomic<size_t> deleted_wal_cnt = {0};
+  // the WAL whose delete from fs was skipped is reopened during recovery
+  std::atomic<bool> deleted_wal_reopened = {false};
+  // whether a gap in the WALs was detected during recovery
+  std::atomic<bool> gap_in_wals = {false};
+};
+
+class DBWALTestWithEnrichedEnv : public DBTestBase {
+ public:
+  DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
+    enriched_env_ = new EnrichedSpecialEnv(env_->target());
+    auto options = CurrentOptions();
+    options.env = enriched_env_;
+    Reopen(options);
+    delete env_;
+    // to be deleted by the parent class
+    env_ = enriched_env_;
+  }
+
+ protected:
+  EnrichedSpecialEnv* enriched_env_;
+};
+
+// Test that the recovery would successfully avoid the gaps between the logs.
+// One known scenario that could cause this is that the application issue the
+// WAL deletion out of order. For the sake of simplicity in the test, here we
+// create the gap by manipulating the env to skip deletion of the first WAL but
+// not the ones after it.
+TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
+  auto options = last_options_;
+  // To cause frequent WAL deletion
+  options.write_buffer_size = 128;
+  Reopen(options);
+
+  WriteOptions writeOpt = WriteOptions();
+  for (int i = 0; i < 128 * 5; i++) {
+    ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
+  }
+  FlushOptions fo;
+  fo.wait = true;
+  ASSERT_OK(db_->Flush(fo));
+
+  // some wals are deleted
+  ASSERT_NE(0, enriched_env_->deleted_wal_cnt);
+  // but not the first one
+  ASSERT_NE(0, enriched_env_->skipped_wal.size());
+
+  // Test that the WAL that was not deleted will be skipped during recovery
+  options = last_options_;
+  Reopen(options);
+  ASSERT_FALSE(enriched_env_->deleted_wal_reopened);
+  ASSERT_FALSE(enriched_env_->gap_in_wals);
+}
+
 TEST_F(DBWALTest, WAL) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -891,7 +991,7 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 
   // Record the offset at this point
   Env* env = options.env;
-  int wal_file_id = RecoveryTestHelper::kWALFileOffset + 1;
+  uint64_t wal_file_id = dbfull()->TEST_LogfileNumber();
   std::string fname = LogFileName(dbname_, wal_file_id);
   uint64_t offset_to_corrupt;
   ASSERT_OK(env->GetFileSize(fname, &offset_to_corrupt));
