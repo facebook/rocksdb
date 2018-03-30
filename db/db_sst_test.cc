@@ -20,6 +20,35 @@ class DBSSTTest : public DBTestBase {
   DBSSTTest() : DBTestBase("/db_sst_test") {}
 };
 
+// A class which remembers the name of each flushed file.
+class FlushedFileCollector : public EventListener {
+ public:
+  FlushedFileCollector() {}
+  ~FlushedFileCollector() {}
+
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    flushed_files_.push_back(info.file_path);
+  }
+
+  std::vector<std::string> GetFlushedFiles() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> result;
+    for (auto fname : flushed_files_) {
+      result.push_back(fname);
+    }
+    return result;
+  }
+  void ClearFlushedFiles() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    flushed_files_.clear();
+  }
+
+ private:
+  std::vector<std::string> flushed_files_;
+  std::mutex mutex_;
+};
+
 TEST_F(DBSSTTest, DontDeletePendingOutputs) {
   Options options;
   options.env = env_;
@@ -598,6 +627,10 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   Options options = CurrentOptions();
   options.sst_file_manager = sst_file_manager;
   options.statistics = CreateDBStatistics();
+
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
   DestroyAndReopen(options);
 
   int hit_manual_cancel = 0;
@@ -633,7 +666,37 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   ASSERT_GT(hit_manual_cancel, 0);
   // Make sure the stat is bumped
-  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 1);
+
+  // Now make sure CompactFiles also gets cancelled
+  hit_manual_cancel = 0;
+  auto l0_files = collector->GetFlushedFiles();
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(), l0_files, 0);
+
+  // Wait for manual compaction to get scheduled and finish
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 2);
+  ASSERT_GT(hit_manual_cancel, 0);
+  ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Now let the flush through and make sure GetCompactionsReservedSize
+  // returns to normal
+  sfm->SetMaxAllowedSpaceUsage(0);
+  int completed_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactFilesImpl:End",
+      [&](void* arg) { completed_compactions++; });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(), l0_files, 0);
+  dbfull()->TEST_WaitForCompact(true);
+
+  ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
+  ASSERT_GT(completed_compactions, 0);
+
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 

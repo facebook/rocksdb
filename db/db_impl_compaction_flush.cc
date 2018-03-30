@@ -582,6 +582,35 @@ Status DBImpl::CompactFilesImpl(
           "files are already being compacted");
     }
   }
+  bool sfm_bookkeeping = false;
+  // First check if we have enough room to do the compaction
+  bool enough_room = true;
+#ifndef ROCKSDB_LITE
+  auto sfm = static_cast<SstFileManagerImpl*>(
+      immutable_db_options_.sst_file_manager.get());
+  if (sfm) {
+    enough_room = sfm->EnoughRoomForCompaction(input_files);
+    if (enough_room) {
+      sfm_bookkeeping = true;
+    }
+  }
+#endif  // ROCKSDB_LITE
+  if (!enough_room) {
+    // Just in case tests want to change the value of enough_room
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::BackgroundCompaction():CancelledManualCompaction",
+        &enough_room);
+  }
+  if (!enough_room) {
+    ROCKS_LOG_BUFFER(log_buffer,
+        "Cancelled compaction because not enough room");
+    // Don't need to sleep here, because BackgroundCallCompaction
+    // will sleep if !s.ok()
+    // m's vars will get set properly at the end of this function,
+    // as long as status == CompactionTooLarge
+    RecordTick(stats_, COMPACTION_CANCELLED, 1);
+    return Status::CompactionTooLarge();
+  }
 
   // At this point, CompactFiles will be run.
   bg_compaction_scheduled_++;
@@ -658,6 +687,12 @@ Status DBImpl::CompactFilesImpl(
         *c->mutable_cf_options(), FlushReason::kManualCompaction);
   }
   c->ReleaseCompactionFiles(s);
+#ifndef ROCKSDB_LITE
+  // Need to make sure SstFileManager does its bookkeeping
+  if (sfm && sfm_bookkeeping) {
+    sfm->OnCompactionCompletion(c.get());
+  }
+#endif  // ROCKSDB_LITE
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
@@ -696,6 +731,7 @@ Status DBImpl::CompactFilesImpl(
   if (bg_compaction_scheduled_ == 0) {
     bg_cv_.SignalAll();
   }
+  TEST_SYNC_POINT("CompactFilesImpl:End");
 
   return status;
 }
@@ -1600,7 +1636,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       auto sfm = static_cast<SstFileManagerImpl*>(
           immutable_db_options_.sst_file_manager.get());
       if (sfm) {
-        enough_room = sfm->EnoughRoomForCompaction(c.get());
+        enough_room = sfm->EnoughRoomForCompaction(*(c->inputs()));
         if (enough_room) {
           sfm_bookkeeping = true;
         }
@@ -1682,7 +1718,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         auto sfm = static_cast<SstFileManagerImpl*>(
             immutable_db_options_.sst_file_manager.get());
         if (sfm) {
-          enough_room = sfm->EnoughRoomForCompaction(c.get());
+          enough_room = sfm->EnoughRoomForCompaction(*(c->inputs()));
           if (enough_room) {
             sfm_bookkeeping = true;
           }
