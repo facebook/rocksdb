@@ -1358,10 +1358,6 @@ public class RocksDB extends RocksObject {
     deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length);
   }
 
-  public void deleteFilesInRange(final byte[] beginKey, final byte[] endKey) throws RocksDBException {
-    deleteFilesInRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length);
-  }
-
   /**
    * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
    * including "beginKey" and excluding "endKey". a non-OK status on error. It
@@ -1437,6 +1433,25 @@ public class RocksDB extends RocksObject {
       final byte[] beginKey, final byte[] endKey) throws RocksDBException {
     deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
         endKey.length, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Delete files which are entirely in the given range for default column family.
+   * Could leave some keys in the range which are in files which are not
+   * entirely in the range. Also leaves L0 files regardless of whether they're
+   * in the range.
+   * Snapshots before the delete might not see the data in the given range.
+   *
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (included)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteFilesInRange(final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteFilesInRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length);
   }
 
   /**
