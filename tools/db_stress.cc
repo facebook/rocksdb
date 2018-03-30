@@ -843,6 +843,11 @@ class SharedState {
             "Cannot use --expected_values_path on platforms without lock-free "
             "std::atomic<uint32_t>");
       }
+      if (status.ok() && FLAGS_clear_column_family_one_in > 0) {
+        status = Status::InvalidArgument(
+            "Cannot use --expected_values_path on when "
+            "--clear_column_family_one_in is greater than zero.");
+      }
       size_t size;
       if (status.ok()) {
         status = FLAGS_env->GetFileSize(FLAGS_expected_values_path, &size);
