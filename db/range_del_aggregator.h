@@ -6,7 +6,6 @@
 #pragma once
 
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -141,7 +140,6 @@ class RangeDelAggregator {
                     CompactionIterationStats* range_del_out_stats = nullptr,
                     bool bottommost_level = false);
   bool IsEmpty();
-  bool AddFile(uint64_t file_number);
 
  private:
   // Maps tombstone user start key -> tombstone object
@@ -182,10 +180,6 @@ class RangeDelAggregator {
   const InternalKeyComparator& icmp_;
   // collapse range deletions so they're binary searchable
   const bool collapse_deletions_;
-
-  // Record files whose tombstones have been added, to avoid duplicate adding.
-  // Same as rep_, we initializes it lazily.
-  std::unique_ptr<std::set<uint64_t>> added_files_;
 };
 
 }  // namespace rocksdb
