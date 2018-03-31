@@ -156,6 +156,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         return false;
       }
     }
+    // Note: since smallest_prepare does not include the delayed_prepared_ we
+    // should check delayed_prepared_ first before applying this optimization.
+    // TODO(myabandeh): include delayed_prepared_ in smallest_prepare
     if (prep_seq < smallest_prepare) {
       return true;
     }

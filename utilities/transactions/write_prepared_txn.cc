@@ -78,7 +78,7 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // AddPrepared better to be called in the pre-release callback otherwise there
-  // is a non-zero chance of max dvancing prepare_seq and readers assume the
+  // is a non-zero chance of max advancing prepare_seq and readers assume the
   // data as committed.
   // Also having it in the PreReleaseCallback allows in-order addition of
   // prepared entries to PrepareHeap and hence enables an optimization. Refer to
@@ -143,6 +143,10 @@ Status WritePreparedTxn::CommitInternal() {
   const bool do_one_write =
       !db_impl_->immutable_db_options().two_write_queues || disable_memtable;
   const bool publish_seq = do_one_write;
+  // Note: CommitTimeWriteBatch does not need AddPrepared since it is written to
+  // DB in one shot. smallest_prepare still works since it requires capturing
+  // data that is written to DB but not yet committed, while
+  // CommitTimeWriteBatch commits with PreReleaseCallback.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt,
       !PREP_HEAP_SKIPPED, publish_seq);
@@ -294,6 +298,10 @@ Status WritePreparedTxn::RollbackInternal() {
   const size_t ONE_BATCH = 1;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, ONE_BATCH);
+  // Note: the rollback batch does not need AddPrepared since it is written to
+  // DB in one shot. smallest_prepare still works since it requires capturing
+  // data that is written to DB but not yet committed, while
+  // the roolback batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
                           NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           do_one_write ? &update_commit_map : nullptr);
