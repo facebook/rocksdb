@@ -188,16 +188,16 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   // We are fine with the latest committed value. This could be done by
   // specifying the snapshot as kMaxSequenceNumber.
   SequenceNumber seq = kMaxSequenceNumber;
-  SequenceNumber smallest_prep = 0;
+  SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     seq = options.snapshot->GetSequenceNumber();
-    smallest_prep = static_cast_with_check<const SnapshotImpl, const Snapshot>(
+    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
                         options.snapshot)
-                        ->smallest_prepare_;
+                        ->min_uncommitted_;
   } else {
-    smallest_prep = SmallestUnCommittedSeq();
+    min_uncommitted = SmallestUnCommittedSeq();
   }
-  WritePreparedTxnReadCallback callback(this, seq, smallest_prep);
+  WritePreparedTxnReadCallback callback(this, seq, min_uncommitted);
   bool* dont_care = nullptr;
   // Note: no need to specify a snapshot for read options as no specific
   // snapshot is requested by the user.
@@ -250,8 +250,8 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
 struct WritePreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
-                SequenceNumber smallest_prep)
-      : callback(txn_db, sequence, smallest_prep), snapshot(s) {}
+                SequenceNumber min_uncommitted)
+      : callback(txn_db, sequence, min_uncommitted), snapshot(s) {}
 
   WritePreparedTxnReadCallback callback;
   std::shared_ptr<ManagedSnapshot> snapshot;
@@ -269,26 +269,26 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
-  SequenceNumber smallest_prep = 0;
+  SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    smallest_prep = static_cast_with_check<const SnapshotImpl, const Snapshot>(
+    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
                         options.snapshot)
-                        ->smallest_prepare_;
+                        ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
     // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
-    smallest_prep =
+    min_uncommitted =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->smallest_prepare_;
+            ->min_uncommitted_;
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
   assert(snapshot_seq != kMaxSequenceNumber);
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* state =
-      new IteratorState(this, snapshot_seq, own_snapshot, smallest_prep);
+      new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
   auto* db_iter =
       db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
                                 !ALLOW_BLOB, !ALLOW_REFRESH);
@@ -304,28 +304,28 @@ Status WritePreparedTxnDB::NewIterators(
   constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
-  SequenceNumber smallest_prep = 0;
+  SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    smallest_prep = static_cast_with_check<const SnapshotImpl, const Snapshot>(
+    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
                         options.snapshot)
-                        ->smallest_prepare_;
+                        ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
     // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
-    smallest_prep =
+    min_uncommitted =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->smallest_prepare_;
+            ->min_uncommitted_;
   }
   iterators->clear();
   iterators->reserve(column_families.size());
   for (auto* column_family : column_families) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
     auto* state =
-        new IteratorState(this, snapshot_seq, own_snapshot, smallest_prep);
+        new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
     auto* db_iter =
         db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
                                   !ALLOW_BLOB, !ALLOW_REFRESH);

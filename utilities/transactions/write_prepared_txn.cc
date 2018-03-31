@@ -40,14 +40,14 @@ Status WritePreparedTxn::Get(const ReadOptions& read_options,
   auto snapshot = read_options.snapshot;
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber smallest_prep = 0;  // by default disable the optimization
+  SequenceNumber min_uncommitted = 0;  // by default disable the optimization
   if (snapshot != nullptr) {
-    smallest_prep =
+    min_uncommitted =
         static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->smallest_prepare_;
+            ->min_uncommitted_;
   }
 
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, smallest_prep);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
   return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
                                         pinnable_val, &callback);
 }
@@ -144,7 +144,7 @@ Status WritePreparedTxn::CommitInternal() {
       !db_impl_->immutable_db_options().two_write_queues || disable_memtable;
   const bool publish_seq = do_one_write;
   // Note: CommitTimeWriteBatch does not need AddPrepared since it is written to
-  // DB in one shot. smallest_prepare still works since it requires capturing
+  // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
   // CommitTimeWriteBatch commits with PreReleaseCallback.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
@@ -217,7 +217,7 @@ Status WritePreparedTxn::RollbackInternal() {
         std::map<uint32_t, const Comparator*>& comparators)
         : db_(db),
           callback(wpt_db, snap_seq,
-                   0),  // 0 disables smallest_prep optimization
+                   0),  // 0 disables min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators) {}
 
@@ -299,7 +299,7 @@ Status WritePreparedTxn::RollbackInternal() {
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, ONE_BATCH);
   // Note: the rollback batch does not need AddPrepared since it is written to
-  // DB in one shot. smallest_prepare still works since it requires capturing
+  // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
   // the roolback batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
@@ -352,10 +352,10 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                           SequenceNumber* tracked_at_seq) {
   assert(snapshot_);
 
-  SequenceNumber smallest_prep =
+  SequenceNumber min_uncommitted =
       static_cast_with_check<const SnapshotImpl, const Snapshot>(
           snapshot_.get())
-          ->smallest_prepare_;
+          ->min_uncommitted_;
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
   // tracked_at_seq is either max or the last snapshot with which this key was
   // trackeed so there is no need to apply the IsInSnapshot to this comparison
@@ -372,7 +372,7 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, smallest_prep);
+  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted);
   return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snap_seq, false /* cache_only */,
                                                &snap_checker);

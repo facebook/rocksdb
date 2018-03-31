@@ -21,10 +21,10 @@ class SnapshotList;
 class SnapshotImpl : public Snapshot {
  public:
   SequenceNumber number_;  // const after creation
-  // This is used by WritePrepared transactions to limit the scope of queries to
-  // IsInSnpashot. It indicates the smallest uncommitted data at the time the
-  // snapshot was taken.
-  SequenceNumber smallest_prepare_ = 0;
+  // It indicates the smallest uncommitted data at the time the snapshot was
+  // taken. This is currently used by WritePrepared transactions to limit the
+  // scope of queries to IsInSnpashot.
+  SequenceNumber min_uncommitted_ = 0;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 

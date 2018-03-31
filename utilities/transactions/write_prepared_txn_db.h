@@ -118,10 +118,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // is visible to the snapshot with sequence number snapshot_seq.
   // Returns true if commit_seq <= snapshot_seq
   inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
-                           uint64_t smallest_prepare = 0) const {
-    ROCKS_LOG_DETAILS(
-        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " smalleest %" PRIu64,
-        prep_seq, snapshot_seq, smallest_prepare);
+                           uint64_t min_uncommitted = 0) const {
+    ROCKS_LOG_DETAILS(info_log_,
+                      "IsInSnapshot %" PRIu64 " in %" PRIu64
+                      " min_uncommitted %" PRIu64,
+                      prep_seq, snapshot_seq, min_uncommitted);
     // Here we try to infer the return value without looking into prepare list.
     // This would help avoiding synchronization over a shared map.
     // TODO(myabandeh): optimize this. This sequence of checks must be correct
@@ -156,10 +157,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         return false;
       }
     }
-    // Note: since smallest_prepare does not include the delayed_prepared_ we
+    // Note: since min_uncommitted does not include the delayed_prepared_ we
     // should check delayed_prepared_ first before applying this optimization.
-    // TODO(myabandeh): include delayed_prepared_ in smallest_prepare
-    if (prep_seq < smallest_prepare) {
+    // TODO(myabandeh): include delayed_prepared_ in min_uncommitted
+    if (prep_seq < min_uncommitted) {
       return true;
     }
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
@@ -489,7 +490,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Enhance the snapshot object by recording in it the smallest uncommitted seq
   inline void EnhanceSnapshot(SnapshotImpl* snapshot) {
     assert(snapshot);
-    snapshot->smallest_prepare_ = WritePreparedTxnDB::SmallestUnCommittedSeq();
+    snapshot->min_uncommitted_ = WritePreparedTxnDB::SmallestUnCommittedSeq();
   }
 
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
@@ -595,19 +596,19 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 class WritePreparedTxnReadCallback : public ReadCallback {
  public:
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                               SequenceNumber smallest_prep)
-      : db_(db), snapshot_(snapshot), smallest_prepare_(smallest_prep) {}
+                               SequenceNumber min_uncommitted)
+      : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
 
   // Will be called to see if the seq number accepted; if not it moves on to the
   // next seq number.
   inline virtual bool IsCommitted(SequenceNumber seq) override {
-    return db_->IsInSnapshot(seq, snapshot_, smallest_prepare_);
+    return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
   }
 
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
-  SequenceNumber smallest_prepare_;
+  SequenceNumber min_uncommitted_;
 };
 
 class AddPreparedCallback : public PreReleaseCallback {
