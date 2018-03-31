@@ -588,6 +588,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
         sfm->SetMaxAllowedSpaceUsage(0);
+        ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
@@ -613,6 +614,8 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_OK(Flush());
   dbfull()->TEST_WaitForCompact(true);
 
+  // Because we set a callback in CancelledCompaction, we actually
+  // let the compaction run
   ASSERT_GT(completed_compactions, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
@@ -633,12 +636,6 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 
   DestroyAndReopen(options);
 
-  int hit_manual_cancel = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction():CancelledManualCompaction", [&](void* arg) {
-        hit_manual_cancel++;
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Random rnd(301);
 
   // Generate a file containing 10 keys.
@@ -664,12 +661,10 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   dbfull()->TEST_WaitForCompact(true);
 
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
-  ASSERT_GT(hit_manual_cancel, 0);
   // Make sure the stat is bumped
   ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 1);
 
   // Now make sure CompactFiles also gets cancelled
-  hit_manual_cancel = 0;
   auto l0_files = collector->GetFlushedFiles();
   dbfull()->CompactFiles(rocksdb::CompactionOptions(), l0_files, 0);
 
@@ -677,10 +672,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   dbfull()->TEST_WaitForCompact(true);
 
   ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 2);
-  ASSERT_GT(hit_manual_cancel, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
   // Now let the flush through and make sure GetCompactionsReservedSize
   // returns to normal
