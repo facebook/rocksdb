@@ -458,7 +458,8 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewMemoryMappedFileBuffer(
-      const std::string& fname, unique_ptr<MemoryMappedFileBuffer>* result) {
+      const std::string& fname,
+      unique_ptr<MemoryMappedFileBuffer>* result) override {
     int fd = -1;
     Status status;
     while (fd < 0) {
@@ -474,19 +475,21 @@ class PosixEnv : public Env {
         break;
       }
     }
-    size_t size;
+    uint64_t size;
     if (status.ok()) {
       status = GetFileSize(fname, &size);
     }
     void* base;
     if (status.ok()) {
-      base = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+      base = mmap(nullptr, static_cast<size_t>(size), PROT_READ | PROT_WRITE,
+                  MAP_SHARED, fd, 0);
       if (base == MAP_FAILED) {
         status = IOError("while mmap file for read", fname, errno);
       }
     }
     if (status.ok()) {
-      result->reset(new PosixMemoryMappedFileBuffer(base, size));
+      result->reset(
+          new PosixMemoryMappedFileBuffer(base, static_cast<size_t>(size)));
     }
     if (fd >= 0) {
       // don't need to keep it open after mmap has been called
