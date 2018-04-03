@@ -135,6 +135,10 @@ class VersionStorageInfo {
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
 
+  // This computes ttl_expired_files_ and is called by
+  // ComputeCompactionScore()
+  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions);
+
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
   //
@@ -284,6 +288,13 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_compaction_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
+    assert(finalized_);
+    return expired_ttl_files_;
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -445,6 +456,8 @@ class VersionStorageInfo {
   // currently being compacted. It is protected by DB mutex. It is calculated in
   // ComputeCompactionScore()
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
+
+  autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
 
   // These files are considered bottommost because none of their keys can exist
   // at lower levels. They are not necessarily all in the same level. The marked

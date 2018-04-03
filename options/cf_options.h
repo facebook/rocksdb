@@ -118,6 +118,8 @@ struct ImmutableCFOptions {
   uint32_t max_subcompactions;
 
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
+
+  uint64_t ttl;
 };
 
 struct MutableCFOptions {
