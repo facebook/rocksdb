@@ -379,6 +379,10 @@ class ColumnFamilyData {
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
+  Status AddDirectories();
+
+  Directory* GetDataDir(size_t path_id) const;
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -462,6 +466,9 @@ class ColumnFamilyData {
 
   // Memtable id to track flush.
   std::atomic<uint64_t> last_memtable_id_;
+
+  // Directories corresponding to cf_paths.
+  std::vector<std::unique_ptr<Directory>> data_dirs_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

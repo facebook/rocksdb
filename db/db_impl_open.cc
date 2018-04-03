@@ -249,9 +249,9 @@ Status DBImpl::NewDB() {
   return s;
 }
 
-Status DBImpl::Directories::CreateAndNewDirectory(
+Status DBImpl::CreateAndNewDirectory(
     Env* env, const std::string& dirname,
-    std::unique_ptr<Directory>* directory) const {
+    std::unique_ptr<Directory>* directory) {
   // We call CreateDirIfMissing() as the directory may already exist (if we
   // are reopening a DB), when this happens we don't want creating the
   // directory to cause an error. However, we need to check if creating the
@@ -268,15 +268,13 @@ Status DBImpl::Directories::CreateAndNewDirectory(
 
 Status DBImpl::Directories::SetDirectories(
     Env* env, const std::string& dbname, const std::string& wal_dir,
-    const std::vector<DbPath>& data_paths,
-    const std::vector<ColumnFamilyDescriptor>&
-        column_families) {
-  Status s = CreateAndNewDirectory(env, dbname, &db_dir_);
+    const std::vector<DbPath>& data_paths) {
+  Status s = DBImpl::CreateAndNewDirectory(env, dbname, &db_dir_);
   if (!s.ok()) {
     return s;
   }
   if (!wal_dir.empty() && dbname != wal_dir) {
-    s = CreateAndNewDirectory(env, wal_dir, &wal_dir_);
+    s = DBImpl::CreateAndNewDirectory(env, wal_dir, &wal_dir_);
     if (!s.ok()) {
       return s;
     }
@@ -289,7 +287,7 @@ Status DBImpl::Directories::SetDirectories(
       data_dirs_.emplace_back(nullptr);
     } else {
       std::unique_ptr<Directory> path_directory;
-      s = CreateAndNewDirectory(env, db_path, &path_directory);
+      s = DBImpl::CreateAndNewDirectory(env, db_path, &path_directory);
       if (!s.ok()) {
         return s;
       }
@@ -297,35 +295,6 @@ Status DBImpl::Directories::SetDirectories(
     }
   }
   assert(data_dirs_.size() == data_paths.size());
-
-  cf_data_dirs_.clear();
-  for (auto& column_family : column_families) {
-    if (!column_family.options.cf_paths.empty()) {
-      s = AddCFDirectories(env, column_family.name,
-                           column_family.options.cf_paths);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-  }
-  return Status::OK();
-}
-
-Status DBImpl::Directories::AddCFDirectories(
-    Env* env, const std::string& cf_name,
-    const std::vector<DbPath>& cf_data_paths) {
-  Status s;
-  cf_data_dirs_[cf_name].clear();
-  for (auto& p : cf_data_paths) {
-    std::unique_ptr<Directory> path_directory;
-    s = CreateAndNewDirectory(env, p.path, &path_directory);
-    if (!s.ok()) {
-      return s;
-    }
-    assert(path_directory != nullptr);
-    cf_data_dirs_[cf_name].emplace_back(path_directory.release());
-  }
-  assert(cf_data_dirs_[cf_name].size() == cf_data_paths.size());
   return Status::OK();
 }
 
@@ -339,8 +308,7 @@ Status DBImpl::Recover(
   if (!read_only) {
     Status s = directories_.SetDirectories(env_, dbname_,
                                            immutable_db_options_.wal_dir,
-                                           immutable_db_options_.db_paths,
-                                           column_families);
+                                           immutable_db_options_.db_paths);
     if (!s.ok()) {
       return s;
     }
@@ -411,6 +379,14 @@ Status DBImpl::Recover(
   Status s = versions_->Recover(column_families, read_only);
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
+  }
+  if (s.ok() && !read_only) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      s = cfd->AddDirectories();
+      if (!s.ok()) {
+        return s;
+      }
+    }
   }
   if (s.ok()) {
     SequenceNumber next_sequence(kMaxSequenceNumber);

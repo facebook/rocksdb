@@ -636,6 +636,9 @@ class DBImpl : public DB {
 
   virtual Status Close() override;
 
+  static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
+                                      std::unique_ptr<Directory>* directory);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -960,6 +963,8 @@ class DBImpl : public DB {
 
   uint64_t GetMaxTotalWalSize() const;
 
+  Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
+
   Status CloseHelper();
 
   // table_cache_ provides its own synchronization
@@ -1095,14 +1100,9 @@ class DBImpl : public DB {
    public:
     Status SetDirectories(Env* env, const std::string& dbname,
                           const std::string& wal_dir,
-                          const std::vector<DbPath>& data_paths,
-                          const std::vector<ColumnFamilyDescriptor>&
-                              column_families);
+                          const std::vector<DbPath>& data_paths);
 
-    Status AddCFDirectories(Env* env,const std::string& cf_name,
-                            const std::vector<DbPath>& cf_data_paths);
-
-    Directory* GetDataDir(const std::string& cf_name, size_t path_id);
+    Directory* GetDataDir(size_t path_id) const;
 
     Directory* GetWalDir() {
       if (wal_dir_) {
@@ -1117,11 +1117,6 @@ class DBImpl : public DB {
     std::unique_ptr<Directory> db_dir_;
     std::vector<std::unique_ptr<Directory>> data_dirs_;
     std::unique_ptr<Directory> wal_dir_;
-    std::unordered_map<std::string, std::vector<std::unique_ptr<Directory>>>
-        cf_data_dirs_;
-
-    Status CreateAndNewDirectory(Env* env, const std::string& dirname,
-                                 std::unique_ptr<Directory>* directory) const;
   };
 
   Directories directories_;

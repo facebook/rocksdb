@@ -514,18 +514,18 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   }
 }
 
-Directory* DBImpl::Directories::GetDataDir(const std::string& cf_name,
-                                           size_t path_id) {
-  std::vector<std::unique_ptr<Directory>>* dirs;
-  auto iter = cf_data_dirs_.find(cf_name);
-  if (iter != cf_data_dirs_.end()) {
-    dirs = &(iter->second);
-  } else {
-    dirs = &data_dirs_;
+Directory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
+  assert(cfd);
+  Directory* ret_dir = cfd->GetDataDir(path_id);
+  if (ret_dir == nullptr) {
+    return directories_.GetDataDir(path_id);
   }
+  return ret_dir;
+}
 
-  assert(path_id < dirs->size());
-  Directory* ret_dir = dirs->at(path_id).get();
+Directory* DBImpl::Directories::GetDataDir(size_t path_id) const {
+  assert(path_id < data_dirs_.size());
+  Directory* ret_dir = data_dirs_[path_id].get();
   if (ret_dir == nullptr) {
     // Should use db_dir_
     return db_dir_.get();
@@ -1333,14 +1333,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   {
     InstrumentedMutexLock l(&mutex_);
 
-    if (!cf_options.cf_paths.empty()) {
-      s = directories_.AddCFDirectories(env_, column_family_name,
-                                        cf_options.cf_paths);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-
     if (versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name) !=
         nullptr) {
       return Status::InvalidArgument("Column family already exists");
@@ -1363,6 +1355,12 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
       write_thread_.ExitUnbatched(&w);
+    }
+    if (s.ok()) {
+      auto* cfd =
+          versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
+      assert(cfd != nullptr);
+      s = cfd->AddDirectories();
     }
     if (s.ok()) {
       single_column_family_mode_ = false;

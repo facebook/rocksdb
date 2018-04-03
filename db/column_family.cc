@@ -1176,6 +1176,31 @@ Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
                             static_cast<int>(Env::WLTH_MEDIUM));
 }
 
+Status ColumnFamilyData::AddDirectories() {
+  Status s;
+  assert(data_dirs_.empty());
+  for (auto& p : ioptions_.cf_paths) {
+    std::unique_ptr<Directory> path_directory;
+    s = DBImpl::CreateAndNewDirectory(ioptions_.env, p.path, &path_directory);
+    if (!s.ok()) {
+      return s;
+    }
+    assert(path_directory != nullptr);
+    data_dirs_.emplace_back(path_directory.release());
+  }
+  assert(data_dirs_.size() == ioptions_.cf_paths.size());
+  return s;
+}
+
+Directory* ColumnFamilyData::GetDataDir(size_t path_id) const {
+  if (data_dirs_.empty()) {
+    return nullptr;
+  }
+
+  assert(path_id < data_dirs_.size());
+  return data_dirs_[path_id].get();
+}
+
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,
                                  const EnvOptions& env_options,
