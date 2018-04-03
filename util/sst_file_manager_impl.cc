@@ -106,7 +106,8 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
          max_allowed_space_;
 }
 
-bool SstFileManagerImpl::EnoughRoomForCompaction(const std::vector<CompactionInputFiles> inputs) {
+bool SstFileManagerImpl::EnoughRoomForCompaction(
+    const std::vector<CompactionInputFiles>& inputs) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction

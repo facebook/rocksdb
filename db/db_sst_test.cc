@@ -662,7 +662,9 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
-  ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 1);
+  ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                COMPACTION_CANCELLED),
+            1);
 
   // Now make sure CompactFiles also gets cancelled
   auto l0_files = collector->GetFlushedFiles();
@@ -671,7 +673,9 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   // Wait for manual compaction to get scheduled and finish
   dbfull()->TEST_WaitForCompact(true);
 
-  ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 2);
+  ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                COMPACTION_CANCELLED),
+            2);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
 
   // Now let the flush through and make sure GetCompactionsReservedSize
@@ -679,8 +683,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   sfm->SetMaxAllowedSpaceUsage(0);
   int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactFilesImpl:End",
-      [&](void* arg) { completed_compactions++; });
+      "CompactFilesImpl:End", [&](void* arg) { completed_compactions++; });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   dbfull()->CompactFiles(rocksdb::CompactionOptions(), l0_files, 0);

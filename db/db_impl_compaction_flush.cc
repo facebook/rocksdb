@@ -24,8 +24,9 @@
 
 namespace rocksdb {
 
-bool DBImpl::EnoughRoomForCompaction(const std::vector<CompactionInputFiles> inputs,
-    bool *sfm_bookkeeping, LogBuffer* log_buffer) {
+bool DBImpl::EnoughRoomForCompaction(
+    const std::vector<CompactionInputFiles>& inputs,
+    bool* sfm_reserved_compact_space, LogBuffer* log_buffer) {
   // Check if we have enough room to do the compaction
   bool enough_room = true;
 #ifndef ROCKSDB_LITE
@@ -34,17 +35,16 @@ bool DBImpl::EnoughRoomForCompaction(const std::vector<CompactionInputFiles> inp
   if (sfm) {
     enough_room = sfm->EnoughRoomForCompaction(inputs);
     if (enough_room) {
-      *sfm_bookkeeping = true;
+      *sfm_reserved_compact_space = true;
     }
   }
 #endif  // ROCKSDB_LITE
   if (!enough_room) {
     // Just in case tests want to change the value of enough_room
     TEST_SYNC_POINT_CALLBACK(
-        "DBImpl::BackgroundCompaction():CancelledCompaction",
-        &enough_room);
+        "DBImpl::BackgroundCompaction():CancelledCompaction", &enough_room);
     ROCKS_LOG_BUFFER(log_buffer,
-        "Cancelled compaction because not enough room");
+                     "Cancelled compaction because not enough room");
     RecordTick(stats_, COMPACTION_CANCELLED, 1);
   }
   return enough_room;
@@ -608,10 +608,10 @@ Status DBImpl::CompactFilesImpl(
           "files are already being compacted");
     }
   }
-  bool sfm_bookkeeping = false;
+  bool sfm_reserved_compact_space = false;
   // First check if we have enough room to do the compaction
   bool enough_room = EnoughRoomForCompaction(
-      input_files, &sfm_bookkeeping, log_buffer);
+      input_files, &sfm_reserved_compact_space, log_buffer);
 
   if (!enough_room) {
     // m's vars will get set properly at the end of this function,
@@ -698,7 +698,7 @@ Status DBImpl::CompactFilesImpl(
   // Need to make sure SstFileManager does its bookkeeping
   auto sfm = static_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
-  if (sfm && sfm_bookkeeping) {
+  if (sfm && sfm_reserved_compact_space) {
     sfm->OnCompactionCompletion(c.get());
   }
 #endif  // ROCKSDB_LITE
@@ -1623,7 +1623,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
-  bool sfm_bookkeeping = false;
+  bool sfm_reserved_compact_space = false;
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);
@@ -1639,7 +1639,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     } else {
       // First check if we have enough room to do the compaction
       bool enough_room = EnoughRoomForCompaction(
-          *(c->inputs()), &sfm_bookkeeping, log_buffer);
+          *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
       if (!enough_room) {
         // Then don't do the compaction
@@ -1657,8 +1657,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
             (m->end ? m->end->DebugString().c_str() : "(end)"),
             ((m->done || m->manual_end == nullptr)
-             ? "(end)"
-             : m->manual_end->DebugString().c_str()));
+                 ? "(end)"
+                 : m->manual_end->DebugString().c_str()));
       }
     }
   } else if (!is_prepicked && !compaction_queue_.empty()) {
@@ -1702,7 +1702,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
       if (c != nullptr) {
         bool enough_room = EnoughRoomForCompaction(
-            *(c->inputs()), &sfm_bookkeeping, log_buffer);
+            *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
         if (!enough_room) {
           // Then don't do the compaction
@@ -1905,7 +1905,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Need to make sure SstFileManager does its bookkeeping
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
-    if (sfm && sfm_bookkeeping) {
+    if (sfm && sfm_reserved_compact_space) {
       sfm->OnCompactionCompletion(c.get());
     }
 #endif  // ROCKSDB_LITE
