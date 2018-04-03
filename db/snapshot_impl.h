@@ -21,6 +21,10 @@ class SnapshotList;
 class SnapshotImpl : public Snapshot {
  public:
   SequenceNumber number_;  // const after creation
+  // It indicates the smallest uncommitted data at the time the snapshot was
+  // taken. This is currently used by WritePrepared transactions to limit the
+  // scope of queries to IsInSnpashot.
+  SequenceNumber min_uncommitted_ = 0;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
@@ -56,8 +60,8 @@ class SnapshotList {
   SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
   SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
 
-  const SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq,
-                          uint64_t unix_time, bool is_write_conflict_boundary) {
+  SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
+                    bool is_write_conflict_boundary) {
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->is_write_conflict_boundary_ = is_write_conflict_boundary;
