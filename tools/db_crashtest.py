@@ -32,6 +32,7 @@ default_params = {
     "max_write_buffer_number": 3,
     "memtablerep": "prefix_hash",
     "mmap_read": lambda: random.randint(0, 1),
+    "nooverwritepercent": 1,
     "open_files": 500000,
     "prefix_size": 7,
     "prefixpercent": 5,
@@ -76,7 +77,6 @@ blackbox_default_params = {
 whitebox_default_params = {
     "duration": 10000,
     "log2_keys_per_lock": 10,
-    "nooverwritepercent": 1,
     "ops_per_thread": 200000,
     "test_batches_snapshots": lambda: random.randint(0, 1),
     "write_buffer_size": 4 * 1024 * 1024,
@@ -100,6 +100,7 @@ simple_default_params = {
     "max_write_buffer_number": 3,
     "memtablerep": "skip_list",
     "mmap_read": lambda: random.randint(0, 1),
+    "nooverwritepercent": 1,
     "prefix_size": 0,
     "prefixpercent": 0,
     "progress_reports": 0,
@@ -128,7 +129,6 @@ blackbox_simple_default_params = {
 whitebox_simple_default_params = {
     "duration": 10000,
     "log2_keys_per_lock": 10,
-    "nooverwritepercent": 1,
     "open_files": 500000,
     "ops_per_thread": 200000,
     "write_buffer_size": 32 * 1024 * 1024,
