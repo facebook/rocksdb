@@ -1667,6 +1667,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
+  if (immutable_cf_options.ttl > 0) {
+    ComputeExpiredTtlFiles(immutable_cf_options);
+  }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -1688,6 +1691,34 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
     for (auto* f : files_[level]) {
       if (!f->being_compacted && f->marked_for_compaction) {
         files_marked_for_compaction_.emplace_back(level, f);
+      }
+    }
+  }
+}
+
+void VersionStorageInfo::ComputeExpiredTtlFiles(
+    const ImmutableCFOptions& ioptions) {
+  assert(ioptions.ttl > 0);
+
+  expired_ttl_files_.clear();
+
+  int64_t _current_time;
+  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  if (!status.ok()) {
+    return;
+  }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  for (int level = 0; level < num_levels() - 1; level++) {
+    for (auto f : files_[level]) {
+      if (!f->being_compacted && f->fd.table_reader != nullptr &&
+          f->fd.table_reader->GetTableProperties() != nullptr) {
+        auto creation_time =
+            f->fd.table_reader->GetTableProperties()->creation_time;
+        if (creation_time > 0 &&
+            creation_time < (current_time - ioptions.ttl)) {
+          expired_ttl_files_.emplace_back(level, f);
+        }
       }
     }
   }

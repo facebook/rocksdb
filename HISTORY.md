@@ -5,6 +5,7 @@
 
 ### New Features
 * TransactionDBOptions::write_policy can be configured to enable WritePrepared 2PC transactions. Read more about them in the wiki.
+* Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
 
 ### Bug Fixes
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.

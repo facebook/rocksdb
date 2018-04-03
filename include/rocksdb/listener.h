@@ -80,6 +80,7 @@ enum class CompactionReason {
   // [Level] Automatic compaction within bottommost level to cleanup duplicate
   // versions of same user key, usually due to a released snapshot.
   kBottommostFiles,
+  kTtl,
 };
 
 enum class FlushReason : int {

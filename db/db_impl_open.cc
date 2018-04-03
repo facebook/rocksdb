@@ -174,17 +174,16 @@ static Status ValidateOptions(
             "universal and level compaction styles. ");
       }
     }
-    if (cfd.options.compaction_options_fifo.ttl > 0) {
+    if (cfd.options.ttl > 0 || cfd.options.compaction_options_fifo.ttl > 0) {
       if (db_options.max_open_files != -1) {
         return Status::NotSupported(
-            "FIFO Compaction with TTL is only supported when files are always "
+            "TTL is only supported when files are always "
             "kept open (set max_open_files = -1). ");
       }
       if (cfd.options.table_factory->Name() !=
           BlockBasedTableFactory().Name()) {
         return Status::NotSupported(
-            "FIFO Compaction with TTL is only supported in "
-            "Block-Based Table format. ");
+            "TTL is only supported in Block-Based Table format. ");
       }
     }
   }
