@@ -48,6 +48,7 @@ option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
+option(WITH_ZSTD "build with zstd" OFF)
 if(MSVC)
   # Defaults currently different for GFLAGS.
   #  We will address find_package work a little later
@@ -107,7 +108,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${LZ4_LIBRARIES})
   endif()
 
-  option(WITH_ZSTD "build with zstd" OFF)
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
@@ -301,16 +301,10 @@ if(TBB_FOUND)
 endif()
 
 # Used to run CI build and tests so we can run faster
-set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
-
-if(DEFINED OPTDBG)
-   set(OPTIMIZE_DEBUG ${OPTDBG})
-else()
-   set(OPTIMIZE_DEBUG ${OPTIMIZE_DEBUG_DEFAULT})
-endif()
+option(OPTDBG "Build optimized debug build with MSVC" OFF)
 
 if(MSVC)
-  if((${OPTIMIZE_DEBUG} EQUAL 1))
+  if(OPTDBG)
     message(STATUS "Debug optimization is enabled")
     set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /${RUNTIME_LIBRARY}d")
   else()
@@ -500,7 +494,6 @@ set(SOURCES
         monitoring/thread_status_impl.cc
         monitoring/thread_status_updater.cc
         monitoring/thread_status_util.cc
-        monitoring/thread_status_util_debug.cc
         options/cf_options.cc
         options/db_options.cc
         options/options.cc
@@ -570,7 +563,6 @@ set(SOURCES
         util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
-        util/sync_point_impl.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
@@ -659,8 +651,12 @@ if(WIN32)
     port/win/env_default.cc
     port/win/port_win.cc
     port/win/win_logger.cc
-    port/win/win_thread.cc
+    port/win/win_thread.cc)
+
+if(WITH_XPRESS)
+  list(APPEND SOURCES
     port/win/xpress_win.cc)
+endif()
 
 if(WITH_JEMALLOC)
   list(APPEND SOURCES
@@ -674,6 +670,23 @@ else()
     env/io_posix.cc)
 endif()
 
+# This library has sources ifdefed in relase mode which causes
+# linker warnings so we choose to build and link to it only in debug
+set(ROCKSDB_DIAG_LIB rocksdb-diag${ARTIFACT_SUFFIX})
+set(ROCKSDB_DIAG_SRC
+   util/sync_point_impl.cc
+   monitoring/thread_status_util_debug.cc)
+add_library(${ROCKSDB_DIAG_LIB} STATIC ${ROCKSDB_DIAG_SRC})
+if(MSVC)
+  set_target_properties(${ROCKSDB_DIAG_LIB} PROPERTIES COMPILE_FLAGS 
+   "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_DIAG_LIB}.pdb")
+endif()
+set_target_properties(${ROCKSDB_DIAG_LIB}
+      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+      )
+
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
@@ -686,7 +699,8 @@ else()
 
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
   target_link_libraries(${ROCKSDB_SHARED_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} debug ${ROCKSDB_DIAG_LIB})
+
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
                         VERSION ${ROCKSDB_VERSION}
@@ -704,12 +718,12 @@ endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
 target_link_libraries(${ROCKSDB_STATIC_LIB}
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} debug ${ROCKSDB_DIAG_LIB})
 
 if(WIN32)
   add_library(${ROCKSDB_IMPORT_LIB} SHARED ${SOURCES})
   target_link_libraries(${ROCKSDB_IMPORT_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} debug ${ROCKSDB_DIAG_LIB})
   set_target_properties(${ROCKSDB_IMPORT_LIB} PROPERTIES
     COMPILE_DEFINITIONS "ROCKSDB_DLL;ROCKSDB_LIBRARY_EXPORTS")
   if(MSVC)
@@ -964,7 +978,8 @@ if(WITH_TESTS)
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
   if(MSVC)
-    set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
+    set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS 
+        "/Fd${CMAKE_CFG_INTDIR}/${TESTUTILLIB}.pdb")
   endif()
   set_target_properties(${TESTUTILLIB}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
