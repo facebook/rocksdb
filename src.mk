@@ -209,6 +209,7 @@ LIB_SOURCES =                                                   \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
   cloud/aws/aws_env.cc                                          \
+  cloud/aws/aws_kafka.cc                                        \
   cloud/aws/aws_kinesis.cc                                      \
   cloud/aws/aws_log.cc                                          \
   cloud/aws/aws_retry.cc                                        \
