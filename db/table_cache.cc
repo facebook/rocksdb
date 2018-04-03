@@ -247,15 +247,13 @@ InternalIterator* TableCache::NewIterator(
     }
   }
   if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
-    if (range_del_agg->AddFile(fd.GetNumber())) {
-      std::unique_ptr<InternalIterator> range_del_iter(
-          table_reader->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        s = range_del_iter->status();
-      }
-      if (s.ok()) {
-        s = range_del_agg->AddTombstones(std::move(range_del_iter));
-      }
+    std::unique_ptr<InternalIterator> range_del_iter(
+        table_reader->NewRangeTombstoneIterator(options));
+    if (range_del_iter != nullptr) {
+      s = range_del_iter->status();
+    }
+    if (s.ok()) {
+      s = range_del_agg->AddTombstones(std::move(range_del_iter));
     }
   }
 
