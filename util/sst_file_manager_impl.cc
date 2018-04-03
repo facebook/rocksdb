@@ -18,7 +18,8 @@ namespace rocksdb {
 #ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                                        int64_t rate_bytes_per_sec,
-                                       double max_trash_db_ratio)
+                                       double max_trash_db_ratio,
+                                       uint64_t bytes_max_delete_chunk)
     : env_(env),
       logger_(logger),
       total_files_size_(0),
@@ -26,7 +27,7 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
       cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
       delete_scheduler_(env, rate_bytes_per_sec, logger.get(), this,
-                        max_trash_db_ratio) {}
+                        max_trash_db_ratio, bytes_max_delete_chunk) {}
 
 SstFileManagerImpl::~SstFileManagerImpl() {}
 
@@ -105,13 +106,14 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
          max_allowed_space_;
 }
 
-bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction* c) {
+bool SstFileManagerImpl::EnoughRoomForCompaction(
+    const std::vector<CompactionInputFiles>& inputs) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
-  for (size_t i = 0; i < c->num_input_levels(); i++) {
-    for (size_t j = 0; j < c->num_input_files(i); j++) {
-      FileMetaData* filemeta = c->input(i, j);
+  for (size_t i = 0; i < inputs.size(); i++) {
+    for (size_t j = 0; j < inputs[i].size(); j++) {
+      FileMetaData* filemeta = inputs[i][j];
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }
@@ -196,10 +198,11 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
-                                  double max_trash_db_ratio) {
+                                  double max_trash_db_ratio,
+                                  uint64_t bytes_max_delete_chunk) {
   SstFileManagerImpl* res =
       new SstFileManagerImpl(env, info_log, rate_bytes_per_sec,
-                             max_trash_db_ratio);
+                             max_trash_db_ratio, bytes_max_delete_chunk);
 
   // trash_dir is deprecated and not needed anymore, but if user passed it
   // we will still remove files in it.
@@ -236,7 +239,8 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
-                                  double max_trash_db_ratio) {
+                                  double max_trash_db_ratio,
+                                  uint64_t bytes_max_delete_chunk) {
   if (status) {
     *status =
       Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");

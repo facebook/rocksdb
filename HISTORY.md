@@ -1,6 +1,20 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* Add a BlockBasedTableOption to align uncompressed data blocks on the smaller of block size or page size boundary, to reduce flash reads by avoiding reads spanning 4K pages.
+
+### New Features
+* * Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
+
+### Bug Fixes
+* Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
+* Fix WAL corruption caused by race condition between user write thread and FlushWAL when two_write_queue is not set.
+
+### Java API Changes
+* Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
+
+## 5.13.0 (3/20/2018)
+### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.
 * Remove CompactionEventListener.
 
@@ -9,9 +23,11 @@
 * Avoid unnecessarily flushing in `CompactRange()` when the range specified by the user does not overlap unflushed memtables.
 * If `ColumnFamilyOptions::max_subcompactions` is set greater than one, we now parallelize large manual level-based compactions.
 * Add "rocksdb.live-sst-files-size" DB property to return total bytes of all SST files belong to the latest LSM tree.
+* NewSstFileManager to add an argument bytes_max_delete_chunk with default 64MB. With this argument, a file larger than 64MB will be ftruncated multiple times based on this size.
 
 ### Bug Fixes
 * Fix a leak in prepared_section_completed_ where the zeroed entries would not removed from the map.
+* Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
 
 ## 5.12.0 (2/14/2018)
 ### Public API Change

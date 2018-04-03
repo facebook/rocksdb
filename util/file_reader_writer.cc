@@ -219,6 +219,31 @@ Status WritableFileWriter::Append(const Slice& data) {
   return s;
 }
 
+Status WritableFileWriter::Pad(const size_t pad_bytes) {
+  assert(pad_bytes < kDefaultPageSize);
+  size_t left = pad_bytes;
+  size_t cap = buf_.Capacity() - buf_.CurrentSize();
+
+  // Assume pad_bytes is small compared to buf_ capacity. So we always
+  // use buf_ rather than write directly to file in certain cases like
+  // Append() does.
+  while (left) {
+    size_t append_bytes = std::min(cap, left);
+    buf_.PadWith(append_bytes, 0);
+    left -= append_bytes;
+    if (left > 0) {
+      Status s = Flush();
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    cap = buf_.Capacity() - buf_.CurrentSize();
+  }
+  pending_sync_ = true;
+  filesize_ += pad_bytes;
+  return Status::OK();
+}
+
 Status WritableFileWriter::Close() {
 
   // Do not quit immediately on failure the file MUST be closed

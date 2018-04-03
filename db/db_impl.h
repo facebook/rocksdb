@@ -185,7 +185,9 @@ class DBImpl : public DB {
                               ColumnFamilyHandle* column_family,
                               const std::vector<std::string>& input_file_names,
                               const int output_level,
-                              const int output_path_id = -1) override;
+                              const int output_path_id = -1,
+                              std::vector<std::string>* const output_file_names
+                              = nullptr) override;
 
   virtual Status PauseBackgroundWork() override;
   virtual Status ContinueBackgroundWork() override;
@@ -221,6 +223,8 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
+  // REQUIRES: joined the main write queue if two_write_queues is disabled, and
+  // the second write queue otherwise.
   virtual void SetLastPublishedSequence(SequenceNumber seq);
   // Returns LastSequence in last_seq_same_as_publish_seq_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
@@ -617,6 +621,9 @@ class DBImpl : public DB {
 
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
+  // Not thread-safe.
+  void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
+
   InstrumentedMutex* mutex() { return &mutex_; }
 
   Status NewDB();
@@ -724,6 +731,7 @@ class DBImpl : public DB {
   friend class DB;
   friend class InternalStats;
   friend class PessimisticTransaction;
+  friend class TransactionBaseImpl;
   friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
   friend class WritePreparedTxnDB;
@@ -733,6 +741,7 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+  friend class DBTest_ConcurrentFlushWAL_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
@@ -831,7 +840,8 @@ class DBImpl : public DB {
 
   Status ScheduleFlushes(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                        FlushReason flush_reason = FlushReason::kOthers);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
@@ -871,7 +881,7 @@ class DBImpl : public DB {
                               size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
-  void WriteCallbackStatusCheck(const Status& status);
+  void WriteStatusCheck(const Status& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
@@ -881,6 +891,7 @@ class DBImpl : public DB {
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
+                          std::vector<std::string>* const output_file_names,
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer);
 
@@ -918,6 +929,9 @@ class DBImpl : public DB {
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
+  bool EnoughRoomForCompaction(const std::vector<CompactionInputFiles>& inputs,
+                               bool* sfm_bookkeeping, LogBuffer* log_buffer);
+
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
@@ -942,7 +956,7 @@ class DBImpl : public DB {
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
 
-  const Snapshot* GetSnapshotImpl(bool is_write_conflict_boundary);
+  SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary);
 
   uint64_t GetMaxTotalWalSize() const;
 
@@ -1184,6 +1198,10 @@ class DBImpl : public DB {
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;
 
+  // A vector to store the file numbers that have been assigned to certain
+  // JobContext. Current implementation tracks ssts only.
+  std::vector<uint64_t> files_grabbed_for_purge_;
+
   // A queue to store log writers to close
   std::deque<log::Writer*> logs_to_free_queue_;
   int unscheduled_flushes_;
@@ -1348,6 +1366,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex held
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
 
+  // Callback for when the cached_recoverable_state_ is written to memtable
+  // Only to be set during initialization
+  std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -1361,7 +1383,8 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options);
+      const MutableCFOptions& mutable_cf_options,
+      FlushReason flush_reason = FlushReason::kOthers);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
@@ -1385,6 +1408,9 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+
+  bool ShouldPurge(uint64_t file_number) const;
+  void MarkAsGrabbedForPurge(uint64_t file_number);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() {

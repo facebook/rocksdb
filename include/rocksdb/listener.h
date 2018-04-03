@@ -80,10 +80,11 @@ enum class CompactionReason {
   // [Level] Automatic compaction within bottommost level to cleanup duplicate
   // versions of same user key, usually due to a released snapshot.
   kBottommostFiles,
+  kTtl,
 };
 
 enum class FlushReason : int {
-  kUnknown = 0x00,
+  kOthers = 0x00,
   kGetLiveFiles = 0x01,
   kShutDown = 0x02,
   kExternalFileIngestion = 0x03,
@@ -91,7 +92,9 @@ enum class FlushReason : int {
   kWriteBufferManager = 0x05,
   kWriteBufferFull = 0x06,
   kTest = 0x07,
-  kSuperVersionChange = 0x08,
+  kDeleteFiles = 0x08,
+  kAutoCompaction = 0x09,
+  kManualFlush = 0x0a,
 };
 
 enum class BackgroundErrorReason {

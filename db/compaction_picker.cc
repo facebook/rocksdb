@@ -941,6 +941,9 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  if (!vstorage->ExpiredTtlFiles().empty()) {
+    return true;
+  }
   if (!vstorage->BottommostFilesMarkedForCompaction().empty()) {
     return true;
   }
@@ -1009,6 +1012,8 @@ class LevelCompactionBuilder {
 
   // If there is any file marked for compaction, put put it into inputs.
   void PickFilesMarkedForCompaction();
+
+  void PickExpiredTtlFiles();
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
@@ -1080,6 +1085,42 @@ void LevelCompactionBuilder::PickFilesMarkedForCompaction() {
   start_level_inputs_.files.clear();
 }
 
+void LevelCompactionBuilder::PickExpiredTtlFiles() {
+  if (vstorage_->ExpiredTtlFiles().empty()) {
+    return;
+  }
+
+  auto continuation = [&](std::pair<int, FileMetaData*> level_file) {
+    // If it's being compacted it has nothing to do here.
+    // If this assert() fails that means that some function marked some
+    // files as being_compacted, but didn't call ComputeCompactionScore()
+    assert(!level_file.second->being_compacted);
+    start_level_ = level_file.first;
+    output_level_ =
+        (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
+
+    if ((start_level_ == vstorage_->num_non_empty_levels() - 1) ||
+        (start_level_ == 0 &&
+         !compaction_picker_->level0_compactions_in_progress()->empty())) {
+      return false;
+    }
+
+    start_level_inputs_.files = {level_file.second};
+    start_level_inputs_.level = start_level_;
+    return compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                      &start_level_inputs_);
+  };
+
+  for (auto& level_file : vstorage_->ExpiredTtlFiles()) {
+    if (continuation(level_file)) {
+      // found the compaction!
+      return;
+    }
+  }
+
+  start_level_inputs_.files.clear();
+}
+
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
   bool skipped_l0_to_base = false;
@@ -1133,30 +1174,38 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   if (start_level_inputs_.empty()) {
     is_manual_ = true;
     parent_index_ = base_index_ = -1;
+
     PickFilesMarkedForCompaction();
-    if (start_level_inputs_.empty()) {
-      size_t i;
-      for (i = 0; i < vstorage_->BottommostFilesMarkedForCompaction().size();
-           ++i) {
-        auto& level_and_file =
-            vstorage_->BottommostFilesMarkedForCompaction()[i];
-        assert(!level_and_file.second->being_compacted);
-        start_level_inputs_.level = output_level_ = start_level_ =
-            level_and_file.first;
-        start_level_inputs_.files = {level_and_file.second};
-        if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                       &start_level_inputs_)) {
-          break;
-        }
-      }
-      if (i == vstorage_->BottommostFilesMarkedForCompaction().size()) {
-        start_level_inputs_.clear();
-      } else {
-        assert(!start_level_inputs_.empty());
-        compaction_reason_ = CompactionReason::kBottommostFiles;
-      }
-    } else {
+    if (!start_level_inputs_.empty()) {
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
+      return;
+    }
+
+    size_t i;
+    for (i = 0; i < vstorage_->BottommostFilesMarkedForCompaction().size();
+         ++i) {
+      auto& level_and_file = vstorage_->BottommostFilesMarkedForCompaction()[i];
+      assert(!level_and_file.second->being_compacted);
+      start_level_inputs_.level = output_level_ = start_level_ =
+          level_and_file.first;
+      start_level_inputs_.files = {level_and_file.second};
+      if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                     &start_level_inputs_)) {
+        break;
+      }
+    }
+    if (i == vstorage_->BottommostFilesMarkedForCompaction().size()) {
+      start_level_inputs_.clear();
+    } else {
+      assert(!start_level_inputs_.empty());
+      compaction_reason_ = CompactionReason::kBottommostFiles;
+      return;
+    }
+
+    assert(start_level_inputs_.empty());
+    PickExpiredTtlFiles();
+    if (!start_level_inputs_.empty()) {
+      compaction_reason_ = CompactionReason::kTtl;
     }
   }
 }

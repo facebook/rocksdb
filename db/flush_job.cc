@@ -56,8 +56,8 @@ namespace rocksdb {
 
 const char* GetFlushReasonString (FlushReason flush_reason) {
   switch (flush_reason) {
-    case FlushReason::kUnknown:
-      return "Unknown";
+    case FlushReason::kOthers:
+      return "Other Reasons";
     case FlushReason::kGetLiveFiles:
       return "Get Live Files";
     case FlushReason::kShutDown:
@@ -72,8 +72,12 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Write Buffer Full";
     case FlushReason::kTest:
       return "Test";
-    case FlushReason::kSuperVersionChange:
-      return "SuperVersion Change";
+    case FlushReason::kDeleteFiles:
+      return "Delete Files";
+    case FlushReason::kAutoCompaction:
+      return "Auto Compaction";
+    case FlushReason::kManualFlush:
+      return "Manual Flush";
     default:
       return "Invalid";
   }

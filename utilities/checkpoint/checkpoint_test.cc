@@ -573,6 +573,18 @@ TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
   }
 }
 
+TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
+  // When run with TSAN, this exposes the data race fixed in
+  // https://github.com/facebook/rocksdb/pull/3603
+  ASSERT_OK(Put("key1", "val1"));
+  port::Thread thread([this]() { ASSERT_OK(Put("key2", "val2")); });
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  thread.join();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

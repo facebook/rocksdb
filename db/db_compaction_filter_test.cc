@@ -109,7 +109,7 @@ class SkipEvenFilter : public CompactionFilter {
     int i = std::stoi(key.ToString());
     if (i / 10 % 2 == 0) {
       char key_str[100];
-      snprintf(key_str, sizeof(key), "%010d", i / 10 * 10 + 10);
+      snprintf(key_str, sizeof(key_str), "%010d", i / 10 * 10 + 10);
       *skip_until = key_str;
       ++cfilter_skips;
       return Decision::kRemoveAndSkipUntil;

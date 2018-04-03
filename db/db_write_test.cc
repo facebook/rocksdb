@@ -80,6 +80,22 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   Close();
 }
 
+TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetOptions();
+  options.env = mock_env.get();
+  Reopen(options);
+  for (int i = 0; i < 2; i++) {
+    // Forcibly fail WAL write for the first Put only. Subsequent Puts should
+    // fail due to read-only mode
+    mock_env->SetFilesystemActive(i != 0);
+    ASSERT_FALSE(Put("key" + ToString(i), "value").ok());
+  }
+  // Close before mock_env destruct.
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,

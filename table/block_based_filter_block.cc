@@ -67,7 +67,8 @@ BlockBasedFilterBlockBuilder::BlockBasedFilterBlockBuilder(
       prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
       prev_prefix_start_(0),
-      prev_prefix_size_(0) {
+      prev_prefix_size_(0),
+      num_added_(0) {
   assert(policy_);
 }
 
@@ -91,6 +92,7 @@ void BlockBasedFilterBlockBuilder::Add(const Slice& key) {
 
 // Add key to filter if needed
 inline void BlockBasedFilterBlockBuilder::AddKey(const Slice& key) {
+  num_added_++;
   start_.push_back(entries_.size());
   entries_.append(key.data(), key.size());
 }
@@ -106,10 +108,9 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   Slice prefix = prefix_extractor_->Transform(key);
   // insert prefix only when it's different from the previous prefix.
   if (prev.size() == 0 || prefix != prev) {
-    start_.push_back(entries_.size());
     prev_prefix_start_ = entries_.size();
     prev_prefix_size_ = prefix.size();
-    entries_.append(prefix.data(), prefix.size());
+    AddKey(prefix);
   }
 }
 

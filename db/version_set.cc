@@ -78,6 +78,33 @@ int FindFileInRange(const InternalKeyComparator& icmp,
   return right;
 }
 
+Status OverlapWithIterator(const Comparator* ucmp,
+    const Slice& smallest_user_key,
+    const Slice& largest_user_key,
+    InternalIterator* iter,
+    bool* overlap) {
+  InternalKey range_start(smallest_user_key, kMaxSequenceNumber,
+                          kValueTypeForSeek);
+  iter->Seek(range_start.Encode());
+  if (!iter->status().ok()) {
+    return iter->status();
+  }
+
+  *overlap = false;
+  if (iter->Valid()) {
+    ParsedInternalKey seek_result;
+    if (!ParseInternalKey(iter->key(), &seek_result)) {
+      return Status::Corruption("DB have corrupted keys");
+    }
+
+    if (ucmp->Compare(seek_result.user_key, largest_user_key) <= 0) {
+      *overlap = true;
+    }
+  }
+
+  return iter->status();
+}
+
 // Class to help choose the next file to search for the particular key.
 // Searches and returns files level by level.
 // We can search level-by-level since entries never hop across
@@ -1014,6 +1041,59 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   }
 }
 
+Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
+                                         const EnvOptions& env_options,
+                                         const Slice& smallest_user_key,
+                                         const Slice& largest_user_key,
+                                         int level, bool* overlap) {
+  assert(storage_info_.finalized_);
+
+  auto icmp = cfd_->internal_comparator();
+  auto ucmp = icmp.user_comparator();
+
+  Arena arena;
+  Status status;
+  RangeDelAggregator range_del_agg(icmp, {}, false);
+
+  *overlap = false;
+
+  if (level == 0) {
+    for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
+      const auto file = &storage_info_.LevelFilesBrief(0).files[i];
+      if (AfterFile(ucmp, &smallest_user_key, file) ||
+          BeforeFile(ucmp, &largest_user_key, file)) {
+        continue;
+      }
+      ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
+          read_options, env_options, cfd_->internal_comparator(), file->fd,
+          &range_del_agg, nullptr, cfd_->internal_stats()->GetFileReadHist(0),
+          false, &arena, false /* skip_filters */, 0 /* level */));
+      status = OverlapWithIterator(
+          ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
+      if (!status.ok() || *overlap) {
+        break;
+      }
+    }
+  } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
+    auto mem = arena.AllocateAligned(sizeof(LevelIterator));
+    ScopedArenaIterator iter(new (mem) LevelIterator(
+        cfd_->table_cache(), read_options, env_options,
+        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+        should_sample_file_read(),
+        cfd_->internal_stats()->GetFileReadHist(level),
+        false /* for_compaction */, IsFilterSkipped(level), level,
+        &range_del_agg));
+    status = OverlapWithIterator(
+        ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
+  }
+
+  if (status.ok() && *overlap == false &&
+      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key)) {
+    *overlap = true;
+  }
+  return status;
+}
+
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
@@ -1591,6 +1671,9 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
+  if (immutable_cf_options.ttl > 0) {
+    ComputeExpiredTtlFiles(immutable_cf_options);
+  }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -1612,6 +1695,34 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
     for (auto* f : files_[level]) {
       if (!f->being_compacted && f->marked_for_compaction) {
         files_marked_for_compaction_.emplace_back(level, f);
+      }
+    }
+  }
+}
+
+void VersionStorageInfo::ComputeExpiredTtlFiles(
+    const ImmutableCFOptions& ioptions) {
+  assert(ioptions.ttl > 0);
+
+  expired_ttl_files_.clear();
+
+  int64_t _current_time;
+  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  if (!status.ok()) {
+    return;
+  }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  for (int level = 0; level < num_levels() - 1; level++) {
+    for (auto f : files_[level]) {
+      if (!f->being_compacted && f->fd.table_reader != nullptr &&
+          f->fd.table_reader->GetTableProperties() != nullptr) {
+        auto creation_time =
+            f->fd.table_reader->GetTableProperties()->creation_time;
+        if (creation_time > 0 &&
+            creation_time < (current_time - ioptions.ttl)) {
+          expired_ttl_files_.emplace_back(level, f);
+        }
       }
     }
   }
@@ -3000,6 +3111,7 @@ Status VersionSet::Recover(
   uint64_t log_number = 0;
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
+  uint64_t deleted_log_number = 0;
   std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
 
   // add default column family
@@ -3140,6 +3252,11 @@ Status VersionSet::Recover(
         max_column_family = edit.max_column_family_;
       }
 
+      if (edit.has_deleted_log_number_) {
+        deleted_log_number =
+            std::max(deleted_log_number, edit.deleted_log_number_);
+      }
+
       if (edit.has_last_sequence_) {
         last_sequence = edit.last_sequence_;
         have_last_sequence = true;
@@ -3162,6 +3279,7 @@ Status VersionSet::Recover(
 
     column_family_set_->UpdateMaxColumnFamily(max_column_family);
 
+    MarkDeletedLogNumber(deleted_log_number);
     MarkFileNumberUsed(previous_log_number);
     MarkFileNumberUsed(log_number);
   }
@@ -3233,11 +3351,12 @@ Status VersionSet::Recover(
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu,"
-        "max_column_family is %u\n",
+        "max_column_family is %u,"
+        "deleted_log_number is %lu\n",
         manifest_filename.c_str(), (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
         (unsigned long)log_number, (unsigned long)prev_log_number_,
-        column_family_set_->GetMaxColumnFamily());
+        column_family_set_->GetMaxColumnFamily(), latest_deleted_log_number());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -3543,6 +3662,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       if (edit.has_max_column_family_) {
         column_family_set_->UpdateMaxColumnFamily(edit.max_column_family_);
       }
+
+      if (edit.has_deleted_log_number_) {
+        MarkDeletedLogNumber(edit.deleted_log_number_);
+      }
     }
   }
   file_reader.reset();
@@ -3601,10 +3724,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
     printf(
         "next_file_number %lu last_sequence "
-        "%lu  prev_log_number %lu max_column_family %u\n",
+        "%lu  prev_log_number %lu max_column_family %u deleted_log_number "
+        "%" PRIu64 "\n",
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)previous_log_number,
-        column_family_set_->GetMaxColumnFamily());
+        column_family_set_->GetMaxColumnFamily(), latest_deleted_log_number());
   }
 
   return s;
@@ -3616,6 +3740,14 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   // works because there can't be concurrent calls
   if (next_file_number_.load(std::memory_order_relaxed) <= number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
+  }
+}
+
+// Called only either from ::LogAndApply which is protected by mutex or during
+// recovery which is single-threaded.
+void VersionSet::MarkDeletedLogNumber(uint64_t number) {
+  if (latest_deleted_log_number_.load(std::memory_order_relaxed) < number) {
+    latest_deleted_log_number_.store(number, std::memory_order_relaxed);
   }
 }
 

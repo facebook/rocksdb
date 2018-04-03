@@ -24,6 +24,32 @@
 
 namespace rocksdb {
 
+bool DBImpl::EnoughRoomForCompaction(
+    const std::vector<CompactionInputFiles>& inputs,
+    bool* sfm_reserved_compact_space, LogBuffer* log_buffer) {
+  // Check if we have enough room to do the compaction
+  bool enough_room = true;
+#ifndef ROCKSDB_LITE
+  auto sfm = static_cast<SstFileManagerImpl*>(
+      immutable_db_options_.sst_file_manager.get());
+  if (sfm) {
+    enough_room = sfm->EnoughRoomForCompaction(inputs);
+    if (enough_room) {
+      *sfm_reserved_compact_space = true;
+    }
+  }
+#endif  // ROCKSDB_LITE
+  if (!enough_room) {
+    // Just in case tests want to change the value of enough_room
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::BackgroundCompaction():CancelledCompaction", &enough_room);
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "Cancelled compaction because not enough room");
+    RecordTick(stats_, COMPACTION_CANCELLED, 1);
+  }
+  return enough_room;
+}
+
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
   TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   mutex_.AssertHeld();
@@ -172,7 +198,7 @@ Status DBImpl::FlushMemTableToOutputFile(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
       if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
-        Status new_bg_error = Status::IOError("Max allowed space was reached");
+        Status new_bg_error = Status::NoSpace("Max allowed space was reached");
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
@@ -462,7 +488,8 @@ Status DBImpl::CompactFiles(
     const CompactionOptions& compact_options,
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& input_file_names,
-    const int output_level, const int output_path_id) {
+    const int output_level, const int output_path_id,
+    std::vector<std::string>* const output_file_names) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
@@ -489,7 +516,7 @@ Status DBImpl::CompactFiles(
     WaitForIngestFile();
 
     s = CompactFilesImpl(compact_options, cfd, sv->current,
-                         input_file_names, output_level,
+                         input_file_names, output_file_names, output_level,
                          output_path_id, &job_context, &log_buffer);
   }
   if (sv->Unref()) {
@@ -533,6 +560,7 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
+    std::vector<std::string>* const output_file_names,
     const int output_level, int output_path_id, JobContext* job_context,
     LogBuffer* log_buffer) {
   mutex_.AssertHeld();
@@ -580,6 +608,16 @@ Status DBImpl::CompactFilesImpl(
           "Some of the necessary compaction input "
           "files are already being compacted");
     }
+  }
+  bool sfm_reserved_compact_space = false;
+  // First check if we have enough room to do the compaction
+  bool enough_room = EnoughRoomForCompaction(
+      input_files, &sfm_reserved_compact_space, log_buffer);
+
+  if (!enough_room) {
+    // m's vars will get set properly at the end of this function,
+    // as long as status == CompactionTooLarge
+    return Status::CompactionTooLarge();
   }
 
   // At this point, CompactFiles will be run.
@@ -656,9 +694,17 @@ Status DBImpl::CompactFilesImpl(
   if (status.ok()) {
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
-       *c->mutable_cf_options());
+        *c->mutable_cf_options(), FlushReason::kManualCompaction);
   }
   c->ReleaseCompactionFiles(s);
+#ifndef ROCKSDB_LITE
+  // Need to make sure SstFileManager does its bookkeeping
+  auto sfm = static_cast<SstFileManagerImpl*>(
+      immutable_db_options_.sst_file_manager.get());
+  if (sfm && sfm_reserved_compact_space) {
+    sfm->OnCompactionCompletion(c.get());
+  }
+#endif  // ROCKSDB_LITE
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
@@ -683,12 +729,21 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
+  if (output_file_names != nullptr) {
+    for (const auto newf : c->edit()->GetNewFiles()) {
+      (*output_file_names).push_back(TableFileName(
+              immutable_db_options_.db_paths, newf.second.fd.GetNumber(),
+              newf.second.fd.GetPathId()) );
+    }
+  }
+
   c.reset();
 
   bg_compaction_scheduled_--;
   if (bg_compaction_scheduled_ == 0) {
     bg_cv_.SignalAll();
   }
+  TEST_SYNC_POINT("CompactFilesImpl:End");
 
   return status;
 }
@@ -885,7 +940,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualCompaction);
+      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
@@ -1472,6 +1527,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
+    TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToClean() ||
@@ -1485,6 +1541,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       log_buffer.FlushBufferToLog();
       if (job_context.HaveSomethingToDelete()) {
         PurgeObsoleteFiles(job_context);
+        TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles");
       }
       job_context.Clean();
       mutex_.Lock();
@@ -1569,9 +1626,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
-#ifndef ROCKSDB_LITE
-  bool sfm_bookkeeping = false;
-#endif  // ROCKSDB_LITE
+  bool sfm_reserved_compact_space = false;
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);
@@ -1585,16 +1640,29 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
                        (m->end ? m->end->DebugString().c_str() : "(end)"));
     } else {
-      ROCKS_LOG_BUFFER(
-          log_buffer,
-          "[%s] Manual compaction from level-%d to level-%d from %s .. "
-          "%s; will stop at %s\n",
-          m->cfd->GetName().c_str(), m->input_level, c->output_level(),
-          (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-          (m->end ? m->end->DebugString().c_str() : "(end)"),
-          ((m->done || m->manual_end == nullptr)
-               ? "(end)"
-               : m->manual_end->DebugString().c_str()));
+      // First check if we have enough room to do the compaction
+      bool enough_room = EnoughRoomForCompaction(
+          *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
+
+      if (!enough_room) {
+        // Then don't do the compaction
+        c->ReleaseCompactionFiles(status);
+        c.reset();
+        // m's vars will get set properly at the end of this function,
+        // as long as status == CompactionTooLarge
+        status = Status::CompactionTooLarge();
+      } else {
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Manual compaction from level-%d to level-%d from %s .. "
+            "%s; will stop at %s\n",
+            m->cfd->GetName().c_str(), m->input_level, c->output_level(),
+            (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+            (m->end ? m->end->DebugString().c_str() : "(end)"),
+            ((m->done || m->manual_end == nullptr)
+                 ? "(end)"
+                 : m->manual_end->DebugString().c_str()));
+      }
     }
   } else if (!is_prepicked && !compaction_queue_.empty()) {
     if (HasExclusiveManualCompaction()) {
@@ -1635,24 +1703,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
 
-      bool enough_room = true;
       if (c != nullptr) {
-#ifndef ROCKSDB_LITE
-        auto sfm = static_cast<SstFileManagerImpl*>(
-            immutable_db_options_.sst_file_manager.get());
-        if (sfm) {
-          enough_room = sfm->EnoughRoomForCompaction(c.get());
-          if (enough_room) {
-            sfm_bookkeeping = true;
-          }
-        }
-#endif  // ROCKSDB_LITE
-        if (!enough_room) {
-          // Just in case tests want to change the value of enough_room
-          TEST_SYNC_POINT_CALLBACK(
-              "DBImpl::BackgroundCompaction():CancelledCompaction",
-              &enough_room);
-        }
+        bool enough_room = EnoughRoomForCompaction(
+            *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
+
         if (!enough_room) {
           // Then don't do the compaction
           c->ReleaseCompactionFiles(status);
@@ -1661,9 +1715,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
               ->storage_info()
               ->ComputeCompactionScore(*(c->immutable_cf_options()),
                                        *(c->mutable_cf_options()));
-
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "Cancelled compaction because not enough room");
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
 
@@ -1671,7 +1722,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           // Don't need to sleep here, because BackgroundCallCompaction
           // will sleep if !s.ok()
           status = Status::CompactionTooLarge();
-          RecordTick(stats_, COMPACTION_CANCELLED, 1);
         } else {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
@@ -1720,7 +1770,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
-        *c->mutable_cf_options());
+        *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -1767,7 +1817,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
-        *c->mutable_cf_options());
+        *c->mutable_cf_options(), FlushReason::kAutoCompaction);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -1847,7 +1897,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
           c->column_family_data(), &job_context->superversion_context,
-          *c->mutable_cf_options());
+          *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     }
     *made_progress = true;
   }
@@ -1859,7 +1909,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Need to make sure SstFileManager does its bookkeeping
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
-    if (sfm && sfm_bookkeeping) {
+    if (sfm && sfm_reserved_compact_space) {
       sfm->OnCompactionCompletion(c.get());
     }
 #endif  // ROCKSDB_LITE
@@ -2038,7 +2088,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, FlushReason flush_reason) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -2057,7 +2107,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush(cfd, FlushReason::kSuperVersionChange);
+  SchedulePendingFlush(cfd, flush_reason);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 
@@ -2066,6 +2116,37 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
       max_total_in_memory_state_ - old_memtable_size +
       mutable_cf_options.write_buffer_size *
       mutable_cf_options.max_write_buffer_number;
+}
+
+// ShouldPurge is called by FindObsoleteFiles when doing a full scan,
+// and db mutex (mutex_) should already be held. This function performs a
+// linear scan of an vector (files_grabbed_for_purge_) in search of a
+// certain element. We expect FindObsoleteFiles with full scan to occur once
+// every 10 hours by default, and the size of the vector is small.
+// Therefore, the cost is affordable even if the mutex is held.
+// Actually, the current implementation of FindObsoleteFiles with
+// full_scan=true can issue I/O requests to obtain list of files in
+// directories, e.g. env_->getChildren while holding db mutex.
+// In the future, if we want to reduce the cost of search, we may try to keep
+// the vector sorted.
+bool DBImpl::ShouldPurge(uint64_t file_number) const {
+  for (auto fn : files_grabbed_for_purge_) {
+    if (file_number == fn) {
+      return false;
+    }
+  }
+  for (const auto& purge_file_info : purge_queue_) {
+    if (purge_file_info.number == file_number) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
+// (mutex_) should already be held.
+void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
+  files_grabbed_for_purge_.emplace_back(file_number);
 }
 
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {

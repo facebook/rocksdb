@@ -161,6 +161,12 @@ public:
     }
   }
 
+  void PadWith(size_t pad_size, int padding) {
+    assert((pad_size + cursize_) <= capacity_);
+    memset(bufstart_ + cursize_, padding, pad_size);
+    cursize_ += pad_size;
+  }
+
   // After a partial flush move the tail to the beginning of the buffer
   void RefitTail(size_t tail_offset, size_t tail_size) {
     if (tail_size > 0) {

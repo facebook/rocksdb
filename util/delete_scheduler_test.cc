@@ -99,7 +99,7 @@ class DeleteSchedulerTest : public testing::Test {
     // 25%)
     sst_file_mgr_.reset(
         new SstFileManagerImpl(env_, nullptr, rate_bytes_per_sec_,
-                               /* max_trash_db_ratio= */ 1.1));
+                               /* max_trash_db_ratio= */ 1.1, 128 * 1024));
     delete_scheduler_ = sst_file_mgr_->delete_scheduler();
   }
 
@@ -433,6 +433,34 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
   }
 
   ASSERT_EQ(bg_delete_file, 50);
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+}
+
+TEST_F(DeleteSchedulerTest, DeletePartialFile) {
+  int bg_delete_file = 0;
+  int bg_fsync = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
+      [&](void*) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:Fsync", [&](void*) { bg_fsync++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
+  NewDeleteScheduler();
+
+  // Should delete in 4 batch
+  ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile("data_1", 500 * 1024)));
+  ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile("data_2", 100 * 1024)));
+  // Should delete in 2 batch
+  ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile("data_2", 200 * 1024)));
+
+  delete_scheduler_->WaitForEmptyTrash();
+
+  auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+  ASSERT_EQ(bg_errors.size(), 0);
+  ASSERT_EQ(7, bg_delete_file);
+  ASSERT_EQ(4, bg_fsync);
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 }
 

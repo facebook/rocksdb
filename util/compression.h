@@ -848,7 +848,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 #if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
   // skips potential partial sample at the end of "samples"
   size_t num_samples = samples.size() >> sample_len_shift;
-  std::vector<size_t> sample_lens(num_samples, 1 << sample_len_shift);
+  std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
   return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
 #else   // up to v0.7.x
   assert(false);

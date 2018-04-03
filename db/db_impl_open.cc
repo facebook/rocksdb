@@ -170,17 +170,16 @@ static Status ValidateOptions(
       return s;
     }
 
-    if (cfd.options.compaction_options_fifo.ttl > 0) {
+    if (cfd.options.ttl > 0 || cfd.options.compaction_options_fifo.ttl > 0) {
       if (db_options.max_open_files != -1) {
         return Status::NotSupported(
-            "FIFO Compaction with TTL is only supported when files are always "
+            "TTL is only supported when files are always "
             "kept open (set max_open_files = -1). ");
       }
       if (cfd.options.table_factory->Name() !=
           BlockBasedTableFactory().Name()) {
         return Status::NotSupported(
-            "FIFO Compaction with TTL is only supported in "
-            "Block-Based Table format. ");
+            "TTL is only supported in Block-Based Table format. ");
       }
     }
   }
@@ -557,6 +556,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool flushed = false;
   uint64_t corrupted_log_number = kMaxSequenceNumber;
   for (auto log_number : log_numbers) {
+    if (log_number <= versions_->latest_deleted_log_number()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Skipping log #%" PRIu64
+                     " since it is not newer than latest deleted log #%" PRIu64,
+                     log_number, versions_->latest_deleted_log_number());
+      continue;
+    }
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
     // update the file number allocation counter in VersionSet.

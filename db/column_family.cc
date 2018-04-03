@@ -55,6 +55,9 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
 #endif  // ROCKSDB_LITE
     // Job id == 0 means that this is not our background process, but rather
     // user thread
+    // Need to hold some shared pointers owned by the initial_cf_options
+    // before final cleaning up finishes.
+    ColumnFamilyOptions initial_cf_options_copy = cfd_->initial_cf_options();
     JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
@@ -421,7 +424,7 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      flush_reason_(FlushReason::kUnknown),
+      flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       pending_flush_(false),
       pending_compaction_(false),

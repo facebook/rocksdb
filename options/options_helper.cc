@@ -919,6 +919,17 @@ Status ParseColumnFamilyOption(const std::string& name,
         }
         new_options->compression_opts.max_dict_bytes =
             ParseInt(value.substr(start, value.size() - start));
+        end = value.find(':', start);
+      }
+      // zstd_max_train_bytes is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->compression_opts.zstd_max_train_bytes =
+            ParseInt(value.substr(start, value.size() - start));
       }
     } else {
       auto iter = cf_options_type_info.find(name);
@@ -1809,7 +1820,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_options_universal),
           OptionType::kCompactionOptionsUniversal,
           OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, compaction_options_universal)}}};
+          offsetof(struct MutableCFOptions, compaction_options_universal)}},
+        {"ttl",
+         {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, false, 0}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {
