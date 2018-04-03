@@ -928,6 +928,9 @@ class DBImpl : public DB {
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
+  bool EnoughRoomForCompaction(const std::vector<CompactionInputFiles>& inputs,
+                               bool* sfm_bookkeeping, LogBuffer* log_buffer);
+
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
