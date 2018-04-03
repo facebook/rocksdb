@@ -6,6 +6,11 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <mutex>
 #include <queue>
 #include <set>
@@ -110,8 +115,131 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
 
   // Check whether the transaction that wrote the value with sequence number seq
-  // is visible to the snapshot with sequence number snapshot_seq
-  bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
+  // is visible to the snapshot with sequence number snapshot_seq.
+  // Returns true if commit_seq <= snapshot_seq
+  inline bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
+                           uint64_t min_uncommitted = 0) const {
+    ROCKS_LOG_DETAILS(info_log_,
+                      "IsInSnapshot %" PRIu64 " in %" PRIu64
+                      " min_uncommitted %" PRIu64,
+                      prep_seq, snapshot_seq, min_uncommitted);
+    // Here we try to infer the return value without looking into prepare list.
+    // This would help avoiding synchronization over a shared map.
+    // TODO(myabandeh): optimize this. This sequence of checks must be correct
+    // but not necessary efficient
+    if (prep_seq == 0) {
+      // Compaction will output keys to bottom-level with sequence number 0 if
+      // it is visible to the earliest snapshot.
+      ROCKS_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 1);
+      return true;
+    }
+    if (snapshot_seq < prep_seq) {
+      // snapshot_seq < prep_seq <= commit_seq => snapshot_seq < commit_seq
+      ROCKS_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 0);
+      return false;
+    }
+    if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
+      // We should not normally reach here
+      ReadLock rl(&prepared_mutex_);
+      // TODO(myabandeh): also add a stat
+      ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
+                     static_cast<uint64_t>(delayed_prepared_.size()));
+      if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
+        // Then it is not committed yet
+        ROCKS_LOG_DETAILS(info_log_,
+                          "IsInSnapshot %" PRIu64 " in %" PRIu64
+                          " returns %" PRId32,
+                          prep_seq, snapshot_seq, 0);
+        return false;
+      }
+    }
+    // Note: since min_uncommitted does not include the delayed_prepared_ we
+    // should check delayed_prepared_ first before applying this optimization.
+    // TODO(myabandeh): include delayed_prepared_ in min_uncommitted
+    if (prep_seq < min_uncommitted) {
+      return true;
+    }
+    auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
+    CommitEntry64b dont_care;
+    CommitEntry cached;
+    bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
+    if (exist && prep_seq == cached.prep_seq) {
+      // It is committed and also not evicted from commit cache
+      ROCKS_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
+      return cached.commit_seq <= snapshot_seq;
+    }
+    // else it could be committed but not inserted in the map which could happen
+    // after recovery, or it could be committed and evicted by another commit,
+    // or never committed.
+
+    // At this point we dont know if it was committed or it is still prepared
+    auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
+    // max_evicted_seq_ when we did GetCommitEntry <= max_evicted_seq now
+    if (max_evicted_seq < prep_seq) {
+      // Not evicted from cache and also not present, so must be still prepared
+      ROCKS_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 0);
+      return false;
+    }
+    // When advancing max_evicted_seq_, we move older entires from prepared to
+    // delayed_prepared_. Also we move evicted entries from commit cache to
+    // old_commit_map_ if it overlaps with any snapshot. Since prep_seq <=
+    // max_evicted_seq_, we have three cases: i) in delayed_prepared_, ii) in
+    // old_commit_map_, iii) committed with no conflict with any snapshot. Case
+    // (i) delayed_prepared_ is checked above
+    if (max_evicted_seq < snapshot_seq) {  // then (ii) cannot be the case
+      // only (iii) is the case: committed
+      // commit_seq <= max_evicted_seq_ < snapshot_seq => commit_seq <
+      // snapshot_seq
+      ROCKS_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 1);
+      return true;
+    }
+    // else (ii) might be the case: check the commit data saved for this
+    // snapshot. If there was no overlapping commit entry, then it is committed
+    // with a commit_seq lower than any live snapshot, including snapshot_seq.
+    if (old_commit_map_empty_.load(std::memory_order_acquire)) {
+      ROCKS_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 1);
+      return true;
+    }
+    {
+      // We should not normally reach here unless sapshot_seq is old. This is a
+      // rare case and it is ok to pay the cost of mutex ReadLock for such old,
+      // reading transactions.
+      // TODO(myabandeh): also add a stat
+      ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
+      ReadLock rl(&old_commit_map_mutex_);
+      auto prep_set_entry = old_commit_map_.find(snapshot_seq);
+      bool found = prep_set_entry != old_commit_map_.end();
+      if (found) {
+        auto& vec = prep_set_entry->second;
+        found = std::binary_search(vec.begin(), vec.end(), prep_seq);
+      }
+      if (!found) {
+        ROCKS_LOG_DETAILS(info_log_,
+                          "IsInSnapshot %" PRIu64 " in %" PRIu64
+                          " returns %" PRId32,
+                          prep_seq, snapshot_seq, 1);
+        return true;
+      }
+    }
+    // (ii) it the case: it is committed but after the snapshot_seq
+    ROCKS_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 0);
+    return false;
+  }
+
   // Add the transaction with prepare sequence seq to the prepared list
   void AddPrepared(uint64_t seq);
   // Rollback a prepared txn identified with prep_seq. rollback_seq is the seq
@@ -224,6 +352,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& handles) override;
   void UpdateCFComparatorMap(const ColumnFamilyHandle* handle) override;
 
+  virtual const Snapshot* GetSnapshot() override;
+
  protected:
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
@@ -239,6 +369,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class PreparedHeap_BasicsTest_Test;
   friend class PreparedHeap_EmptyAtTheEnd_Test;
   friend class PreparedHeap_Concurrent_Test;
+  friend class WritePreparedTxn;
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class
@@ -335,6 +466,32 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // largest new_max value.
   void AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
                             const SequenceNumber& new_max);
+
+  inline SequenceNumber SmallestUnCommittedSeq() {
+    // Since we update the prepare_heap always from the main write queue via
+    // PreReleaseCallback, the prepared_txns_.top() indicates the smallest
+    // prepared data in 2pc transactions. For non-2pc transactions that are
+    // written in two steps, we also update prepared_txns_ at the first step
+    // (via the same mechanism) so that their uncommitted data is reflected in
+    // SmallestUnCommittedSeq.
+    ReadLock rl(&prepared_mutex_);
+    // Since we are holding the mutex, and GetLatestSequenceNumber is updated
+    // after prepared_txns_ are, the value of GetLatestSequenceNumber would
+    // reflect any uncommitted data that is not added to prepared_txns_ yet.
+    // Otherwise, if there is no concurrent txn, this value simply reflects that
+    // latest value in the memtable.
+    if (prepared_txns_.empty()) {
+      return db_impl_->GetLatestSequenceNumber() + 1;
+    } else {
+      return std::min(prepared_txns_.top(),
+                      db_impl_->GetLatestSequenceNumber() + 1);
+    }
+  }
+  // Enhance the snapshot object by recording in it the smallest uncommitted seq
+  inline void EnhanceSnapshot(SnapshotImpl* snapshot) {
+    assert(snapshot);
+    snapshot->min_uncommitted_ = WritePreparedTxnDB::SmallestUnCommittedSeq();
+  }
 
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
@@ -438,18 +595,44 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
 class WritePreparedTxnReadCallback : public ReadCallback {
  public:
-  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
-      : db_(db), snapshot_(snapshot) {}
+  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
+                               SequenceNumber min_uncommitted)
+      : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
 
   // Will be called to see if the seq number accepted; if not it moves on to the
   // next seq number.
-  virtual bool IsCommitted(SequenceNumber seq) override {
-    return db_->IsInSnapshot(seq, snapshot_);
+  inline virtual bool IsCommitted(SequenceNumber seq) override {
+    return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
   }
 
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
+  SequenceNumber min_uncommitted_;
+};
+
+class AddPreparedCallback : public PreReleaseCallback {
+ public:
+  AddPreparedCallback(WritePreparedTxnDB* db, size_t sub_batch_cnt,
+                      bool two_write_queues)
+      : db_(db),
+        sub_batch_cnt_(sub_batch_cnt),
+        two_write_queues_(two_write_queues) {
+    (void)two_write_queues_;  // to silence unused private field warning
+  }
+  virtual Status Callback(SequenceNumber prepare_seq,
+                          bool is_mem_disabled) override {
+    assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
+    for (size_t i = 0; i < sub_batch_cnt_; i++) {
+      db_->AddPrepared(prepare_seq + i);
+    }
+    return Status::OK();
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  size_t sub_batch_cnt_;
+  bool two_write_queues_;
 };
 
 class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {

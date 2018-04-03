@@ -731,6 +731,7 @@ class DBImpl : public DB {
   friend class DB;
   friend class InternalStats;
   friend class PessimisticTransaction;
+  friend class TransactionBaseImpl;
   friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
   friend class WritePreparedTxnDB;
@@ -955,7 +956,7 @@ class DBImpl : public DB {
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
 
-  const Snapshot* GetSnapshotImpl(bool is_write_conflict_boundary);
+  SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary);
 
   uint64_t GetMaxTotalWalSize() const;
 

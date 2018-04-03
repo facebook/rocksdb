@@ -61,6 +61,8 @@ class WritePreparedTxn : public PessimisticTransaction {
   virtual Iterator* GetIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
 
+  virtual void SetSnapshot() override;
+
  protected:
   // Override the protected SetId to make it visible to the friend class
   // WritePreparedTxnDB
