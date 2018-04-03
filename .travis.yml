@@ -40,9 +40,22 @@ before_script:
 
 script:
   # Note: We remove flaky tests that don't have much to do with our cloud code (like MergeTestTime and UnsupportedManualSync)
-  - if [ "${TEST_GROUP}" == 'db_test' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=-DBTest.MergeTestTime:DBTest.UnsupportedManualSync; fi
-  - if [ "${TEST_GROUP}" == 'db_test2' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 make -j4 db_test2 && LD_LIBRARY_PATH=/usr/local/lib ./db_test2; fi
-  - if [ "${TEST_GROUP}" == 'cloud_tests' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 make -j4 db_cloud_test cloud_manifest_test && LD_LIBRARY_PATH=/usr/local/lib ./db_cloud_test && LD_LIBRARY_PATH=/usr/local/lib ./cloud_manifest_test; fi
+  - >
+      if [ "${TEST_GROUP}" == 'db_test' ]; then
+        OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test &&
+        LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=-DBTest.MergeTestTime:DBTest.UnsupportedManualSync;
+      fi
+  - >
+      if [ "${TEST_GROUP}" == 'db_test2' ]; then
+        OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test2 &&
+        LD_LIBRARY_PATH=/usr/local/lib ./db_test2;
+      fi
+  - >
+      if [ "${TEST_GROUP}" == 'cloud_tests' ]; then
+        build_tools/spinup_kafka.sh &&
+        sleep 10 && OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_cloud_test cloud_manifest_test &&
+        LD_LIBRARY_PATH=/usr/local/lib ./db_cloud_test && LD_LIBRARY_PATH=/usr/local/lib ./cloud_manifest_test;
+      fi
 
 notifications:
   slack:

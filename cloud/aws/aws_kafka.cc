@@ -38,7 +38,9 @@ KafkaWritableFile::~KafkaWritableFile() {}
 
 Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
                                      const Slice& message) {
-  assert(status_.ok());
+  if (!status_.ok()){
+      return status_;
+  }
 
   RdKafka::ErrorCode resp;
   resp = producer_->produce(
