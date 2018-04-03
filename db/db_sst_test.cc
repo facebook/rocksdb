@@ -14,6 +14,7 @@
 #include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
+#ifndef ROCKSDB_LITE
 
 class DBSSTTest : public DBTestBase {
  public:
@@ -122,7 +123,6 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   Destroy(options);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
   // deleted when it's part of move compaction
