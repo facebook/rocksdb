@@ -731,7 +731,7 @@ Status DBImpl::CompactFilesImpl(
   if (output_file_names != nullptr) {
     for (const auto newf : c->edit()->GetNewFiles()) {
       (*output_file_names).push_back(TableFileName(
-              immutable_db_options_.db_paths, newf.second.fd.GetNumber(),
+              c->immutable_cf_options()->cf_paths, newf.second.fd.GetNumber(),
               newf.second.fd.GetPathId()) );
     }
   }
