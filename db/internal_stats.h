@@ -163,6 +163,9 @@ class InternalStats {
     // Number of compactions done
     int count;
 
+    // Number of compactions done per CompactionReason
+    int counts[(int) CompactionReason::kNumOfReasons];
+
     explicit CompactionStats(int _count = 0)
         : micros(0),
           bytes_read_non_output_levels(0),
@@ -174,7 +177,13 @@ class InternalStats {
           num_output_files(0),
           num_input_records(0),
           num_dropped_records(0),
-          count(_count) {}
+          count(_count) {
+      // TODO (yanqin): if we allow _count to be non-zero, we should also set
+      // counts.
+      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+        counts[i] = 0;
+      }
+    }
 
     explicit CompactionStats(const CompactionStats& c)
         : micros(c.micros),
@@ -189,7 +198,11 @@ class InternalStats {
           num_output_files(c.num_output_files),
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
-          count(c.count) {}
+          count(c.count) {
+      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+        counts[i] = c.counts[i];
+      }
+    }
 
     void Clear() {
       this->micros = 0;
@@ -203,6 +216,9 @@ class InternalStats {
       this->num_input_records = 0;
       this->num_dropped_records = 0;
       this->count = 0;
+      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+        counts[i] = 0;
+      }
     }
 
     void Add(const CompactionStats& c) {
@@ -219,6 +235,9 @@ class InternalStats {
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
+      for (int i = 0; i< (int) CompactionReason::kNumOfReasons; i++) {
+        counts[i] += c.counts[i];
+      }
     }
 
     void Subtract(const CompactionStats& c) {
@@ -235,6 +254,9 @@ class InternalStats {
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
+      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+        counts[i] -= c.counts[i];
+      }
     }
   };
 
