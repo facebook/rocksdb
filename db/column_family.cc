@@ -34,6 +34,7 @@
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
+#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 
@@ -159,6 +160,28 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
   return Status::OK();
 }
 
+Status CheckCFPathsSupported(const DBOptions& db_options,
+                             const ColumnFamilyOptions& cf_options) {
+  // More than one cf_paths are supported only in universal
+  // and level compaction styles. This function also checks the case
+  // in which cf_paths is not specified, which results in db_paths
+  // being used.
+  if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
+      (cf_options.compaction_style != kCompactionStyleLevel)) {
+    if (cf_options.cf_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one CF paths are only supported in "
+          "universal and level compaction styles. ");
+    } else if (cf_options.cf_paths.empty() &&
+               db_options.db_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one DB paths are only supported in "
+          "universal and level compaction styles. ");
+    }
+  }
+  return Status::OK();
+}
+
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
@@ -277,9 +300,24 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.hard_pending_compaction_bytes_limit;
   }
 
+#ifndef ROCKSDB_LITE
+  // When the DB is stopped, it's possible that there are some .trash files that
+  // were not deleted yet, when we open the DB we will find these .trash files
+  // and schedule them to be deleted (or delete immediately if SstFileManager
+  // was not used)
+  auto sfm = static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
+  for (size_t i = 0; i < result.cf_paths.size(); i++) {
+    DeleteScheduler::CleanupDirectory(db_options.env, sfm, result.cf_paths[i].path);
+  }
+#endif
+
+  if (result.cf_paths.empty()) {
+    result.cf_paths = db_options.db_paths;
+  }
+
   if (result.level_compaction_dynamic_level_bytes) {
     if (result.compaction_style != kCompactionStyleLevel ||
-        db_options.db_paths.size() > 1U) {
+        result.cf_paths.size() > 1U) {
       // 1. level_compaction_dynamic_level_bytes only makes sense for
       //    level-based compaction.
       // 2. we don't yet know how to make both of this feature and multiple
@@ -1136,6 +1174,31 @@ Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
   }
   return static_cast<Env::WriteLifeTimeHint>(level - base_level +
                             static_cast<int>(Env::WLTH_MEDIUM));
+}
+
+Status ColumnFamilyData::AddDirectories() {
+  Status s;
+  assert(data_dirs_.empty());
+  for (auto& p : ioptions_.cf_paths) {
+    std::unique_ptr<Directory> path_directory;
+    s = DBImpl::CreateAndNewDirectory(ioptions_.env, p.path, &path_directory);
+    if (!s.ok()) {
+      return s;
+    }
+    assert(path_directory != nullptr);
+    data_dirs_.emplace_back(path_directory.release());
+  }
+  assert(data_dirs_.size() == ioptions_.cf_paths.size());
+  return s;
+}
+
+Directory* ColumnFamilyData::GetDataDir(size_t path_id) const {
+  if (data_dirs_.empty()) {
+    return nullptr;
+  }
+
+  assert(path_id < data_dirs_.size());
+  return data_dirs_[path_id].get();
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

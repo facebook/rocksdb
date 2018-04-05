@@ -355,7 +355,11 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
-        vset_->obsolete_files_.push_back(f);
+        assert(cfd_ != nullptr);
+        uint32_t path_id = f->fd.GetPathId();
+        assert(path_id < cfd_->ioptions()->cf_paths.size());
+        vset_->obsolete_files_.push_back(
+            ObsoleteFileInfo(f, cfd_->ioptions()->cf_paths[path_id].path));
       }
     }
   }
@@ -756,7 +760,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
     file_name = *fname;
   } else {
     file_name =
-      TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
+      TableFileName(ioptions->cf_paths, file_meta->fd.GetNumber(),
                     file_meta->fd.GetPathId());
   }
   s = ioptions->env->NewRandomAccessFile(file_name, &file, env_options_);
@@ -797,7 +801,7 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
                                          int level) {
   for (const auto& file_meta : storage_info_.files_[level]) {
     auto fname =
-        TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
+        TableFileName(cfd_->ioptions()->cf_paths, file_meta->fd.GetNumber(),
                       file_meta->fd.GetPathId());
     // 1. If the table is already present in table cache, load table
     // properties from there.
@@ -825,7 +829,7 @@ Status Version::GetPropertiesOfTablesInRange(
                                          false);
       for (const auto& file_meta : files) {
         auto fname =
-            TableFileName(vset_->db_options_->db_paths,
+            TableFileName(cfd_->ioptions()->cf_paths,
                           file_meta->fd.GetNumber(), file_meta->fd.GetPathId());
         if (props->count(fname) == 0) {
           // 1. If the table is already present in table cache, load table
@@ -897,11 +901,11 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
     for (const auto& file : vstorage->LevelFiles(level)) {
       uint32_t path_id = file->fd.GetPathId();
       std::string file_path;
-      if (path_id < ioptions->db_paths.size()) {
-        file_path = ioptions->db_paths[path_id].path;
+      if (path_id < ioptions->cf_paths.size()) {
+        file_path = ioptions->cf_paths[path_id].path;
       } else {
-        assert(!ioptions->db_paths.empty());
-        file_path = ioptions->db_paths.back().path;
+        assert(!ioptions->cf_paths.empty());
+        file_path = ioptions->cf_paths.back().path;
       }
       files.emplace_back(
           MakeTableFileName("", file->fd.GetNumber()), file_path,
@@ -2687,12 +2691,12 @@ VersionSet::~VersionSet() {
   Cache* table_cache = column_family_set_->get_table_cache();
   table_cache->ApplyToAllCacheEntries(&CloseTables, false /* thread_safe */);
   column_family_set_.reset();
-  for (auto file : obsolete_files_) {
-    if (file->table_reader_handle) {
-      table_cache->Release(file->table_reader_handle);
-      TableCache::Evict(table_cache, file->fd.GetNumber());
+  for (auto& file : obsolete_files_) {
+    if (file.metadata->table_reader_handle) {
+      table_cache->Release(file.metadata->table_reader_handle);
+      TableCache::Evict(table_cache, file.metadata->fd.GetNumber());
     }
-    delete file;
+    file.DeleteMetadata();
   }
   obsolete_files_.clear();
 }
@@ -4101,11 +4105,11 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         LiveFileMetaData filemetadata;
         filemetadata.column_family_name = cfd->GetName();
         uint32_t path_id = file->fd.GetPathId();
-        if (path_id < db_options_->db_paths.size()) {
-          filemetadata.db_path = db_options_->db_paths[path_id].path;
+        if (path_id < cfd->ioptions()->cf_paths.size()) {
+          filemetadata.db_path = cfd->ioptions()->cf_paths[path_id].path;
         } else {
-          assert(!db_options_->db_paths.empty());
-          filemetadata.db_path = db_options_->db_paths.back().path;
+          assert(!cfd->ioptions()->cf_paths.empty());
+          filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
         filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
         filemetadata.level = level;
@@ -4120,17 +4124,17 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
-void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files,
+void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
                                   std::vector<std::string>* manifest_filenames,
                                   uint64_t min_pending_output) {
   assert(manifest_filenames->empty());
   obsolete_manifests_.swap(*manifest_filenames);
-  std::vector<FileMetaData*> pending_files;
-  for (auto f : obsolete_files_) {
-    if (f->fd.GetNumber() < min_pending_output) {
-      files->push_back(f);
+  std::vector<ObsoleteFileInfo> pending_files;
+  for (auto& f : obsolete_files_) {
+    if (f.metadata->fd.GetNumber() < min_pending_output) {
+      files->push_back(std::move(f));
     } else {
-      pending_files.push_back(f);
+      pending_files.push_back(std::move(f));
     }
   }
   obsolete_files_.swap(pending_files);

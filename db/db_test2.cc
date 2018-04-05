@@ -1112,7 +1112,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
 
       size_t out_bytes = 0;
       std::vector<std::string> files;
-      GetSstFiles(dbname_, &files);
+      GetSstFiles(env_, dbname_, &files);
       for (const auto& file : files) {
         uint64_t curr_bytes;
         env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);

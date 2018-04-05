@@ -103,7 +103,7 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   ASSERT_GT(num_files, 0);
 
   std::vector<std::string> filenames;
-  GetSstFiles(dbname_, &filenames);
+  GetSstFiles(env_, dbname_, &filenames);
   int num_ldb_files = 0;
   for (size_t i = 0; i < filenames.size(); ++i) {
     if (i & 1) {

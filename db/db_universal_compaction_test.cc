@@ -1343,6 +1343,146 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   Destroy(options);
 }
 
+TEST_P(DBTestUniversalCompaction, UniversalCompactionCFPathUse) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_, 300 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_2", 300 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_3", 500 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_4", 1024 * 1024 * 1024);
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 5;
+  options.write_buffer_size = 111 << 10;  // 114KB
+  options.arena_block_size = 4 << 10;
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+
+  std::vector<Options> option_vector;
+  option_vector.emplace_back(options);
+  ColumnFamilyOptions cf_opt1(options), cf_opt2(options);
+  // Configure CF1 specific paths.
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1", 300 * 1024);
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_2", 300 * 1024);
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_3", 500 * 1024);
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_4", 1024 * 1024 * 1024);
+  option_vector.emplace_back(DBOptions(options), cf_opt1);
+  CreateColumnFamilies({"one"},option_vector[1]);
+
+  // Configura CF2 specific paths.
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2", 300 * 1024);
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_2", 300 * 1024);
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_3", 500 * 1024);
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_4", 1024 * 1024 * 1024);
+  option_vector.emplace_back(DBOptions(options), cf_opt2);
+  CreateColumnFamilies({"two"},option_vector[2]);
+
+  ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
+
+  Random rnd(301);
+  int key_idx = 0;
+  int key_idx1 = 0;
+  int key_idx2 = 0;
+
+  auto generate_file = [&]() {
+    GenerateNewFile(0, &rnd, &key_idx);
+    GenerateNewFile(1, &rnd, &key_idx1);
+    GenerateNewFile(2, &rnd, &key_idx2);
+  };
+
+  auto check_sstfilecount = [&](int path_id, int expected) {
+    ASSERT_EQ(expected, GetSstFileCount(options.db_paths[path_id].path));
+    ASSERT_EQ(expected, GetSstFileCount(cf_opt1.cf_paths[path_id].path));
+    ASSERT_EQ(expected, GetSstFileCount(cf_opt2.cf_paths[path_id].path));
+  };
+
+  auto check_getvalues = [&]() {
+    for (int i = 0; i < key_idx; i++) {
+      auto v = Get(0, Key(i));
+      ASSERT_NE(v, "NOT_FOUND");
+      ASSERT_TRUE(v.size() == 1 || v.size() == 990);
+    }
+
+    for (int i = 0; i < key_idx1; i++) {
+      auto v = Get(1, Key(i));
+      ASSERT_NE(v, "NOT_FOUND");
+      ASSERT_TRUE(v.size() == 1 || v.size() == 990);
+    }
+
+    for (int i = 0; i < key_idx2; i++) {
+      auto v = Get(2, Key(i));
+      ASSERT_NE(v, "NOT_FOUND");
+      ASSERT_TRUE(v.size() == 1 || v.size() == 990);
+    }
+  };
+
+  // First three 110KB files are not going to second path.
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    generate_file();
+  }
+
+  // Another 110KB triggers a compaction to 400K file to second path
+  generate_file();
+  check_sstfilecount(2, 1);
+
+  // (1, 4)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(0, 1);
+
+  // (1,1,4) -> (2, 4)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(1, 1);
+  check_sstfilecount(0, 0);
+
+  // (1, 2, 4) -> (3, 4)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(1, 1);
+  check_sstfilecount(0, 0);
+
+  // (1, 3, 4) -> (8)
+  generate_file();
+  check_sstfilecount(3, 1);
+
+  // (1, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(0, 1);
+
+  // (1, 1, 8) -> (2, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(1, 1);
+
+  // (1, 2, 8) -> (3, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(1, 1);
+  check_sstfilecount(0, 0);
+
+  // (1, 3, 8) -> (4, 8)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(3, 1);
+
+  // (1, 4, 8) -> (5, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(2, 1);
+  check_sstfilecount(0, 0);
+
+  check_getvalues();
+
+  ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
+
+  check_getvalues();
+
+  Destroy(options, true);
+}
+
 TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   std::function<void(int)> verify_func = [&](int num_keys_in_db) {
     std::string keys_in_db;
