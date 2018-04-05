@@ -14,13 +14,13 @@
 #include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
-#ifndef ROCKSDB_LITE
 
 class DBSSTTest : public DBTestBase {
  public:
   DBSSTTest() : DBTestBase("/db_sst_test") {}
 };
 
+#ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
@@ -49,6 +49,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;
 };
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBSSTTest, DontDeletePendingOutputs) {
   Options options;
@@ -123,6 +124,7 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   Destroy(options);
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
   // deleted when it's part of move compaction
