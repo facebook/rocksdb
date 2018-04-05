@@ -71,8 +71,13 @@ enum Tickers : uint32_t {
   // # of bytes written into cache.
   BLOCK_CACHE_BYTES_WRITE,
 
-  // # of times bloom filter has avoided file reads.
+  // # of times bloom filter has avoided file reads, i.e., negatives.
   BLOOM_FILTER_USEFUL,
+  // # of times bloom FullFilter has not avoided the reads.
+  BLOOM_FILTER_FULL_POSITIVE,
+  // # of times bloom FullFilter has not avoided the reads and data actually
+  // exist.
+  BLOOM_FILTER_FULL_TRUE_POSITIVE,
 
   // # persistent cache hit
   PERSISTENT_CACHE_HIT,
@@ -332,6 +337,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_BYTES_READ, "rocksdb.block.cache.bytes.read"},
     {BLOCK_CACHE_BYTES_WRITE, "rocksdb.block.cache.bytes.write"},
     {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
+    {BLOOM_FILTER_FULL_POSITIVE, "rocksdb.bloom.filter.full.positive"},
+    {BLOOM_FILTER_FULL_TRUE_POSITIVE,
+     "rocksdb.bloom.filter.full.true.positive"},
     {PERSISTENT_CACHE_HIT, "rocksdb.persistent.cache.hit"},
     {PERSISTENT_CACHE_MISS, "rocksdb.persistent.cache.miss"},
     {SIM_BLOCK_CACHE_HIT, "rocksdb.sim.block.cache.hit"},
@@ -349,8 +357,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.compaction.range_del.drop.obsolete"},
     {COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
      "rocksdb.compaction.optimized.del.drop.obsolete"},
-    {COMPACTION_CANCELLED,
-     "rocksdb.compaction.cancelled"},
+    {COMPACTION_CANCELLED, "rocksdb.compaction.cancelled"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
