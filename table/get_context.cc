@@ -97,6 +97,7 @@ void GetContext::RecordCounters(Tickers ticker, size_t val) {
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, bool* matched,
                            Cleanable* value_pinner) {
+  assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
