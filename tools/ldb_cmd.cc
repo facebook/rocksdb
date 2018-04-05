@@ -1938,7 +1938,7 @@ class InMemoryHandler : public WriteBatch::Handler {
   virtual ~InMemoryHandler() {}
 
  protected:
-  virtual bool WriteAfterCommit() const { return write_after_commit_; }
+  virtual bool WriteAfterCommit() override const { return write_after_commit_; }
 
  private:
   std::stringstream& row_;
