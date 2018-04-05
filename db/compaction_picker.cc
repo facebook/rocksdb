@@ -1172,11 +1172,11 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   // if we didn't find a compaction, check if there are any files marked for
   // compaction
   if (start_level_inputs_.empty()) {
-    is_manual_ = true;
     parent_index_ = base_index_ = -1;
 
     PickFilesMarkedForCompaction();
     if (!start_level_inputs_.empty()) {
+      is_manual_ = true;
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
       return;
     }
