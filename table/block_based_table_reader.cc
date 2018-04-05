@@ -2030,19 +2030,23 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
   }
   Slice user_key = ExtractUserKey(internal_key);
   const Slice* const const_ikey_ptr = &internal_key;
+  bool may_match = true;
   if (filter->whole_key_filtering()) {
-    return filter->KeyMayMatch(user_key, kNotValid, no_io, const_ikey_ptr);
+    may_match = filter->KeyMayMatch(user_key, kNotValid, no_io, const_ikey_ptr);
+  } else if (!read_options.total_order_seek &&
+             rep_->ioptions.prefix_extractor &&
+             rep_->table_properties->prefix_extractor_name.compare(
+                 rep_->ioptions.prefix_extractor->Name()) == 0 &&
+             rep_->ioptions.prefix_extractor->InDomain(user_key) &&
+             !filter->PrefixMayMatch(
+                 rep_->ioptions.prefix_extractor->Transform(user_key),
+                 kNotValid, false, const_ikey_ptr)) {
+    may_match = false;
   }
-  if (!read_options.total_order_seek && rep_->ioptions.prefix_extractor &&
-      rep_->table_properties->prefix_extractor_name.compare(
-          rep_->ioptions.prefix_extractor->Name()) == 0 &&
-      rep_->ioptions.prefix_extractor->InDomain(user_key) &&
-      !filter->PrefixMayMatch(
-          rep_->ioptions.prefix_extractor->Transform(user_key), kNotValid,
-          false, const_ikey_ptr)) {
-    return false;
+  if (may_match) {
+    RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE);
   }
-  return true;
+  return may_match;
 }
 
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
@@ -2062,7 +2066,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   if (!FullFilterKeyMayMatch(read_options, filter, key, no_io)) {
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
   } else {
-    RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE);
     BlockIter iiter_on_stack;
     auto iiter = NewIndexIterator(read_options, &iiter_on_stack,
                                   /* index_entry */ nullptr, get_context);
@@ -2126,7 +2129,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       }
     }
-    if (found) {
+    if (found && filter != nullptr && !filter->IsBlockBased()) {
       RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_TRUE_POSITIVE);
     }
     if (s.ok()) {
