@@ -2074,7 +2074,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       iiter_unique_ptr.reset(iiter);
     }
 
-    bool found = false;
+    bool matched = false;  // if such user key mathced a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       Slice handle_value = iiter->value();
@@ -2115,9 +2115,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
           }
-          found = true;
 
-          if (!get_context->SaveValue(parsed_key, biter.value(), &biter)) {
+          if (!get_context->SaveValue(parsed_key, biter.value(), &matched,
+                                      &biter)) {
             done = true;
             break;
           }
@@ -2129,7 +2129,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       }
     }
-    if (found && filter != nullptr && !filter->IsBlockBased()) {
+    if (matched && filter != nullptr && !filter->IsBlockBased()) {
       RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_TRUE_POSITIVE);
     }
     if (s.ok()) {

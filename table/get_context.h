@@ -42,10 +42,13 @@ class GetContext {
   // Records this key, value, and any meta-data (such as sequence number and
   // state) into this GetContext.
   //
+  // If the parsed_key matches the user key that we are looking for, sets
+  // mathced to true.
+  //
   // Returns True if more keys need to be read (due to merges) or
   //         False if the complete value has been found.
   bool SaveValue(const ParsedInternalKey& parsed_key, const Slice& value,
-                 Cleanable* value_pinner = nullptr);
+                 bool* matched, Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
   // know that the operation is a Put.

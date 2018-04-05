@@ -170,7 +170,8 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
           Slice full_key(bucket, key_length_);
           ParsedInternalKey found_ikey;
           ParseInternalKey(full_key, &found_ikey);
-          get_context->SaveValue(found_ikey, value);
+          bool dont_care __attribute__((__unused__));
+          get_context->SaveValue(found_ikey, value, &dont_care);
         }
         // We don't support merge operations. So, we return here.
         return Status::OK();
