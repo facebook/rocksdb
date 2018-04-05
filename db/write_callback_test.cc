@@ -295,7 +295,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     PublishSeqCallback(DBImpl* db_impl_in)
                         : db_impl_(db_impl_in) {}
                     virtual Status Callback(SequenceNumber last_seq,
-                                            const bool /*not used*/) override {
+                                            bool /*not used*/) override {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();
                     }
