@@ -82,6 +82,11 @@ enum class CompactionReason : int {
   kBottommostFiles,
   // Compaction based on TTL
   kTtl,
+  // According to the comments in flush_job.cc, RocksDB treats flush as
+  // a level 0 compaction in internal stats.
+  kFlush,
+  // Compaction caused by external sst file ingestion
+  kExternalSstIngestion,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

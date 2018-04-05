@@ -957,7 +957,7 @@ void InternalStats::DumpDBStats(std::string* value) {
  */
 void InternalStats::DumpCFMapStats(
         std::map<std::string, std::string>* cf_stats) {
-  CompactionStats compaction_stats_sum(0);
+  CompactionStats compaction_stats_sum;
   std::map<int, std::map<LevelStatType, double>> levels_stats;
   DumpCFMapStats(&levels_stats, &compaction_stats_sum);
   for (auto const& level_ent : levels_stats) {
@@ -1088,7 +1088,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
 
   // Print stats for each level
   std::map<int, std::map<LevelStatType, double>> levels_stats;
-  CompactionStats compaction_stats_sum(0);
+  CompactionStats compaction_stats_sum;
   DumpCFMapStats(&levels_stats, &compaction_stats_sum);
   for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {

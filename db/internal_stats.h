@@ -164,9 +164,9 @@ class InternalStats {
     int count;
 
     // Number of compactions done per CompactionReason
-    int counts[(int) CompactionReason::kNumOfReasons];
+    int counts[static_cast<int>(CompactionReason::kNumOfReasons)];
 
-    explicit CompactionStats(int _count = 0)
+    explicit CompactionStats()
         : micros(0),
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
@@ -177,11 +177,35 @@ class InternalStats {
           num_output_files(0),
           num_input_records(0),
           num_dropped_records(0),
-          count(_count) {
-      // TODO (yanqin): if we allow _count to be non-zero, we should also set
-      // counts.
-      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+          count(0) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < numOfReasons; i++) {
         counts[i] = 0;
+      }
+
+    }
+
+    explicit CompactionStats(CompactionReason reason, int c)
+        : micros(0),
+          bytes_read_non_output_levels(0),
+          bytes_read_output_level(0),
+          bytes_written(0),
+          bytes_moved(0),
+          num_input_files_in_non_output_levels(0),
+          num_input_files_in_output_level(0),
+          num_output_files(0),
+          num_input_records(0),
+          num_dropped_records(0),
+          count(c) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < numOfReasons; i++) {
+        counts[i] = 0;
+      }
+      int r = static_cast<int>(reason);
+      if (r >= 0 && r < numOfReasons) {
+        counts[r] = c;
+      } else {
+        count = 0;
       }
     }
 
@@ -199,7 +223,8 @@ class InternalStats {
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
           count(c.count) {
-      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < numOfReasons; i++) {
         counts[i] = c.counts[i];
       }
     }
@@ -216,7 +241,8 @@ class InternalStats {
       this->num_input_records = 0;
       this->num_dropped_records = 0;
       this->count = 0;
-      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < numOfReasons; i++) {
         counts[i] = 0;
       }
     }
@@ -235,7 +261,8 @@ class InternalStats {
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
-      for (int i = 0; i< (int) CompactionReason::kNumOfReasons; i++) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i< numOfReasons; i++) {
         counts[i] += c.counts[i];
       }
     }
@@ -254,8 +281,18 @@ class InternalStats {
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
-      for (int i = 0; i < (int) CompactionReason::kNumOfReasons; i++) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < numOfReasons; i++) {
         counts[i] -= c.counts[i];
+      }
+    }
+
+    void IncreaseCounter(CompactionReason reason, int delta) {
+      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      int r = static_cast<int>(reason);
+      if (r >= 0 && r < numOfReasons) {
+        counts[r] += delta;
+        count += delta;
       }
     }
   };
@@ -372,8 +409,7 @@ class InternalStats {
     uint64_t ingest_keys_addfile;      // Total number of keys ingested
 
     CFStatsSnapshot()
-        : comp_stats(0),
-          ingest_bytes_flush(0),
+        : ingest_bytes_flush(0),
           stall_count(0),
           compact_bytes_write(0),
           compact_bytes_read(0),
@@ -565,13 +601,17 @@ class InternalStats {
     uint64_t num_dropped_records;
     int count;
 
-    explicit CompactionStats(int _count = 0) {}
+    explicit CompactionStats() {}
+
+    explicit CompactionStats(CompactionReason reason, int c) {}
 
     explicit CompactionStats(const CompactionStats& c) {}
 
     void Add(const CompactionStats& c) {}
 
     void Subtract(const CompactionStats& c) {}
+
+    void IncreaseCounter(CompactionReason reason, int c) {}
   };
 
   void AddCompactionStats(int level, const CompactionStats& stats) {}

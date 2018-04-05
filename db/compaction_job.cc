@@ -309,7 +309,7 @@ CompactionJob::CompactionJob(
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
-      compaction_stats_(1),
+      compaction_stats_(compaction->compaction_reason(), 1),
       dbname_(dbname),
       db_options_(db_options),
       env_options_(env_options),
@@ -1414,6 +1414,7 @@ void CopyPrefix(
 
 void CompactionJob::UpdateCompactionStats() {
   Compaction* compaction = compact_->compaction;
+  compaction_stats_.IncreaseCounter(compaction->compaction_reason(), 1);
   compaction_stats_.num_input_files_in_non_output_levels = 0;
   compaction_stats_.num_input_files_in_output_level = 0;
   for (int input_level = 0;
