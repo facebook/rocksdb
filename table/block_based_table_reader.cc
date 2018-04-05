@@ -2062,6 +2062,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   if (!FullFilterKeyMayMatch(read_options, filter, key, no_io)) {
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
   } else {
+    RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE);
     BlockIter iiter_on_stack;
     auto iiter = NewIndexIterator(read_options, &iiter_on_stack,
                                   /* index_entry */ nullptr, get_context);
@@ -2070,6 +2071,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       iiter_unique_ptr.reset(iiter);
     }
 
+    bool found = false;
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       Slice handle_value = iiter->value();
@@ -2110,6 +2112,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
           }
+          found = true;
 
           if (!get_context->SaveValue(parsed_key, biter.value(), &biter)) {
             done = true;
@@ -2122,6 +2125,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Avoid the extra Next which is expensive in two-level indexes
         break;
       }
+    }
+    if (found) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_TRUE_POSITIVE);
     }
     if (s.ok()) {
       s = iiter->status();
