@@ -479,12 +479,12 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
       bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
-      if (!res) {
+      if (UNLIKELY(!res)) {
         return res;
       }
     } else {
       bool res = table->InsertKey(handle);
-      if (!res) {
+      if (UNLIKELY(!res)) {
         return res;
       }
     }
@@ -520,7 +520,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     UpdateFlushState();
   } else {
     bool res = table->InsertKeyConcurrently(handle);
-    if (!res) {
+    if (UNLIKELY(!res)) {
       return res;
     }
 
