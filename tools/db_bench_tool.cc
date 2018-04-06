@@ -1966,7 +1966,7 @@ class Benchmark {
         break;
       case rocksdb::kZSTD:
         ok = ZSTD_Compress(Options().compression_opts, input.data(),
-                           input.size(), compressed);
+                           input.size(), compressed, DictContext());
         break;
       default:
         ok = false;

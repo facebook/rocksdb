@@ -244,10 +244,9 @@ void CompressDataBlock(const std::string& output_content, Slice* slice_final,
                        CompressionType* type, std::string* compressed_output) {
   CompressionOptions compression_opts;
   uint32_t format_version = 2;  // hard-coded version
-  Slice compression_dict;
   *slice_final =
       CompressBlock(output_content, compression_opts, type, format_version,
-                    compression_dict, compressed_output);
+                    DictContext(), compressed_output);
 }
 
 }  // namespace

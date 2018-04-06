@@ -104,7 +104,7 @@ bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
 Slice CompressBlock(const Slice& raw,
                     const CompressionOptions& compression_options,
                     CompressionType* type, uint32_t format_version,
-                    const Slice& compression_dict,
+                    const DictContext& dict_context,
                     std::string* compressed_output) {
   if (*type == kNoCompression) {
     return raw;
@@ -124,7 +124,8 @@ Slice CompressBlock(const Slice& raw,
       if (Zlib_Compress(
               compression_options,
               GetCompressFormatForVersion(kZlibCompression, format_version),
-              raw.data(), raw.size(), compressed_output, compression_dict) &&
+              raw.data(), raw.size(), compressed_output,
+              dict_context.raw_dict_bytes) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
@@ -142,7 +143,8 @@ Slice CompressBlock(const Slice& raw,
       if (LZ4_Compress(
               compression_options,
               GetCompressFormatForVersion(kLZ4Compression, format_version),
-              raw.data(), raw.size(), compressed_output, compression_dict) &&
+              raw.data(), raw.size(), compressed_output,
+              dict_context.raw_dict_bytes) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
@@ -151,7 +153,8 @@ Slice CompressBlock(const Slice& raw,
       if (LZ4HC_Compress(
               compression_options,
               GetCompressFormatForVersion(kLZ4HCCompression, format_version),
-              raw.data(), raw.size(), compressed_output, compression_dict) &&
+              raw.data(), raw.size(), compressed_output,
+              dict_context.raw_dict_bytes) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
@@ -166,7 +169,7 @@ Slice CompressBlock(const Slice& raw,
     case kZSTD:
     case kZSTDNotFinalCompression:
       if (ZSTD_Compress(compression_options, raw.data(), raw.size(),
-                        compressed_output, compression_dict) &&
+                        compressed_output, dict_context) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
@@ -260,8 +263,8 @@ struct BlockBasedTableBuilder::Rep {
   std::string last_key;
   const CompressionType compression_type;
   const CompressionOptions compression_opts;
-  // Data for presetting the compression library's dictionary, or nullptr.
-  const std::string* compression_dict;
+  // Data for presetting the compression library's dictionary
+  DictContext dict_context;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
@@ -287,10 +290,9 @@ struct BlockBasedTableBuilder::Rep {
           int_tbl_prop_collector_factories,
       uint32_t _column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
-      const CompressionOptions& _compression_opts,
-      const std::string* _compression_dict, const bool skip_filters,
-      const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time)
+      const CompressionOptions& _compression_opts, DictContext _dict_context,
+      const bool skip_filters, const std::string& _column_family_name,
+      const uint64_t _creation_time, const uint64_t _oldest_key_time)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -304,7 +306,7 @@ struct BlockBasedTableBuilder::Rep {
         internal_prefix_transform(_ioptions.prefix_extractor),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        compression_dict(_compression_dict),
+        dict_context(std::move(_dict_context)),
         compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
@@ -365,11 +367,18 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
-                 int_tbl_prop_collector_factories, column_family_id, file,
-                 compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name, creation_time,
-                 oldest_key_time);
+  DictContext dict_context;
+  Status st =
+      dict_context.Init(compression_type, compression_opts, compression_dict);
+  if (!st.ok()) {
+    ROCKS_LOG_WARN(ioptions.info_log, "%s", st.ToString().c_str());
+  }
+
+  rep_ =
+      new Rep(ioptions, sanitized_table_options, internal_comparator,
+              int_tbl_prop_collector_factories, column_family_id, file,
+              compression_type, compression_opts, std::move(dict_context),
+              skip_filters, column_family_name, creation_time, oldest_key_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -484,14 +493,15 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
   if (raw_block_contents.size() < kCompressionSizeLimit) {
-    Slice compression_dict;
-    if (is_data_block && r->compression_dict && r->compression_dict->size()) {
-      compression_dict = *r->compression_dict;
+    if (is_data_block) {
+      block_contents = CompressBlock(raw_block_contents, r->compression_opts,
+                                     &type, r->table_options.format_version,
+                                     r->dict_context, &r->compressed_output);
+    } else {
+      block_contents = CompressBlock(raw_block_contents, r->compression_opts,
+                                     &type, r->table_options.format_version,
+                                     DictContext(), &r->compressed_output);
     }
-
-    block_contents = CompressBlock(raw_block_contents, r->compression_opts,
-                                   &type, r->table_options.format_version,
-                                   compression_dict, &r->compressed_output);
 
     // Some of the compression algorithms are known to be unreliable. If
     // the verify_compression flag is set then try to de-compress the
@@ -501,7 +511,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
       BlockContents contents;
       Status stat = UncompressBlockContentsForCompressionType(
           block_contents.data(), block_contents.size(), &contents,
-          r->table_options.format_version, compression_dict, type,
+          r->table_options.format_version, r->dict_context.raw_dict_bytes, type,
           r->ioptions);
 
       if (stat.ok()) {
@@ -779,8 +789,8 @@ Status BlockBasedTableBuilder::Finish() {
       meta_index_builder.Add(kPropertiesBlock, properties_block_handle);
 
       // Write compression dictionary block
-      if (r->compression_dict && r->compression_dict->size()) {
-        WriteRawBlock(*r->compression_dict, kNoCompression,
+      if (r->dict_context.raw_dict_bytes.size() > 0) {
+        WriteRawBlock(r->dict_context.raw_dict_bytes, kNoCompression,
                       &compression_dict_block_handle);
         meta_index_builder.Add(kCompressionDictBlock,
                                compression_dict_block_handle);
