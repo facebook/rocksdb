@@ -514,7 +514,16 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   }
 }
 
-Directory* DBImpl::Directories::GetDataDir(size_t path_id) {
+Directory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
+  assert(cfd);
+  Directory* ret_dir = cfd->GetDataDir(path_id);
+  if (ret_dir == nullptr) {
+    return directories_.GetDataDir(path_id);
+  }
+  return ret_dir;
+}
+
+Directory* DBImpl::Directories::GetDataDir(size_t path_id) const {
   assert(path_id < data_dirs_.size());
   Directory* ret_dir = data_dirs_[path_id].get();
   if (ret_dir == nullptr) {
@@ -860,12 +869,11 @@ void DBImpl::BackgroundCallPurge() {
       auto fname = purge_file->fname;
       auto type = purge_file->type;
       auto number = purge_file->number;
-      auto path_id = purge_file->path_id;
       auto job_id = purge_file->job_id;
       purge_queue_.pop_front();
 
       mutex_.Unlock();
-      DeleteObsoleteFileImpl(job_id, fname, type, number, path_id);
+      DeleteObsoleteFileImpl(job_id, fname, type, number);
       mutex_.Lock();
     } else {
       assert(!logs_to_free_queue_.empty());
@@ -1306,6 +1314,17 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   if (s.ok() && immutable_db_options_.allow_concurrent_memtable_write) {
     s = CheckConcurrentWritesSupported(cf_options);
   }
+  if (s.ok()) {
+    s = CheckCFPathsSupported(initial_db_options_, cf_options);
+  }
+  if (s.ok()) {
+    for (auto& cf_path : cf_options.cf_paths) {
+      s = env_->CreateDirIfMissing(cf_path.path);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
   if (!s.ok()) {
     return s;
   }
@@ -1336,6 +1355,12 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
       write_thread_.ExitUnbatched(&w);
+    }
+    if (s.ok()) {
+      auto* cfd =
+          versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
+      assert(cfd != nullptr);
+      s = cfd->AddDirectories();
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
@@ -2391,7 +2416,8 @@ Status DB::ListColumnFamilies(const DBOptions& db_options,
 Snapshot::~Snapshot() {
 }
 
-Status DestroyDB(const std::string& dbname, const Options& options) {
+Status DestroyDB(const std::string& dbname, const Options& options,
+                 const std::vector<ColumnFamilyDescriptor>& column_families) {
   ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
@@ -2417,7 +2443,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile) {
-          del = DeleteSSTFile(&soptions, path_to_delete, 0);
+          del = DeleteSSTFile(&soptions, path_to_delete);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -2427,15 +2453,32 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
+    std::vector<std::string> paths;
+
     for (size_t path_id = 0; path_id < options.db_paths.size(); path_id++) {
-      const auto& db_path = options.db_paths[path_id];
-      env->GetChildren(db_path.path, &filenames);
+      paths.emplace_back(options.db_paths[path_id].path);
+    }
+    for (auto& cf : column_families) {
+      for (size_t path_id = 0; path_id < cf.options.cf_paths.size();
+           path_id++) {
+        paths.emplace_back(cf.options.cf_paths[path_id].path);
+      }
+    }
+
+    // Remove duplicate paths.
+    // Note that we compare only the actual paths but not path ids.
+    // This reason is that same path can appear at different path_ids
+    // for different column families.
+    std::sort(paths.begin(), paths.end());
+    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+
+    for (auto& path : paths) {
+      env->GetChildren(path, &filenames);
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          std::string table_path = db_path.path + "/" + filenames[i];
-          Status del = DeleteSSTFile(&soptions, table_path,
-                                     static_cast<uint32_t>(path_id));
+          std::string table_path = path + "/" + filenames[i];
+          Status del = DeleteSSTFile(&soptions, table_path);
           if (result.ok() && !del.ok()) {
             result = del;
           }
@@ -2921,11 +2964,12 @@ Status DBImpl::VerifyChecksum() {
   }
   for (auto& sv : sv_list) {
     VersionStorageInfo* vstorage = sv->current->storage_info();
+    ColumnFamilyData* cfd = sv->current->cfd();
     for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
       for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
            j++) {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
-        std::string fname = TableFileName(immutable_db_options_.db_paths,
+        std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         s = rocksdb::VerifySstFileChecksum(options, env_options, fname);
       }

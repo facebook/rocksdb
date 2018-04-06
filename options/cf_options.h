@@ -120,6 +120,8 @@ struct ImmutableCFOptions {
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
   uint64_t ttl;
+
+  std::vector<DbPath> cf_paths;
 };
 
 struct MutableCFOptions {

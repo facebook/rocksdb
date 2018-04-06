@@ -616,7 +616,7 @@ Compaction* CompactionPicker::CompactRange(
       }
     }
   }
-  assert(output_path_id < static_cast<uint32_t>(ioptions_.db_paths.size()));
+  assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
   if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs) == false) {
     // manual compaction is now multi-threaded, so it can
@@ -1336,10 +1336,10 @@ uint32_t LevelCompactionBuilder::GetPathId(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, int level) {
   uint32_t p = 0;
-  assert(!ioptions.db_paths.empty());
+  assert(!ioptions.cf_paths.empty());
 
   // size remaining in the most recent path
-  uint64_t current_path_size = ioptions.db_paths[0].target_size;
+  uint64_t current_path_size = ioptions.cf_paths[0].target_size;
 
   uint64_t level_size;
   int cur_level = 0;
@@ -1349,7 +1349,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
   level_size = mutable_cf_options.max_bytes_for_level_base;
 
   // Last path is the fallback
-  while (p < ioptions.db_paths.size() - 1) {
+  while (p < ioptions.cf_paths.size() - 1) {
     if (level_size <= current_path_size) {
       if (cur_level == level) {
         // Does desired level fit in this path?
@@ -1376,7 +1376,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
       }
     }
     p++;
-    current_path_size = ioptions.db_paths[p].target_size;
+    current_path_size = ioptions.cf_paths[p].target_size;
   }
   return p;
 }

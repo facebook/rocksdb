@@ -83,7 +83,7 @@ Status CreateFile(Env* env, const std::string& destination,
 }
 
 Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname, uint32_t path_id) {
+                     const std::string& fname) {
 #ifndef ROCKSDB_LITE
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
