@@ -1576,6 +1576,37 @@ TEST_F(BackupableDBTest, WriteOnlyEngine) {
   ASSERT_EQ(2, backup_infos[0].backup_id);
 }
 
+TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
+  // Verifies a write-only BackupEngine does not delete files belonging to valid
+  // backups when GarbageCollect, PurgeOldBackups, or DeleteBackup are called.
+  const int kNumKeys = 5000;
+  for (int i = 0; i < 3; ++i) {
+    OpenDBAndBackupEngine(i == 0 /* destroy_old_data */);
+    FillDB(db_.get(), i * kNumKeys, (i + 1) * kNumKeys);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+    CloseDBAndBackupEngine();
+
+    backupable_options_->max_valid_backups_to_open = 0;
+    OpenDBAndBackupEngine();
+    switch (i) {
+      case 0:
+        ASSERT_OK(backup_engine_->GarbageCollect());
+        break;
+      case 1:
+        ASSERT_OK(backup_engine_->PurgeOldBackups(1 /* num_backups_to_keep */));
+        break;
+      case 2:
+        ASSERT_OK(backup_engine_->DeleteBackup(2 /* backup_id */));
+        break;
+      default:
+        assert(false);
+    }
+    CloseDBAndBackupEngine();
+
+    backupable_options_->max_valid_backups_to_open = port::kMaxInt32;
+    AssertBackupConsistency(i + 1, 0, (i + 1) * kNumKeys);
+  }
+}
 }  // anon namespace
 
 } //  namespace rocksdb
