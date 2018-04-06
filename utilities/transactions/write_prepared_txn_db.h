@@ -382,8 +382,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void Init(const TransactionDBOptions& /* unused */);
 
   void WPRecordTick(uint32_t ticker_type) const {
-    RecordTick(db_impl_->immutable_db_options_.statistics.get(),
-               TXN_PREPARE_MUTEX_OVERHEAD);
+    RecordTick(db_impl_->immutable_db_options_.statistics.get(), ticker_type);
   }
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
