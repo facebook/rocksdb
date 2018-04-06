@@ -1580,14 +1580,21 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
     if (mutable_cf_options.compaction_options_fifo.allow_compaction &&
         level_files.size() > 0) {
       CompactionInputFiles comp_inputs;
+      // try to prevent same files from being compacted multiple times, which
+      // could produce large files that may never TTL-expire. Achieve this by
+      // disallowing compactions with files larger than memtable (inflate its
+      // size by 10% to account for uncompressed L0 files that may have size
+      // slightly greater than memtable size limit).
+      size_t max_compact_bytes_per_del_file =
+          static_cast<size_t>(MultiplyCheckOverflow(
+              static_cast<uint64_t>(mutable_cf_options.write_buffer_size),
+              1.1));
       if (FindIntraL0Compaction(
               level_files,
               mutable_cf_options
                   .level0_file_num_compaction_trigger /* min_files_to_compact */
               ,
-              110 * mutable_cf_options.write_buffer_size /
-                  100 /* max_compact_bytes_per_del_file */,
-              &comp_inputs)) {
+              max_compact_bytes_per_del_file, &comp_inputs)) {
         Compaction* c = new Compaction(
             vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
             16 * 1024 * 1024 /* output file size limit */,
