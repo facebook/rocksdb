@@ -216,8 +216,10 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
               table_, partition_map_.size() ? &partition_map_ : nullptr),
           index_block_->NewIterator(icomparator_, nullptr, true));
     } else {
+      auto ro = ReadOptions();
+      ro.fill_cache = false;
       return new BlockBasedTableIterator(
-          table_, ReadOptions(), *icomparator_,
+          table_, ro, *icomparator_,
           index_block_->NewIterator(icomparator_, nullptr, true), false);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
@@ -266,6 +268,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     // After prefetch, read the partitions one by one
     biter.SeekToFirst();
     auto ro = ReadOptions();
+    //ro.fill_cache = false;
     Cache* block_cache = rep->table_options.block_cache.get();
     for (; biter.Valid(); biter.Next()) {
       input = biter.value();
@@ -1326,7 +1329,9 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   } else {
     filter =
         ReadFilter(prefetch_buffer, filter_blk_handle, is_a_filter_partition);
-    if (filter != nullptr) {
+    const bool fill_cache = true;
+    //const bool fill_cache = false;
+    if (filter != nullptr && fill_cache) {
       assert(filter->size() > 0);
       Status s = block_cache->Insert(
           key, filter, filter->size(), &DeleteCachedFilterEntry, &cache_handle,
@@ -1557,8 +1562,8 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
                                   cache_handle);
           }
         } else {
-          delete block.value;
-          block.value = nullptr;
+         //delete block.value;
+         //block.value = nullptr;
         }
       }
       iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);

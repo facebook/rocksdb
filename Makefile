@@ -1027,6 +1027,9 @@ librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
+iter_error: iter_error.o $(BENCHTOOLOBJECTS)
+	$(AM_LINK)
+
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
