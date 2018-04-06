@@ -178,8 +178,8 @@ class InternalStats {
           num_input_records(0),
           num_dropped_records(0),
           count(0) {
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i < numOfReasons; i++) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
       }
 
@@ -197,12 +197,12 @@ class InternalStats {
           num_input_records(0),
           num_dropped_records(0),
           count(c) {
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i < numOfReasons; i++) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
       }
       int r = static_cast<int>(reason);
-      if (r >= 0 && r < numOfReasons) {
+      if (r >= 0 && r < num_of_reasons) {
         counts[r] = c;
       } else {
         count = 0;
@@ -223,8 +223,8 @@ class InternalStats {
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
           count(c.count) {
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i < numOfReasons; i++) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = c.counts[i];
       }
     }
@@ -241,8 +241,8 @@ class InternalStats {
       this->num_input_records = 0;
       this->num_dropped_records = 0;
       this->count = 0;
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i < numOfReasons; i++) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
       }
     }
@@ -261,8 +261,8 @@ class InternalStats {
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i< numOfReasons; i++) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i< num_of_reasons; i++) {
         counts[i] += c.counts[i];
       }
     }
@@ -281,18 +281,9 @@ class InternalStats {
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i < numOfReasons; i++) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] -= c.counts[i];
-      }
-    }
-
-    void IncreaseCounter(CompactionReason reason, int delta) {
-      int numOfReasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      int r = static_cast<int>(reason);
-      if (r >= 0 && r < numOfReasons) {
-        counts[r] += delta;
-        count += delta;
       }
     }
   };
@@ -365,6 +356,12 @@ class InternalStats {
 
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value);
+
+  bool TEST_CompactionStatsSanityCheck() const;
+
+  const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
+    return comp_stats_;
+  }
 
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
@@ -647,6 +644,10 @@ class InternalStats {
 
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value) const {
+    return false;
+  }
+
+  bool TEST_CompactionStatsSanityCheck() const {
     return false;
   }
 };

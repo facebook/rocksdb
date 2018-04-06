@@ -90,8 +90,14 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "BottommostFiles";
     case CompactionReason::kTtl:
       return "Ttl";
+    case CompactionReason::kFlush:
+      return "Flush";
+    case CompactionReason::kExternalSstIngestion:
+      return "ExternalSstIngestion";
+    case CompactionReason::kNumOfReasons:
+      // fall through
     default:
-      return "Invalid";
+      assert(false);
   }
 }
 
@@ -1414,7 +1420,6 @@ void CopyPrefix(
 
 void CompactionJob::UpdateCompactionStats() {
   Compaction* compaction = compact_->compaction;
-  compaction_stats_.IncreaseCounter(compaction->compaction_reason(), 1);
   compaction_stats_.num_input_files_in_non_output_levels = 0;
   compaction_stats_.num_input_files_in_output_level = 0;
   for (int input_level = 0;

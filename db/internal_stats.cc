@@ -471,6 +471,28 @@ bool InternalStats::GetIntPropertyOutOfMutex(
   return (this->*(property_info.handle_int))(value, nullptr /* db */, version);
 }
 
+/*
+ * This function performs sanity check on the compaction stats. This function
+ * should be used in tests only.
+ *
+ * This function verifies that the number of compactions caused by different
+ * reasons sum up to equal the total number of compactions.
+ * @return true if sanity check passes, false otherwise
+*/
+bool InternalStats::TEST_CompactionStatsSanityCheck() const {
+  int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+  for (const auto& comp_stat : comp_stats_) {
+    int sum = 0;
+    for (int i = 0; i < num_of_reasons; i++) {
+      sum += comp_stat.counts[i];
+    }
+    if (sum != comp_stat.count) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool InternalStats::HandleNumFilesAtLevel(std::string* value, Slice suffix) {
   uint64_t level;
   const auto* vstorage = cfd_->current()->storage_info();

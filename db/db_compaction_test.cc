@@ -74,6 +74,48 @@ class FlushedFileCollector : public EventListener {
   std::mutex mutex_;
 };
 
+class CompactionStatsCollector : public EventListener {
+public:
+  CompactionStatsCollector()
+      : compaction_completed_(static_cast<int>(CompactionReason::kNumOfReasons)) {
+    for (auto& v : compaction_completed_) {
+      v.store(0);
+    }
+  }
+
+  ~CompactionStatsCollector() {}
+
+  virtual void OnCompactionCompleted(DB* /* db */,
+      const CompactionJobInfo& info) override {
+    int k = static_cast<int>(info.compaction_reason);
+    int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+    assert(k >= 0 && k < num_of_reasons);
+    compaction_completed_[k]++;
+  }
+
+  virtual void OnExternalFileIngested(DB* /* db */,
+      const ExternalFileIngestionInfo& /* info */) override {
+    int k = static_cast<int>(CompactionReason::kExternalSstIngestion);
+    compaction_completed_[k]++;
+  }
+
+  virtual void OnFlushCompleted(DB* /* db */,
+      const FlushJobInfo& /* info */) override {
+    int k = static_cast<int>(CompactionReason::kFlush);
+    compaction_completed_[k]++;
+  }
+
+  int NumberOfCompactions(CompactionReason reason) const {
+    int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+    int k = static_cast<int>(reason);
+    assert(k >= 0 && k < num_of_reasons);
+    return compaction_completed_.at(k).load();
+  }
+
+private:
+  std::vector<std::atomic<int>> compaction_completed_;
+};
+
 static const int kCDTValueSize = 1000;
 static const int kCDTKeysPerBuffer = 4;
 static const int kCDTNumLevels = 8;
@@ -152,6 +194,30 @@ void VerifyCompactionResult(
     }
   }
 #endif
+}
+
+void VerifyCompactionStats(ColumnFamilyData& cfd,
+    const CompactionStatsCollector& collector) {
+#ifndef NDEBUG
+  InternalStats* internal_stats_ptr = cfd.internal_stats();
+  ASSERT_TRUE(internal_stats_ptr != nullptr);
+  const std::vector<InternalStats::CompactionStats>& comp_stats =
+      internal_stats_ptr->TEST_GetCompactionStats();
+  const int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+  std::vector<int> counts(num_of_reasons, 0);
+  // Count the number of compactions caused by each CompactionReason across
+  // all levels.
+  for (const auto& stat : comp_stats) {
+    for (int i = 0; i < num_of_reasons; i++) {
+      counts[i] += stat.counts[i];
+    }
+  }
+  // Verify InternalStats bookkeeping matches that of CompactionStatsCollector,
+  // assuming that all compactions complete.
+  for (int i = 0; i < num_of_reasons; i++) {
+    ASSERT_EQ(collector.NumberOfCompactions(static_cast<CompactionReason>(i)), counts[i]);
+  }
+#endif /* NDEBUG */
 }
 
 const SstFileMetaData* PickFileRandomly(
@@ -3426,6 +3492,32 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
       }
     }
   }
+}
+
+TEST_F(DBCompactionTest, CompactionStatsTest) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  CompactionStatsCollector* collector = new CompactionStatsCollector();
+  options.listeners.emplace_back(collector);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ColumnFamilyHandleImpl* cfh =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  //Simple sanity check to make sure that the number of all compactions
+  //caused by different reasons sum up to the total number of compactions.
+  ASSERT_TRUE(cfd->internal_stats()->TEST_CompactionStatsSanityCheck());
+
+  VerifyCompactionStats(*cfd, *collector);
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
