@@ -27,6 +27,7 @@
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
+#include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -78,14 +79,17 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       cf_options_(cf_options),
       env_options_(db_options),
       statistics_(db_options_.statistics.get()),
+      gc_cv_(&gc_mutex_),
       next_file_number_(1),
       epoch_of_(0),
       closed_(true),
+      random_(static_cast<uint64_t>(GetSliceHash(dbname))),
       open_file_count_(0),
       total_blob_size_(0),
       live_sst_size_(0),
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
+      num_garbage_collection_jobs_(0),
       debug_level_(0) {
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
@@ -94,7 +98,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
 }
 
 BlobDBImpl::~BlobDBImpl() {
-  // CancelAllBackgroundWork(db_, true);
   Status s __attribute__((__unused__)) = Close();
   assert(s.ok());
 }
@@ -104,6 +107,21 @@ Status BlobDBImpl::Close() {
     return Status::OK();
   }
   closed_ = true;
+
+  // TODO(yiwu): Make sure TimerQueue wait till all running jobs finished.
+  tqueue_.cancelAll();
+
+  // UnSchedule pending garbage collection jobs, and wait for any running
+  // garbage collection jobs.
+  int num_gc_job_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
+  {
+    MutexLock l(&gc_mutex_);
+    assert(num_gc_job_unscheduled <= num_garbage_collection_jobs_);
+    num_garbage_collection_jobs_ -= num_gc_job_unscheduled;
+    while (num_garbage_collection_jobs_ > 0) {
+      gc_cv_.Wait();
+    }
+  }
 
   // Close base DB before BlobDBImpl destructs to stop event listener and
   // compaction filter call.
@@ -197,9 +215,16 @@ void BlobDBImpl::StartBackgroundTasks() {
   tqueue_.add(
       kReclaimOpenFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::ReclaimOpenFiles, this, std::placeholders::_1));
-  tqueue_.add(static_cast<int64_t>(
-                  bdb_options_.garbage_collection_interval_secs * 1000),
-              std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1));
+  if (bdb_options_.enable_garbage_collection) {
+    // The first GC scan job starts at random time between [0, internal), so
+    // that if user has multiple DB instances open at the same time, GC jobs
+    // won't run toghether.
+    int64_t interval = static_cast<int64_t>(
+        bdb_options_.garbage_collection_interval_secs * 1000);
+    tqueue_.add(interval,
+                std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1),
+                random_.Uniform(interval));
+  }
   tqueue_.add(
       kDeleteObsoleteFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::DeleteObsoleteFiles, this, std::placeholders::_1));
@@ -870,8 +895,9 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
     std::shared_ptr<BlobFile> blob_file = candidate_files.back();
     candidate_files.pop_back();
     WriteLock file_lock(&blob_file->mutex_);
-    if (blob_file->Obsolete()) {
-      // File already obsoleted by someone else.
+    if (blob_file->Obsolete() || blob_file->RunningGarbageCollection()) {
+      // File already obsoleted by someone else, or garbage collection is
+      // running.
       continue;
     }
     // FIFO eviction can evict open blob files.
@@ -1370,6 +1396,14 @@ std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {
   return std::make_pair(true, -1);
 }
 
+struct BlobDBImpl::GarbageCollectionJob {
+  BlobDBImpl* blob_db_impl;
+  std::shared_ptr<BlobFile> blob_file;
+
+  GarbageCollectionJob(BlobDBImpl* impl, std::shared_ptr<BlobFile> file)
+      : blob_db_impl(impl), blob_file(file) {}
+};
+
 // Write callback for garbage collection to check if key has been updated
 // since last read. Similar to how OptimisticTransaction works. See inline
 // comment in GCFileAndUpdateLSM().
@@ -1416,21 +1450,9 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
   SequenceNumber upper_bound_;
 };
 
-// iterate over the blobs sequentially and check if the blob sequence number
-// is the latest. If it is the latest, preserve it, otherwise delete it
-// if it is TTL based, and the TTL has expired, then
-// we can blow the entity if the key is still the latest or the Key is not
-// found
-// WHAT HAPPENS IF THE KEY HAS BEEN OVERRIDEN. Then we can drop the blob
-// without doing anything if the earliest snapshot is not
-// referring to that sequence number, i.e. it is later than the sequence number
-// of the new key
-//
-// if it is not TTL based, then we can blow the key if the key has been
-// DELETED in the LSM
 Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                                       GCStats* gc_stats) {
-  StopWatch gc_sw(env_, statistics_, BLOB_DB_GC_MICROS);
+  StopWatch gc_sw(env_, statistics_, BLOB_DB_GC_FILE_MICROS);
   uint64_t now = EpochNow();
 
   std::shared_ptr<Reader> reader =
@@ -1761,10 +1783,181 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
     return std::make_pair(false, -1);
   }
 
-  // TODO(yiwu): Garbage collection implementation.
+  GarbageCollectionScan();
 
   // reschedule
   return std::make_pair(true, -1);
+}
+
+Status BlobDBImpl::GarbageCollectionScan() {
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Starting to scan base DB for garbage collection.");
+  struct BlobFileDetails {
+    std::shared_ptr<BlobFile> blob_file = nullptr;
+    uint64_t file_size = 0;  // exclude file header and footer
+    uint64_t live_data_size = 0;
+  };
+  // Map of closed blob files.
+  std::unordered_map<uint64_t, BlobFileDetails> candidate_files;
+
+  // Get the current list of closed blob files as candidates.
+  {
+    ReadLock l(&mutex_);
+    for (auto& file_entry : blob_files_) {
+      std::shared_ptr<BlobFile>& blob_file = file_entry.second;
+      ReadLock file_lock(&blob_file->mutex_);
+      if (!blob_file->Immutable() || blob_file->Obsolete() ||
+          blob_file->PendingGarbageCollection() ||
+          blob_file->RunningGarbageCollection()) {
+        continue;
+      }
+      BlobFileDetails details;
+      details.blob_file = blob_file;
+      details.file_size = blob_file->GetFileSize();
+      if (blob_file->header_valid_) {
+        details.file_size -= BlobLogHeader::kSize;
+      }
+      if (blob_file->footer_valid_) {
+        details.file_size -= BlobLogFooter::kSize;
+      }
+      candidate_files[blob_file->BlobFileNumber()] = details;
+    }
+  }
+
+  if (candidate_files.empty()) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Garbage collection scan finished: no candidate files.");
+    return Status::OK();
+  }
+
+  // Scan base DB to get current live data size of each candidate file.
+  ReadOptions read_options;
+  // Avoid polluting block cache.
+  read_options.fill_cache = false;
+  auto* cfd =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
+  SequenceNumber latest_seq = GetLatestSequenceNumber();
+  uint64_t now = EpochNow();
+  {
+    StopWatch scan_sw(env_, statistics_, BLOB_DB_GC_SCAN_MICROS);
+    RecordTick(statistics_, BLOB_DB_GC_NUM_SCAN);
+    // Use DBIter instead of NewIterator to pass allow_blob = true.
+    std::unique_ptr<ArenaWrappedDBIter> iter(db_impl_->NewIteratorImpl(
+        read_options, cfd, latest_seq, nullptr /*read_callback*/,
+        true /*allow_blob*/));
+    if (iter == nullptr) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Garbage collection scan failed: invalid iterator.");
+      return Status::Aborted();
+    }
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      if (!iter->status().ok()) {
+        ROCKS_LOG_ERROR(db_options_.info_log,
+                        "Garbage collection scan failed. Iterator error: %s",
+                        iter->status().ToString().c_str());
+        return iter->status();
+      }
+      if (!iter->IsBlob()) {
+        // Not a blob index.
+        continue;
+      }
+      BlobIndex blob_index;
+      Status decode_status = blob_index.DecodeFrom(iter->value());
+      if (!decode_status.ok()) {
+        ROCKS_LOG_ERROR(
+            db_options_.info_log,
+            "Garbage collection scan failed. Decode blob index failed: %s",
+            decode_status.ToString().c_str());
+        return decode_status;
+      }
+      // blob index is not inlined, is not expired, and blob file is among
+      // candidates.
+      if (!blob_index.IsInlined() &&
+          (!blob_index.HasTTL() || blob_index.expiration() > now) &&
+          candidate_files.count(blob_index.file_number()) > 0) {
+        candidate_files[blob_index.file_number()].live_data_size +=
+            BlobLogRecord::kHeaderSize + iter->key().size() + blob_index.size();
+      }
+      iter->Next();
+    }
+    if (!iter->status().ok()) {
+      return iter->status();
+    }
+  }
+
+  // Schedule garbage collection background jobs.
+  double threshold = bdb_options_.garbage_collection_deletion_size_threshold;
+  {
+    MutexLock l(&gc_mutex_);
+    for (auto& candidate : candidate_files) {
+      uint64_t file_size = candidate.second.file_size;
+      uint64_t live_data_size = candidate.second.live_data_size;
+      // Check if expired and deleted data size larger than the threshold.
+      // Also trigger garbage collection if we detect a corruption.
+      if (file_size < live_data_size ||
+          file_size * threshold < (double)(file_size - live_data_size)) {
+        uint64_t file_number = candidate.first;
+        auto& blob_file = candidate.second.blob_file;
+        blob_file->MarkPendingGarbageCollection();
+        auto* job = new GarbageCollectionJob(this, blob_file);
+        num_garbage_collection_jobs_++;
+        env_->Schedule(&BlobDBImpl::BackgroundGarbageCollection,
+                       static_cast<void*>(job), Env::Priority::LOW,
+                       this /*tag*/, &BlobDBImpl::UnscheduleGarbageCollection);
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Blob file #%" PRIu64
+                       " scheduled for garbage collection.",
+                       file_number);
+      }
+    }
+  }
+  return Status::OK();
+}
+
+void BlobDBImpl::BackgroundGarbageCollection(void* arg) {
+  auto* job = reinterpret_cast<GarbageCollectionJob*>(arg);
+  Status s __attribute__((__unused__)) =
+      job->blob_db_impl->GarbageCollectBlobFile(job->blob_file);
+  assert(s.ok());
+  delete job;
+}
+
+void BlobDBImpl::UnscheduleGarbageCollection(void* arg) {
+  delete reinterpret_cast<GarbageCollectionJob*>(arg);
+}
+
+Status BlobDBImpl::GarbageCollectBlobFile(
+    const std::shared_ptr<BlobFile>& blob_file) {
+  TEST_SYNC_POINT("BlobDBImpl::GarbageCollectBlobFile:BeforeCheckingFileState");
+  bool file_obsolete = false;
+  {
+    WriteLock file_lock(&blob_file->mutex_);
+    if (blob_file->Obsolete()) {
+      file_obsolete = true;
+      // File already obsolete by someone else.
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Blob file #%" PRIu64
+                     " is obsolete. Garbage collection job cancelled.",
+                     blob_file->BlobFileNumber());
+    } else {
+      blob_file->MarkRunningGarbageCollection();
+    }
+  }
+  TEST_SYNC_POINT("BlobDBImpl::GarbageCollectBlobFile:BeforeRunning");
+  Status s;
+  if (!file_obsolete) {
+    GCStats gc_stats;
+    s = GCFileAndUpdateLSM(blob_file, &gc_stats);
+  }
+  {
+    MutexLock l(&gc_mutex_);
+    assert(num_garbage_collection_jobs_ > 0);
+    num_garbage_collection_jobs_--;
+    // Signal anyone waiting for pending garbage collection.
+    gc_cv_.SignalAll();
+  }
+  return s;
 }
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
@@ -1832,6 +2025,11 @@ std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetBlobFiles() const {
   return blob_files;
 }
 
+std::shared_ptr<BlobFile> BlobDBImpl::TEST_GetOpenNonTTLFile() const {
+  ReadLock l(&mutex_);
+  return open_non_ttl_file_;
+}
+
 std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetObsoleteFiles()
     const {
   ReadLock l(&mutex_);
@@ -1862,7 +2060,21 @@ Status BlobDBImpl::TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
   return GCFileAndUpdateLSM(bfile, gc_stats);
 }
 
-void BlobDBImpl::TEST_RunGC() { RunGC(false /*abort*/); }
+Status BlobDBImpl::TEST_GarbageCollectionScan() {
+  return GarbageCollectionScan();
+}
+
+void BlobDBImpl::TEST_WaitForGarbageCollection() {
+  MutexLock l(&gc_mutex_);
+  while (num_garbage_collection_jobs_ > 0) {
+    gc_cv_.Wait();
+  }
+}
+
+int BlobDBImpl::TEST_GetNumGarbageCollectionJobs() const {
+  MutexLock l(&gc_mutex_);
+  return num_garbage_collection_jobs_;
+}
 
 uint64_t BlobDBImpl::TEST_live_sst_size() { return live_sst_size_.load(); }
 #endif  //  !NDEBUG

@@ -70,6 +70,16 @@ class BlobFile {
   // Data in this file is visible to a snapshot taken before the sequence.
   SequenceNumber obsolete_sequence_;
 
+  // Whether the file is pending garbage collection.
+  //
+  // REQUIRES: mutex_ held
+  bool pending_garbage_collection_;
+
+  // Whether the file is being garbage collect.
+  //
+  // REQUIRES: mutex_ held
+  bool running_garbage_collection_;
+
   ExpirationRange expiration_range_;
 
   // Sequential/Append writer for blobs
@@ -139,6 +149,35 @@ class BlobFile {
   // Mark file as obsolete by garbage collection. The file is not visible to
   // snapshots with sequence greater or equal to the given sequence.
   void MarkObsolete(SequenceNumber sequence);
+
+  // Signify garbage collectjion job is scheduled. No further garbage
+  // collection job should be scheduled.
+  //
+  // REQUIRES: mutex_ held
+  void MarkPendingGarbageCollection() {
+    assert(Immutable() && !Obsolete());
+    assert(!pending_garbage_collection_);
+    assert(!running_garbage_collection_);
+    pending_garbage_collection_ = true;
+  }
+
+  // REQUIRES: mutex_ held
+  bool PendingGarbageCollection() const { return pending_garbage_collection_; }
+
+  // Signify garbage collection job is running. The file cannot be obsolete
+  // by FIFO evcition or because of expiration.
+  //
+  // REQUIRES: mutex_ held
+  void MarkRunningGarbageCollection() {
+    assert(Immutable() && !Obsolete());
+    assert(pending_garbage_collection_);
+    assert(!running_garbage_collection_);
+    pending_garbage_collection_ = false;
+    running_garbage_collection_ = true;
+  }
+
+  // REQUIRES: mutex_ held
+  bool RunningGarbageCollection() const { return running_garbage_collection_; }
 
   SequenceNumber GetObsoleteSequence() const {
     assert(Obsolete());
