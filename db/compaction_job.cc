@@ -1135,7 +1135,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // We set for_compaction to false and don't OptimizeForCompactionTableRead
     // here because this is a special case after we finish the table building
     // No matter whether use_direct_io_for_flush_and_compaction is true,
-    // we will regrad this verification as user reads since the goal is
+    // we will regard this verification as user reads since the goal is
     // to cache it here for further user reads
     InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
