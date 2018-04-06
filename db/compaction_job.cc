@@ -566,8 +566,10 @@ Status CompactionJob::Run() {
   TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.outputs) {
-      auto fn = TableFileName(db_options_.db_paths, output.meta.fd.GetNumber(),
-                              output.meta.fd.GetPathId());
+      auto fn = TableFileName(
+                  state.compaction->immutable_cf_options()->cf_paths,
+                  output.meta.fd.GetNumber(),
+                  output.meta.fd.GetPathId());
       tp[fn] = output.table_properties;
     }
   }
@@ -1112,7 +1114,9 @@ Status CompactionJob::FinishCompactionOutputFile(
     // This happens when the output level is bottom level, at the same time
     // the sub_compact output nothing.
     std::string fname = TableFileName(
-        db_options_.db_paths, meta->fd.GetNumber(), meta->fd.GetPathId());
+        sub_compact->compaction->immutable_cf_options()->cf_paths,
+        meta->fd.GetNumber(),
+        meta->fd.GetPathId());
     env_->DeleteFile(fname);
 
     // Also need to remove the file from outputs, or it will be added to the
@@ -1165,8 +1169,10 @@ Status CompactionJob::FinishCompactionOutputFile(
   std::string fname;
   FileDescriptor output_fd;
   if (meta != nullptr) {
-    fname = TableFileName(db_options_.db_paths, meta->fd.GetNumber(),
-                          meta->fd.GetPathId());
+    fname = TableFileName(
+              sub_compact->compaction->immutable_cf_options()->cf_paths,
+              meta->fd.GetNumber(),
+              meta->fd.GetPathId());
     output_fd = meta->fd;
   } else {
     fname = "(nil)";
@@ -1180,8 +1186,10 @@ Status CompactionJob::FinishCompactionOutputFile(
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm && meta != nullptr && meta->fd.GetPathId() == 0) {
-    auto fn = TableFileName(cfd->ioptions()->db_paths, meta->fd.GetNumber(),
-                            meta->fd.GetPathId());
+    auto fn = TableFileName(
+                sub_compact->compaction->immutable_cf_options()->cf_paths,
+                meta->fd.GetNumber(),
+                meta->fd.GetPathId());
     sfm->OnAddFile(fn);
     if (sfm->IsMaxAllowedSpaceReached()) {
       // TODO(ajkr): should we return OK() if max space was reached by the final
@@ -1266,8 +1274,10 @@ Status CompactionJob::OpenCompactionOutputFile(
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
-  std::string fname = TableFileName(db_options_.db_paths, file_number,
-                                    sub_compact->compaction->output_path_id());
+  std::string fname = TableFileName(
+                        sub_compact->compaction->immutable_cf_options()->cf_paths,
+                        file_number,
+                        sub_compact->compaction->output_path_id());
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 #ifndef ROCKSDB_LITE

@@ -406,9 +406,9 @@ uint32_t UniversalCompactionPicker::GetPathId(
       file_size *
       (100 - mutable_cf_options.compaction_options_universal.size_ratio) / 100;
   uint32_t p = 0;
-  assert(!ioptions.db_paths.empty());
-  for (; p < ioptions.db_paths.size() - 1; p++) {
-    uint64_t target_size = ioptions.db_paths[p].target_size;
+  assert(!ioptions.cf_paths.empty());
+  for (; p < ioptions.cf_paths.size() - 1; p++) {
+    uint64_t target_size = ioptions.cf_paths[p].target_size;
     if (target_size > file_size &&
         accumulated_size + (target_size - file_size) > future_size) {
       return p;

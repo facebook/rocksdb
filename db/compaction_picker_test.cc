@@ -59,7 +59,7 @@ class CompactionPickerTest : public testing::Test {
         vstorage_(nullptr) {
     fifo_options_.max_table_files_size = 1;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
-    ioptions_.db_paths.emplace_back("dummy",
+    ioptions_.cf_paths.emplace_back("dummy",
                                     std::numeric_limits<uint64_t>::max());
   }
 
