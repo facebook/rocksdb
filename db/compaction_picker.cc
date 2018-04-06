@@ -59,7 +59,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   }
 
   if (span_len >= min_files_to_compact &&
-      new_compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
+      compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
     assert(comp_inputs != nullptr);
     comp_inputs->level = 0;
     for (size_t i = 0; i < span_len; ++i) {
@@ -1583,8 +1583,11 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       if (FindIntraL0Compaction(
               level_files,
               mutable_cf_options
-                  .level0_file_num_compaction_trigger /* min_files_to_compact */,
-              mutable_cf_options.write_buffer_size, &comp_inputs)) {
+                  .level0_file_num_compaction_trigger /* min_files_to_compact */
+              ,
+              110 * mutable_cf_options.write_buffer_size /
+                  100 /* max_compact_bytes_per_del_file */,
+              &comp_inputs)) {
         Compaction* c = new Compaction(
             vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
             16 * 1024 * 1024 /* output file size limit */,
