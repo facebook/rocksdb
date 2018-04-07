@@ -98,6 +98,7 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       // fall through
     default:
       assert(false);
+      return "Invalid";
   }
 }
 
