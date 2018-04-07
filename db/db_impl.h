@@ -691,14 +691,20 @@ class DBImpl : public DB {
   void EraseThreadStatusDbInfo() const;
 
   // If disable_memtable is set the application logic must guarantee that the
-  // batch will still be skipped from memtable during the recovery. In
-  // WriteCommitted it is guarnateed since disable_memtable is used for prepare
-  // batch which will be written to memtable later during the commit, and in
-  // WritePrepared it is guaranteed since it will be used only for WAL markers
-  // which will never be written to memtable.
-  // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
-  // the number of sub-patches. A sub-patch is a subset of the write batch that
-  // does not have duplicate keys.
+  // batch will still be skipped from memtable during the recovery. An excption
+  // to this is seq_per_batch_ mode, in which since each batch already takes one
+  // seq, it is ok for the batch to write to memtable during recovery as long as
+  // it only takes one sequence number: i.e., no duplicate keys.
+  // In WriteCommitted it is guarnateed since disable_memtable is used for
+  // prepare batch which will be written to memtable later during the commit,
+  // and in WritePrepared it is guaranteed since it will be used only for WAL
+  // markers which will never be written to memtable. If the commit marker is
+  // accompanied with CommitTimeWriteBatch that is not written to memtable as
+  // long as it has no duplicate keys, it does not violate the one-seq-per-batch
+  // policy.
+  // batch_cnt is expected to be non-zero in seq_per_batch mode and
+  // indicates the number of sub-patches. A sub-patch is a subset of the write
+  // batch that does not have duplicate keys.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
