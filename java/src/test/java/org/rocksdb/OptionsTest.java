@@ -1000,6 +1000,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void sstFileManager() throws RocksDBException {
+    try (final Options options = new Options();
+         final SstFileManager sstFileManager =
+             new SstFileManager(Env.getDefault())) {
+      options.setSstFileManager(sstFileManager);
+    }
+  }
+
+  @Test
   public void shouldSetTestPrefixExtractor() {
     try (final Options options = new Options()) {
       options.useFixedLengthPrefixExtractor(100);

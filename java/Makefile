@@ -47,6 +47,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.RocksMemEnv\
 	org.rocksdb.SkipListMemTableConfig\
 	org.rocksdb.Slice\
+	org.rocksdb.SstFileManager\
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.Statistics\
 	org.rocksdb.Transaction\
@@ -132,6 +133,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.util.SizeUnitTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
+	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.TransactionTest\
 	org.rocksdb.TransactionDBTest\
