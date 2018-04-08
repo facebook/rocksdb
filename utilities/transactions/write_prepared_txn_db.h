@@ -144,8 +144,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
     if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
       // We should not normally reach here
+      WPRecordTick(TXN_PREPARE_MUTEX_OVERHEAD);
       ReadLock rl(&prepared_mutex_);
-      // TODO(myabandeh): also add a stat
       ROCKS_LOG_WARN(info_log_, "prepared_mutex_ overhead %" PRIu64,
                      static_cast<uint64_t>(delayed_prepared_.size()));
       if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
@@ -216,7 +216,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // We should not normally reach here unless sapshot_seq is old. This is a
       // rare case and it is ok to pay the cost of mutex ReadLock for such old,
       // reading transactions.
-      // TODO(myabandeh): also add a stat
+      WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
       ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snapshot_seq);
@@ -380,6 +380,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_RollbackTest_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
+
+  void WPRecordTick(uint32_t ticker_type) const {
+    RecordTick(db_impl_->immutable_db_options_.statistics.get(), ticker_type);
+  }
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
