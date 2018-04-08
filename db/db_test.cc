@@ -3348,6 +3348,56 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
   }
 }
 
+TEST_F(DBTest, ConcurrentFlushWAL) {
+  const size_t cnt = 100;
+  Options options;
+  WriteOptions wopt;
+  ReadOptions ropt;
+  for (bool two_write_queues : {false, true}) {
+    for (bool manual_wal_flush : {false, true}) {
+      options.two_write_queues = two_write_queues;
+      options.manual_wal_flush = manual_wal_flush;
+      options.create_if_missing = true;
+      DestroyAndReopen(options);
+      std::vector<port::Thread> threads;
+      threads.emplace_back([&] {
+        for (size_t i = 0; i < cnt; i++) {
+          auto istr = ToString(i);
+          db_->Put(wopt, db_->DefaultColumnFamily(), "a" + istr, "b" + istr);
+        }
+      });
+      if (two_write_queues) {
+        threads.emplace_back([&] {
+          for (size_t i = cnt; i < 2 * cnt; i++) {
+            auto istr = ToString(i);
+            WriteBatch batch;
+            batch.Put("a" + istr, "b" + istr);
+            dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true);
+          }
+        });
+      }
+      threads.emplace_back([&] {
+        for (size_t i = 0; i < cnt * 100; i++) {  // FlushWAL is faster than Put
+          db_->FlushWAL(false);
+        }
+      });
+      for (auto& t : threads) {
+        t.join();
+      }
+      options.create_if_missing = false;
+      // Recover from the wal and make sure that it is not corrupted
+      Reopen(options);
+      for (size_t i = 0; i < cnt; i++) {
+        PinnableSlice pval;
+        auto istr = ToString(i);
+        ASSERT_OK(
+            db_->Get(ropt, db_->DefaultColumnFamily(), "a" + istr, &pval));
+        ASSERT_TRUE(pval == ("b" + istr));
+      }
+    }
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;

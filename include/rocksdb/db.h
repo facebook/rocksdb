@@ -1167,7 +1167,9 @@ class DB {
 
 // Destroy the contents of the specified database.
 // Be very careful using this method.
-Status DestroyDB(const std::string& name, const Options& options);
+Status DestroyDB(const std::string& name, const Options& options,
+                 const std::vector<ColumnFamilyDescriptor>& column_families =
+                   std::vector<ColumnFamilyDescriptor>());
 
 #ifndef ROCKSDB_LITE
 // If a DB cannot be opened, you may attempt to call this method to

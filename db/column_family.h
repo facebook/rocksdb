@@ -139,6 +139,9 @@ extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 extern Status CheckConcurrentWritesSupported(
     const ColumnFamilyOptions& cf_options);
 
+extern Status CheckCFPathsSupported(const DBOptions& db_options,
+                                    const ColumnFamilyOptions& cf_options);
+
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
 // Wrap user defined table proproties collector factories `from cf_options`
@@ -376,6 +379,10 @@ class ColumnFamilyData {
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
+  Status AddDirectories();
+
+  Directory* GetDataDir(size_t path_id) const;
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -459,6 +466,9 @@ class ColumnFamilyData {
 
   // Memtable id to track flush.
   std::atomic<uint64_t> last_memtable_id_;
+
+  // Directories corresponding to cf_paths.
+  std::vector<std::unique_ptr<Directory>> data_dirs_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

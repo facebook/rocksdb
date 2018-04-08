@@ -1033,6 +1033,13 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setSstFileManager(final SstFileManager sstFileManager) {
+    assert(isOwningHandle());
+    setSstFileManager(nativeHandle_, sstFileManager.nativeHandle_);
+    return this;
+  }
+
+  @Override
   public Options setLogger(final Logger logger) {
     assert(isOwningHandle());
     setLogger(nativeHandle_, logger.nativeHandle_);
@@ -1588,6 +1595,8 @@ public class Options extends RocksObject
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setSstFileManager(final long handle,
+      final long sstFileManagerHandle);
   private native void setLogger(long handle,
       long loggerHandle);
   private native void setInfoLogLevel(long handle, byte logLevel);

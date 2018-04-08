@@ -37,6 +37,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/rocksjni.cc
         rocksjni/slice.cc
         rocksjni/snapshot.cc
+        rocksjni/sst_file_manager.cc
         rocksjni/sst_file_writerjni.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
@@ -111,6 +112,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.Slice
         org.rocksdb.Snapshot
         org.rocksdb.SnapshotTest
+        org.rocksdb.SstFileManager
         org.rocksdb.SstFileWriter
         org.rocksdb.Statistics
         org.rocksdb.StringAppendOperator
@@ -232,6 +234,7 @@ add_jar(
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
+  src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileWriter.java
   src/main/java/org/rocksdb/Statistics.java
   src/main/java/org/rocksdb/StatsLevel.java

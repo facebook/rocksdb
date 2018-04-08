@@ -222,6 +222,9 @@ struct BlockBasedTableOptions {
   // false  will avoid the overhead of decompression if index blocks are evicted
   // and read back
   bool enable_index_compression = true;
+
+  // Align data blocks on lesser of page size and block size
+  bool block_align = false;
 };
 
 // Table Properties that are specific to block-based table properties.

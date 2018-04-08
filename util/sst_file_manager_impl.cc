@@ -106,13 +106,14 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
          max_allowed_space_;
 }
 
-bool SstFileManagerImpl::EnoughRoomForCompaction(Compaction* c) {
+bool SstFileManagerImpl::EnoughRoomForCompaction(
+    const std::vector<CompactionInputFiles>& inputs) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
-  for (size_t i = 0; i < c->num_input_levels(); i++) {
-    for (size_t j = 0; j < c->num_input_files(i); j++) {
-      FileMetaData* filemeta = c->input(i, j);
+  for (size_t i = 0; i < inputs.size(); i++) {
+    for (size_t j = 0; j < inputs[i].size(); j++) {
+      FileMetaData* filemeta = inputs[i][j];
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }

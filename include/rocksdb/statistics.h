@@ -71,8 +71,13 @@ enum Tickers : uint32_t {
   // # of bytes written into cache.
   BLOCK_CACHE_BYTES_WRITE,
 
-  // # of times bloom filter has avoided file reads.
+  // # of times bloom filter has avoided file reads, i.e., negatives.
   BLOOM_FILTER_USEFUL,
+  // # of times bloom FullFilter has not avoided the reads.
+  BLOOM_FILTER_FULL_POSITIVE,
+  // # of times bloom FullFilter has not avoided the reads and data actually
+  // exist.
+  BLOOM_FILTER_FULL_TRUE_POSITIVE,
 
   // # persistent cache hit
   PERSISTENT_CACHE_HIT,
@@ -304,6 +309,17 @@ enum Tickers : uint32_t {
   // # of bytes in the blob files evicted because of BlobDB is full.
   BLOB_DB_FIFO_BYTES_EVICTED,
 
+  // These coutners indicate a performance issue in WritePrepared transactions.
+  // We should not seem them ticking them much.
+  // # of times prepare_mutex_ is acquired in the fast path.
+  TXN_PREPARE_MUTEX_OVERHEAD,
+  // # of times old_commit_map_mutex_ is acquired in the fast path.
+  TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD,
+  // # of times we checked a batch for duplicate keys.
+  TXN_DUPLICATE_KEY_OVERHEAD,
+  // # of times snapshot_mutex_ is acquired in the fast path.
+  TXN_SNAPSHOT_MUTEX_OVERHEAD,
+
   TICKER_ENUM_MAX
 };
 
@@ -332,6 +348,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_BYTES_READ, "rocksdb.block.cache.bytes.read"},
     {BLOCK_CACHE_BYTES_WRITE, "rocksdb.block.cache.bytes.write"},
     {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
+    {BLOOM_FILTER_FULL_POSITIVE, "rocksdb.bloom.filter.full.positive"},
+    {BLOOM_FILTER_FULL_TRUE_POSITIVE,
+     "rocksdb.bloom.filter.full.true.positive"},
     {PERSISTENT_CACHE_HIT, "rocksdb.persistent.cache.hit"},
     {PERSISTENT_CACHE_MISS, "rocksdb.persistent.cache.miss"},
     {SIM_BLOCK_CACHE_HIT, "rocksdb.sim.block.cache.hit"},
@@ -349,8 +368,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.compaction.range_del.drop.obsolete"},
     {COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
      "rocksdb.compaction.optimized.del.drop.obsolete"},
-    {COMPACTION_CANCELLED,
-     "rocksdb.compaction.cancelled"},
+    {COMPACTION_CANCELLED, "rocksdb.compaction.cancelled"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
@@ -448,6 +466,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_FIFO_NUM_FILES_EVICTED, "rocksdb.blobdb.fifo.num.files.evicted"},
     {BLOB_DB_FIFO_NUM_KEYS_EVICTED, "rocksdb.blobdb.fifo.num.keys.evicted"},
     {BLOB_DB_FIFO_BYTES_EVICTED, "rocksdb.blobdb.fifo.bytes.evicted"},
+    {TXN_PREPARE_MUTEX_OVERHEAD, "rocksdb.txn.overhead.mutex.prepare"},
+    {TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD,
+     "rocksdb.txn.overhead.mutex.old.commit.map"},
+    {TXN_DUPLICATE_KEY_OVERHEAD, "rocksdb.txn.overhead.duplicate.key"},
+    {TXN_SNAPSHOT_MUTEX_OVERHEAD, "rocksdb.txn.overhead.mutex.snapshot"},
 };
 
 /**

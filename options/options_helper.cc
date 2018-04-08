@@ -1601,6 +1601,7 @@ std::unordered_map<std::string, OptionTypeInfo>
                                          uint34_t* existing_value_size,
                                          Slice delta_value,
                                          std::string* merged_value);
+        std::vector<DbPath> cf_paths;
          */
         {"report_bg_io_stats",
          {offset_of(&ColumnFamilyOptions::report_bg_io_stats),
@@ -1819,7 +1820,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_options_universal),
           OptionType::kCompactionOptionsUniversal,
           OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, compaction_options_universal)}}};
+          offsetof(struct MutableCFOptions, compaction_options_universal)}},
+        {"ttl",
+         {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, false, 0}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {

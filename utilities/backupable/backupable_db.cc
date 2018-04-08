@@ -979,17 +979,24 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
     corrupt_backups_.erase(corrupt);
   }
 
-  std::vector<std::string> to_delete;
-  for (auto& itr : backuped_file_infos_) {
-    if (itr.second->refs == 0) {
-      Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
-      ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
-                     s.ToString().c_str());
-      to_delete.push_back(itr.first);
+  if (options_.max_valid_backups_to_open == port::kMaxInt32) {
+    std::vector<std::string> to_delete;
+    for (auto& itr : backuped_file_infos_) {
+      if (itr.second->refs == 0) {
+        Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
+        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
+                       s.ToString().c_str());
+        to_delete.push_back(itr.first);
+      }
     }
-  }
-  for (auto& td : to_delete) {
-    backuped_file_infos_.erase(td);
+    for (auto& td : to_delete) {
+      backuped_file_infos_.erase(td);
+    }
+  } else {
+    ROCKS_LOG_WARN(
+        options_.info_log,
+        "DeleteBackup cleanup is limited since `max_valid_backups_to_open` "
+        "constrains how many backups the engine knows about");
   }
 
   // take care of private dirs -- GarbageCollect() will take care of them
@@ -1471,9 +1478,18 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
 Status BackupEngineImpl::GarbageCollect() {
   assert(!read_only_);
   ROCKS_LOG_INFO(options_.info_log, "Starting garbage collection");
+  if (options_.max_valid_backups_to_open == port::kMaxInt32) {
+    ROCKS_LOG_WARN(
+        options_.info_log,
+        "Garbage collection is limited since `max_valid_backups_to_open` "
+        "constrains how many backups the engine knows about");
+  }
 
-  if (options_.share_table_files) {
+  if (options_.share_table_files &&
+      options_.max_valid_backups_to_open == port::kMaxInt32) {
     // delete obsolete shared files
+    // we cannot do this when BackupEngine has `max_valid_backups_to_open` set
+    // as those engines don't know about all shared files.
     std::vector<std::string> shared_children;
     {
       std::string shared_path;
@@ -1523,6 +1539,8 @@ Status BackupEngineImpl::GarbageCollect() {
     }
   }
   for (auto& child : private_children) {
+    // it's ok to do this when BackupEngine has `max_valid_backups_to_open` set
+    // as the engine always knows all valid backup numbers.
     BackupID backup_id = 0;
     bool tmp_dir = child.find(".tmp") != std::string::npos;
     sscanf(child.c_str(), "%u", &backup_id);

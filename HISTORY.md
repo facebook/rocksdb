@@ -1,14 +1,19 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* Add a BlockBasedTableOption to align uncompressed data blocks on the smaller of block size or page size boundary, to reduce flash reads by avoiding reads spanning 4K pages.
 
 ### New Features
+* * Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
 
 ### Bug Fixes
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
+* Fix WAL corruption caused by race condition between user write thread and FlushWAL when two_write_queue is not set.
+* Fix `BackupableDBOptions::max_valid_backups_to_open` to not delete backup files when refcount cannot be accurately determined.
 
 ### Java API Changes
 * Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
+* Added SstFileManager to the Java API to allow managing SST files across DB instances.
 
 ## 5.13.0 (3/20/2018)
 ### Public API Change

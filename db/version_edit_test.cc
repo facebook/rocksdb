@@ -181,6 +181,16 @@ TEST_F(VersionEditTest, ColumnFamilyTest) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, DeletedLogNumber) {
+  VersionEdit edit;
+  edit.SetDeletedLogNumber(13);
+  TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetDeletedLogNumber(23);
+  TestEncodeDecode(edit);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

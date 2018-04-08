@@ -45,6 +45,11 @@ Status DBImpl::SingleDelete(const WriteOptions& write_options,
   return DB::SingleDelete(write_options, column_family, key);
 }
 
+void DBImpl::SetRecoverableStatePreReleaseCallback(
+    PreReleaseCallback* callback) {
+  recoverable_state_pre_release_callback_.reset(callback);
+}
+
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   return WriteImpl(write_options, my_batch, nullptr, nullptr);
 }
@@ -808,7 +813,21 @@ Status DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   assert(log_size != nullptr);
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
+  // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
+  // from the two queues anyway and log_write_mutex_ is already held. Otherwise
+  // if manual_wal_flush_ is enabled we need to protect log_writer->AddRecord
+  // from possible concurrent calls via the FlushWAL by the application.
+  const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+  // Due to performance cocerns of missed branch prediction penalize the new
+  // manual_wal_flush_ feature (by UNLIKELY) instead of the more common case
+  // when we do not need any locking.
+  if (UNLIKELY(needs_locking)) {
+    log_write_mutex_.Lock();
+  }
   Status status = log_writer->AddRecord(log_entry);
+  if (UNLIKELY(needs_locking)) {
+    log_write_mutex_.Unlock();
+  }
   if (log_used != nullptr) {
     *log_used = logfile_number_;
   }
@@ -946,7 +965,12 @@ Status DBImpl::WriteRecoverableState() {
     if (two_write_queues_) {
       log_write_mutex_.Lock();
     }
-    SequenceNumber seq = versions_->LastSequence();
+    SequenceNumber seq;
+    if (two_write_queues_) {
+      seq = versions_->FetchAddLastAllocatedSequence(0);
+    } else {
+      seq = versions_->LastSequence();
+    }
     WriteBatchInternal::SetSequence(&cached_recoverable_state_, seq + 1);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
@@ -956,11 +980,19 @@ Status DBImpl::WriteRecoverableState() {
     auto last_seq = next_seq - 1;
     if (two_write_queues_) {
       versions_->FetchAddLastAllocatedSequence(last_seq - seq);
+      versions_->SetLastPublishedSequence(last_seq);
     }
     versions_->SetLastSequence(last_seq);
-    versions_->SetLastPublishedSequence(last_seq);
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
+    }
+    if (status.ok() && recoverable_state_pre_release_callback_) {
+      const bool DISABLE_MEMTABLE = true;
+      for (uint64_t sub_batch_seq = seq + 1;
+           sub_batch_seq < next_seq && status.ok(); sub_batch_seq++) {
+        status = recoverable_state_pre_release_callback_->Callback(
+            sub_batch_seq, !DISABLE_MEMTABLE);
+      }
     }
     if (status.ok()) {
       cached_recoverable_state_.Clear();

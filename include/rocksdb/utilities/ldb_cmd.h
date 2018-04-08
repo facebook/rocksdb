@@ -215,6 +215,7 @@ class LDBCommand {
   LDBOptions ldb_options_;
 
  private:
+  friend class WALDumperCommand;
   /**
    * Interpret command line options and flags to determine if the key
    * should be input/output in hex.

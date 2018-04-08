@@ -69,9 +69,15 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   ~ColumnFamilyTest() {
+    std::vector<ColumnFamilyDescriptor> column_families;
+    for (auto h : handles_) {
+      ColumnFamilyDescriptor cfdescriptor;
+      h->GetDescriptor(&cfdescriptor);
+      column_families.push_back(cfdescriptor);
+    }
     Close();
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    Destroy();
+    Destroy(column_families);
     delete env_;
   }
 
@@ -236,9 +242,11 @@ class ColumnFamilyTest : public testing::Test {
 #endif  // !ROCKSDB_LITE
   }
 
-  void Destroy() {
+  void Destroy(const std::vector<ColumnFamilyDescriptor>& column_families =
+                  std::vector<ColumnFamilyDescriptor>()) {
     Close();
-    ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
+    ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_),
+                        column_families));
   }
 
   void CreateColumnFamilies(
@@ -481,6 +489,12 @@ class ColumnFamilyTest : public testing::Test {
       size -= slice.size();
     }
     ASSERT_OK(destfile->Close());
+  }
+
+  int GetSstFileCount(std::string path) {
+    std::vector<std::string> files;
+    DBTestBase::GetSstFiles(env_, path, &files);
+    return static_cast<int>(files.size());
   }
 
   std::vector<ColumnFamilyHandle*> handles_;
@@ -3128,6 +3142,58 @@ TEST_F(ColumnFamilyTest, DISABLED_LogTruncationTest) {
 
   // cleanup
   env_->DeleteDir(backup_logs);
+}
+
+TEST_F(ColumnFamilyTest, DefaultCfPathsTest) {
+  Open();
+  // Leave cf_paths for one column families to be empty.
+  // Files should be generated according to db_paths for that
+  // column family.
+  ColumnFamilyOptions cf_opt1, cf_opt2;
+  cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
+                                std::numeric_limits<uint64_t>::max());
+  CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
+  Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
+
+  // Fill Column family 1.
+  PutRandomData(1, 100, 100);
+  Flush(1);
+
+  ASSERT_EQ(1, GetSstFileCount(cf_opt1.cf_paths[0].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // Fill column family 2
+  PutRandomData(2, 100, 100);
+  Flush(2);
+
+  // SST from Column family 2 should be generated in
+  // db_paths which is dbname_ in this case.
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+}
+
+TEST_F(ColumnFamilyTest, MultipleCFPathsTest) {
+  Open();
+  // Configure Column family specific paths.
+  ColumnFamilyOptions cf_opt1, cf_opt2;
+  cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
+                                std::numeric_limits<uint64_t>::max());
+  cf_opt2.cf_paths.emplace_back(dbname_ + "_two_1",
+                                std::numeric_limits<uint64_t>::max());
+  CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
+  Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
+
+  PutRandomData(1, 100, 100);
+  Flush(1);
+
+  // Check that files are generated in appropriate paths.
+  ASSERT_EQ(1, GetSstFileCount(cf_opt1.cf_paths[0].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  PutRandomData(2, 100, 100);
+  Flush(2);
+
+  ASSERT_EQ(1, GetSstFileCount(cf_opt2.cf_paths[0].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 }
 }  // namespace rocksdb
 

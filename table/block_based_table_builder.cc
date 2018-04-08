@@ -249,6 +249,7 @@ struct BlockBasedTableBuilder::Rep {
   WritableFileWriter* file;
   uint64_t offset = 0;
   Status status;
+  size_t alignment;
   BlockBuilder data_block;
   BlockBuilder range_del_block;
 
@@ -294,6 +295,9 @@ struct BlockBasedTableBuilder::Rep {
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
+        alignment(table_options.block_align
+                      ? std::min(table_options.block_size, kDefaultPageSize)
+                      : 0),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
         range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
@@ -537,13 +541,14 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
   }
 
-  WriteRawBlock(block_contents, type, handle);
+  WriteRawBlock(block_contents, type, handle, is_data_block);
   r->compressed_output.clear();
 }
 
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
-                                           BlockHandle* handle) {
+                                           BlockHandle* handle,
+                                           bool is_data_block) {
   Rep* r = rep_;
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
@@ -581,6 +586,16 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     }
     if (r->status.ok()) {
       r->offset += block_contents.size() + kBlockTrailerSize;
+      if (r->table_options.block_align && is_data_block) {
+        size_t pad_bytes =
+            (r->alignment - ((block_contents.size() + kBlockTrailerSize) &
+                             (r->alignment - 1))) &
+            (r->alignment - 1);
+        r->status = r->file->Pad(pad_bytes);
+        if (r->status.ok()) {
+          r->offset += pad_bytes;
+        }
+      }
     }
   }
 }

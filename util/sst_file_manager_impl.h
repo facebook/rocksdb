@@ -67,7 +67,7 @@ class SstFileManagerImpl : public SstFileManager {
   // estimates how much space is currently being used by compactions (i.e.
   // if a compaction has started, this function bumps the used space by
   // the full compaction size).
-  bool EnoughRoomForCompaction(Compaction* c);
+  bool EnoughRoomForCompaction(const std::vector<CompactionInputFiles>& inputs);
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction
   // finishes

@@ -17,7 +17,7 @@ namespace rocksdb {
 class Env;
 class Logger;
 
-// SstFileManager is used to track SST files in the DB and control there
+// SstFileManager is used to track SST files in the DB and control their
 // deletion rate.
 // All SstFileManager public functions are thread-safe.
 // SstFileManager is not extensible.
@@ -29,7 +29,7 @@ class SstFileManager {
   // the total size of the SST files exceeds max_allowed_space, writes to
   // RocksDB will fail.
   //
-  // Setting max_allowed_space to 0 will disable this feature, maximum allowed
+  // Setting max_allowed_space to 0 will disable this feature; maximum allowed
   // space will be infinite (Default value).
   //
   // thread-safe.
@@ -55,7 +55,7 @@ class SstFileManager {
   // thread-safe
   virtual uint64_t GetTotalSize() = 0;
 
-  // Return a map containing all tracked files and there corresponding sizes.
+  // Return a map containing all tracked files and their corresponding sizes.
   // thread-safe
   virtual std::unordered_map<std::string, uint64_t> GetTrackedFiles() = 0;
 

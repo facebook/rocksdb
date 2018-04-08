@@ -155,6 +155,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
         {"enable_index_compression",
          {offsetof(struct BlockBasedTableOptions, enable_index_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"block_align",
+         {offsetof(struct BlockBasedTableOptions, block_align),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

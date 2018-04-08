@@ -151,7 +151,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "format_version=1;"
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
-      "enable_index_compression=false",
+      "enable_index_compression=false;"
+      "block_align=true",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -344,6 +345,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<const SliceTransform>)},
       {offset_of(&ColumnFamilyOptions::table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
+      {offset_of(&ColumnFamilyOptions::cf_paths),
+       sizeof(std::vector<DbPath>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -436,6 +439,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;"
+      "ttl=60;"
       "compaction_options_fifo={max_table_files_size=3;ttl=100;allow_"
       "compaction=false;};",
       new_options));
