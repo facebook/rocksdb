@@ -98,9 +98,10 @@ struct TransactionOptions {
   bool deadlock_detect = false;
 
   // If set, it states that the CommitTimeWriteBatch represents the latest state
-  // of the application and meant to be used later during recovery. It enables
-  // an optimization to postpone updating the memtable with CommitTimeWriteBatch
-  // to only SwitchMemtable or recovery.
+  // of the application, has only one sub-batch, i.e., no duplicate keys,  and
+  // meant to be used later during recovery. It enables an optimization to
+  // postpone updating the memtable with CommitTimeWriteBatch to only
+  // SwitchMemtable or recovery.
   bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow

@@ -131,9 +131,9 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     auto s = batch->Iterate(&counter);
     assert(s.ok());
     batch_cnt = counter.BatchCount();
-    // TODO(myabandeh): replace me with a stat
-    ROCKS_LOG_WARN(info_log_, "Duplicate key overhead: %" PRIu64 " batches",
-                   static_cast<uint64_t>(batch_cnt));
+    WPRecordTick(TXN_DUPLICATE_KEY_OVERHEAD);
+    ROCKS_LOG_DETAILS(info_log_, "Duplicate key overhead: %" PRIu64 " batches",
+                      static_cast<uint64_t>(batch_cnt));
   }
   assert(batch_cnt);
 
@@ -506,7 +506,6 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
     while (!prepared_txns_.empty() && prepared_txns_.top() <= new_max) {
       auto to_be_popped = prepared_txns_.top();
       delayed_prepared_.insert(to_be_popped);
-      // TODO(myabandeh): also add a stat
       ROCKS_LOG_WARN(info_log_,
                      "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
                      " new_max=%" PRIu64 " oldmax=%" PRIu64,
@@ -574,14 +573,14 @@ void WritePreparedTxnDB::ReleaseSnapshotInternal(
     // old_commit_map_. Check and do garbage collection if that is the case.
     bool need_gc = false;
     {
-      // TODO(myabandeh): also add a stat
+      WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
       ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
       ReadLock rl(&old_commit_map_mutex_);
       auto prep_set_entry = old_commit_map_.find(snap_seq);
       need_gc = prep_set_entry != old_commit_map_.end();
     }
     if (need_gc) {
-      // TODO(myabandeh): also add a stat
+      WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
       ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
       WriteLock wl(&old_commit_map_mutex_);
       old_commit_map_.erase(snap_seq);
@@ -601,8 +600,7 @@ void WritePreparedTxnDB::UpdateSnapshots(
 #ifndef NDEBUG
   size_t sync_i = 0;
 #endif
-  // TODO(myabandeh): replace me with a stat
-  ROCKS_LOG_WARN(info_log_, "snapshots_mutex_ overhead");
+  ROCKS_LOG_DETAILS(info_log_, "snapshots_mutex_ overhead");
   WriteLock wl(&snapshots_mutex_);
   snapshots_version_ = version;
   // We update the list concurrently with the readers.
@@ -682,7 +680,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
                snapshot_seq < evicted.prep_seq)) {
     // Then access the less efficient list of snapshots_
-    // TODO(myabandeh): also add a stat
+    WPRecordTick(TXN_SNAPSHOT_MUTEX_OVERHEAD);
     ROCKS_LOG_WARN(info_log_, "snapshots_mutex_ overhead");
     ReadLock rl(&snapshots_mutex_);
     // Items could have moved from the snapshots_ to snapshot_cache_ before
@@ -716,8 +714,8 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   }
   // then snapshot_seq < commit_seq
   if (prep_seq <= snapshot_seq) {  // overlapping range
+    WPRecordTick(TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD);
     ROCKS_LOG_WARN(info_log_, "old_commit_map_mutex_ overhead");
-    // TODO(myabandeh): also add a stat
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
     auto& vec = old_commit_map_[snapshot_seq];
