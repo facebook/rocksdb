@@ -82,8 +82,7 @@ const char* LDBCommand::DELIM = " ==> ";
 namespace {
 
 void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
-                 bool write_committed_policy,
-                 LDBCommandExecuteResult* exec_state);
+                 bool is_write_committed, LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(std::string filename, bool output_hex, bool show_properties);
 };
@@ -1412,8 +1411,9 @@ void DBDumperCommand::DoCommand() {
 
     switch (type) {
       case kLogFile:
+        // TODO(myabandeh): allow configuring is_write_commited
         DumpWalFile(path_, /* print_header_ */ true, /* print_values_ */ true,
-                    true /* write_commited_policy */, &exec_state_);
+                    true /* is_write_commited */, &exec_state_);
         break;
       case kTableFile:
         DumpSstFile(path_, is_key_hex_, /* show_properties */ true);
@@ -1947,8 +1947,7 @@ class InMemoryHandler : public WriteBatch::Handler {
 };
 
 void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
-                 bool write_committed_policy,
-                 LDBCommandExecuteResult* exec_state) {
+                 bool is_write_committed, LDBCommandExecuteResult* exec_state) {
   Env* env_ = Env::Default();
   EnvOptions soptions;
   unique_ptr<SequentialFileReader> wal_file_reader;
@@ -2008,7 +2007,7 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
         row << WriteBatchInternal::Count(&batch) << ",";
         row << WriteBatchInternal::ByteSize(&batch) << ",";
         row << reader.LastRecordOffset() << ",";
-        InMemoryHandler handler(row, print_values, write_committed_policy);
+        InMemoryHandler handler(row, print_values, is_write_committed);
         batch.Iterate(&handler);
         row << "\n";
       }
@@ -2033,7 +2032,7 @@ WALDumperCommand::WALDumperCommand(
                                       ARG_PRINT_HEADER, ARG_PRINT_VALUE})),
       print_header_(false),
       print_values_(false),
-      write_committed_policy_(false) {
+      is_write_committed_(false) {
   wal_file_.clear();
 
   std::map<std::string, std::string>::const_iterator itr =
@@ -2045,8 +2044,7 @@ WALDumperCommand::WALDumperCommand(
 
   print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
   print_values_ = IsFlagPresent(flags, ARG_PRINT_VALUE);
-  write_committed_policy_ =
-      ParseBooleanOption(options, ARG_WRITE_COMMITTED, true);
+  is_write_committed_ = ParseBooleanOption(options, ARG_WRITE_COMMITTED, true);
 
   if (wal_file_.empty()) {
     exec_state_ = LDBCommandExecuteResult::Failed("Argument " + ARG_WAL_FILE +
@@ -2065,7 +2063,7 @@ void WALDumperCommand::Help(std::string& ret) {
 }
 
 void WALDumperCommand::DoCommand() {
-  DumpWalFile(wal_file_, print_header_, print_values_, write_committed_policy_,
+  DumpWalFile(wal_file_, print_header_, print_values_, is_write_committed_,
               &exec_state_);
 }
 
@@ -2927,7 +2925,8 @@ void DBFileDumperCommand::DoCommand() {
       // TODO(qyang): option.wal_dir should be passed into ldb command
       std::string filename = db_->GetOptions().wal_dir + wal->PathName();
       std::cout << filename << std::endl;
-      DumpWalFile(filename, true, true, true /* write_commited_policy */,
+      // TODO(myabandeh): allow configuring is_write_commited
+      DumpWalFile(filename, true, true, true /* is_write_commited */,
                   &exec_state_);
     }
   }
