@@ -2838,6 +2838,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   // because &w is ensuring that all new writes get queued.
   {
     EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
+    // Before releasing mutex, make a copy of mutable_cf_options and pass to
+    // `PrepareApply` to avoided a potential data race with backgroundflush
+    MutableCFOptions mutable_cf_options_copy(mutable_cf_options);
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
@@ -2876,7 +2879,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!w.edit_list.front()->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply(mutable_cf_options, true);
+      v->PrepareApply(mutable_cf_options_copy, true);
     }
 
     // Write new record to MANIFEST log
