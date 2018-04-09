@@ -65,7 +65,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   size_t num_added_;
 };
 
-class PartitionedFilterBlockReader : public FilterBlockReader {
+class PartitionedFilterBlockReader : public FilterBlockReader,
+                                     public Cleanable {
  public:
   explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
                                         bool whole_key_filtering,
