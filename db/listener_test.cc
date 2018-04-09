@@ -260,7 +260,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
 
-  // make sure call-back functions are called in the right order
+  // make sure callback functions are called in the right order
   for (size_t i = 0; i < cf_names.size(); ++i) {
     ASSERT_EQ(listener->flushed_dbs_[i], db_);
     ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
@@ -296,7 +296,7 @@ TEST_F(EventListenerTest, MultiCF) {
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
 
-  // make sure call-back functions are called in the right order
+  // make sure callback functions are called in the right order
   for (size_t i = 0; i < cf_names.size(); i++) {
     ASSERT_EQ(listener->flushed_dbs_[i], db_);
     ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);

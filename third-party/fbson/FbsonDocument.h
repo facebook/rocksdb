@@ -48,7 +48,7 @@
  * and use index to retrieve from array. Array index is 0-based.
  *
  * ** External dictionary **
- * During query processing, you can also pass a call-back function, so the
+ * During query processing, you can also pass a callback function, so the
  * search will first try to check if the key string exists in the dictionary.
  * If so, search will be based on the id instead of the key string.
  *

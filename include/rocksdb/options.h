@@ -423,7 +423,7 @@ struct DBOptions {
 
   // By default, writes to stable storage use fdatasync (on platforms
   // where this function is available). If this option is true,
-  // fsync is used instead. 
+  // fsync is used instead.
   //
   // fsync and fdatasync are equally safe for our purposes and fdatasync is
   // faster, so it is rarely necessary to set this option. It is provided
@@ -753,7 +753,7 @@ struct DBOptions {
   // Default: 0, turned off
   uint64_t wal_bytes_per_sync = 0;
 
-  // A vector of EventListeners which call-back functions will be called
+  // A vector of EventListeners which callback functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
