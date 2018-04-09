@@ -246,6 +246,13 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
   return idx_on_fltr_blk_->size();
 }
 
+// Release the cached entry and decrement its ref count.
+void ReleaseFilterCachedEntry(void* arg, void* h) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle);
+}
+
 // TODO(myabandeh): merge this with the same function in IndexReader
 void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   // Before read partitions, prefetch them to avoid lots of IOs
@@ -304,6 +311,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
     if (LIKELY(filter.IsSet())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);
+        RegisterCleanup(&ReleaseFilterCachedEntry, block_cache,
+                        filter.cache_handle);
       } else {
         block_cache->Release(filter.cache_handle);
       }
