@@ -2252,6 +2252,7 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 // table is closed. This test makes sure that the only items remains in the
 // cache after the table is closed are raw data blocks.
 TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
+  for (int level: {-1, 0, 1, 10}) {
   for (auto index_type :
        {BlockBasedTableOptions::IndexType::kBinarySearch,
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}) {
@@ -2290,7 +2291,7 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
 
             bool convert_to_internal_key = false;
             TableConstructor c(BytewiseComparator(), convert_to_internal_key,
-                               0);
+                               level);
             std::string user_key = "k01";
             std::string key =
                 InternalKey(user_key, 0, kTypeValue).Encode().ToString();
@@ -2331,6 +2332,7 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
       }
     }
   }
+  } // level
 }
 
 TEST_F(BlockBasedTableTest, BlockCacheLeak) {
