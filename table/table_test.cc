@@ -302,9 +302,11 @@ class KeyConvertingIterator : public InternalIterator {
 class TableConstructor: public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
-                            bool convert_to_internal_key = false)
+                            bool convert_to_internal_key = false,
+                            int level = -1)
       : Constructor(cmp),
-        convert_to_internal_key_(convert_to_internal_key) {}
+        convert_to_internal_key_(convert_to_internal_key),
+        level_(level) {}
   ~TableConstructor() { Reset(); }
 
   virtual Status FinishImpl(const Options& options,
@@ -319,14 +321,12 @@ class TableConstructor: public Constructor {
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
     std::string column_family_name;
-    int unknown_level = -1;
     builder.reset(ioptions.table_factory->NewTableBuilder(
-        TableBuilderOptions(ioptions, internal_comparator,
-                            &int_tbl_prop_collector_factories,
-                            options.compression, CompressionOptions(),
-                            nullptr /* compression_dict */,
-                            false /* skip_filters */, column_family_name,
-                            unknown_level),
+        TableBuilderOptions(
+            ioptions, internal_comparator, &int_tbl_prop_collector_factories,
+            options.compression, CompressionOptions(),
+            nullptr /* compression_dict */, false /* skip_filters */,
+            column_family_name, level_),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
@@ -351,8 +351,10 @@ class TableConstructor: public Constructor {
     uniq_id_ = cur_uniq_id_++;
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+    const bool skip_filters = false;
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, soptions, internal_comparator),
+        TableReaderOptions(ioptions, soptions, internal_comparator,
+                           skip_filters, level_),
         std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
@@ -412,6 +414,7 @@ class TableConstructor: public Constructor {
   unique_ptr<RandomAccessFileReader> file_reader_;
   unique_ptr<TableReader> table_reader_;
   bool convert_to_internal_key_;
+  int level_;
 
   TableConstructor();
 
@@ -2249,6 +2252,7 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 // table is closed. This test makes sure that the only items remains in the
 // cache after the table is closed are raw data blocks.
 TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
+  for (int level: {-1, 0, 1, 10}) {
   for (auto index_type :
        {BlockBasedTableOptions::IndexType::kBinarySearch,
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}) {
@@ -2285,7 +2289,9 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
                 rocksdb::NewBloomFilterPolicy(10, block_based_filter));
             opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-            TableConstructor c(BytewiseComparator());
+            bool convert_to_internal_key = false;
+            TableConstructor c(BytewiseComparator(), convert_to_internal_key,
+                               level);
             std::string user_key = "k01";
             std::string key =
                 InternalKey(user_key, 0, kTypeValue).Encode().ToString();
@@ -2326,6 +2332,7 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
       }
     }
   }
+  } // level
 }
 
 TEST_F(BlockBasedTableTest, BlockCacheLeak) {

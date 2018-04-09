@@ -14,6 +14,7 @@
 * Fix a leak in prepared_section_completed_ where the zeroed entries would not removed from the map.
 * Fix WAL corruption caused by race condition between user write thread and backup/checkpoint thread.
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
+* Fix memory leak when pin_l0_filter_and_index_blocks_in_cache is used with partitioned filters
 
 ### Java API Changes
 * Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
