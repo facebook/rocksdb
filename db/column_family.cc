@@ -1148,8 +1148,9 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
 Status ColumnFamilyData::SetOptions(
       const std::unordered_map<std::string, std::string>& options_map) {
   MutableCFOptions new_mutable_cf_options;
-  Status s = GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
-                                          &new_mutable_cf_options);
+  Status s =
+      GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
+                                   ioptions_.info_log, &new_mutable_cf_options);
   if (s.ok()) {
     mutable_cf_options_ = new_mutable_cf_options;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
