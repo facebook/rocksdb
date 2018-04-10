@@ -792,17 +792,32 @@ class SharedState {
 
     printf("Choosing random keys with no overwrite\n");
     Random rnd(seed_);
-    size_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
+    // Start with the identity permutation. Subsequent iterations of
+    // for loop below will start with perm of previous for loop
+    int64_t *permutation = new int64_t[max_key_];
+    for (int64_t i = 0; i < max_key_; i++) {
+      permutation[i] = i;
+    }
+
     for (auto& cf_ids : no_overwrite_ids_) {
+      // Now do the Knuth shuffle
+      for (int64_t i = max_key_ - 1; i > 0; i--) {
+        size_t rand_index = rnd.Next() % i;
+        // Swap i and rand_index;
+        permutation[i] ^= permutation[rand_index];
+        permutation[rand_index] ^= permutation[i];
+        permutation[i] ^= permutation[rand_index];
+      }
+
+      // Now fill cf_ids with the first num_no_overwrite_keys of permutation
+      size_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
+      cf_ids.reserve(num_no_overwrite_keys);
       for (size_t i = 0; i < num_no_overwrite_keys; i++) {
-        size_t rand_key;
-        do {
-          rand_key = rnd.Next() % max_key_;
-        } while (cf_ids.find(rand_key) != cf_ids.end());
-        cf_ids.insert(rand_key);
+        cf_ids.insert(permutation[i]);
       }
       assert(cf_ids.size() == num_no_overwrite_keys);
     }
+    delete permutation;
 
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
@@ -979,7 +994,7 @@ class SharedState {
   std::atomic<bool> verification_failure_;
 
   // Keys that should not be overwritten
-  std::vector<std::set<size_t> > no_overwrite_ids_;
+  std::vector<std::unordered_set<size_t> > no_overwrite_ids_;
 
   std::vector<std::vector<uint32_t>> values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
