@@ -196,6 +196,13 @@ void VerifyCompactionResult(
 #endif
 }
 
+/*
+ * Verifies compaction stats of cfd are valid.
+ *
+ * For each level of cfd, its compaction stats are valid if
+ * 1) sum(stat.counts) == stat.count, and
+ * 2) stat.counts[i] == collector.NumberOfCompactions(i)
+ */
 void VerifyCompactionStats(ColumnFamilyData& cfd,
     const CompactionStatsCollector& collector) {
 #ifndef NDEBUG
@@ -208,9 +215,12 @@ void VerifyCompactionStats(ColumnFamilyData& cfd,
   // Count the number of compactions caused by each CompactionReason across
   // all levels.
   for (const auto& stat : comp_stats) {
+    int sum = 0;
     for (int i = 0; i < num_of_reasons; i++) {
       counts[i] += stat.counts[i];
+      sum += stat.counts[i];
     }
+    ASSERT_EQ(sum, stat.count);
   }
   // Verify InternalStats bookkeeping matches that of CompactionStatsCollector,
   // assuming that all compactions complete.
@@ -3512,10 +3522,6 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   ColumnFamilyHandleImpl* cfh =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
   ColumnFamilyData* cfd = cfh->cfd();
-
-  //Simple sanity check to make sure that the number of all compactions
-  //caused by different reasons sum up to the total number of compactions.
-  ASSERT_TRUE(cfd->internal_stats()->TEST_CompactionStatsSanityCheck());
 
   VerifyCompactionStats(*cfd, *collector);
 }
