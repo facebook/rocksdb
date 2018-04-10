@@ -645,7 +645,7 @@ ifeq ($(HAVE_POWER8),1)
 shared_all_libobjects = $(shared_libobjects) $(shared-ppc-objects)
 endif
 $(SHARED4): $(shared_all_libobjects)
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_libobjects) $(LDFLAGS) -o $@
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_all_libobjects) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 

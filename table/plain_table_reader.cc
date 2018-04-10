@@ -594,7 +594,8 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
     // TODO(ljin): since we know the key comparison result here,
     // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
-      if (!get_context->SaveValue(found_key, found_value)) {
+      bool dont_care __attribute__((__unused__));
+      if (!get_context->SaveValue(found_key, found_value, &dont_care)) {
         break;
       }
     }

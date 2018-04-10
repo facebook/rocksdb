@@ -367,7 +367,9 @@ ClockCacheShard::~ClockCacheShard() {
   for (auto& handle : list_) {
     uint32_t flags = handle.flags.load(std::memory_order_relaxed);
     if (InCache(flags) || CountRefs(flags) > 0) {
-      (*handle.deleter)(handle.key, handle.value);
+      if (handle.deleter != nullptr) {
+        (*handle.deleter)(handle.key, handle.value);
+      }
       delete[] handle.key.data();
     }
   }

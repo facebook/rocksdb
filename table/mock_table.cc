@@ -41,7 +41,8 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
       return Status::Corruption(Slice());
     }
 
-    if (!get_context->SaveValue(parsed_key, iter->value())) {
+    bool dont_care __attribute__((__unused__));
+    if (!get_context->SaveValue(parsed_key, iter->value(), &dont_care)) {
       break;
     }
   }

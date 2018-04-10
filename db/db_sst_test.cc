@@ -20,6 +20,7 @@ class DBSSTTest : public DBTestBase {
   DBSSTTest() : DBTestBase("/db_sst_test") {}
 };
 
+#ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
@@ -48,6 +49,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;
 };
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBSSTTest, DontDeletePendingOutputs) {
   Options options;
@@ -101,7 +103,7 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   ASSERT_GT(num_files, 0);
 
   std::vector<std::string> filenames;
-  GetSstFiles(dbname_, &filenames);
+  GetSstFiles(env_, dbname_, &filenames);
   int num_ldb_files = 0;
   for (size_t i = 0; i < filenames.size(); ++i) {
     if (i & 1) {

@@ -92,7 +92,7 @@ Status TableCache::GetTableReader(
     bool skip_filters, int level, bool prefetch_index_and_filter_in_cache,
     bool for_compaction) {
   std::string fname =
-      TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
+      TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
 

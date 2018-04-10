@@ -77,6 +77,7 @@ enum CompressionType : unsigned char {
 };
 
 struct Options;
+struct DbPath;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -263,6 +264,20 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // BlockBasedTableOptions.
   std::shared_ptr<TableFactory> table_factory;
 
+  // A list of paths where SST files for this column family
+  // can be put into, with its target size. Similar to db_paths,
+  // newer data is placed into paths specified earlier in the
+  // vector while older data gradually moves to paths specified
+  // later in the vector.
+  // Note that, if a path is supplied to multiple column
+  // families, it would have files and total size from all
+  // the column families combined. User should privision for the
+  // total size(from all the column families) in such cases.
+  //
+  // If left empty, db_paths will be used.
+  // Default: empty
+  std::vector<DbPath> cf_paths;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -408,7 +423,7 @@ struct DBOptions {
 
   // By default, writes to stable storage use fdatasync (on platforms
   // where this function is available). If this option is true,
-  // fsync is used instead. 
+  // fsync is used instead.
   //
   // fsync and fdatasync are equally safe for our purposes and fdatasync is
   // faster, so it is rarely necessary to set this option. It is provided
@@ -738,7 +753,7 @@ struct DBOptions {
   // Default: 0, turned off
   uint64_t wal_bytes_per_sync = 0;
 
-  // A vector of EventListeners which call-back functions will be called
+  // A vector of EventListeners which callback functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 

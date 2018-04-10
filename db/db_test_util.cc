@@ -575,9 +575,17 @@ void DBTestBase::DestroyAndReopen(const Options& options) {
   ASSERT_OK(TryReopen(options));
 }
 
-void DBTestBase::Destroy(const Options& options) {
+void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  if (delete_cf_paths) {
+    for (size_t i = 0; i < handles_.size(); ++i) {
+      ColumnFamilyDescriptor cfdescriptor;
+      handles_[i]->GetDescriptor(&cfdescriptor);
+      column_families.push_back(cfdescriptor);
+    }
+  }
   Close();
-  ASSERT_OK(DestroyDB(dbname_, options));
+  ASSERT_OK(DestroyDB(dbname_, options, column_families));
 }
 
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
@@ -1017,9 +1025,9 @@ std::string DBTestBase::DumpSSTableList() {
   return property;
 }
 
-void DBTestBase::GetSstFiles(std::string path,
+void DBTestBase::GetSstFiles(Env* env, std::string path,
                              std::vector<std::string>* files) {
-  env_->GetChildren(path, files);
+  env->GetChildren(path, files);
 
   files->erase(
       std::remove_if(files->begin(), files->end(), [](std::string name) {
@@ -1031,7 +1039,7 @@ void DBTestBase::GetSstFiles(std::string path,
 
 int DBTestBase::GetSstFileCount(std::string path) {
   std::vector<std::string> files;
-  GetSstFiles(path, &files);
+  DBTestBase::GetSstFiles(env_, path, &files);
   return static_cast<int>(files.size());
 }
 

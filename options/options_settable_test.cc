@@ -345,6 +345,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<const SliceTransform>)},
       {offset_of(&ColumnFamilyOptions::table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
+      {offset_of(&ColumnFamilyOptions::cf_paths),
+       sizeof(std::vector<DbPath>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];

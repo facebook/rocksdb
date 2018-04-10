@@ -478,7 +478,7 @@ class DBImpl : public DB {
   // It is not necessary to hold the mutex when invoking this method.
   // If FindObsoleteFiles() was run, we need to also run
   // PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
-  void PurgeObsoleteFiles(const JobContext& background_contet,
+  void PurgeObsoleteFiles(JobContext& background_contet,
                           bool schedule_only = false);
 
   void SchedulePurge();
@@ -636,6 +636,9 @@ class DBImpl : public DB {
 
   virtual Status Close() override;
 
+  static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
+                                      std::unique_ptr<Directory>* directory);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -688,14 +691,20 @@ class DBImpl : public DB {
   void EraseThreadStatusDbInfo() const;
 
   // If disable_memtable is set the application logic must guarantee that the
-  // batch will still be skipped from memtable during the recovery. In
-  // WriteCommitted it is guarnateed since disable_memtable is used for prepare
-  // batch which will be written to memtable later during the commit, and in
-  // WritePrepared it is guaranteed since it will be used only for WAL markers
-  // which will never be written to memtable.
-  // batch_cnt is expected to be non-zero in seq_per_batch mode and indicates
-  // the number of sub-patches. A sub-patch is a subset of the write batch that
-  // does not have duplicate keys.
+  // batch will still be skipped from memtable during the recovery. An excption
+  // to this is seq_per_batch_ mode, in which since each batch already takes one
+  // seq, it is ok for the batch to write to memtable during recovery as long as
+  // it only takes one sequence number: i.e., no duplicate keys.
+  // In WriteCommitted it is guarnateed since disable_memtable is used for
+  // prepare batch which will be written to memtable later during the commit,
+  // and in WritePrepared it is guaranteed since it will be used only for WAL
+  // markers which will never be written to memtable. If the commit marker is
+  // accompanied with CommitTimeWriteBatch that is not written to memtable as
+  // long as it has no duplicate keys, it does not violate the one-seq-per-batch
+  // policy.
+  // batch_cnt is expected to be non-zero in seq_per_batch mode and
+  // indicates the number of sub-patches. A sub-patch is a subset of the write
+  // batch that does not have duplicate keys.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
@@ -789,7 +798,7 @@ class DBImpl : public DB {
   void DeleteObsoleteFiles();
   // Delete obsolete files and log status and information of file deletion
   void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
-                              FileType type, uint64_t number, uint32_t path_id);
+                              FileType type, uint64_t number);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
@@ -911,7 +920,7 @@ class DBImpl : public DB {
   void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, FileType type, uint64_t number,
-                            uint32_t path_id, int job_id);
+                            int job_id);
   static void BGWorkCompaction(void* arg);
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
@@ -959,6 +968,8 @@ class DBImpl : public DB {
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary);
 
   uint64_t GetMaxTotalWalSize() const;
+
+  Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
 
   Status CloseHelper();
 
@@ -1097,7 +1108,7 @@ class DBImpl : public DB {
                           const std::string& wal_dir,
                           const std::vector<DbPath>& data_paths);
 
-    Directory* GetDataDir(size_t path_id);
+    Directory* GetDataDir(size_t path_id) const;
 
     Directory* GetWalDir() {
       if (wal_dir_) {
@@ -1112,9 +1123,6 @@ class DBImpl : public DB {
     std::unique_ptr<Directory> db_dir_;
     std::vector<std::unique_ptr<Directory>> data_dirs_;
     std::unique_ptr<Directory> wal_dir_;
-
-    Status CreateAndNewDirectory(Env* env, const std::string& dirname,
-                                 std::unique_ptr<Directory>* directory) const;
   };
 
   Directories directories_;
@@ -1158,11 +1166,9 @@ class DBImpl : public DB {
     std::string fname;
     FileType type;
     uint64_t number;
-    uint32_t path_id;
     int job_id;
-    PurgeFileInfo(std::string fn, FileType t, uint64_t num, uint32_t pid,
-                  int jid)
-        : fname(fn), type(t), number(num), path_id(pid), job_id(jid) {}
+    PurgeFileInfo(std::string fn, FileType t, uint64_t num, int jid)
+        : fname(fn), type(t), number(num), job_id(jid) {}
   };
 
   // flush_queue_ and compaction_queue_ hold column families that we need to

@@ -59,7 +59,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   }
 
   if (span_len >= min_files_to_compact &&
-      new_compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
+      compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
     assert(comp_inputs != nullptr);
     comp_inputs->level = 0;
     for (size_t i = 0; i < span_len; ++i) {
@@ -616,7 +616,7 @@ Compaction* CompactionPicker::CompactRange(
       }
     }
   }
-  assert(output_path_id < static_cast<uint32_t>(ioptions_.db_paths.size()));
+  assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
   if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs) == false) {
     // manual compaction is now multi-threaded, so it can
@@ -1172,11 +1172,11 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   // if we didn't find a compaction, check if there are any files marked for
   // compaction
   if (start_level_inputs_.empty()) {
-    is_manual_ = true;
     parent_index_ = base_index_ = -1;
 
     PickFilesMarkedForCompaction();
     if (!start_level_inputs_.empty()) {
+      is_manual_ = true;
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
       return;
     }
@@ -1336,10 +1336,10 @@ uint32_t LevelCompactionBuilder::GetPathId(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, int level) {
   uint32_t p = 0;
-  assert(!ioptions.db_paths.empty());
+  assert(!ioptions.cf_paths.empty());
 
   // size remaining in the most recent path
-  uint64_t current_path_size = ioptions.db_paths[0].target_size;
+  uint64_t current_path_size = ioptions.cf_paths[0].target_size;
 
   uint64_t level_size;
   int cur_level = 0;
@@ -1349,7 +1349,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
   level_size = mutable_cf_options.max_bytes_for_level_base;
 
   // Last path is the fallback
-  while (p < ioptions.db_paths.size() - 1) {
+  while (p < ioptions.cf_paths.size() - 1) {
     if (level_size <= current_path_size) {
       if (cur_level == level) {
         // Does desired level fit in this path?
@@ -1376,7 +1376,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
       }
     }
     p++;
-    current_path_size = ioptions.db_paths[p].target_size;
+    current_path_size = ioptions.cf_paths[p].target_size;
   }
   return p;
 }
@@ -1580,11 +1580,21 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
     if (mutable_cf_options.compaction_options_fifo.allow_compaction &&
         level_files.size() > 0) {
       CompactionInputFiles comp_inputs;
+      // try to prevent same files from being compacted multiple times, which
+      // could produce large files that may never TTL-expire. Achieve this by
+      // disallowing compactions with files larger than memtable (inflate its
+      // size by 10% to account for uncompressed L0 files that may have size
+      // slightly greater than memtable size limit).
+      size_t max_compact_bytes_per_del_file =
+          static_cast<size_t>(MultiplyCheckOverflow(
+              static_cast<uint64_t>(mutable_cf_options.write_buffer_size),
+              1.1));
       if (FindIntraL0Compaction(
               level_files,
               mutable_cf_options
-                  .level0_file_num_compaction_trigger /* min_files_to_compact */,
-              mutable_cf_options.write_buffer_size, &comp_inputs)) {
+                  .level0_file_num_compaction_trigger /* min_files_to_compact */
+              ,
+              max_compact_bytes_per_del_file, &comp_inputs)) {
         Compaction* c = new Compaction(
             vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
             16 * 1024 * 1024 /* output file size limit */,

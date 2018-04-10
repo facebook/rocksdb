@@ -109,7 +109,7 @@ struct ImmutableCFOptions {
 
   bool preserve_deletes;
 
-  // A vector of EventListeners which call-back functions will be called
+  // A vector of EventListeners which callback functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
@@ -120,6 +120,8 @@ struct ImmutableCFOptions {
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
   uint64_t ttl;
+
+  std::vector<DbPath> cf_paths;
 };
 
 struct MutableCFOptions {

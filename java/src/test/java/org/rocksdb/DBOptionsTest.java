@@ -644,6 +644,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void sstFileManager() throws RocksDBException {
+    try (final DBOptions options = new DBOptions();
+         final SstFileManager sstFileManager =
+             new SstFileManager(Env.getDefault())) {
+      options.setSstFileManager(sstFileManager);
+    }
+  }
+
+  @Test
   public void statistics() {
     try(final DBOptions options = new DBOptions()) {
       final Statistics statistics = options.statistics();
