@@ -606,7 +606,7 @@ class MockTimeEnv : public EnvWrapper {
   }
 
  private:
-  uint64_t current_time_ = 0;
+  std::atomic<uint64_t> current_time_{0};
 };
 
 #ifndef ROCKSDB_LITE
