@@ -31,7 +31,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
-    MutableCFOptions* new_options);
+    Logger* info_log, MutableCFOptions* new_options);
 
 Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
