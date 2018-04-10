@@ -60,6 +60,6 @@ script:
 notifications:
   slack:
     rooms:
-      secure: uq/N3oixvz9hwX1VeLAFsXb5P7DnMk7eZIhzoSgsVWP/pVL26YPRzLamKUwUOCTW8HStQ20FHIjwidNuj28OaOS1maOAgJzG2SEgaer/LkbhmEwpKD4ik4Wqd5CKIDAZRYiVWe3PS1UYPGn7Ys0X9zsyewnPTMN6adwZr3PxiJUKl0Ce5jq35P7n+IYnklsJMoczj7yH/nssu7B0lgRcZrDl29JCYe8OaJZVOoBnmBJB/x1p9tHVGZo247yrYd2OTeR1ISFPWDiq0rQyFgTqXiLoq0ZyLO/DRLozegc39ljwcjQ5eiKOaQkwbHMWDc968Y/TsAQcSccMT80juIIdw2bVN3zPthMHosw/v9YyWGVPztFDyHIh2UcxfV/T2fGZN2pSMQ1g7yYYqla2qTOGXBGkIa4c0QqxukQhwZ3wV2Wx2cFhK/oOT+xtVqoW4vy20f1bbbcUoLR0lLxZRk902g1jot72z1NwdGGsCtH6x097xHs+M2PfB2Dt4ICaAqsI+NR1s1hmfaQ4G8PuYSzuT2j3fIDRMbioeutfxMGJSYQ/R3w0ue7rjYecIDh3H+OGk5HSjD1nO1LV3UTWm5MPfsZcfwwGbSe2KMUtftghsSKRNg9WiUzApnZdrj5IdSoOw/A6Jgm29DEPJCtQDO8okU7oE+4lBuUh34PwMIQ+zfw=
+      - rockset-io:4q1pfQSzMd3UgSR18Yu23quQ#rocksdb-cloud-ci
     on_success: always
     on_failure: always
