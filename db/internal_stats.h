@@ -182,7 +182,6 @@ class InternalStats {
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
       }
-
     }
 
     explicit CompactionStats(CompactionReason reason, int c)
