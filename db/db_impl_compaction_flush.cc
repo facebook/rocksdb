@@ -2073,8 +2073,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 }
 
 // SuperVersionContext gets created and destructed outside of the lock --
-// we
-// use this convinently to:
+// we use this conveniently to:
 // * malloc one SuperVersion() outside of the lock -- new_superversion
 // * delete SuperVersion()s outside of the lock -- superversions_to_free
 //
