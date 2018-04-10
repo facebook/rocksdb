@@ -1770,7 +1770,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   }
 
   char writelen_temp[19];
-  if (len + sprintf(writelen_temp, "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
+  if (len + snprintf(writelen_temp, sizeof(writelen_temp),
+                     "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
     backup_meta_file->Append(Slice(buf.get(), len));
     buf.reset();
     unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
@@ -1785,7 +1786,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
 
-    size_t newlen = len + file->filename.length() + sprintf(writelen_temp, " crc32 %u\n", file->checksum_value);
+    size_t newlen = len + file->filename.length() + snprintf(writelen_temp,
+      sizeof(writelen_temp), " crc32 %u\n", file->checksum_value);
     const char *const_write = writelen_temp;
     if (newlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
