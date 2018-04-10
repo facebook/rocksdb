@@ -301,7 +301,7 @@ void CompactionIterator::NextFromInput() {
     }
 
     // If there are no snapshots, then this kv affect visibility at tip.
-    // Otherwise, search though all existing snapshots to find the earliest
+    // Otherwise, search through all existing snapshots to find the earliest
     // snapshot that is affected by this kv.
     SequenceNumber last_sequence __attribute__((__unused__));
     last_sequence = current_user_key_sequence_;
