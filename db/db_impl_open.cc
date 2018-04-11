@@ -972,7 +972,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.marked_for_compaction);
   }
 
-  InternalStats::CompactionStats stats(1);
+  InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
   stats.num_output_files = 1;

@@ -392,7 +392,7 @@ Status FlushJob::WriteLevel0Table() {
   }
 
   // Note that here we treat flush as level 0 compaction in internal stats
-  InternalStats::CompactionStats stats(1);
+  InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
   MeasureTime(stats_, FLUSH_TIME, stats.micros);

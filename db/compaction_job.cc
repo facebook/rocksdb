@@ -62,6 +62,46 @@
 
 namespace rocksdb {
 
+const char* GetCompactionReasonString(CompactionReason compaction_reason) {
+  switch (compaction_reason) {
+    case CompactionReason::kUnknown:
+      return "Unknown";
+    case CompactionReason::kLevelL0FilesNum:
+      return "LevelL0FilesNum";
+    case CompactionReason::kLevelMaxLevelSize:
+      return "LevelMaxLevelSize";
+    case CompactionReason::kUniversalSizeAmplification:
+      return "UniversalSizeAmplification";
+    case CompactionReason::kUniversalSizeRatio:
+      return "UniversalSizeRatio";
+    case CompactionReason::kUniversalSortedRunNum:
+      return "UniversalSortedRunNum";
+    case CompactionReason::kFIFOMaxSize:
+      return "FIFOMaxSize";
+    case CompactionReason::kFIFOReduceNumFiles:
+      return "FIFOReduceNumFiles";
+    case CompactionReason::kFIFOTtl:
+      return "FIFOTtl";
+    case CompactionReason::kManualCompaction:
+      return "ManualCompaction";
+    case CompactionReason::kFilesMarkedForCompaction:
+      return "FilesMarkedForCompaction";
+    case CompactionReason::kBottommostFiles:
+      return "BottommostFiles";
+    case CompactionReason::kTtl:
+      return "Ttl";
+    case CompactionReason::kFlush:
+      return "Flush";
+    case CompactionReason::kExternalSstIngestion:
+      return "ExternalSstIngestion";
+    case CompactionReason::kNumOfReasons:
+      // fall through
+    default:
+      assert(false);
+      return "Invalid";
+  }
+}
+
 // Maintains state for each sub-compaction
 struct CompactionJob::SubcompactionState {
   const Compaction* compaction;
@@ -276,7 +316,7 @@ CompactionJob::CompactionJob(
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
-      compaction_stats_(1),
+      compaction_stats_(compaction->compaction_reason(), 1),
       dbname_(dbname),
       db_options_(db_options),
       env_options_(env_options),
@@ -1498,8 +1538,9 @@ void CompactionJob::LogCompaction() {
                    cfd->GetName().c_str(), scratch);
     // build event logger report
     auto stream = event_logger_->Log();
-    stream << "job" << job_id_ << "event"
-           << "compaction_started";
+    stream << "job" << job_id_ << "event" << "compaction_started"
+        << "compaction_reason"
+        << GetCompactionReasonString(compaction->compaction_reason());
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
       stream << ("files_L" + ToString(compaction->level(i)));
       stream.StartArray();
