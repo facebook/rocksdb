@@ -685,7 +685,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   sfm->SetMaxAllowedSpaceUsage(0);
   int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactFilesImpl:End", [&](void* arg) { completed_compactions++; });
+      "CompactFilesImpl:End", [&](void* /*arg*/) { completed_compactions++; });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   dbfull()->CompactFiles(rocksdb::CompactionOptions(), l0_files, 0);

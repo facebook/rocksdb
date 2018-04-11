@@ -876,6 +876,7 @@ class PosixEnv : public Env {
         return false;
     }
 #else
+    (void)path;
     return false;
 #endif
   }
