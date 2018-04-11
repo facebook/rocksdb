@@ -302,6 +302,8 @@ class Env {
   // Priority for scheduling job in thread pool
   enum Priority { BOTTOM, LOW, HIGH, TOTAL };
 
+  static std::string PriorityToString(Priority priority);
+
   // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
     IO_LOW = 0,
