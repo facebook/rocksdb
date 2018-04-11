@@ -229,12 +229,10 @@ inline bool GetDecompressedSizeInfo(const char** input_data,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline bool Zlib_Compress(
-    const CompressionOptions& /*opts*/ pts* /,
-    uint /*compress_format_version*/ _version* /, co /*input*/ har* /*input*/,
-    /*length*/ size_t /*lengt /*output*/
-    : std::string* /*output*/,
-      /*compression_dict*/ t Slice& /*compression_dict*/ = Slice()) {
+inline bool Zlib_Compress(const CompressionOptions& opts,
+                          uint32_t compress_format_version, const char* input,
+                          size_t length, ::std::string* output,
+                          const Slice& compression_dict = Slice()) {
 #ifdef ZLIB
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -296,6 +294,12 @@ inline bool Zlib_Compress(
   deflateEnd(&_stream);
   return compressed;
 #else
+  (void)opts;
+  (void)compress_format_version;
+  (void)input;
+  (void)length;
+  (void)output;
+  (void)compression_dict;
   return false;
 #endif
 }
@@ -306,14 +310,11 @@ inline bool Zlib_Compress(
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char /*input_data*/ ompress(
-    c /*input_length*/ /*input_data*/,
-    size_t /*input_leng /*decompress_size*/
-    int*   /*decompress_s /*compress_format_version*/
-        uint32_t /*compress_format_ver /*compression_dict*/ const
-            Slice& /*compress /*windowBits*/
-    = Slice(),
-    int /*windowBits*/ = -14) {
+inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
+                             int* decompress_size,
+                             uint32_t compress_format_version,
+                             const Slice& compression_dict = Slice(),
+                             int windowBits = -14) {
 #ifdef ZLIB
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
@@ -399,6 +400,12 @@ inline char /*input_data*/ ompress(
   inflateEnd(&_stream);
   return output;
 #else
+  (void)input_data;
+  (void)input_length;
+  (void)decompress_size;
+  (void)compress_format_version;
+  (void)compression_dict;
+  (void)windowBits;
   return nullptr;
 #endif
 }
