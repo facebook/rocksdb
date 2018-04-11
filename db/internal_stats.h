@@ -604,8 +604,6 @@ class InternalStats {
     void Add(const CompactionStats& c) {}
 
     void Subtract(const CompactionStats& c) {}
-
-    void IncreaseCounter(CompactionReason reason, int c) {}
   };
 
   void AddCompactionStats(int level, const CompactionStats& stats) {}
