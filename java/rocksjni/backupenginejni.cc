@@ -18,16 +18,15 @@
  * Method:    open
  * Signature: (JJ)J
  */
-jlong Java_org_rocksdb_BackupEngine_open(
-    JNIEnv* env, jclass jcls, jlong env_handle,
-    jlong backupable_db_options_handle) {
+jlong Java_org_rocksdb_BackupEngine_open(JNIEnv* env, jclass /*jcls*/,
+                                         jlong env_handle,
+                                         jlong backupable_db_options_handle) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(env_handle);
-  auto* backupable_db_options =
-      reinterpret_cast<rocksdb::BackupableDBOptions*>(
+  auto* backupable_db_options = reinterpret_cast<rocksdb::BackupableDBOptions*>(
       backupable_db_options_handle);
   rocksdb::BackupEngine* backup_engine;
-  auto status = rocksdb::BackupEngine::Open(rocks_env,
-      *backupable_db_options, &backup_engine);
+  auto status = rocksdb::BackupEngine::Open(rocks_env, *backupable_db_options,
+                                            &backup_engine);
 
   if (status.ok()) {
     return reinterpret_cast<jlong>(backup_engine);
@@ -43,12 +42,12 @@ jlong Java_org_rocksdb_BackupEngine_open(
  * Signature: (JJZ)V
  */
 void Java_org_rocksdb_BackupEngine_createNewBackup(
-    JNIEnv* env, jobject jbe, jlong jbe_handle, jlong db_handle,
+    JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jlong db_handle,
     jboolean jflush_before_backup) {
   auto* db = reinterpret_cast<rocksdb::DB*>(db_handle);
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
-  auto status = backup_engine->CreateNewBackup(db,
-      static_cast<bool>(jflush_before_backup));
+  auto status = backup_engine->CreateNewBackup(
+      db, static_cast<bool>(jflush_before_backup));
 
   if (status.ok()) {
     return;
@@ -62,8 +61,9 @@ void Java_org_rocksdb_BackupEngine_createNewBackup(
  * Method:    getBackupInfo
  * Signature: (J)Ljava/util/List;
  */
-jobject Java_org_rocksdb_BackupEngine_getBackupInfo(
-    JNIEnv* env, jobject jbe, jlong jbe_handle) {
+jobject Java_org_rocksdb_BackupEngine_getBackupInfo(JNIEnv* env,
+                                                    jobject /*jbe*/,
+                                                    jlong jbe_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   std::vector<rocksdb::BackupInfo> backup_infos;
   backup_engine->GetBackupInfo(&backup_infos);
@@ -75,24 +75,25 @@ jobject Java_org_rocksdb_BackupEngine_getBackupInfo(
  * Method:    getCorruptedBackups
  * Signature: (J)[I
  */
-jintArray Java_org_rocksdb_BackupEngine_getCorruptedBackups(
-    JNIEnv* env, jobject jbe, jlong jbe_handle) {
+jintArray Java_org_rocksdb_BackupEngine_getCorruptedBackups(JNIEnv* env,
+                                                            jobject /*jbe*/,
+                                                            jlong jbe_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   std::vector<rocksdb::BackupID> backup_ids;
   backup_engine->GetCorruptedBackups(&backup_ids);
   // store backupids in int array
   std::vector<jint> int_backup_ids(backup_ids.begin(), backup_ids.end());
-  
+
   // Store ints in java array
   // Its ok to loose precision here (64->32)
   jsize ret_backup_ids_size = static_cast<jsize>(backup_ids.size());
   jintArray ret_backup_ids = env->NewIntArray(ret_backup_ids_size);
-  if(ret_backup_ids == nullptr) {
+  if (ret_backup_ids == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
   env->SetIntArrayRegion(ret_backup_ids, 0, ret_backup_ids_size,
-      int_backup_ids.data());
+                         int_backup_ids.data());
   return ret_backup_ids;
 }
 
@@ -101,8 +102,8 @@ jintArray Java_org_rocksdb_BackupEngine_getCorruptedBackups(
  * Method:    garbageCollect
  * Signature: (J)V
  */
-void Java_org_rocksdb_BackupEngine_garbageCollect(
-    JNIEnv* env, jobject jbe, jlong jbe_handle) {
+void Java_org_rocksdb_BackupEngine_garbageCollect(JNIEnv* env, jobject /*jbe*/,
+                                                  jlong jbe_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   auto status = backup_engine->GarbageCollect();
 
@@ -118,12 +119,12 @@ void Java_org_rocksdb_BackupEngine_garbageCollect(
  * Method:    purgeOldBackups
  * Signature: (JI)V
  */
-void Java_org_rocksdb_BackupEngine_purgeOldBackups(
-    JNIEnv* env, jobject jbe, jlong jbe_handle, jint jnum_backups_to_keep) {
+void Java_org_rocksdb_BackupEngine_purgeOldBackups(JNIEnv* env, jobject /*jbe*/,
+                                                   jlong jbe_handle,
+                                                   jint jnum_backups_to_keep) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
-  auto status =
-      backup_engine->
-          PurgeOldBackups(static_cast<uint32_t>(jnum_backups_to_keep));
+  auto status = backup_engine->PurgeOldBackups(
+      static_cast<uint32_t>(jnum_backups_to_keep));
 
   if (status.ok()) {
     return;
@@ -137,8 +138,9 @@ void Java_org_rocksdb_BackupEngine_purgeOldBackups(
  * Method:    deleteBackup
  * Signature: (JI)V
  */
-void Java_org_rocksdb_BackupEngine_deleteBackup(
-    JNIEnv* env, jobject jbe, jlong jbe_handle, jint jbackup_id) {
+void Java_org_rocksdb_BackupEngine_deleteBackup(JNIEnv* env, jobject /*jbe*/,
+                                                jlong jbe_handle,
+                                                jint jbackup_id) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   auto status =
       backup_engine->DeleteBackup(static_cast<rocksdb::BackupID>(jbackup_id));
@@ -156,26 +158,25 @@ void Java_org_rocksdb_BackupEngine_deleteBackup(
  * Signature: (JILjava/lang/String;Ljava/lang/String;J)V
  */
 void Java_org_rocksdb_BackupEngine_restoreDbFromBackup(
-    JNIEnv* env, jobject jbe, jlong jbe_handle, jint jbackup_id,
+    JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jint jbackup_id,
     jstring jdb_dir, jstring jwal_dir, jlong jrestore_options_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   const char* db_dir = env->GetStringUTFChars(jdb_dir, nullptr);
-  if(db_dir == nullptr) {
+  if (db_dir == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
   }
   const char* wal_dir = env->GetStringUTFChars(jwal_dir, nullptr);
-  if(wal_dir == nullptr) {
+  if (wal_dir == nullptr) {
     // exception thrown: OutOfMemoryError
     env->ReleaseStringUTFChars(jdb_dir, db_dir);
     return;
   }
   auto* restore_options =
       reinterpret_cast<rocksdb::RestoreOptions*>(jrestore_options_handle);
-  auto status =
-      backup_engine->RestoreDBFromBackup(
-          static_cast<rocksdb::BackupID>(jbackup_id), db_dir, wal_dir,
-          *restore_options);
+  auto status = backup_engine->RestoreDBFromBackup(
+      static_cast<rocksdb::BackupID>(jbackup_id), db_dir, wal_dir,
+      *restore_options);
 
   env->ReleaseStringUTFChars(jwal_dir, wal_dir);
   env->ReleaseStringUTFChars(jdb_dir, db_dir);
@@ -193,25 +194,24 @@ void Java_org_rocksdb_BackupEngine_restoreDbFromBackup(
  * Signature: (JLjava/lang/String;Ljava/lang/String;J)V
  */
 void Java_org_rocksdb_BackupEngine_restoreDbFromLatestBackup(
-    JNIEnv* env, jobject jbe, jlong jbe_handle, jstring jdb_dir,
+    JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jstring jdb_dir,
     jstring jwal_dir, jlong jrestore_options_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   const char* db_dir = env->GetStringUTFChars(jdb_dir, nullptr);
-  if(db_dir == nullptr) {
+  if (db_dir == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
   }
   const char* wal_dir = env->GetStringUTFChars(jwal_dir, nullptr);
-  if(wal_dir == nullptr) {
+  if (wal_dir == nullptr) {
     // exception thrown: OutOfMemoryError
     env->ReleaseStringUTFChars(jdb_dir, db_dir);
     return;
   }
   auto* restore_options =
       reinterpret_cast<rocksdb::RestoreOptions*>(jrestore_options_handle);
-  auto status =
-      backup_engine->RestoreDBFromLatestBackup(db_dir, wal_dir,
-          *restore_options);
+  auto status = backup_engine->RestoreDBFromLatestBackup(db_dir, wal_dir,
+                                                         *restore_options);
 
   env->ReleaseStringUTFChars(jwal_dir, wal_dir);
   env->ReleaseStringUTFChars(jdb_dir, db_dir);
@@ -228,8 +228,9 @@ void Java_org_rocksdb_BackupEngine_restoreDbFromLatestBackup(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_BackupEngine_disposeInternal(
-    JNIEnv* env, jobject jbe, jlong jbe_handle) {
+void Java_org_rocksdb_BackupEngine_disposeInternal(JNIEnv* /*env*/,
+                                                   jobject /*jbe*/,
+                                                   jlong jbe_handle) {
   auto* be = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
   assert(be != nullptr);
   delete be;
