@@ -17,8 +17,8 @@
  * Signature: (JIZ)J
  */
 jlong Java_org_rocksdb_ClockCache_newClockCache(
-    JNIEnv* /*env*/, jclass /*jcls*/, jlong /*jcapacity*/,
-    jint /*jnum_shard_bits*/, jboolean /*jstrict_capacity_limit*/) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jcapacity, jint jnum_shard_bits,
+    jboolean jstrict_capacity_limit) {
   auto* sptr_clock_cache =
       new std::shared_ptr<rocksdb::Cache>(rocksdb::NewClockCache(
           static_cast<size_t>(jcapacity), static_cast<int>(jnum_shard_bits),
