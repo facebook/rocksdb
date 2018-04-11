@@ -698,8 +698,10 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   wp_db->TakeSnapshot(snap_seq1);
   auto commit_seq = ++seq;
   wp_db->AddCommitted(prep_seq, commit_seq);
+  wp_db->RemovePrepared(prep_seq);
   auto commit_seq2 = ++seq;
   wp_db->AddCommitted(prep_seq2, commit_seq2);
+  wp_db->RemovePrepared(prep_seq2);
   // Take the 2nd and 3rd snapshot that overlap with the same txn
   prep_seq = ++seq;
   wp_db->AddPrepared(prep_seq);
@@ -711,12 +713,14 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   seq++;
   commit_seq = ++seq;
   wp_db->AddCommitted(prep_seq, commit_seq);
+  wp_db->RemovePrepared(prep_seq);
   // Make sure max_evicted_seq_ will be larger than 2nd snapshot by evicting the
   // only item in the commit_cache_ via another commit.
   prep_seq = ++seq;
   wp_db->AddPrepared(prep_seq);
   commit_seq = ++seq;
   wp_db->AddCommitted(prep_seq, commit_seq);
+  wp_db->RemovePrepared(prep_seq);
 
   // Verify that the evicted commit entries for all snapshots are in the
   // old_commit_map_
@@ -1367,6 +1371,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
         } else {                                     // else commit it
           seq++;
           wp_db->AddCommitted(cur_txn, seq);
+          wp_db->RemovePrepared(cur_txn);
           commit_seqs.insert(seq);
           if (!snapshot) {
             committed_before.insert(cur_txn);
@@ -1416,9 +1421,11 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // they are committed.
       if (cur_txn) {
         wp_db->AddCommitted(cur_txn, seq);
+        wp_db->RemovePrepared(cur_txn);
       }
       for (auto p : prepared) {
         wp_db->AddCommitted(p, seq);
+        wp_db->RemovePrepared(p);
       }
       ASSERT_TRUE(wp_db->delayed_prepared_.empty());
       ASSERT_TRUE(wp_db->prepared_txns_.empty());

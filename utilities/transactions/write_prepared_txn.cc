@@ -138,7 +138,6 @@ Status WritePreparedTxn::CommitInternal() {
     assert(s.ok());
     commit_batch_cnt = counter.BatchCount();
   }
-  const bool PREP_HEAP_SKIPPED = true;
   const bool disable_memtable = !includes_data;
   const bool do_one_write =
       !db_impl_->immutable_db_options().two_write_queues || disable_memtable;
@@ -149,7 +148,7 @@ Status WritePreparedTxn::CommitInternal() {
   // CommitTimeWriteBatch commits with PreReleaseCallback.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt,
-      !PREP_HEAP_SKIPPED, publish_seq);
+      publish_seq);
   uint64_t seq_used = kMaxSequenceNumber;
   // Since the prepared batch is directly written to memtable, there is already
   // a connection between the memtable and its WAL, so there is no need to
@@ -161,6 +160,11 @@ Status WritePreparedTxn::CommitInternal() {
                                batch_cnt, &update_commit_map);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (LIKELY(do_one_write || !s.ok())) {
+    if (LIKELY(s.ok())) {
+      // Note RemovePrepared should be called after WriteImpl that publishsed
+      // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
+      wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
+    }
     return s;
   }  // else do the 2nd write to publish seq
   // Note: the 2nd write comes with a performance penality. So if we have too
@@ -192,6 +196,9 @@ Status WritePreparedTxn::CommitInternal() {
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &publish_seq_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  // Note RemovePrepared should be called after WriteImpl that publishsed the
+  // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
+  wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
   return s;
 }
 
@@ -324,10 +331,8 @@ Status WritePreparedTxn::RollbackInternal() {
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
   const size_t ZERO_COMMITS = 0;
-  const bool PREP_HEAP_SKIPPED = true;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, prepare_seq, ONE_BATCH, ZERO_COMMITS,
-      PREP_HEAP_SKIPPED);
+      wpt_db_, db_impl_, prepare_seq, ONE_BATCH, ZERO_COMMITS);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -379,10 +384,20 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
 }
 
 void WritePreparedTxn::SetSnapshot() {
+  // Note: for this optimization setting the last sequence number and obtaining
+  // the smallest uncommitted seq should be done atomically. However to avoid
+  // the mutex overhead, we call SmallestUnCommittedSeq BEFORE taking the
+  // snapshot. Since we always updated the list of unprepared seq (via
+  // AddPrepared) AFTER the last sequence is updated, this guarantees that the
+  // smallest uncommited seq that we pair with the snapshot is smaller or equal
+  // the value that would be obtained otherwise atomically. That is ok since
+  // this optimization works as long as min_uncommitted is less than or equal
+  // than the smallest uncommitted seq when the snapshot was taken.
+  auto min_uncommitted = wpt_db_->SmallestUnCommittedSeq();
   const bool FOR_WW_CONFLICT_CHECK = true;
   SnapshotImpl* snapshot = dbimpl_->GetSnapshotImpl(FOR_WW_CONFLICT_CHECK);
   assert(snapshot);
-  wpt_db_->EnhanceSnapshot(snapshot);
+  wpt_db_->EnhanceSnapshot(snapshot, min_uncommitted);
   SetSnapshotInternal(snapshot);
 }
 
