@@ -704,7 +704,7 @@ bool SerializeSingleOptionHelper(const char* opt_address,
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
-    MutableCFOptions* new_options) {
+    Logger* info_log, MutableCFOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
   for (const auto& o : options_map) {
@@ -716,6 +716,13 @@ Status GetMutableOptionsFromStrings(
       const auto& opt_info = iter->second;
       if (!opt_info.is_mutable) {
         return Status::InvalidArgument("Option not changeable: " + o.first);
+      }
+      if (opt_info.verification == OptionVerificationType::kDeprecated) {
+        // log warning when user tries to set a deprecated option but don't fail
+        // the call for compatibility.
+        ROCKS_LOG_WARN(info_log, "%s is a deprecated option and cannot be set",
+                       o.first.c_str());
+        continue;
       }
       bool is_ok = ParseOptionHelper(
           reinterpret_cast<char*>(new_options) + opt_info.mutable_offset,
