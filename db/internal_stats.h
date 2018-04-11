@@ -163,7 +163,10 @@ class InternalStats {
     // Number of compactions done
     int count;
 
-    explicit CompactionStats(int _count = 0)
+    // Number of compactions done per CompactionReason
+    int counts[static_cast<int>(CompactionReason::kNumOfReasons)];
+
+    explicit CompactionStats()
         : micros(0),
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
@@ -174,7 +177,36 @@ class InternalStats {
           num_output_files(0),
           num_input_records(0),
           num_dropped_records(0),
-          count(_count) {}
+          count(0) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] = 0;
+      }
+    }
+
+    explicit CompactionStats(CompactionReason reason, int c)
+        : micros(0),
+          bytes_read_non_output_levels(0),
+          bytes_read_output_level(0),
+          bytes_written(0),
+          bytes_moved(0),
+          num_input_files_in_non_output_levels(0),
+          num_input_files_in_output_level(0),
+          num_output_files(0),
+          num_input_records(0),
+          num_dropped_records(0),
+          count(c) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] = 0;
+      }
+      int r = static_cast<int>(reason);
+      if (r >= 0 && r < num_of_reasons) {
+        counts[r] = c;
+      } else {
+        count = 0;
+      }
+    }
 
     explicit CompactionStats(const CompactionStats& c)
         : micros(c.micros),
@@ -189,7 +221,12 @@ class InternalStats {
           num_output_files(c.num_output_files),
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
-          count(c.count) {}
+          count(c.count) {
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] = c.counts[i];
+      }
+    }
 
     void Clear() {
       this->micros = 0;
@@ -203,6 +240,10 @@ class InternalStats {
       this->num_input_records = 0;
       this->num_dropped_records = 0;
       this->count = 0;
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] = 0;
+      }
     }
 
     void Add(const CompactionStats& c) {
@@ -219,6 +260,10 @@ class InternalStats {
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i< num_of_reasons; i++) {
+        counts[i] += c.counts[i];
+      }
     }
 
     void Subtract(const CompactionStats& c) {
@@ -235,6 +280,10 @@ class InternalStats {
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] -= c.counts[i];
+      }
     }
   };
 
@@ -307,6 +356,10 @@ class InternalStats {
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value);
 
+  const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
+    return comp_stats_;
+  }
+
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
   static const std::unordered_map<std::string, DBPropertyInfo> ppt_name_to_info;
@@ -350,8 +403,7 @@ class InternalStats {
     uint64_t ingest_keys_addfile;      // Total number of keys ingested
 
     CFStatsSnapshot()
-        : comp_stats(0),
-          ingest_bytes_flush(0),
+        : ingest_bytes_flush(0),
           stall_count(0),
           compact_bytes_write(0),
           compact_bytes_read(0),
@@ -543,7 +595,9 @@ class InternalStats {
     uint64_t num_dropped_records;
     int count;
 
-    explicit CompactionStats(int _count = 0) {}
+    explicit CompactionStats() {}
+
+    explicit CompactionStats(CompactionReason reason, int c) {}
 
     explicit CompactionStats(const CompactionStats& c) {}
 

@@ -218,7 +218,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   uint64_t total_l0_files = 0;
   uint64_t total_time = env_->NowMicros() - job_start_time_;
   for (IngestedFileInfo& f : files_to_ingest_) {
-    InternalStats::CompactionStats stats(1);
+    InternalStats::CompactionStats stats(CompactionReason::kExternalSstIngestion, 1);
     stats.micros = total_time;
     stats.bytes_written = f.fd.GetFileSize();
     stats.num_output_files = 1;

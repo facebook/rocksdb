@@ -55,8 +55,8 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   Status status;
 };
 
-enum class CompactionReason {
-  kUnknown,
+enum class CompactionReason : int {
+  kUnknown = 0,
   // [Level] number of L0 files > level0_file_num_compaction_trigger
   kLevelL0FilesNum,
   // [Level] total size of level > MaxBytesForLevel()
@@ -80,7 +80,15 @@ enum class CompactionReason {
   // [Level] Automatic compaction within bottommost level to cleanup duplicate
   // versions of same user key, usually due to a released snapshot.
   kBottommostFiles,
+  // Compaction based on TTL
   kTtl,
+  // According to the comments in flush_job.cc, RocksDB treats flush as
+  // a level 0 compaction in internal stats.
+  kFlush,
+  // Compaction caused by external sst file ingestion
+  kExternalSstIngestion,
+  // total number of compaction reasons, new reasons must be added above this.
+  kNumOfReasons,
 };
 
 enum class FlushReason : int {
