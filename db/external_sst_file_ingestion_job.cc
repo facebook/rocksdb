@@ -103,12 +103,14 @@ Status ExternalSstFileIngestionJob::Prepare(
         // Original file is on a different FS, use copy instead of hard linking
         status = CopyFile(env_, path_outside_db, path_inside_db, 0,
                           db_options_.use_fsync);
+        f.copy_file = true;
       } else {
         f.copy_file = false;
       }
     } else {
       status = CopyFile(env_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
+      f.copy_file = true;
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {

@@ -51,11 +51,10 @@ struct IngestedFileInfo {
   SequenceNumber assigned_seqno = 0;
   // Level inside the DB we picked for the external file.
   int picked_level = 0;
-  // Whether to copy or link the external sst file. copy_file is false if
-  // ingestion_options.move_files is true and underlying FS supports link
-  // operation. Since ingestion_options.move_files is false by default,
-  // the default value of copy_file is true.
-  bool copy_file = true;
+  // Whether to copy or link the external sst file. copy_file will be set to
+  // false if ingestion_options.move_files is true and underlying FS
+  // supports link operation.
+  bool copy_file;
 
   InternalKey smallest_internal_key() const {
     return InternalKey(smallest_user_key, assigned_seqno,
