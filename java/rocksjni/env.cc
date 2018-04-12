@@ -27,9 +27,8 @@ jlong Java_org_rocksdb_Env_getDefaultEnvInternal(JNIEnv* /*env*/,
  * Signature: (JII)V
  */
 void Java_org_rocksdb_Env_setBackgroundThreads(JNIEnv* /*env*/,
-                                               jobject /*jobj*/,
-                                               jlong /*jhandle*/, jint /*num*/,
-                                               jint /*priority*/) {
+                                               jobject /*jobj*/, jlong jhandle,
+                                               jint num, jint priority) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
   switch (priority) {
     case org_rocksdb_Env_FLUSH_POOL:
@@ -47,9 +46,8 @@ void Java_org_rocksdb_Env_setBackgroundThreads(JNIEnv* /*env*/,
  * Signature: (JI)I
  */
 jint Java_org_rocksdb_Env_getThreadPoolQueueLen(JNIEnv* /*env*/,
-                                                jobject /*jobj*/,
-                                                jlong /*jhandle*/,
-                                                jint /*pool_id*/) {
+                                                jobject /*jobj*/, jlong jhandle,
+                                                jint pool_id) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
   switch (pool_id) {
     case org_rocksdb_RocksEnv_FLUSH_POOL:
@@ -77,7 +75,7 @@ jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(JNIEnv* /*env*/,
  */
 void Java_org_rocksdb_RocksMemEnv_disposeInternal(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
-                                                  jlong /*jhandle*/) {
+                                                  jlong jhandle) {
   auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
   assert(e != nullptr);
   delete e;

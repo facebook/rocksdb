@@ -235,15 +235,16 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 
 #else
 
-SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
-                                  std::string trash_dir,
-                                  int64_t rate_bytes_per_sec,
-                                  bool delete_existing_trash, Status* status,
-                                  double max_trash_db_ratio,
-                                  uint64_t bytes_max_delete_chunk) {
+SstFileManager* NewSstFileManager(Env* /*env*/,
+                                  std::shared_ptr<Logger> /*info_log*/,
+                                  std::string /*trash_dir*/,
+                                  int64_t /*rate_bytes_per_sec*/,
+                                  bool /*delete_existing_trash*/,
+                                  Status* status, double /*max_trash_db_ratio*/,
+                                  uint64_t /*bytes_max_delete_chunk*/) {
   if (status) {
     *status =
-      Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
+        Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
   }
   return nullptr;
 }

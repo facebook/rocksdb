@@ -25,8 +25,8 @@
  * Method:    createNewComparator0
  * Signature: ()J
  */
-jlong Java_org_rocksdb_Comparator_createNewComparator0(JNIEnv* /*env*/,
-                                                       jobject /*jobj*/,
+jlong Java_org_rocksdb_Comparator_createNewComparator0(JNIEnv* env,
+                                                       jobject jobj,
                                                        jlong copt_handle) {
   auto* copt =
       reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
@@ -43,7 +43,7 @@ jlong Java_org_rocksdb_Comparator_createNewComparator0(JNIEnv* /*env*/,
  * Signature: ()J
  */
 jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong copt_handle) {
+    JNIEnv* env, jobject jobj, jlong copt_handle) {
   auto* copt =
       reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
   auto* c = new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
