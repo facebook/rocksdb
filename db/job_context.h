@@ -52,6 +52,11 @@ struct SuperVersionContext {
     notif.write_stall_info.condition.cur = new_cond;
     notif.immutable_cf_options = ioptions;
     write_stall_notifications.push_back(notif);
+#else
+    (void)old_cond;
+    (void)new_cond;
+    (void)name;
+    (void)ioptions;
 #endif  // !ROCKSDB_LITE
   }
 

@@ -633,6 +633,9 @@ class AddPreparedCallback : public PreReleaseCallback {
   }
   virtual Status Callback(SequenceNumber prepare_seq,
                           bool is_mem_disabled) override {
+#ifdef NDEBUG
+    (void)is_mem_disabled;
+#endif
     assert(!two_write_queues_ || !is_mem_disabled);  // implies the 1st queue
     for (size_t i = 0; i < sub_batch_cnt_; i++) {
       db_->AddPrepared(prepare_seq + i);
@@ -669,6 +672,9 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 
   virtual Status Callback(SequenceNumber commit_seq,
                           bool is_mem_disabled) override {
+#ifdef NDEBUG
+    (void)is_mem_disabled;
+#endif
     assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq

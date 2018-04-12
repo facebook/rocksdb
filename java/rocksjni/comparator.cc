@@ -6,11 +6,11 @@
 // This file implements the "bridge" between Java and C++ for
 // rocksdb::Comparator.
 
+#include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <jni.h>
-#include <string>
 #include <functional>
+#include <string>
 
 #include "include/org_rocksdb_Comparator.h"
 #include "include/org_rocksdb_DirectComparator.h"
@@ -25,12 +25,12 @@
  * Method:    createNewComparator0
  * Signature: ()J
  */
-jlong Java_org_rocksdb_Comparator_createNewComparator0(
-    JNIEnv* env, jobject jobj, jlong copt_handle) {
+jlong Java_org_rocksdb_Comparator_createNewComparator0(JNIEnv* env,
+                                                       jobject jobj,
+                                                       jlong copt_handle) {
   auto* copt =
       reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  auto* c =
-      new rocksdb::ComparatorJniCallback(env, jobj, copt);
+  auto* c = new rocksdb::ComparatorJniCallback(env, jobj, copt);
   return reinterpret_cast<jlong>(c);
 }
 // </editor-fold>
@@ -46,8 +46,7 @@ jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
   auto* copt =
       reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  auto* c =
-      new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
+  auto* c = new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
   return reinterpret_cast<jlong>(c);
 }
 
@@ -57,9 +56,8 @@ jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
  * Signature: (J)V
  */
 void Java_org_rocksdb_NativeComparatorWrapper_disposeInternal(
-    JNIEnv* env, jobject jobj, jlong jcomparator_handle) {
-  auto* comparator =
-      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jcomparator_handle) {
+  auto* comparator = reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
   delete comparator;
 }
 // </editor-fold>
