@@ -597,7 +597,7 @@ class InternalStats {
 
     explicit CompactionStats() {}
 
-    explicit CompactionStats(CompactionReason reason, int /*c*/) {}
+    explicit CompactionStats(CompactionReason /*reason*/, int /*c*/) {}
 
     explicit CompactionStats(const CompactionStats& /*c*/) {}
 

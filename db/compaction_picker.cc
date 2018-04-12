@@ -1674,6 +1674,10 @@ Compaction* FIFOCompactionPicker::CompactRange(
     uint32_t /*output_path_id*/, const InternalKey* /*begin*/,
     const InternalKey* /*end*/, InternalKey** compaction_end,
     bool* /*manual_conflict*/) {
+#ifdef NDEBUG
+  (void)input_level;
+  (void)output_level;
+#endif
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;
