@@ -85,6 +85,14 @@ struct TransactionDBOptions {
   // before the commit phase. The DB then needs to provide the mechanisms to
   // tell apart committed from uncommitted data.
   TxnDBWritePolicy write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+
+  // TODO(myabandeh): remove this option
+  // Note: this is a temporary option as a hot fix in rollback of writeprepared
+  // txns in myrocks. MyRocks uses merge operands for autoinc column id without
+  // however obtaining locks. This breaks the assumption behind the rollback
+  // logic in myrocks. This hack of simply not rolling back merge operands works
+  // for the special way that myrocks uses this operands.
+  bool rollback_merge_operands = false;
 };
 
 struct TransactionOptions {
