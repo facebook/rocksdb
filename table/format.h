@@ -69,6 +69,9 @@ class BlockHandle {
 
 inline uint32_t GetCompressFormatForVersion(
     CompressionType compression_type, uint32_t version) {
+#ifdef NDEBUG
+  (void)compression_type;
+#endif
   // snappy is not versioned
   assert(compression_type != kSnappyCompression &&
          compression_type != kXpressCompression &&

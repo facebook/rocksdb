@@ -18,7 +18,7 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_AbstractCompactionFilterFactory_createNewCompactionFilterFactory0(
-    JNIEnv* /*env*/, jobject /*jobj*/) {
+    JNIEnv* env, jobject jobj) {
   auto* cff = new rocksdb::CompactionFilterFactoryJniCallback(env, jobj);
   auto* ptr_sptr_cff =
       new std::shared_ptr<rocksdb::CompactionFilterFactoryJniCallback>(cff);

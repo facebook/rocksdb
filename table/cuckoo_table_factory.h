@@ -24,6 +24,8 @@ static inline uint64_t CuckooHash(
   if (get_slice_hash != nullptr) {
     return get_slice_hash(user_key, hash_cnt, table_size_);
   }
+#else
+  (void)get_slice_hash;
 #endif
 
   uint64_t value = 0;
