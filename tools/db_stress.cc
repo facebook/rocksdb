@@ -791,7 +791,7 @@ class SharedState {
     // overwrite
 
     printf("Choosing random keys with no overwrite\n");
-    Random rnd(seed_);
+    Random64 rnd(seed_);
     // Start with the identity permutation. Subsequent iterations of
     // for loop below will start with perm of previous for loop
     int64_t *permutation = new int64_t[max_key_];
@@ -801,21 +801,22 @@ class SharedState {
 
     for (auto& cf_ids : no_overwrite_ids_) {
       // Now do the Knuth shuffle
-      for (int64_t i = max_key_ - 1; i > 0; i--) {
-        size_t rand_index = rnd.Next() % i;
+      int64_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
+      // Only need to figure out first num_no_overwrite_keys of permutation
+      for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+        int64_t rand_index = i + rnd.Next() % (max_key_ - 1 - i);
         // Swap i and rand_index;
-        permutation[i] ^= permutation[rand_index];
-        permutation[rand_index] ^= permutation[i];
-        permutation[i] ^= permutation[rand_index];
+        int64_t temp = permutation[i];
+        permutation[i] = permutation[rand_index];
+        permutation[rand_index] = temp;
       }
 
       // Now fill cf_ids with the first num_no_overwrite_keys of permutation
-      size_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
       cf_ids.reserve(num_no_overwrite_keys);
-      for (size_t i = 0; i < num_no_overwrite_keys; i++) {
+      for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
         cf_ids.insert(permutation[i]);
       }
-      assert(cf_ids.size() == num_no_overwrite_keys);
+      assert(cf_ids.size() == static_cast<size_t>(num_no_overwrite_keys));
     }
     delete permutation;
 
