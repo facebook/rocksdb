@@ -471,7 +471,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(JNIEnv* /*env*/,
  * Signature: (JJ[BI)[B
  */
 jbyteArray JNICALL Java_org_rocksdb_WriteBatchWithIndex_getFromBatch__JJ_3BI(
-    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdbopt_handle,
+    JNIEnv* env, jobject /*jobj*/, jlong jwbwi_handle, jlong jdbopt_handle,
     jbyteArray jkey, jint jkey_len) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   auto* dbopt = reinterpret_cast<rocksdb::DBOptions*>(jdbopt_handle);
@@ -489,7 +489,7 @@ jbyteArray JNICALL Java_org_rocksdb_WriteBatchWithIndex_getFromBatch__JJ_3BI(
  * Signature: (JJ[BIJ)[B
  */
 jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatch__JJ_3BIJ(
-    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdbopt_handle,
+    JNIEnv* env, jobject /*jobj*/, jlong jwbwi_handle, jlong jdbopt_handle,
     jbyteArray jkey, jint jkey_len, jlong jcf_handle) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   auto* dbopt = reinterpret_cast<rocksdb::DBOptions*>(jdbopt_handle);
@@ -509,7 +509,7 @@ jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatch__JJ_3BIJ(
  * Signature: (JJJ[BI)[B
  */
 jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatchAndDB__JJJ_3BI(
-    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdb_handle,
+    JNIEnv* env, jobject /*jobj*/, jlong jwbwi_handle, jlong jdb_handle,
     jlong jreadopt_handle, jbyteArray jkey, jint jkey_len) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
@@ -529,7 +529,7 @@ jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatchAndDB__JJJ_3BI(
  * Signature: (JJJ[BIJ)[B
  */
 jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatchAndDB__JJJ_3BIJ(
-    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdb_handle,
+    JNIEnv* env, jobject /*jobj*/, jlong jwbwi_handle, jlong jdb_handle,
     jlong jreadopt_handle, jbyteArray jkey, jint jkey_len, jlong jcf_handle) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
@@ -549,8 +549,8 @@ jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatchAndDB__JJJ_3BIJ(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_disposeInternal(JNIEnv* env,
-                                                          jobject jobj,
+void Java_org_rocksdb_WriteBatchWithIndex_disposeInternal(JNIEnv* /*env*/,
+                                                          jobject /*jobj*/,
                                                           jlong handle) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(handle);
   assert(wbwi != nullptr);
@@ -564,8 +564,8 @@ void Java_org_rocksdb_WriteBatchWithIndex_disposeInternal(JNIEnv* env,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_disposeInternal(JNIEnv* env,
-                                                        jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_disposeInternal(JNIEnv* /*env*/,
+                                                        jobject /*jobj*/,
                                                         jlong handle) {
   auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
   assert(it != nullptr);
@@ -577,7 +577,8 @@ void Java_org_rocksdb_WBWIRocksIterator_disposeInternal(JNIEnv* env,
  * Method:    isValid0
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_WBWIRocksIterator_isValid0(JNIEnv* env, jobject jobj,
+jboolean Java_org_rocksdb_WBWIRocksIterator_isValid0(JNIEnv* /*env*/,
+                                                     jobject /*jobj*/,
                                                      jlong handle) {
   return reinterpret_cast<rocksdb::WBWIIterator*>(handle)->Valid();
 }
@@ -587,7 +588,8 @@ jboolean Java_org_rocksdb_WBWIRocksIterator_isValid0(JNIEnv* env, jobject jobj,
  * Method:    seekToFirst0
  * Signature: (J)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_seekToFirst0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_seekToFirst0(JNIEnv* /*env*/,
+                                                     jobject /*jobj*/,
                                                      jlong handle) {
   reinterpret_cast<rocksdb::WBWIIterator*>(handle)->SeekToFirst();
 }
@@ -597,7 +599,8 @@ void Java_org_rocksdb_WBWIRocksIterator_seekToFirst0(JNIEnv* env, jobject jobj,
  * Method:    seekToLast0
  * Signature: (J)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_seekToLast0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_seekToLast0(JNIEnv* /*env*/,
+                                                    jobject /*jobj*/,
                                                     jlong handle) {
   reinterpret_cast<rocksdb::WBWIIterator*>(handle)->SeekToLast();
 }
@@ -607,7 +610,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seekToLast0(JNIEnv* env, jobject jobj,
  * Method:    next0
  * Signature: (J)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_next0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_next0(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong handle) {
   reinterpret_cast<rocksdb::WBWIIterator*>(handle)->Next();
 }
@@ -617,7 +620,7 @@ void Java_org_rocksdb_WBWIRocksIterator_next0(JNIEnv* env, jobject jobj,
  * Method:    prev0
  * Signature: (J)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_prev0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong handle) {
   reinterpret_cast<rocksdb::WBWIIterator*>(handle)->Prev();
 }
@@ -627,7 +630,7 @@ void Java_org_rocksdb_WBWIRocksIterator_prev0(JNIEnv* env, jobject jobj,
  * Method:    seek0
  * Signature: (J[BI)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong handle, jbyteArray jtarget,
                                               jint jtarget_len) {
   auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
@@ -649,7 +652,8 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject jobj,
  * Method:    seekForPrev0
  * Signature: (J[BI)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env,
+                                                     jobject /*jobj*/,
                                                      jlong handle,
                                                      jbyteArray jtarget,
                                                      jint jtarget_len) {
@@ -672,7 +676,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env, jobject jobj,
  * Method:    status0
  * Signature: (J)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_status0(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WBWIRocksIterator_status0(JNIEnv* env, jobject /*jobj*/,
                                                 jlong handle) {
   auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
   rocksdb::Status s = it->status();
@@ -689,7 +693,8 @@ void Java_org_rocksdb_WBWIRocksIterator_status0(JNIEnv* env, jobject jobj,
  * Method:    entry1
  * Signature: (J)[J
  */
-jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(JNIEnv* env, jobject jobj,
+jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(JNIEnv* env,
+                                                     jobject /*jobj*/,
                                                      jlong handle) {
   auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
   const rocksdb::WriteEntry& we = it->Entry();

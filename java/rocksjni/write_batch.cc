@@ -465,7 +465,7 @@ jboolean Java_org_rocksdb_WriteBatch_hasDelete(JNIEnv* /*env*/,
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasSingleDelete(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -478,7 +478,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasSingleDelete(
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasDeleteRange(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -491,7 +491,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasDeleteRange(
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasMerge(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -504,7 +504,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasMerge(
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasBeginPrepare(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -517,7 +517,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasBeginPrepare(
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasEndPrepare(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -530,7 +530,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasEndPrepare(
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasCommit(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -543,7 +543,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasCommit(
  * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasRollback(
-    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
@@ -555,8 +555,8 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_WriteBatch_hasRollback(
  * Method:    markWalTerminationPoint
  * Signature: (J)V
  */
-void Java_org_rocksdb_WriteBatch_markWalTerminationPoint(JNIEnv* env,
-                                                         jobject jobj,
+void Java_org_rocksdb_WriteBatch_markWalTerminationPoint(JNIEnv* /*env*/,
+                                                         jobject /*jobj*/,
                                                          jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
@@ -570,7 +570,7 @@ void Java_org_rocksdb_WriteBatch_markWalTerminationPoint(JNIEnv* env,
  * Signature: (J)Lorg/rocksdb/WriteBatch/SavePoint;
  */
 jobject Java_org_rocksdb_WriteBatch_getWalTerminationPoint(JNIEnv* env,
-                                                           jobject jobj,
+                                                           jobject /*jobj*/,
                                                            jlong jwb_handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
@@ -584,7 +584,8 @@ jobject Java_org_rocksdb_WriteBatch_getWalTerminationPoint(JNIEnv* env,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_WriteBatch_disposeInternal(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WriteBatch_disposeInternal(JNIEnv* /*env*/,
+                                                 jobject /*jobj*/,
                                                  jlong handle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(handle);
   assert(wb != nullptr);

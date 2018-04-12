@@ -96,7 +96,7 @@ LoggerJniCallback::LoggerJniCallback(JNIEnv* env, jobject jlogger)
   }
 }
 
-void LoggerJniCallback::Logv(const char* format, va_list ap) {
+void LoggerJniCallback::Logv(const char* /*format*/, va_list /*ap*/) {
   // We implement this method because it is virtual but we don't
   // use it because we need to know about the log level.
 }
