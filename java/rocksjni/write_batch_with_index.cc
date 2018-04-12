@@ -630,7 +630,7 @@ void Java_org_rocksdb_WBWIRocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
  * Method:    seek0
  * Signature: (J[BI)V
  */
-void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                               jlong handle, jbyteArray jtarget,
                                               jint jtarget_len) {
   auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);

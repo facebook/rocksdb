@@ -83,7 +83,7 @@ void Java_org_rocksdb_Transaction_clearSnapshot(JNIEnv* /*env*/,
  * Method:    prepare
  * Signature: (J)V
  */
-void Java_org_rocksdb_Transaction_prepare(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_Transaction_prepare(JNIEnv* env, jobject /*jobj*/,
                                           jlong jhandle) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   rocksdb::Status s = txn->Prepare();
@@ -97,7 +97,7 @@ void Java_org_rocksdb_Transaction_prepare(JNIEnv* /*env*/, jobject /*jobj*/,
  * Method:    commit
  * Signature: (J)V
  */
-void Java_org_rocksdb_Transaction_commit(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_Transaction_commit(JNIEnv* env, jobject /*jobj*/,
                                          jlong jhandle) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   rocksdb::Status s = txn->Commit();
@@ -111,7 +111,7 @@ void Java_org_rocksdb_Transaction_commit(JNIEnv* /*env*/, jobject /*jobj*/,
  * Method:    rollback
  * Signature: (J)V
  */
-void Java_org_rocksdb_Transaction_rollback(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_Transaction_rollback(JNIEnv* env, jobject /*jobj*/,
                                            jlong jhandle) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   rocksdb::Status s = txn->Rollback();
