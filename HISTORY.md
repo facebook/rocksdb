@@ -4,11 +4,13 @@
 * Add a BlockBasedTableOption to align uncompressed data blocks on the smaller of block size or page size boundary, to reduce flash reads by avoiding reads spanning 4K pages.
 
 ### New Features
+* TransactionDBOptions::write_policy can be configured to enable WritePrepared 2PC transactions. Read more about them in the wiki.
 
 ### Bug Fixes
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
 * Fix WAL corruption caused by race condition between user write thread and FlushWAL when two_write_queue is not set.
 * Fix memory leak when pin_l0_filter_and_index_blocks_in_cache is used with partitioned filters
+* Disable rollback of merge operands in WritePrepared transactions to work around an issue in MyRocks. It can be enabled back by setting TransactionDBOptions::rollback_merge_operands to true.
 
 ### Java API Changes
 * Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.

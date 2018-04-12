@@ -66,6 +66,7 @@ class TransactionTestBase : public ::testing::Test {
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
     txn_db_options.write_policy = write_policy;
+    txn_db_options.rollback_merge_operands = true;
     Status s;
     if (use_stackable_db == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
