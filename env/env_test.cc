@@ -166,6 +166,40 @@ TEST_F(EnvPosixTest, AreFilesSame) {
 }
 #endif
 
+#ifdef OS_LINUX
+TEST_F(EnvPosixTest, FilePermission) {
+  // Only works for Linux environment
+  if (env_ == Env::Default()) {
+    EnvOptions soptions;
+    std::vector<std::string> fileNames {
+        test::TmpDir(env_) + "/testfile", test::TmpDir(env_) + "/testfile1"};
+    unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fileNames[0], &wfile, soptions));
+    unique_ptr<RandomRWFile> rwfile;
+    ASSERT_OK(env_->NewRandomRWFile(fileNames[1], &rwfile, soptions));
+
+    struct stat sb;
+    for (const auto& filename : fileNames) {
+      if (::stat(filename.c_str(), &sb) == 0) {
+        ASSERT_EQ(sb.st_mode & 0777, 0644);
+      }
+      env_->DeleteFile(filename);
+    }
+
+    env_->SetAllowNonOwnerAccess(false);
+    ASSERT_OK(env_->NewWritableFile(fileNames[0], &wfile, soptions));
+    ASSERT_OK(env_->NewRandomRWFile(fileNames[1], &rwfile, soptions));
+
+    for (const auto& filename : fileNames) {
+      if (::stat(filename.c_str(), &sb) == 0) {
+        ASSERT_EQ(sb.st_mode & 0777, 0600);
+      }
+      env_->DeleteFile(filename);
+    }
+  }
+}
+#endif
+
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);
