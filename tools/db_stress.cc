@@ -2570,10 +2570,21 @@ class StressTest {
         s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                                 cf_descriptors, &column_families_, &txn_db_);
         db_ = txn_db_;
+        // after a crash, rollback to commit recovered transactions
+        std::vector<Transaction*> trans;
+        txn_db_->GetAllPreparedTransactions(&trans);
+        Random rand(FLAGS_seed);
+        for (auto txn: trans) {
+          if (rand.OneIn(2)) {
+            txn->Commit();
+          } else {
+            txn->Rollback();
+          }
+        }
 #endif
       }
       assert(!s.ok() || column_families_.size() ==
-                            static_cast<size_t>(FLAGS_column_families));
+                                static_cast<size_t>(FLAGS_column_families));
     } else {
 #ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
