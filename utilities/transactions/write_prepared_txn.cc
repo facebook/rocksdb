@@ -218,15 +218,18 @@ Status WritePreparedTxn::RollbackInternal() {
     std::map<uint32_t, const Comparator*>& comparators_;
     using CFKeys = std::set<Slice, SetComparator>;
     std::map<uint32_t, CFKeys> keys_;
+    bool rollback_merge_operands_;
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
-        std::map<uint32_t, const Comparator*>& comparators)
+        std::map<uint32_t, const Comparator*>& comparators,
+        bool rollback_merge_operands)
         : db_(db),
           callback(wpt_db, snap_seq,
                    0),  // 0 disables min_uncommitted optimization
           rollback_batch_(dst_batch),
-          comparators_(comparators) {}
+          comparators_(comparators),
+          rollback_merge_operands_(rollback_merge_operands) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
@@ -275,7 +278,11 @@ Status WritePreparedTxn::RollbackInternal() {
 
     Status MergeCF(uint32_t cf, const Slice& key,
                    const Slice& /*val*/) override {
-      return Rollback(cf, key);
+      if (rollback_merge_operands_) {
+        return Rollback(cf, key);
+      } else {
+        return Status::OK();
+      }
     }
 
     Status MarkNoop(bool) override { return Status::OK(); }
@@ -289,7 +296,8 @@ Status WritePreparedTxn::RollbackInternal() {
    protected:
     virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch,
-                     *wpt_db_->GetCFComparatorMap());
+                     *wpt_db_->GetCFComparatorMap(),
+                     wpt_db_->txn_db_options_.rollback_merge_operands);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {
