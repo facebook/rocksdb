@@ -4,7 +4,8 @@
 * Add a BlockBasedTableOption to align uncompressed data blocks on the smaller of block size or page size boundary, to reduce flash reads by avoiding reads spanning 4K pages.
 
 ### New Features
-* * Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
+* Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
+* TransactionDBOptions::write_policy can be configured to enable WritePrepared 2PC transactions. Read more about them in the wiki.
 
 ### Bug Fixes
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.
