@@ -21,7 +21,7 @@
  * Signature: (Z)J
  */
 jlong Java_org_rocksdb_RestoreOptions_newRestoreOptions(
-    JNIEnv* /*env*/, jclass /*jcls*/, jboolean /*keep_log_files*/) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jboolean keep_log_files) {
   auto* ropt = new rocksdb::RestoreOptions(keep_log_files);
   return reinterpret_cast<jlong>(ropt);
 }

@@ -17,7 +17,7 @@
 
 void build_column_family_descriptor_list(
     JNIEnv* env, jobject jcfds,
-    std::vector<rocksdb::ColumnFamilyDescriptor>& /*cf_descs*/) {
+    std::vector<rocksdb::ColumnFamilyDescriptor>& cf_descs) {
   jmethodID add_mid = rocksdb::ListJni::getListAddMethodId(env);
   if (add_mid == nullptr) {
     // exception occurred accessing method

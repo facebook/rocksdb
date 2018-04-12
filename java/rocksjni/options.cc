@@ -66,7 +66,7 @@ jlong Java_org_rocksdb_Options_newOptions__JJ(JNIEnv* /*env*/, jclass /*jcls*/,
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_Options_copyOptions(JNIEnv* /*env*/, jclass /*jcls*/,
-                                           jlong /*jhandle*/) {
+                                           jlong jhandle) {
   auto new_opt =
       new rocksdb::Options(*(reinterpret_cast<rocksdb::Options*>(jhandle)));
   return reinterpret_cast<jlong>(new_opt);

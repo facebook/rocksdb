@@ -251,7 +251,7 @@ void Java_org_rocksdb_Slice_disposeInternalBuf(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_DirectSlice_createNewDirectSlice0(JNIEnv* env,
                                                          jclass /*jcls*/,
                                                          jobject data,
-                                                         jint /*length*/) {
+                                                         jint length) {
   assert(data != nullptr);
   void* data_addr = env->GetDirectBufferAddress(data);
   if (data_addr == nullptr) {

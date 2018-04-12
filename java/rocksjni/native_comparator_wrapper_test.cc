@@ -18,7 +18,7 @@ class NativeComparatorWrapperTestStringComparator : public Comparator {
     return "NativeComparatorWrapperTestStringComparator";
   }
 
-  int Compare(const Slice& /*a*/, const Slice& /*b*/) const {
+  int Compare(const Slice& a, const Slice& b) const {
     return a.ToString().compare(b.ToString());
   }
 

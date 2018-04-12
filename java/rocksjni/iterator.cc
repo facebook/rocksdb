@@ -87,7 +87,7 @@ void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
  */
 void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle, jbyteArray jtarget,
-                                          jint /*jtarget_len*/) {
+                                          jint jtarget_len) {
   jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
   if (target == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -110,7 +110,7 @@ void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
                                                  jlong handle,
                                                  jbyteArray jtarget,
-                                                 jint /*jtarget_len*/) {
+                                                 jint jtarget_len) {
   jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
   if (target == nullptr) {
     // exception thrown: OutOfMemoryError

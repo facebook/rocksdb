@@ -17,10 +17,10 @@
  * Signature: (JIZD)J
  */
 jlong Java_org_rocksdb_LRUCache_newLRUCache(JNIEnv* /*env*/, jclass /*jcls*/,
-                                            jlong /*jcapacity*/,
-                                            jint /*jnum_shard_bits*/,
-                                            jboolean /*jstrict_capacity_limit*/,
-                                            jdouble /*jhigh_pri_pool_ratio*/) {
+                                            jlong jcapacity,
+                                            jint jnum_shard_bits,
+                                            jboolean jstrict_capacity_limit,
+                                            jdouble jhigh_pri_pool_ratio) {
   auto* sptr_lru_cache =
       new std::shared_ptr<rocksdb::Cache>(rocksdb::NewLRUCache(
           static_cast<size_t>(jcapacity), static_cast<int>(jnum_shard_bits),

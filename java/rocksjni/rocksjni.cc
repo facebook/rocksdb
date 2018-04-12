@@ -32,8 +32,8 @@
 jlong rocksdb_open_helper(
     JNIEnv* env, jlong jopt_handle, jstring jdb_path,
     std::function<rocksdb::Status(const rocksdb::Options&, const std::string&,
-                                  rocksdb::DB**)> /*open_fn*/
-) {
+                                  rocksdb::DB**)>
+        open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -91,8 +91,8 @@ jlongArray rocksdb_open_helper(
     std::function<rocksdb::Status(
         const rocksdb::DBOptions&, const std::string&,
         const std::vector<rocksdb::ColumnFamilyDescriptor>&,
-        std::vector<rocksdb::ColumnFamilyHandle*>*, rocksdb::DB**)> /*open_fn*/
-) {
+        std::vector<rocksdb::ColumnFamilyHandle*>*, rocksdb::DB**)>
+        open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -240,11 +240,11 @@ jobjectArray Java_org_rocksdb_RocksDB_listColumnFamilies(JNIEnv* env,
 /**
  * @return true if the put succeeded, false if a Java Exception was thrown
  */
-bool rocksdb_put_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                        const rocksdb::WriteOptions& /*write_options*/,
-                        rocksdb::ColumnFamilyHandle* /*cf_handle*/,
-                        jbyteArray jkey, jint jkey_off, jint jkey_len,
-                        jbyteArray jval, jint jval_off, jint jval_len) {
+bool rocksdb_put_helper(JNIEnv* env, rocksdb::DB* db,
+                        const rocksdb::WriteOptions& write_options,
+                        rocksdb::ColumnFamilyHandle* cf_handle, jbyteArray jkey,
+                        jint jkey_off, jint jkey_len, jbyteArray jval,
+                        jint jval_off, jint jval_len) {
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
@@ -415,9 +415,9 @@ void Java_org_rocksdb_RocksDB_write1(JNIEnv* env, jobject /*jdb*/,
 
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::KeyMayExist
-jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                              const rocksdb::ReadOptions& /*read_opt*/,
-                              rocksdb::ColumnFamilyHandle* /*cf_handle*/,
+jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
+                              const rocksdb::ReadOptions& read_opt,
+                              rocksdb::ColumnFamilyHandle* cf_handle,
                               jbyteArray jkey, jint jkey_off, jint jkey_len,
                               jobject jstring_builder, bool* has_exception) {
   jbyte* key = new jbyte[jkey_len];
@@ -542,10 +542,10 @@ Java_org_rocksdb_RocksDB_keyMayExist__JJ_3BIIJLjava_lang_StringBuilder_2(
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Get
 
-jbyteArray rocksdb_get_helper(
-    JNIEnv* env, rocksdb::DB* /*db*/, const rocksdb::ReadOptions& /*read_opt*/,
-    rocksdb::ColumnFamilyHandle* /*column_family_handle*/, jbyteArray jkey,
-    jint jkey_off, jint jkey_len) {
+jbyteArray rocksdb_get_helper(JNIEnv* env, rocksdb::DB* db,
+                              const rocksdb::ReadOptions& read_opt,
+                              rocksdb::ColumnFamilyHandle* column_family_handle,
+                              jbyteArray jkey, jint jkey_off, jint jkey_len) {
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
@@ -658,9 +658,9 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
   }
 }
 
-jint rocksdb_get_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                        const rocksdb::ReadOptions& /*read_options*/,
-                        rocksdb::ColumnFamilyHandle* /*column_family_handle*/,
+jint rocksdb_get_helper(JNIEnv* env, rocksdb::DB* db,
+                        const rocksdb::ReadOptions& read_options,
+                        rocksdb::ColumnFamilyHandle* column_family_handle,
                         jbyteArray jkey, jint jkey_off, jint jkey_len,
                         jbyteArray jval, jint jval_off, jint jval_len,
                         bool* has_exception) {
@@ -725,7 +725,7 @@ jint rocksdb_get_helper(JNIEnv* env, rocksdb::DB* /*db*/,
 }
 
 inline void multi_get_helper_release_keys(
-    JNIEnv* env, std::vector<std::pair<jbyte*, jobject>>& /*keys_to_free*/) {
+    JNIEnv* env, std::vector<std::pair<jbyte*, jobject>>& keys_to_free) {
   auto end = keys_to_free.end();
   for (auto it = keys_to_free.begin(); it != end; ++it) {
     delete[] it->first;
@@ -739,8 +739,8 @@ inline void multi_get_helper_release_keys(
  *
  * @return byte[][] of values or nullptr if an exception occurs
  */
-jobjectArray multi_get_helper(JNIEnv* env, jobject /*jdb*/, rocksdb::DB* /*db*/,
-                              const rocksdb::ReadOptions& /*rOpt*/,
+jobjectArray multi_get_helper(JNIEnv* env, jobject /*jdb*/, rocksdb::DB* db,
+                              const rocksdb::ReadOptions& rOpt,
                               jobjectArray jkeys, jintArray jkey_offs,
                               jintArray jkey_lens,
                               jlongArray jcolumn_family_handles) {
@@ -1023,9 +1023,9 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
 /**
  * @return true if the delete succeeded, false if a Java Exception was thrown
  */
-bool rocksdb_delete_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                           const rocksdb::WriteOptions& /*write_options*/,
-                           rocksdb::ColumnFamilyHandle* /*cf_handle*/,
+bool rocksdb_delete_helper(JNIEnv* env, rocksdb::DB* db,
+                           const rocksdb::WriteOptions& write_options,
+                           rocksdb::ColumnFamilyHandle* cf_handle,
                            jbyteArray jkey, jint jkey_off, jint jkey_len) {
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
@@ -1136,11 +1136,10 @@ void Java_org_rocksdb_RocksDB_delete__JJ_3BIIJ(
  * @return true if the single delete succeeded, false if a Java Exception
  *     was thrown
  */
-bool rocksdb_single_delete_helper(
-    JNIEnv* env, rocksdb::DB* /*db*/,
-    const rocksdb::WriteOptions& /*write_options*/,
-    rocksdb::ColumnFamilyHandle* /*cf_handle*/, jbyteArray jkey,
-    jint /*jkey_len*/) {
+bool rocksdb_single_delete_helper(JNIEnv* env, rocksdb::DB* db,
+                                  const rocksdb::WriteOptions& write_options,
+                                  rocksdb::ColumnFamilyHandle* cf_handle,
+                                  jbyteArray jkey, jint jkey_len) {
   jbyte* key = env->GetByteArrayElements(jkey, nullptr);
   if (key == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1252,9 +1251,9 @@ void Java_org_rocksdb_RocksDB_singleDelete__JJ_3BIJ(
  * @return true if the delete range succeeded, false if a Java Exception
  *     was thrown
  */
-bool rocksdb_delete_range_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                                 const rocksdb::WriteOptions& /*write_options*/,
-                                 rocksdb::ColumnFamilyHandle* /*cf_handle*/,
+bool rocksdb_delete_range_helper(JNIEnv* env, rocksdb::DB* db,
+                                 const rocksdb::WriteOptions& write_options,
+                                 rocksdb::ColumnFamilyHandle* cf_handle,
                                  jbyteArray jbegin_key, jint jbegin_key_off,
                                  jint jbegin_key_len, jbyteArray jend_key,
                                  jint jend_key_off, jint jend_key_len) {
@@ -1381,9 +1380,9 @@ void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BIIJ(
 /**
  * @return true if the merge succeeded, false if a Java Exception was thrown
  */
-bool rocksdb_merge_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                          const rocksdb::WriteOptions& /*write_options*/,
-                          rocksdb::ColumnFamilyHandle* /*cf_handle*/,
+bool rocksdb_merge_helper(JNIEnv* env, rocksdb::DB* db,
+                          const rocksdb::WriteOptions& write_options,
+                          rocksdb::ColumnFamilyHandle* cf_handle,
                           jbyteArray jkey, jint jkey_off, jint jkey_len,
                           jbyteArray jval, jint jval_off, jint jval_len) {
   jbyte* key = new jbyte[jkey_len];
@@ -1519,9 +1518,9 @@ void Java_org_rocksdb_RocksDB_disposeInternal(JNIEnv* /*env*/,
   delete db;
 }
 
-jlong rocksdb_iterator_helper(rocksdb::DB* /*db*/,
-                              rocksdb::ReadOptions /*read_options*/,
-                              rocksdb::ColumnFamilyHandle* /*cf_handle*/) {
+jlong rocksdb_iterator_helper(rocksdb::DB* db,
+                              rocksdb::ReadOptions read_options,
+                              rocksdb::ColumnFamilyHandle* cf_handle) {
   rocksdb::Iterator* iterator = nullptr;
   if (cf_handle != nullptr) {
     iterator = db->NewIterator(read_options, cf_handle);
@@ -1738,7 +1737,7 @@ void Java_org_rocksdb_RocksDB_releaseSnapshot(JNIEnv* /*env*/, jobject /*jdb*/,
  */
 jstring Java_org_rocksdb_RocksDB_getProperty0__JLjava_lang_String_2I(
     JNIEnv* env, jobject /*jdb*/, jlong db_handle, jstring jproperty,
-    jint /*jproperty_len*/) {
+    jint jproperty_len) {
   const char* property = env->GetStringUTFChars(jproperty, nullptr);
   if (property == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1766,7 +1765,7 @@ jstring Java_org_rocksdb_RocksDB_getProperty0__JLjava_lang_String_2I(
  */
 jstring Java_org_rocksdb_RocksDB_getProperty0__JJLjava_lang_String_2I(
     JNIEnv* env, jobject /*jdb*/, jlong db_handle, jlong jcf_handle,
-    jstring jproperty, jint /*jproperty_len*/) {
+    jstring jproperty, jint jproperty_len) {
   const char* property = env->GetStringUTFChars(jproperty, nullptr);
   if (property == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1795,7 +1794,7 @@ jstring Java_org_rocksdb_RocksDB_getProperty0__JJLjava_lang_String_2I(
  */
 jlong Java_org_rocksdb_RocksDB_getLongProperty__JLjava_lang_String_2I(
     JNIEnv* env, jobject /*jdb*/, jlong db_handle, jstring jproperty,
-    jint /*jproperty_len*/) {
+    jint jproperty_len) {
   const char* property = env->GetStringUTFChars(jproperty, nullptr);
   if (property == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1823,7 +1822,7 @@ jlong Java_org_rocksdb_RocksDB_getLongProperty__JLjava_lang_String_2I(
  */
 jlong Java_org_rocksdb_RocksDB_getLongProperty__JJLjava_lang_String_2I(
     JNIEnv* env, jobject /*jdb*/, jlong db_handle, jlong jcf_handle,
-    jstring jproperty, jint /*jproperty_len*/) {
+    jstring jproperty, jint jproperty_len) {
   const char* property = env->GetStringUTFChars(jproperty, nullptr);
   if (property == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1848,10 +1847,9 @@ jlong Java_org_rocksdb_RocksDB_getLongProperty__JJLjava_lang_String_2I(
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Flush
 
-void rocksdb_flush_helper(
-    JNIEnv* env, rocksdb::DB* /*db*/,
-    const rocksdb::FlushOptions& /*flush_options*/,
-    rocksdb::ColumnFamilyHandle* /*column_family_handle*/) {
+void rocksdb_flush_helper(JNIEnv* env, rocksdb::DB* db,
+                          const rocksdb::FlushOptions& flush_options,
+                          rocksdb::ColumnFamilyHandle* column_family_handle) {
   rocksdb::Status s;
   if (column_family_handle != nullptr) {
     s = db->Flush(flush_options, column_family_handle);
@@ -1895,8 +1893,8 @@ void Java_org_rocksdb_RocksDB_flush__JJJ(JNIEnv* env, jobject /*jdb*/,
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::CompactRange - Full
 
-void rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                                 rocksdb::ColumnFamilyHandle* /*cf_handle*/,
+void rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
+                                 rocksdb::ColumnFamilyHandle* cf_handle,
                                  jboolean jreduce_level, jint jtarget_level,
                                  jint jtarget_path_id) {
   rocksdb::Status s;
@@ -1953,8 +1951,8 @@ void Java_org_rocksdb_RocksDB_compactRange__JZIIJ(
  * @return true if the compact range succeeded, false if a Java Exception
  *     was thrown
  */
-bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* /*db*/,
-                                 rocksdb::ColumnFamilyHandle* /*cf_handle*/,
+bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
+                                 rocksdb::ColumnFamilyHandle* cf_handle,
                                  jbyteArray jbegin, jint jbegin_len,
                                  jbyteArray jend, jint jend_len,
                                  jboolean jreduce_level, jint jtarget_level,

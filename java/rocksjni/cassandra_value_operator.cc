@@ -26,8 +26,8 @@
  * Signature: (II)J
  */
 jlong Java_org_rocksdb_CassandraValueMergeOperator_newSharedCassandraValueMergeOperator(
-    JNIEnv* /*env*/, jclass /*jclazz*/, jint /*gcGracePeriodInSeconds*/,
-    jint /*operands_limit*/) {
+    JNIEnv* /*env*/, jclass /*jclazz*/, jint gcGracePeriodInSeconds,
+    jint operands_limit) {
   auto* op = new std::shared_ptr<rocksdb::MergeOperator>(
       new rocksdb::cassandra::CassandraValueMergeOperator(
           gcGracePeriodInSeconds, operands_limit));
