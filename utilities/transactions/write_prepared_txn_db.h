@@ -161,6 +161,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // should check delayed_prepared_ first before applying this optimization.
     // TODO(myabandeh): include delayed_prepared_ in min_uncommitted
     if (prep_seq < min_uncommitted) {
+      ROCKS_LOG_DETAILS(info_log_,
+                        "IsInSnapshot %" PRIu64 " in %" PRIu64
+                        " returns %" PRId32
+                        " because of min_uncommitted %" PRIu64,
+                        prep_seq, snapshot_seq, 1, min_uncommitted);
       return true;
     }
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
@@ -242,15 +247,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add the transaction with prepare sequence seq to the prepared list
   void AddPrepared(uint64_t seq);
+  // Remove the transaction with prepare sequence seq from the prepared list
+  void RemovePrepared(const uint64_t seq, const size_t batch_cnt = 1);
   // Rollback a prepared txn identified with prep_seq. rollback_seq is the seq
   // with which the additional data is written to cancel the txn effect. It can
   // be used to identify the snapshots that overlap with the rolled back txn.
   void RollbackPrepared(uint64_t prep_seq, uint64_t rollback_seq);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
-  // commit_seq to the commit map. prepare_skipped is set if the prepare phase
-  // is skipped for this commit. loop_cnt is to detect infinite loops.
+  // commit_seq to the commit map. loop_cnt is to detect infinite loops.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
-                    bool prepare_skipped = false, uint8_t loop_cnt = 0);
+                    uint8_t loop_cnt = 0);
 
   struct CommitEntry {
     uint64_t prep_seq;
@@ -492,9 +498,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
   }
   // Enhance the snapshot object by recording in it the smallest uncommitted seq
-  inline void EnhanceSnapshot(SnapshotImpl* snapshot) {
+  inline void EnhanceSnapshot(SnapshotImpl* snapshot,
+                              SequenceNumber min_uncommitted) {
     assert(snapshot);
-    snapshot->min_uncommitted_ = WritePreparedTxnDB::SmallestUnCommittedSeq();
+    snapshot->min_uncommitted_ = min_uncommitted;
   }
 
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
@@ -648,14 +655,12 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                              SequenceNumber prep_seq,
                                              size_t prep_batch_cnt,
                                              size_t data_batch_cnt = 0,
-                                             bool prep_heap_skipped = false,
                                              bool publish_seq = true)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
         prep_batch_cnt_(prep_batch_cnt),
         data_batch_cnt_(data_batch_cnt),
-        prep_heap_skipped_(prep_heap_skipped),
         includes_data_(data_batch_cnt_ > 0),
         publish_seq_(publish_seq) {
     assert((prep_batch_cnt_ > 0) != (prep_seq == kMaxSequenceNumber));  // xor
@@ -670,18 +675,17 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                          : commit_seq + data_batch_cnt_ - 1;
     if (prep_seq_ != kMaxSequenceNumber) {
       for (size_t i = 0; i < prep_batch_cnt_; i++) {
-        db_->AddCommitted(prep_seq_ + i, last_commit_seq, prep_heap_skipped_);
+        db_->AddCommitted(prep_seq_ + i, last_commit_seq);
       }
     }  // else there was no prepare phase
     if (includes_data_) {
       assert(data_batch_cnt_);
       // Commit the data that is accompanied with the commit request
-      const bool PREPARE_SKIPPED = true;
       for (size_t i = 0; i < data_batch_cnt_; i++) {
         // For commit seq of each batch use the commit seq of the last batch.
         // This would make debugging easier by having all the batches having
         // the same sequence number.
-        db_->AddCommitted(commit_seq + i, last_commit_seq, PREPARE_SKIPPED);
+        db_->AddCommitted(commit_seq + i, last_commit_seq);
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues && publish_seq_) {
@@ -704,9 +708,6 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   SequenceNumber prep_seq_;
   size_t prep_batch_cnt_;
   size_t data_batch_cnt_;
-  // An optimization that indicates that there is no need to update the prepare
-  // heap since the prepare sequence number was not added to it.
-  bool prep_heap_skipped_;
   // Either because it is commit without prepare or it has a
   // CommitTimeWriteBatch
   bool includes_data_;
