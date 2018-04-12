@@ -689,7 +689,7 @@ TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
   DestroyAndReopen(options);
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "ExternalSstFileIngestionJob::Prepare:FileAdded", [&](void* arg) {
+      "ExternalSstFileIngestionJob::Prepare:FileAdded", [&](void* /* arg */) {
         ASSERT_OK(Put("aaa", "bbb"));
         ASSERT_OK(Flush());
         ASSERT_OK(Put("aaa", "xxx"));
