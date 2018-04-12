@@ -351,7 +351,6 @@ def whitebox_crash_main(args):
 
         if (errorcount > 0):
             print "TEST FAILED. Output has 'error'!!!\n"
-            print stdoutdata
             sys.exit(2)
         if (stdoutdata.find('fail') >= 0):
             print "TEST FAILED. Output has 'fail'!!!\n"

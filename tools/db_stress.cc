@@ -2008,6 +2008,8 @@ class StressTest {
                 if (s.ok()) {
                   s = CommitTxn(txn);
                 }
+                else printf("Name: %s Status: %s\n", (txn)->GetName().c_str(),
+                   s.ToString().c_str());
               }
 #endif
             }
@@ -2023,6 +2025,8 @@ class StressTest {
                 if (s.ok()) {
                   s = CommitTxn(txn);
                 }
+                else printf("Name: %s Status: %s\n", (txn)->GetName().c_str(),
+                   s.ToString().c_str());
               }
 #endif
             }
@@ -2576,10 +2580,19 @@ class StressTest {
         Random rand(FLAGS_seed);
         for (auto txn: trans) {
           if (rand.OneIn(2)) {
-            txn->Commit();
+            s = txn->Commit();
+            assert(s.ok());
           } else {
-            txn->Rollback();
+            s = txn->Rollback();
+            assert(s.ok());
           }
+          delete txn;
+        }
+        trans.clear();
+        txn_db_->GetAllPreparedTransactions(&trans);
+        for (auto txn: trans) {
+          assert(0);
+          txn->Commit();
         }
 #endif
       }
