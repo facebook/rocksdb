@@ -46,11 +46,26 @@ struct IngestedFileInfo {
   // FileDescriptor for the file inside the DB
   FileDescriptor fd;
   // file path that we picked for file inside the DB
-  std::string internal_file_path = "";
+  std::string internal_file_path;
   // Global sequence number that we picked for the file inside the DB
-  SequenceNumber assigned_seqno = 0;
+  SequenceNumber assigned_seqno;
   // Level inside the DB we picked for the external file.
-  int picked_level = 0;
+  int picked_level;
+  // Whether to copy or link the external sst file. copy_file is false if
+  // ingestion_options.move_files is true and underlying FS supports link
+  // operation.
+  bool copy_file;
+
+  explicit IngestedFileInfo()
+      : original_seqno(0ULL),
+        global_seqno_offset(0ULL),
+        file_size(0ULL),
+        num_entries(0ULL),
+        cf_id(0),
+        version(0),
+        picked_level(0),
+        // since ingestion_options.move_files is false by default
+        copy_file(true) {}
 
   InternalKey smallest_internal_key() const {
     return InternalKey(smallest_user_key, assigned_seqno,
