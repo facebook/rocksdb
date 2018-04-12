@@ -3016,7 +3016,7 @@ jboolean Java_org_rocksdb_Options_forceConsistencyChecks(JNIEnv* /*env*/,
  * Signature: ()J
  */
 jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
-    JNIEnv* /*env*/, jclass jcls) {
+    JNIEnv* /*env*/, jclass /*jcls*/) {
   auto* op = new rocksdb::ColumnFamilyOptions();
   return reinterpret_cast<jlong>(op);
 }
@@ -3027,7 +3027,7 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_ColumnFamilyOptions_copyColumnFamilyOptions(
-    JNIEnv* /*env*/, jclass jcls, jlong jhandle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto new_opt = new rocksdb::ColumnFamilyOptions(
       *(reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)));
   return reinterpret_cast<jlong>(new_opt);
@@ -4378,7 +4378,7 @@ jboolean Java_org_rocksdb_ColumnFamilyOptions_forceConsistencyChecks(
  * Method:    newDBOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* /*env*/, jclass jcls) {
+jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* /*env*/, jclass /*jcls*/) {
   auto* dbop = new rocksdb::DBOptions();
   return reinterpret_cast<jlong>(dbop);
 }
@@ -4388,7 +4388,7 @@ jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* /*env*/, jclass jcls) {
  * Method:    copyDBOptions
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_DBOptions_copyDBOptions(JNIEnv* /*env*/, jclass jcls,
+jlong Java_org_rocksdb_DBOptions_copyDBOptions(JNIEnv* /*env*/, jclass /*jcls*/,
                                                jlong jhandle) {
   auto new_opt =
       new rocksdb::DBOptions(*(reinterpret_cast<rocksdb::DBOptions*>(jhandle)));

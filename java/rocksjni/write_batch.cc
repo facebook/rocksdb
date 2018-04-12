@@ -389,7 +389,7 @@ void Java_org_rocksdb_WriteBatch_putLogData(JNIEnv* env, jobject jobj,
  * Method:    iterate
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_WriteBatch_iterate(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_WriteBatch_iterate(JNIEnv* env, jobject /*jobj*/,
                                          jlong jwb_handle,
                                          jlong handlerHandle) {
   auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
