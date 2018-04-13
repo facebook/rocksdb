@@ -303,7 +303,7 @@ TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -410,7 +410,7 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
@@ -473,7 +473,7 @@ TEST_F(DeleteSchedulerTest, DestructorWithNonEmptyQueue) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1;  // 1 Byte / sec
@@ -500,10 +500,10 @@ TEST_F(DeleteSchedulerTest, DISABLED_DynamicRateLimiting1) {
   int fg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteFile",
-      [&](void* arg) { fg_delete_file++; });
+      [&](void* /*arg*/) { fg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
@@ -582,9 +582,9 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   int fg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteScheduler::DeleteFile", [&](void* arg) { fg_delete_file++; });
+      "DeleteScheduler::DeleteFile", [&](void* /*arg*/) { fg_delete_file++; });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 

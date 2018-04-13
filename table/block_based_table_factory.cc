@@ -95,12 +95,14 @@ Status BlockBasedTableFactory::SanitizeOptions(
     const DBOptions& /*db_opts*/, const ColumnFamilyOptions& cf_opts) const {
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
-    return Status::InvalidArgument("Hash index is specified for block-based "
+    return Status::InvalidArgument(
+        "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
   }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
-    return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
+    return Status::InvalidArgument(
+        "Enable cache_index_and_filter_blocks, "
         ", but block cache is disabled");
   }
   if (table_options_.pin_l0_filter_and_index_blocks_in_cache &&
@@ -115,7 +117,8 @@ Status BlockBasedTableFactory::SanitizeOptions(
         "include/rocksdb/table.h for more info");
   }
   if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
-    return Status::InvalidArgument("Enable block_align, but compression "
+    return Status::InvalidArgument(
+        "Enable block_align, but compression "
         "enabled");
   }
   if (table_options_.block_align &&
@@ -153,8 +156,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  hash_index_allow_collision: %d\n",
            table_options_.hash_index_allow_collision);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  checksum: %d\n",
-           table_options_.checksum);
+  snprintf(buffer, kBufferSize, "  checksum: %d\n", table_options_.checksum);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  no_block_cache: %d\n",
            table_options_.no_block_cache);
@@ -216,8 +218,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.use_delta_encoding);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  filter_policy: %s\n",
-           table_options_.filter_policy == nullptr ?
-             "nullptr" : table_options_.filter_policy->Name());
+           table_options_.filter_policy == nullptr
+               ? "nullptr"
+               : table_options_.filter_policy->Name());
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
@@ -284,7 +287,7 @@ Status BlockBasedTableFactory::GetOptionString(
 }
 #else
 Status BlockBasedTableFactory::GetOptionString(
-    std::string* opt_string, const std::string& delimiter) const {
+    std::string* /*opt_string*/, const std::string& /*delimiter*/) const {
   return Status::OK();
 }
 #endif  // !ROCKSDB_LITE
@@ -318,8 +321,8 @@ std::string ParseBlockBasedTableOption(const std::string& name,
         cache = NewLRUCache(ParseSizeT(value));
       } else {
         LRUCacheOptions cache_opts;
-        if(!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
-                              OptionType::kLRUCacheOptions, value)) {
+        if (!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
+                               OptionType::kLRUCacheOptions, value)) {
           return "Invalid cache options";
         }
         cache = NewLRUCache(cache_opts);

@@ -2246,7 +2246,7 @@ class StressTest {
     shared->SetVerificationFailure();
   }
 
-  bool VerifyValue(int cf, int64_t key, const ReadOptions& opts,
+  bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                    SharedState* shared, const std::string& value_from_db,
                    Status s, bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {

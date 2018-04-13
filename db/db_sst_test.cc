@@ -262,11 +262,11 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
   int files_deleted = 0;
   int files_moved = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::OnAddFile", [&](void* arg) { files_added++; });
+      "SstFileManagerImpl::OnAddFile", [&](void* /*arg*/) { files_added++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::OnDeleteFile", [&](void* arg) { files_deleted++; });
+      "SstFileManagerImpl::OnDeleteFile", [&](void* /*arg*/) { files_deleted++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::OnMoveFile", [&](void* arg) { files_moved++; });
+      "SstFileManagerImpl::OnMoveFile", [&](void* /*arg*/) { files_moved++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
@@ -439,12 +439,12 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   // The deletion scheduler sometimes skips marking file as trash according to
   // a heuristic. In that case the deletion will go through the below SyncPoint.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
@@ -514,7 +514,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* arg) { bg_delete_file++; });
+      [&](void* /*arg*/) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Status s;
@@ -588,13 +588,13 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
 
   int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* arg) {
+      "DBImpl::BackgroundCompaction():CancelledCompaction", [&](void* /*arg*/) {
         sfm->SetMaxAllowedSpaceUsage(0);
         ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
-      [&](void* arg) { completed_compactions++; });
+      [&](void* /*arg*/) { completed_compactions++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
@@ -685,7 +685,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   sfm->SetMaxAllowedSpaceUsage(0);
   int completed_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactFilesImpl:End", [&](void* arg) { completed_compactions++; });
+      "CompactFilesImpl:End", [&](void* /*arg*/) { completed_compactions++; });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   dbfull()->CompactFiles(rocksdb::CompactionOptions(), l0_files, 0);
@@ -733,7 +733,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached",
-      [&](void* arg) {
+      [&](void* /*arg*/) {
         bg_error_set = true;
         GetAllSSTFiles(&total_sst_files_size);
         reached_max_space_on_compaction++;

@@ -803,7 +803,7 @@ class Directory {
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+  virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
   }
 };

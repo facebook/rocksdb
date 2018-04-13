@@ -54,6 +54,9 @@ Status WritePreparedTxnDB::Initialize(
         : db_(db) {}
     virtual Status Callback(SequenceNumber commit_seq,
                             bool is_mem_disabled) override {
+#ifdef NDEBUG
+      (void)is_mem_disabled;
+#endif
       assert(!is_mem_disabled);
       db_->AddCommitted(commit_seq, commit_seq);
       return Status::OK();
