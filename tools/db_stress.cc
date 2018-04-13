@@ -791,18 +791,34 @@ class SharedState {
     // overwrite
 
     printf("Choosing random keys with no overwrite\n");
-    Random rnd(seed_);
-    size_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
-    for (auto& cf_ids : no_overwrite_ids_) {
-      for (size_t i = 0; i < num_no_overwrite_keys; i++) {
-        size_t rand_key;
-        do {
-          rand_key = rnd.Next() % max_key_;
-        } while (cf_ids.find(rand_key) != cf_ids.end());
-        cf_ids.insert(rand_key);
-      }
-      assert(cf_ids.size() == num_no_overwrite_keys);
+    Random64 rnd(seed_);
+    // Start with the identity permutation. Subsequent iterations of
+    // for loop below will start with perm of previous for loop
+    int64_t *permutation = new int64_t[max_key_];
+    for (int64_t i = 0; i < max_key_; i++) {
+      permutation[i] = i;
     }
+
+    for (auto& cf_ids : no_overwrite_ids_) {
+      // Now do the Knuth shuffle
+      int64_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
+      // Only need to figure out first num_no_overwrite_keys of permutation
+      for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+        int64_t rand_index = i + rnd.Next() % (max_key_ - 1 - i);
+        // Swap i and rand_index;
+        int64_t temp = permutation[i];
+        permutation[i] = permutation[rand_index];
+        permutation[rand_index] = temp;
+      }
+
+      // Now fill cf_ids with the first num_no_overwrite_keys of permutation
+      cf_ids.reserve(num_no_overwrite_keys);
+      for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+        cf_ids.insert(permutation[i]);
+      }
+      assert(cf_ids.size() == static_cast<size_t>(num_no_overwrite_keys));
+    }
+    delete permutation;
 
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
@@ -979,7 +995,7 @@ class SharedState {
   std::atomic<bool> verification_failure_;
 
   // Keys that should not be overwritten
-  std::vector<std::set<size_t> > no_overwrite_ids_;
+  std::vector<std::unordered_set<size_t> > no_overwrite_ids_;
 
   std::vector<std::vector<uint32_t>> values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
