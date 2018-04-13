@@ -1803,9 +1803,6 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 
 /*
  * Test and verify the functionality of ingestion_options.move_files.
- *
- * This test requires that sst_files_dir and database dir reside on the same
- * file system that supports hard link.
  */
 TEST_F(ExternalSSTFileTest, LinkExternalSst) {
   Options options = CurrentOptions();
