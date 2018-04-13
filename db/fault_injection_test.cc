@@ -456,10 +456,10 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
 
   std::atomic<bool> opened(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::Open:Opened", [&](void* arg) { opened.store(true); });
+      "DBImpl::Open:Opened", [&](void* /*arg*/) { opened.store(true); });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkCompaction",
-      [&](void* arg) { ASSERT_TRUE(opened.load()); });
+      [&](void* /*arg*/) { ASSERT_TRUE(opened.load()); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(OpenDB());
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));

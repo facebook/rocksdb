@@ -799,6 +799,8 @@ class PosixEnv : public Env {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
 #ifdef OS_LINUX
     thread_pools_[pool].LowerIOPriority();
+#else
+    (void)pool;
 #endif
   }
 
@@ -876,6 +878,7 @@ class PosixEnv : public Env {
         return false;
     }
 #else
+    (void)path;
     return false;
 #endif
   }

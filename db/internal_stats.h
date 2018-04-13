@@ -580,7 +580,7 @@ class InternalStats {
     INTERNAL_DB_STATS_ENUM_MAX,
   };
 
-  InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd) {}
+  InternalStats(int /*num_levels*/, Env* /*env*/, ColumnFamilyData* /*cfd*/) {}
 
   struct CompactionStats {
     uint64_t micros;
@@ -597,48 +597,48 @@ class InternalStats {
 
     explicit CompactionStats() {}
 
-    explicit CompactionStats(CompactionReason reason, int c) {}
+    explicit CompactionStats(CompactionReason /*reason*/, int /*c*/) {}
 
-    explicit CompactionStats(const CompactionStats& c) {}
+    explicit CompactionStats(const CompactionStats& /*c*/) {}
 
-    void Add(const CompactionStats& c) {}
+    void Add(const CompactionStats& /*c*/) {}
 
-    void Subtract(const CompactionStats& c) {}
+    void Subtract(const CompactionStats& /*c*/) {}
   };
 
-  void AddCompactionStats(int level, const CompactionStats& stats) {}
+  void AddCompactionStats(int /*level*/, const CompactionStats& /*stats*/) {}
 
-  void IncBytesMoved(int level, uint64_t amount) {}
+  void IncBytesMoved(int /*level*/, uint64_t /*amount*/) {}
 
-  void AddCFStats(InternalCFStatsType type, uint64_t value) {}
+  void AddCFStats(InternalCFStatsType /*type*/, uint64_t /*value*/) {}
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value,
-                  bool concurrent = false) {}
+  void AddDBStats(InternalDBStatsType /*type*/, uint64_t /*value*/,
+                  bool /*concurrent */ = false) {}
 
-  HistogramImpl* GetFileReadHist(int level) { return nullptr; }
+  HistogramImpl* GetFileReadHist(int /*level*/) { return nullptr; }
 
   uint64_t GetBackgroundErrorCount() const { return 0; }
 
   uint64_t BumpAndGetBackgroundErrorCount() { return 0; }
 
-  bool GetStringProperty(const DBPropertyInfo& property_info,
-                         const Slice& property, std::string* value) {
+  bool GetStringProperty(const DBPropertyInfo& /*property_info*/,
+                         const Slice& /*property*/, std::string* /*value*/) {
     return false;
   }
 
-  bool GetMapProperty(const DBPropertyInfo& property_info,
-                      const Slice& property,
-                      std::map<std::string, std::string>* value) {
+  bool GetMapProperty(const DBPropertyInfo& /*property_info*/,
+                      const Slice& /*property*/,
+                      std::map<std::string, std::string>* /*value*/) {
     return false;
   }
 
-  bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
-                      DBImpl* db) const {
+  bool GetIntProperty(const DBPropertyInfo& /*property_info*/, uint64_t* /*value*/,
+                      DBImpl* /*db*/) const {
     return false;
   }
 
-  bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
-                                Version* version, uint64_t* value) const {
+  bool GetIntPropertyOutOfMutex(const DBPropertyInfo& /*property_info*/,
+                                Version* /*version*/, uint64_t* /*value*/) const {
     return false;
   }
 };

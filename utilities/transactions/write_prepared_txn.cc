@@ -176,6 +176,9 @@ Status WritePreparedTxn::CommitInternal() {
     explicit PublishSeqPreReleaseCallback(DBImpl* db_impl)
         : db_impl_(db_impl) {}
     virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) override {
+#ifdef NDEBUG
+      (void)is_mem_disabled;
+#endif
       assert(is_mem_disabled);
       assert(db_impl_->immutable_db_options().two_write_queues);
       db_impl_->SetLastPublishedSequence(seq);

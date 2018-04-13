@@ -85,6 +85,7 @@ Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
   *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
 #else
+  (void)desc;
   return Status::NotSupported();
 #endif  // !ROCKSDB_LITE
 }

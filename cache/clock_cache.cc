@@ -13,8 +13,8 @@
 
 namespace rocksdb {
 
-std::shared_ptr<Cache> NewClockCache(size_t capacity, int num_shard_bits,
-                                     bool strict_capacity_limit) {
+std::shared_ptr<Cache> NewClockCache(size_t /*capacity*/, int /*num_shard_bits*/,
+                                     bool /*strict_capacity_limit*/) {
   // Clock cache not supported.
   return nullptr;
 }

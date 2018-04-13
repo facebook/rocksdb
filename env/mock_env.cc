@@ -72,9 +72,7 @@ class MemFile {
     }
   }
 
-  uint64_t Size() const {
-    return size_;
-  }
+  uint64_t Size() const { return size_; }
 
   void Truncate(size_t size) {
     MutexLock lock(&mutex_);
@@ -143,9 +141,7 @@ class MemFile {
     return Status::OK();
   }
 
-  uint64_t ModifiedTime() const {
-    return modified_time_;
-  }
+  uint64_t ModifiedTime() const { return modified_time_; }
 
  private:
   uint64_t Now() {
@@ -156,9 +152,7 @@ class MemFile {
   }
 
   // Private since only Unref() should be used to delete it.
-  ~MemFile() {
-    assert(refs_ == 0);
-  }
+  ~MemFile() { assert(refs_ == 0); }
 
   // No copying allowed.
   MemFile(const MemFile&);
@@ -189,9 +183,7 @@ class MockSequentialFile : public SequentialFile {
     file_->Ref();
   }
 
-  ~MockSequentialFile() {
-    file_->Unref();
-  }
+  ~MockSequentialFile() { file_->Unref(); }
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override {
     Status s = file_->Read(pos_, n, result, scratch);
@@ -220,13 +212,9 @@ class MockSequentialFile : public SequentialFile {
 
 class MockRandomAccessFile : public RandomAccessFile {
  public:
-  explicit MockRandomAccessFile(MemFile* file) : file_(file) {
-    file_->Ref();
-  }
+  explicit MockRandomAccessFile(MemFile* file) : file_(file) { file_->Ref(); }
 
-  ~MockRandomAccessFile() {
-    file_->Unref();
-  }
+  ~MockRandomAccessFile() { file_->Unref(); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
@@ -265,14 +253,11 @@ class MockRandomRWFile : public RandomRWFile {
 class MockWritableFile : public WritableFile {
  public:
   MockWritableFile(MemFile* file, RateLimiter* rate_limiter)
-    : file_(file),
-      rate_limiter_(rate_limiter) {
+      : file_(file), rate_limiter_(rate_limiter) {
     file_->Ref();
   }
 
-  ~MockWritableFile() {
-    file_->Unref();
-  }
+  ~MockWritableFile() { file_->Unref(); }
 
   virtual Status Append(const Slice& data) override {
     size_t bytes_written = 0;
@@ -301,8 +286,8 @@ class MockWritableFile : public WritableFile {
  private:
   inline size_t RequestToken(size_t bytes) {
     if (rate_limiter_ && io_priority_ < Env::IO_TOTAL) {
-      bytes = std::min(bytes,
-          static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
+      bytes = std::min(
+          bytes, static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
       rate_limiter_->Request(bytes, io_priority_);
     }
     return bytes;
@@ -319,12 +304,9 @@ class MockEnvDirectory : public Directory {
 
 class MockEnvFileLock : public FileLock {
  public:
-  explicit MockEnvFileLock(const std::string& fname)
-    : fname_(fname) {}
+  explicit MockEnvFileLock(const std::string& fname) : fname_(fname) {}
 
-  std::string FileName() const {
-    return fname_;
-  }
+  std::string FileName() const { return fname_; }
 
  private:
   const std::string fname_;
@@ -348,8 +330,7 @@ class TestMemLogger : public Logger {
         last_flush_micros_(0),
         env_(env),
         flush_pending_(false) {}
-  virtual ~TestMemLogger() {
-  }
+  virtual ~TestMemLogger() {}
 
   virtual void Flush() override {
     if (flush_pending_) {
@@ -384,15 +365,9 @@ class TestMemLogger : public Logger {
       struct tm* ret __attribute__((__unused__));
       ret = localtime_r(&seconds, &t);
       assert(ret);
-      p += snprintf(p, limit - p,
-                    "%04d/%02d/%02d-%02d:%02d:%02d.%06d ",
-                    t.tm_year + 1900,
-                    t.tm_mon + 1,
-                    t.tm_mday,
-                    t.tm_hour,
-                    t.tm_min,
-                    t.tm_sec,
-                    static_cast<int>(now_tv.tv_usec));
+      p += snprintf(p, limit - p, "%04d/%02d/%02d-%02d:%02d:%02d.%06d ",
+                    t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour,
+                    t.tm_min, t.tm_sec, static_cast<int>(now_tv.tv_usec));
 
       // Print the message
       if (p < limit) {
@@ -405,7 +380,7 @@ class TestMemLogger : public Logger {
       // Truncate to available space if necessary
       if (p >= limit) {
         if (iter == 0) {
-          continue;       // Try again with larger buffer
+          continue;  // Try again with larger buffer
         } else {
           p = limit - 1;
         }
@@ -422,8 +397,8 @@ class TestMemLogger : public Logger {
       file_->Append(Slice(base, write_size));
       flush_pending_ = true;
       log_size_ += write_size;
-      uint64_t now_micros = static_cast<uint64_t>(now_tv.tv_sec) * 1000000 +
-        now_tv.tv_usec;
+      uint64_t now_micros =
+          static_cast<uint64_t>(now_tv.tv_sec) * 1000000 + now_tv.tv_usec;
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
         flush_pending_ = false;
         last_flush_micros_ = now_micros;
@@ -447,7 +422,7 @@ MockEnv::~MockEnv() {
   }
 }
 
-  // Partial implementation of the Env interface.
+// Partial implementation of the Env interface.
 Status MockEnv::NewSequentialFile(const std::string& fname,
                                   unique_ptr<SequentialFile>* result,
                                   const EnvOptions& /*soptions*/) {
@@ -543,8 +518,7 @@ Status MockEnv::FileExists(const std::string& fname) {
   // Now also check if fn exists as a dir
   for (const auto& iter : file_map_) {
     const std::string& filename = iter.first;
-    if (filename.size() >= fn.size() + 1 &&
-        filename[fn.size()] == '/' &&
+    if (filename.size() >= fn.size() + 1 && filename[fn.size()] == '/' &&
         Slice(filename).starts_with(Slice(fn))) {
       return Status::OK();
     }
@@ -553,7 +527,7 @@ Status MockEnv::FileExists(const std::string& fname) {
 }
 
 Status MockEnv::GetChildren(const std::string& dir,
-                               std::vector<std::string>* result) {
+                            std::vector<std::string>* result) {
   auto d = NormalizePath(dir);
   bool found_dir = false;
   {
@@ -569,8 +543,8 @@ Status MockEnv::GetChildren(const std::string& dir,
         found_dir = true;
         size_t next_slash = filename.find('/', d.size() + 1);
         if (next_slash != std::string::npos) {
-          result->push_back(filename.substr(
-                d.size() + 1, next_slash - d.size() - 1));
+          result->push_back(
+              filename.substr(d.size() + 1, next_slash - d.size() - 1));
         } else {
           result->push_back(filename.substr(d.size() + 1));
         }
@@ -635,7 +609,7 @@ Status MockEnv::GetFileSize(const std::string& fname, uint64_t* file_size) {
 }
 
 Status MockEnv::GetFileModificationTime(const std::string& fname,
-                                           uint64_t* time) {
+                                        uint64_t* time) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
@@ -675,7 +649,7 @@ Status MockEnv::LinkFile(const std::string& src, const std::string& dest) {
 }
 
 Status MockEnv::NewLogger(const std::string& fname,
-                             shared_ptr<Logger>* result) {
+                          shared_ptr<Logger>* result) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
@@ -795,7 +769,7 @@ Env* NewMemEnv(Env* base_env) { return new MockEnv(base_env); }
 
 #else  // ROCKSDB_LITE
 
-Env* NewMemEnv(Env* base_env) { return nullptr; }
+Env* NewMemEnv(Env* /*base_env*/) { return nullptr; }
 
 #endif  // !ROCKSDB_LITE
 

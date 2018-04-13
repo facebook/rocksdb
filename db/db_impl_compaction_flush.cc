@@ -38,6 +38,9 @@ bool DBImpl::EnoughRoomForCompaction(
       *sfm_reserved_compact_space = true;
     }
   }
+#else
+  (void)inputs;
+  (void)sfm_reserved_compact_space;
 #endif  // ROCKSDB_LITE
   if (!enough_room) {
     // Just in case tests want to change the value of enough_room
@@ -121,8 +124,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
       snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      job_context, log_buffer, directories_.GetDbDir(),
-      GetDataDir(cfd, 0U),
+      job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats);
 
@@ -257,6 +259,12 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   mutex_.Lock();
 // no need to signal bg_cv_ as it will be signaled at the end of the
 // flush process.
+#else
+  (void)cfd;
+  (void)file_meta;
+  (void)mutable_cf_options;
+  (void)job_id;
+  (void)prop;
 #endif  // ROCKSDB_LITE
 }
 
@@ -302,6 +310,12 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
+#else
+  (void)cfd;
+  (void)file_meta;
+  (void)mutable_cf_options;
+  (void)job_id;
+  (void)prop;
 #endif  // ROCKSDB_LITE
 }
 
@@ -410,8 +424,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       final_output_level--;
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            final_output_level, options.target_path_id,
-                            begin, end, exclusive);
+                            final_output_level, options.target_path_id, begin,
+                            end, exclusive);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -484,14 +498,19 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   return s;
 }
 
-Status DBImpl::CompactFiles(
-    const CompactionOptions& compact_options,
-    ColumnFamilyHandle* column_family,
-    const std::vector<std::string>& input_file_names,
-    const int output_level, const int output_path_id,
-    std::vector<std::string>* const output_file_names) {
+Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
+                            ColumnFamilyHandle* column_family,
+                            const std::vector<std::string>& input_file_names,
+                            const int output_level, const int output_path_id,
+                            std::vector<std::string>* const output_file_names) {
 #ifdef ROCKSDB_LITE
-    // not supported in lite version
+  (void)compact_options;
+  (void)column_family;
+  (void)input_file_names;
+  (void)output_level;
+  (void)output_path_id;
+  (void)output_file_names;
+  // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
 #else
   if (column_family == nullptr) {
@@ -515,9 +534,9 @@ Status DBImpl::CompactFiles(
     // IngestExternalFile() calls to finish.
     WaitForIngestFile();
 
-    s = CompactFilesImpl(compact_options, cfd, sv->current,
-                         input_file_names, output_file_names, output_level,
-                         output_path_id, &job_context, &log_buffer);
+    s = CompactFilesImpl(compact_options, cfd, sv->current, input_file_names,
+                         output_file_names, output_level, output_path_id,
+                         &job_context, &log_buffer);
   }
   if (sv->Unref()) {
     mutex_.Lock();
@@ -560,9 +579,8 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
-    std::vector<std::string>* const output_file_names,
-    const int output_level, int output_path_id, JobContext* job_context,
-    LogBuffer* log_buffer) {
+    std::vector<std::string>* const output_file_names, const int output_level,
+    int output_path_id, JobContext* job_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -652,10 +670,9 @@ Status DBImpl::CompactFilesImpl(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-      GetDataDir(c->column_family_data(), c->output_path_id()),
-      stats_, &mutex_, &bg_error_, snapshot_seqs,
-      earliest_write_conflict_snapshot, snapshot_checker,
-      table_cache_, &event_logger_,
+      GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
+      &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+      snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
@@ -730,9 +747,10 @@ Status DBImpl::CompactFilesImpl(
 
   if (output_file_names != nullptr) {
     for (const auto newf : c->edit()->GetNewFiles()) {
-      (*output_file_names).push_back(TableFileName(
-              c->immutable_cf_options()->cf_paths, newf.second.fd.GetNumber(),
-              newf.second.fd.GetPathId()) );
+      (*output_file_names)
+          .push_back(TableFileName(c->immutable_cf_options()->cf_paths,
+                                   newf.second.fd.GetNumber(),
+                                   newf.second.fd.GetPathId()));
     }
   }
 
@@ -777,9 +795,8 @@ Status DBImpl::ContinueBackgroundWork() {
 }
 
 void DBImpl::NotifyOnCompactionCompleted(
-    ColumnFamilyData* cfd, Compaction *c, const Status &st,
-    const CompactionJobStats& compaction_job_stats,
-    const int job_id) {
+    ColumnFamilyData* cfd, Compaction* c, const Status& st,
+    const CompactionJobStats& compaction_job_stats, const int job_id) {
 #ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
@@ -821,9 +838,8 @@ void DBImpl::NotifyOnCompactionCompleted(
     }
     for (const auto newf : c->edit()->GetNewFiles()) {
       info.output_files.push_back(TableFileName(
-                                    c->immutable_cf_options()->cf_paths,
-                                    newf.second.fd.GetNumber(),
-                                    newf.second.fd.GetPathId()));
+          c->immutable_cf_options()->cf_paths, newf.second.fd.GetNumber(),
+          newf.second.fd.GetPathId()));
     }
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
@@ -833,6 +849,12 @@ void DBImpl::NotifyOnCompactionCompleted(
   current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
+#else
+  (void)cfd;
+  (void)c;
+  (void)st;
+  (void)compaction_job_stats;
+  (void)job_id;
 #endif  // ROCKSDB_LITE
 }
 
@@ -929,8 +951,9 @@ int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
 int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   InstrumentedMutexLock l(&mutex_);
-  return cfh->cfd()->GetSuperVersion()->
-      mutable_cf_options.level0_stop_writes_trigger;
+  return cfh->cfd()
+      ->GetSuperVersion()
+      ->mutable_cf_options.level0_stop_writes_trigger;
 }
 
 Status DBImpl::Flush(const FlushOptions& flush_options,
@@ -1033,11 +1056,11 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
         scheduled ||
         (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
-             ((compaction = manual.cfd->CompactRange(
-                  *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-                  manual.output_level, manual.output_path_id, manual.begin,
-                  manual.end, &manual.manual_end, &manual_conflict)) == nullptr &&
-         manual_conflict))) {
+         ((compaction = manual.cfd->CompactRange(
+               *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
+               manual.output_level, manual.output_path_id, manual.begin,
+               manual.end, &manual.manual_end, &manual_conflict)) == nullptr &&
+          manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
       assert(!exclusive || !manual_conflict);
@@ -1170,7 +1193,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   }
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
-    env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
+      env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
     unscheduled_flushes_--;
@@ -1426,7 +1449,7 @@ void DBImpl::BackgroundCallFlush() {
       // chew up resources for failed flushes for the duration of
       // the problem.
       uint64_t error_cnt =
-        default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
+          default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
@@ -1800,11 +1823,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                            f->largest, f->smallest_seqno, f->largest_seqno,
                            f->marked_for_compaction);
 
-        ROCKS_LOG_BUFFER(log_buffer, "[%s] Moving #%" PRIu64
-                                     " to level-%d %" PRIu64 " bytes\n",
-                         c->column_family_data()->GetName().c_str(),
-                         f->fd.GetNumber(), c->output_level(),
-                         f->fd.GetFileSize());
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
+            c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
+            c->output_level(), f->fd.GetFileSize());
         ++moved_files;
         moved_bytes += f->fd.GetFileSize();
       }
@@ -1861,7 +1884,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
                    this, &DBImpl::UnscheduleCallback);
   } else {
-    int output_level  __attribute__((__unused__));
+    int output_level __attribute__((__unused__));
     output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
@@ -1878,9 +1901,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-        GetDataDir(c->column_family_data(), c->output_path_id()),
-        stats_, &mutex_, &bg_error_,
-        snapshot_seqs, earliest_write_conflict_snapshot,
+        GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
+        &mutex_, &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
@@ -1913,9 +1935,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
 #endif  // ROCKSDB_LITE
 
-    NotifyOnCompactionCompleted(
-        c->column_family_data(), c.get(), status,
-        compaction_job_stats, job_context->job_id);
+    NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
   }
   // this will unref its input_version and column_family_data
   c.reset();
@@ -1973,7 +1994,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       m->begin = &m->tmp_storage;
       m->incomplete = true;
     }
-    m->in_progress = false; // not being processed anymore
+    m->in_progress = false;  // not being processed anymore
   }
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Finish");
   return status;
@@ -2100,8 +2121,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (sv_context->new_superversion == nullptr) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, &mutex_,
-                           mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
@@ -2110,10 +2130,9 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   MaybeScheduleFlushOrCompaction();
 
   // Update max_total_in_memory_state_
-  max_total_in_memory_state_ =
-      max_total_in_memory_state_ - old_memtable_size +
-      mutable_cf_options.write_buffer_size *
-      mutable_cf_options.max_write_buffer_number;
+  max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +
+                               mutable_cf_options.write_buffer_size *
+                                   mutable_cf_options.max_write_buffer_number;
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,

@@ -198,7 +198,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_TRUE(txn2);
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn", [&](void* arg) {
+      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn", [&](void* /*arg*/) {
         std::string key;
         uint32_t cf_id;
         std::vector<TransactionID> wait = txn2->GetWaitingTxns(&cf_id, &key);
@@ -425,7 +425,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   std::atomic<uint32_t> checkpoints(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
-      [&](void* arg) { checkpoints.fetch_add(1); });
+      [&](void* /*arg*/) { checkpoints.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // We want the leaf transactions to block and hold everyone back.
@@ -550,7 +550,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   std::atomic<uint32_t> checkpoints_shared(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
-      [&](void* arg) { checkpoints_shared.fetch_add(1); });
+      [&](void* /*arg*/) { checkpoints_shared.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<port::Thread> threads_shared;
@@ -622,7 +622,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
     std::atomic<uint32_t> checkpoints(0);
     rocksdb::SyncPoint::GetInstance()->SetCallBack(
         "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
-        [&](void* arg) { checkpoints.fetch_add(1); });
+        [&](void* /*arg*/) { checkpoints.fetch_add(1); });
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     // We want the last transaction in the chain to block and hold everyone
@@ -4764,7 +4764,7 @@ TEST_P(TransactionTest, ExpiredTransactionDataRace1) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"TransactionTest::ExpirableTransactionDataRace:1"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionTest::ExpirableTransactionDataRace:1", [&](void* arg) {
+      "TransactionTest::ExpirableTransactionDataRace:1", [&](void* /*arg*/) {
         WriteOptions write_options;
         TransactionOptions txn_options;
 

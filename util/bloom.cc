@@ -119,6 +119,9 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
 
 inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
     uint32_t num_lines, uint32_t total_bits) {
+#ifdef NDEBUG
+  (void)total_bits;
+#endif
   assert(num_lines > 0 && total_bits > 0);
 
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits

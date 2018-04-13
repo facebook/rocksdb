@@ -1691,7 +1691,7 @@ TEST_F(DBTest2, SyncPointMarker) {
   std::atomic<int> sync_point_called(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBTest2::MarkedPoint",
-      [&](void* arg) { sync_point_called.fetch_add(1); });
+      [&](void* /*arg*/) { sync_point_called.fetch_add(1); });
 
   // The first dependency enforces Marker can be loaded before MarkedPoint.
   // The second checks that thread 1's MarkedPoint should be disabled here.
@@ -1978,7 +1978,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   // can fit in L2, these 2 files will be moved to L2 and overlap with
   // the running compaction and break the LSM consistency.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Start", [&](void* arg) {
+      "CompactionJob::Run():Start", [&](void* /*arg*/) {
         ASSERT_OK(
             dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "2"},
                                   {"max_bytes_for_level_base", "1"}}));
@@ -2044,7 +2044,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   // the running compaction and break the LSM consistency.
   std::atomic<bool> flag(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Start", [&](void* arg) {
+      "CompactionJob::Run():Start", [&](void* /*arg*/) {
         if (flag.exchange(true)) {
           // We want to make sure to call this callback only once
           return;
@@ -2478,7 +2478,7 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::PurgeObsoleteFiles:Begin",
-      [&](void* arg) { env_->SleepForMicroseconds(1000000); });
+      [&](void* /*arg*/) { env_->SleepForMicroseconds(1000000); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Put("key", "val");
