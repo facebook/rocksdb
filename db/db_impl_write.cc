@@ -1368,6 +1368,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   }
 
   mutex_.Lock();
+
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
     assert(creating_new_log);
