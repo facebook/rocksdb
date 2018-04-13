@@ -16,8 +16,8 @@ namespace rocksdb {
 
 struct ReadOptions;
 class InternalKeyComparator;
-class Arena;
 
+// TwoLevelIteratorState expects iterators are not created using the arena
 struct TwoLevelIteratorState {
   TwoLevelIteratorState() {}
 
@@ -35,7 +35,7 @@ struct TwoLevelIteratorState {
 //
 // Uses a supplied function to convert an index_iter value into
 // an iterator over the contents of the corresponding block.
-// Note: this function expects first_level_iter was not created using arena
+// Note: this function expects first_level_iter was not created using the arena
 extern InternalIterator* NewTwoLevelIterator(
     TwoLevelIteratorState* state, InternalIterator* first_level_iter);
 
