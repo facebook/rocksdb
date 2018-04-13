@@ -168,8 +168,8 @@ class RocksLuaCompactionFilter : public rocksdb::CompactionFilter {
                       std::string* new_value,
                       bool* value_changed) const override;
   // Not yet supported
-  virtual bool FilterMergeOperand(int level, const Slice& key,
-                                  const Slice& operand) const override {
+  virtual bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
+                                  const Slice& /*operand*/) const override {
     return false;
   }
   virtual bool IgnoreSnapshots() const override;

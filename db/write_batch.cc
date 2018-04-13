@@ -1716,6 +1716,9 @@ Status WriteBatchInternal::InsertInto(
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt) {
+#ifdef NDEBUG
+  (void)batch_cnt;
+#endif
   assert(writer->ShouldWriteToMemtable());
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,

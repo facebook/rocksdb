@@ -484,7 +484,7 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
       // exception occurred
       return nullptr;
     }
-    
+
     jmethodID mid_code_value = rocksdb::CodeJni::getValueMethod(env);
     if (mid_code_value == nullptr) {
       // exception occurred
@@ -2583,7 +2583,7 @@ class WriteTypeJni : public JavaClass {
   static jobject LOG(JNIEnv* env) {
     return getEnum(env, "LOG");
   }
-  
+
   // Returns the equivalent org.rocksdb.WBWIRocksIterator.WriteType for the
   // provided C++ rocksdb::WriteType enum
   static jbyte toJavaWriteType(const rocksdb::WriteType& writeType) {
@@ -4506,7 +4506,7 @@ class JniUtil {
      */
     static std::unique_ptr<rocksdb::Status> kv_op(
         std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
-        JNIEnv* env, jobject jobj,
+        JNIEnv* env, jobject /*jobj*/,
         jbyteArray jkey, jint jkey_len,
         jbyteArray jvalue, jint jvalue_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
@@ -4548,7 +4548,7 @@ class JniUtil {
      */
     static std::unique_ptr<rocksdb::Status> k_op(
         std::function<rocksdb::Status(rocksdb::Slice)> op,
-        JNIEnv* env, jobject jobj,
+        JNIEnv* env, jobject /*jobj*/,
         jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
@@ -4796,7 +4796,7 @@ class HashMapJni : public JavaClass {
 
   /**
    * A function which maps a std::pair<K,V> to a std::pair<jobject, jobject>
-   * 
+   *
    * @return Either a pointer to a std::pair<jobject, jobject>, or nullptr
    *     if an error occurs during the mapping
    */

@@ -795,7 +795,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     uint64_t sequence_number = 0;
     s = checkpoint.CreateCustomCheckpoint(
         db->GetDBOptions(),
-        [&](const std::string& src_dirname, const std::string& fname,
+        [&](const std::string& /*src_dirname*/, const std::string& /*fname*/,
             FileType) {
           // custom checkpoint will switch to calling copy_file_cb after it sees
           // NotSupported returned from link_file_cb.

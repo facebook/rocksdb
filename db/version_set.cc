@@ -135,6 +135,9 @@ class FilePicker {
         file_indexer_(file_indexer),
         user_comparator_(user_comparator),
         internal_comparator_(internal_comparator) {
+#ifdef NDEBUG
+    (void)files;
+#endif
     // Setup member variables to search first level.
     search_ended_ = !PrepareNextLevel();
     if (!search_ended_) {
@@ -1764,6 +1767,8 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
     }
     assert(false);
   }
+#else
+  (void)info_log;
 #endif
   f->refs++;
   level_files->push_back(f);
@@ -3028,6 +3033,9 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
                                    VersionBuilder* builder, Version* /*v*/,
                                    VersionEdit* edit, InstrumentedMutex* mu) {
+#ifdef NDEBUG
+  (void)cfd;
+#endif
   mu->AssertHeld();
   assert(!edit->IsColumnFamilyManipulation());
 
@@ -4070,6 +4078,8 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
       }
     }
   }
+#else
+  (void)c;
 #endif
   return true;     // everything good
 }

@@ -697,7 +697,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++; });
+      [&](void* /*arg*/) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         non_trivial_move++;
@@ -769,7 +769,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   std::atomic<int> num_compactions_running(0);
   std::atomic<bool> has_parallel(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Start",
-                                                 [&](void* arg) {
+                                                 [&](void* /*arg*/) {
     if (num_compactions_running.fetch_add(1) > 0) {
       has_parallel.store(true);
       return;
@@ -784,7 +784,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():End",
-      [&](void* arg) { num_compactions_running.fetch_add(-1); });
+      [&](void* /*arg*/) { num_compactions_running.fetch_add(-1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   options = CurrentOptions(options);
@@ -1154,7 +1154,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++; });
+      [&](void* /*arg*/) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         non_trivial_move++;
@@ -1200,7 +1200,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   int32_t trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++; });
+      [&](void* /*arg*/) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         ASSERT_TRUE(arg != nullptr);
@@ -1698,7 +1698,7 @@ TEST_P(DBTestUniversalCompaction, FullCompactionInBottomPriThreadPool) {
     int num_bottom_pri_compactions = 0;
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::BGWorkBottomCompaction",
-        [&](void* arg) { ++num_bottom_pri_compactions; });
+        [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
     SyncPoint::GetInstance()->EnableProcessing();
 
     Random rnd(301);
@@ -1796,7 +1796,7 @@ TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
 
   std::atomic<int> num_compactions_attempted(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:Start", [&](void* arg) {
+      "DBImpl::BackgroundCompaction:Start", [&](void* /*arg*/) {
         ++num_compactions_attempted;
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
