@@ -312,6 +312,8 @@ int main(int argc, char** argv) {
 #include <cstdio>
 
 int main(int argc, char** argv) {
+  (void) argc;
+  (void) argv;
   printf("Skipped in RocksDBLite as utilities are not supported.\n");
   return 0;
 }

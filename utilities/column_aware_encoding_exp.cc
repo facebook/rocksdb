@@ -170,6 +170,8 @@ int main() {
 #endif  // GFLAGS
 #else
 int main(int argc, char** argv) {
+  (void) argc;
+  (void) argv;
   fprintf(stderr, "Not supported in lite mode.\n");
   return 1;
 }

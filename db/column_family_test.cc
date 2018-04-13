@@ -391,6 +391,9 @@ class ColumnFamilyTest : public testing::Test {
   void AssertFilesPerLevel(const std::string& value, int cf) {
 #ifndef ROCKSDB_LITE
     ASSERT_EQ(value, FilesPerLevel(cf));
+#else
+    (void) value;
+    (void) cf;
 #endif
   }
 
@@ -405,6 +408,8 @@ class ColumnFamilyTest : public testing::Test {
   void AssertCountLiveFiles(int expected_value) {
 #ifndef ROCKSDB_LITE
     ASSERT_EQ(expected_value, CountLiveFiles());
+#else
+    (void) expected_value;
 #endif
   }
 
@@ -453,6 +458,8 @@ class ColumnFamilyTest : public testing::Test {
   void AssertCountLiveLogFiles(int value) {
 #ifndef ROCKSDB_LITE  // GetSortedWalFiles is not supported
     ASSERT_EQ(value, CountLiveLogFiles());
+#else
+    (void) value;
 #endif  // !ROCKSDB_LITE
   }
 

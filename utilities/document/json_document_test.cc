@@ -334,6 +334,8 @@ int main(int argc, char** argv) {
 #include <stdio.h>
 
 int main(int argc, char** argv) {
+  (void) argc;
+  (void) argv;
   fprintf(stderr, "SKIPPED as JSONDocument is not supported in ROCKSDB_LITE\n");
   return 0;
 }

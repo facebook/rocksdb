@@ -1035,6 +1035,8 @@ int main(int argc, char** argv) {
 #include <stdio.h>
 
 int main(int argc, char** argv) {
+  (void) argc;
+  (void) argv;
   fprintf(stderr, "SKIPPED, not supported in ROCKSDB_LITE\n");
   return 0;
 }
@@ -1043,5 +1045,9 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) { return 0; }
+int main(int argc, char** argv) {
+  (void) argc;
+  (void) argv;
+  return 0;
+}
 #endif  // !defined(IOS_CROSS_COMPILE)
