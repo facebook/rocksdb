@@ -171,9 +171,7 @@ int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "PASSED\n");
 }
 #else
-int main(int argc, char** argv) {
-  (void) argc;
-  (void) argv;
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
   return 0;
 }

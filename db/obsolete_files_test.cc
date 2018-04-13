@@ -208,9 +208,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
-  (void) argc;
-  (void) argv;
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as DBImpl::DeleteFile is not supported in ROCKSDB_LITE\n");
   return 0;

@@ -25,8 +25,8 @@ class TwoLevelIterator : public InternalIterator {
                             InternalIterator* first_level_iter);
 
   virtual ~TwoLevelIterator() {
-    first_level_iter_.DeleteIter(false);
-    second_level_iter_.DeleteIter(false);
+    first_level_iter_.DeleteIter(false /* is_arena_mode */);
+    second_level_iter_.DeleteIter(false /* is_arena_mode */);
     delete state_;
   }
 

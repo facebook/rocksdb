@@ -36,9 +36,7 @@ int main(int argc, char** argv) {
 #else  // ROCKSDB_LITE
 #include <stdio.h>
 
-int main(int argc, char** argv) {
-  (void) argc;
-  (void) argv;
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as TimedEnv is not supported in ROCKSDB_LITE\n");
   return 0;
 }
