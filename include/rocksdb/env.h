@@ -383,6 +383,10 @@ class Env {
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
   virtual int GetBackgroundThreads(Priority pri = LOW) = 0;
 
+  virtual Status SetAllowNonOwnerAccess(bool /*allow_non_owner_access*/) {
+    return Status::NotSupported("Not supported.");
+  }
+
   // Enlarge number of background worker threads of a specific thread pool
   // for this environment if it is smaller than specified. 'LOW' is the default
   // pool.
@@ -1072,6 +1076,10 @@ class EnvWrapper : public Env {
   }
   int GetBackgroundThreads(Priority pri) override {
     return target_->GetBackgroundThreads(pri);
+  }
+
+  Status SetAllowNonOwnerAccess(bool allow_non_owner_access) override {
+    return target_->SetAllowNonOwnerAccess(allow_non_owner_access);
   }
 
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
