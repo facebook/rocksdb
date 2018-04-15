@@ -43,12 +43,12 @@ class Iterator : public Cleanable {
   // Valid() after this call iff the source is not empty.
   virtual void SeekToLast() = 0;
 
-  // Position at the first key in the source that at or past target
+  // Position at the first key in the source that at or past target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
   virtual void Seek(const Slice& target) = 0;
 
-  // Position at the last key in the source that at or before target
+  // Position at the last key in the source that at or before target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
   virtual void SeekForPrev(const Slice& target) = 0;
