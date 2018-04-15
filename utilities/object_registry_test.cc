@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
 #else  // ROCKSDB_LITE
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as EnvRegistry is not supported in ROCKSDB_LITE\n");
   return 0;
 }
