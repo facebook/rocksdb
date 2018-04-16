@@ -1021,9 +1021,7 @@ class DbStressListener : public EventListener {
       : db_name_(db_name), db_paths_(db_paths) {}
   virtual ~DbStressListener() {}
 #ifndef ROCKSDB_LITE
-  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
-    assert(db);
-    assert(db->GetName() == db_name_);
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
     // pretending doing some work here
@@ -1031,10 +1029,8 @@ class DbStressListener : public EventListener {
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 
-  virtual void OnCompactionCompleted(DB* db,
+  virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& ci) override {
-    assert(db);
-    assert(db->GetName() == db_name_);
     assert(IsValidColumnFamilyName(ci.cf_name));
     assert(ci.input_files.size() + ci.output_files.size() > 0U);
     for (const auto& file_path : ci.input_files) {
@@ -1086,6 +1082,8 @@ class DbStressListener : public EventListener {
       }
     }
     assert(false);
+#else
+    (void)file_dir;
 #endif  // !NDEBUG
   }
 
@@ -1096,6 +1094,8 @@ class DbStressListener : public EventListener {
     bool result = ParseFileName(file_name, &file_number, &file_type);
     assert(result);
     assert(file_type == kTableFile);
+#else
+    (void)file_name;
 #endif  // !NDEBUG
   }
 
@@ -1110,6 +1110,8 @@ class DbStressListener : public EventListener {
       }
       VerifyFileName(file_path.substr(pos));
     }
+#else
+    (void)file_path;
 #endif  // !NDEBUG
   }
 #endif  // !ROCKSDB_LITE
@@ -2289,6 +2291,7 @@ class StressTest {
     size_t value_sz =
         ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
     assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
+    (void) max_sz;
     *((uint32_t*)v) = rand;
     for (size_t i=sizeof(uint32_t); i < value_sz; i++) {
       v[i] = (char)(rand ^ i);

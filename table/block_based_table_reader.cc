@@ -120,7 +120,7 @@ void ReleaseCachedEntry(void* arg, void* h) {
 void ForceReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, true);
+  cache->Release(handle, true /* force_erase */);
 }
 
 Slice GetCacheKeyFromOffset(const char* cache_key_prefix,

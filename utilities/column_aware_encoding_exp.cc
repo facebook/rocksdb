@@ -169,7 +169,7 @@ int main() {
 }
 #endif  // GFLAGS
 #else
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "Not supported in lite mode.\n");
   return 1;
 }
