@@ -53,8 +53,11 @@ struct IngestedFileInfo {
   int picked_level = 0;
   // Whether to copy or link the external sst file. copy_file will be set to
   // false if ingestion_options.move_files is true and underlying FS
-  // supports link operation.
-  bool copy_file;
+  // supports link operation. Need to provide a default value to make the
+  // undefined-behavior sanity check of llvm happy. Since
+  // ingestion_options.move_files is false by default, thus copy_file is true
+  // by default.
+  bool copy_file = true;
 
   InternalKey smallest_internal_key() const {
     return InternalKey(smallest_user_key, assigned_seqno,
