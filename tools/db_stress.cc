@@ -1912,6 +1912,9 @@ class StressTest {
              i == thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
         assert(snap_state.snapshot);
+        // Note: this is unsafe as the cf might be dropped concurrently. But it
+        // is ok since unclean cf drop is cunnrently not supported by write
+        // prepared transactions.
         Status s =
             AssertSame(db_, column_families_[snap_state.cf_at], snap_state);
         if (!s.ok()) {
