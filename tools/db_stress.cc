@@ -818,7 +818,7 @@ class SharedState {
       }
       assert(cf_ids.size() == static_cast<size_t>(num_no_overwrite_keys));
     }
-    delete permutation;
+    delete[] permutation;
 
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
