@@ -1164,6 +1164,7 @@ std::vector<Status> DBImpl::MultiGet(
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
+  size_t num_found = 0;
   for (size_t i = 0; i < num_keys; ++i) {
     merge_context.Clear();
     Status& s = stat_list[i];
@@ -1185,11 +1186,11 @@ std::vector<Status> DBImpl::MultiGet(
       if (super_version->mem->Get(lkey, value, &s, &merge_context,
                                   &range_del_agg, read_options)) {
         done = true;
-        // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
+        RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(lkey, value, &s, &merge_context,
                                          &range_del_agg, read_options)) {
         done = true;
-        // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
+        RecordTick(stats_, MEMTABLE_HIT);
       }
     }
     if (!done) {
@@ -1198,11 +1199,12 @@ std::vector<Status> DBImpl::MultiGet(
       super_version->current->Get(read_options, lkey, &pinnable_val, &s,
                                   &merge_context, &range_del_agg);
       value->assign(pinnable_val.data(), pinnable_val.size());
-      // TODO(?): RecordTick(stats_, MEMTABLE_MISS)?
+      RecordTick(stats_, MEMTABLE_MISS);
     }
 
     if (s.ok()) {
       bytes_read += value->size();
+      num_found++;
     }
   }
 
@@ -1230,6 +1232,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
+  RecordTick(stats_, NUMBER_MULTIGET_KEYS_FOUND, num_found);
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
   MeasureTime(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
