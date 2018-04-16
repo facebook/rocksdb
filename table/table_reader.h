@@ -110,7 +110,7 @@ class TableReader {
   }
 
   virtual Status DumpTable(WritableFile* /*out_file*/,
-                           const SliceTransform* prefix_extractor = nullptr) {
+                           const SliceTransform* /*prefix_extractor*/) {
     return Status::NotSupported("DumpTable() not supported");
   }
 

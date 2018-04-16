@@ -104,6 +104,8 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
       FilePrefetchBuffer* prefetch_buffer, Slice* handle, const bool no_io,
       bool* cached, const SliceTransform* prefix_extractor = nullptr);
   virtual void CacheDependencies(bool pin) override;
+  virtual void CacheDependencies(
+      bool bin, const SliceTransform* prefix_extractor) override;
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;

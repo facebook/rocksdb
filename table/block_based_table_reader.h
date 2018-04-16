@@ -288,7 +288,7 @@ class BlockBasedTable : public TableReader {
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
   InternalIterator* NewIndexIterator(
-      const ReadOptions& read_options, // TODO(Zhongyi): bool prefix_extractor_changed = false,
+      const ReadOptions& read_options, bool prefix_extractor_changed = false,
       BlockIter* input_iter = nullptr,
       CachableEntry<IndexReader>* index_entry = nullptr,
       GetContext* get_context = nullptr);

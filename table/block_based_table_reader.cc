@@ -173,6 +173,19 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
   return cache_handle;
 }
 
+bool PrefixExtractorChanged(std::string prefix_extractor_block,
+                            const SliceTransform* prefix_extractor) {
+  bool prefix_extractor_changed = false;
+  if (prefix_extractor_block.compare("nullptr") != 0 && prefix_extractor != nullptr &&
+      prefix_extractor_block.compare(prefix_extractor->Name()) != 0) {
+    prefix_extractor_changed = true;
+  }
+  else if (prefix_extractor_block.compare("nullptr") != 0 || prefix_extractor != nullptr) {
+    prefix_extractor_changed = true;
+  }
+  return prefix_extractor_changed;
+}
+
 }  // namespace
 
 // Index that allows binary search lookup in a two-level index structure.
@@ -866,8 +879,11 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // block_cache
 
       CachableEntry<IndexReader> index_entry;
+      bool prefix_extractor_changed = PrefixExtractorChanged(
+        rep->table_properties->prefix_extractor_name, prefix_extractor);
       unique_ptr<InternalIterator> iter(
-          new_table->NewIndexIterator(ReadOptions(), nullptr, &index_entry));
+          new_table->NewIndexIterator(ReadOptions(), prefix_extractor_changed,
+                                      nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
@@ -923,7 +939,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         // Refer to the comment above about paritioned indexes always being
         // cached
         if (filter && (prefetch_index_and_filter_in_cache || level == 0)) {
-          filter->CacheDependencies(pin);
+          filter->CacheDependencies(pin, prefix_extractor);
         }
       }
     } else {
@@ -1373,28 +1389,20 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 }
 
 InternalIterator* BlockBasedTable::NewIndexIterator(
-    const ReadOptions& read_options,// bool prefix_extractor_changed,
+    const ReadOptions& read_options, bool prefix_extractor_changed,
     BlockIter* input_iter,
     CachableEntry<IndexReader>* index_entry, GetContext* get_context) {
   // index reader has already been pre-populated.
-  // TODO: caller needs to check if prefix_extractor has been changed to set prefix_extractor_changed
+  // TODO: caller needs to check if prefix_extractor has been changed
+  // to set prefix_extractor_changed
   if (rep_->index_reader) {
     return rep_->index_reader->NewIterator(
-<<<<<<< HEAD
-        input_iter, read_options.total_order_seek, read_options.fill_cache);
+        input_iter, read_options.total_order_seek || prefix_extractor_changed, read_options.fill_cache);
   }
   // we have a pinned index block
   if (rep_->index_entry.IsSet()) {
     return rep_->index_entry.value->NewIterator(
-        input_iter, read_options.total_order_seek, read_options.fill_cache);
-=======
-        input_iter, read_options.total_order_seek); //|| prefix_extractor_changed);
-  }
-  // we have a pinned index block
-  if (rep_->index_entry.IsSet()) {
-    return rep_->index_entry.value->NewIterator(input_iter,
-                                                read_options.total_order_seek); //|| prefix_extractor_changed);
->>>>>>> 622063a... make prefix_extractor an argument instead of member variable
+        input_iter, read_options.total_order_seek || prefix_extractor_changed, read_options.fill_cache);
   }
 
   PERF_TIMER_GUARD(read_index_block_nanos);
@@ -1470,7 +1478,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 
   assert(cache_handle);
   auto* iter = index_reader->NewIterator(
-      input_iter, read_options.total_order_seek);// || prefix_extractor_changed);
+      input_iter, read_options.total_order_seek || prefix_extractor_changed);
 
   // the caller would like to take ownership of the index block
   // don't call RegisterCleanup() in this case, the caller will take care of it
@@ -1741,7 +1749,10 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
       no_io_read_options.read_tier = kBlockCacheTier;
 
       // Then, try find it within each block
-      unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options));
+      bool prefix_extractor_changed = PrefixExtractorChanged(
+        rep_->table_properties->prefix_extractor_name, prefix_extractor);
+      unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options,
+                                         prefix_extractor_changed));
       iiter->Seek(internal_prefix);
 
       if (!iiter->Valid()) {
@@ -2009,10 +2020,12 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
                                                const SliceTransform* prefix_extractor,
                                                Arena* arena,
                                                bool skip_filters) {
+  bool prefix_extractor_changed = PrefixExtractorChanged(
+    rep_->table_properties->prefix_extractor_name, prefix_extractor);
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options),
+        NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         prefix_extractor);
@@ -2020,7 +2033,7 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options),
+        NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         prefix_extractor);
@@ -2113,8 +2126,13 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
   } else {
     BlockIter iiter_on_stack;
-    auto iiter = NewIndexIterator(read_options, &iiter_on_stack,
-                                  /* index_entry */ nullptr, get_context);
+    // if prefix_extractor found in block differs from options, disable
+    // BlockPrefixIndex
+    bool prefix_extractor_changed = PrefixExtractorChanged(
+      rep_->table_properties->prefix_extractor_name, prefix_extractor);
+    auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
+                                  &iiter_on_stack, /* index_entry */ nullptr,
+                                  get_context);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
@@ -2201,7 +2219,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   }
 
   BlockIter iiter_on_stack;
-  auto iiter = NewIndexIterator(ReadOptions(), &iiter_on_stack);
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
+  auto iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIterator> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
     iiter_unique_ptr = std::unique_ptr<InternalIterator>(iiter);
@@ -2258,7 +2277,8 @@ Status BlockBasedTable::VerifyChecksum() {
   }
   // Check Data blocks
   BlockIter iiter_on_stack;
-  InternalIterator* iiter = NewIndexIterator(ReadOptions(), &iiter_on_stack);
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
+  InternalIterator* iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIterator> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
     iiter_unique_ptr = std::unique_ptr<InternalIterator>(iiter);
@@ -2301,6 +2321,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(InternalIterator* index_iter) {
 
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> iiter(NewIndexIterator(options));
   iiter->Seek(key);
   assert(iiter->Valid());
@@ -2416,6 +2437,7 @@ Status BlockBasedTable::CreateIndexReader(
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   unique_ptr<InternalIterator> index_iter(NewIndexIterator(ReadOptions()));
 
   index_iter->Seek(key);
@@ -2458,6 +2480,7 @@ bool BlockBasedTable::TEST_index_reader_preloaded() const {
 
 Status BlockBasedTable::GetKVPairsFromDataBlocks(
     std::vector<KVPairBlock>* kv_pair_blocks) {
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> blockhandles_iter(
       NewIndexIterator(ReadOptions()));
 
@@ -2677,7 +2700,7 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
   out_file->Append(
       "Index Details:\n"
       "--------------------------------------\n");
-
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> blockhandles_iter(
       NewIndexIterator(ReadOptions()));
   Status s = blockhandles_iter->status();
@@ -2720,6 +2743,7 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
 }
 
 Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
+  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> blockhandles_iter(
       NewIndexIterator(ReadOptions()));
   Status s = blockhandles_iter->status();

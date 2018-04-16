@@ -273,8 +273,13 @@ void ReleaseFilterCachedEntry(void* arg, void* h) {
   cache->Release(handle);
 }
 
-// TODO(myabandeh): merge this with the same function in IndexReader
 void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
+  CacheDependencies(pin, nullptr);
+}
+
+// TODO(myabandeh): merge this with the same function in IndexReader
+void PartitionedFilterBlockReader::CacheDependencies(bool pin,
+    const SliceTransform* prefix_extractor) {
   // Before read partitions, prefetch them to avoid lots of IOs
   auto rep = table_->rep_;
   BlockIter biter;
@@ -327,7 +332,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
     const bool is_a_filter_partition = true;
     auto filter = table_->GetFilter(prefetch_buffer.get(), handle,
                                     is_a_filter_partition, !no_io,
-                                    /* get_context */ nullptr);
+                                    /* get_context */ nullptr,
+                                    prefix_extractor);
     if (LIKELY(filter.IsSet())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);

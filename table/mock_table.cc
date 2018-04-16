@@ -41,7 +41,7 @@ InternalIterator* MockTableReader::NewIterator(const ReadOptions&,
 
 Status MockTableReader::Get(const ReadOptions& ro, const Slice& key,
                             GetContext* get_context,
-                            const SliceTransform* prefix_extractor,
+                            const SliceTransform* /*prefix_extractor*/,
                             bool skip_filters) {
   return Get(ro, key, get_context, skip_filters);
 }

@@ -383,7 +383,7 @@ extern InternalIterator* NewErrorInternalIterator(const Status& status,
                                                   Arena* arena);
 
 InternalIterator* CuckooTableReader::NewIterator(
-    const ReadOptions& read_options, const SliceTransform* prefix_extractor,
+    const ReadOptions& read_options, const SliceTransform* /*prefix_extractor*/,
     Arena* arena, bool skip_filters) {
   return NewIterator(read_options, arena, skip_filters);
 }

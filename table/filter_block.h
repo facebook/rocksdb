@@ -128,7 +128,8 @@ class FilterBlockReader {
   }
 
   virtual void CacheDependencies(bool /*pin*/) {}
-
+  virtual void CacheDependencies(bool /*pin*/,
+                                 const SliceTransform* /*prefix_extractor*/) {}
  protected:
   bool whole_key_filtering_;
 

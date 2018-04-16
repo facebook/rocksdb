@@ -215,7 +215,7 @@ class BlockConstructor: public Constructor {
   }
   virtual Status FinishImpl(
       const Options& /*options*/, const ImmutableCFOptions& /*ioptions*/,
-      const MutableCFOptions& moptions,
+      const MutableCFOptions& /*moptions*/,
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& /*internal_comparator*/,
       const stl_wrappers::KVMap& kv_map) override {
@@ -448,7 +448,7 @@ class MemTableConstructor: public Constructor {
   }
   virtual Status FinishImpl(
       const Options&, const ImmutableCFOptions& ioptions,
-      const MutableCFOptions& moptions,
+      const MutableCFOptions& /*moptions*/,
       const BlockBasedTableOptions& /*table_options*/,
       const InternalKeyComparator& /*internal_comparator*/,
       const stl_wrappers::KVMap& kv_map) override {
@@ -516,7 +516,7 @@ class DBConstructor: public Constructor {
   }
   virtual Status FinishImpl(
       const Options& /*options*/, const ImmutableCFOptions& /*ioptions*/,
-      const MutableCFOptions& moptions,
+      const MutableCFOptions& /*moptions*/,
       const BlockBasedTableOptions& /*table_options*/,
       const InternalKeyComparator& /*internal_comparator*/,
       const stl_wrappers::KVMap& kv_map) override {

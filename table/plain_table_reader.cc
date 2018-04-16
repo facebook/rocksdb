@@ -548,7 +548,8 @@ void PlainTableReader::Prepare(const Slice& target) {
 }
 
 Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
-                             GetContext* get_context, const SliceTransform* prefix_extractor,
+                             GetContext* get_context,
+                             const SliceTransform* /*prefix_extractor*/,
                              bool skip_filters) {
   return Get(ro, target, get_context, skip_filters);
 }
