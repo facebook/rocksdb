@@ -641,7 +641,7 @@ int main(int argc, char** argv) {
 }
 
 #else
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("DeleteScheduler is not supported in ROCKSDB_LITE\n");
   return 0;
 }
