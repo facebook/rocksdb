@@ -46,6 +46,8 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntrySingleDelete;
     case kTypeMerge:
       return kEntryMerge;
+    case kTypeRangeDeletion:
+      return kEntryRangeDeletion;
     default:
       return kEntryOther;
   }
