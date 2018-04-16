@@ -873,8 +873,12 @@ void PosixWritableFile::SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
   if (fcntl(fd_, F_SET_RW_HINT, &hint) == 0) {
     write_hint_ = hint;
   }
-#endif
-#endif
+#else
+  (void)hint;
+#endif // ROCKSDB_VALGRIND_RUN
+#else
+  (void)hint;
+#endif // OS_LINUX
 }
 
 Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {

@@ -2940,6 +2940,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               FLAGS_options_file.c_str(), s.ToString().c_str());
       exit(1);
     }
+#else
+    (void)opts;
 #endif
     return false;
   }
@@ -3998,6 +4000,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     return Status::OK();
 #else
+    (void)thread;
+    (void)compaction_style;
+    (void)write_mode;
     fprintf(stderr, "Rocksdb Lite doesn't support filldeterministic\n");
     return Status::NotSupported(
         "Rocksdb Lite doesn't support filldeterministic");

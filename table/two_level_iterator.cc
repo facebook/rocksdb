@@ -24,7 +24,11 @@ class TwoLevelIterator : public InternalIterator {
   explicit TwoLevelIterator(TwoLevelIteratorState* state,
                             InternalIterator* first_level_iter);
 
-  virtual ~TwoLevelIterator() { delete state_; }
+  virtual ~TwoLevelIterator() {
+    first_level_iter_.DeleteIter(false /* is_arena_mode */);
+    second_level_iter_.DeleteIter(false /* is_arena_mode */);
+    delete state_;
+  }
 
   virtual void Seek(const Slice& target) override;
   virtual void SeekForPrev(const Slice& target) override;
