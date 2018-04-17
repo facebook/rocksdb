@@ -299,7 +299,7 @@ DEFINE_int64(write_buffer_size, rocksdb::Options().write_buffer_size,
 DEFINE_int32(max_write_buffer_number,
              rocksdb::Options().max_write_buffer_number,
              "The number of in-memory memtables. Each memtable is of size"
-             "write_buffer_size.");
+             " write_buffer_size bytes.");
 
 DEFINE_int32(min_write_buffer_number_to_merge,
              rocksdb::Options().min_write_buffer_number_to_merge,
@@ -3785,6 +3785,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
+        compactionOptions.compression = FLAGS_compression_type_e;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
@@ -3836,6 +3837,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
+        compactionOptions.compression = FLAGS_compression_type_e;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
