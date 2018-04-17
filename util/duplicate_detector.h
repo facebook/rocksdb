@@ -57,10 +57,12 @@ class DuplicateDetector {
           "Recovering an entry from the dropped column family %" PRIu32
           ". WAL must must have been emptied before dropping the column "
           "family");
+#ifndef ROCKSDB_LITE
       throw std::runtime_error(
           "Recovering an entry from the dropped column family %" PRIu32
           ". WAL must must have been flushed before dropping the column "
           "family");
+#endif
       return;
     }
     auto cmp = h->GetComparator();
