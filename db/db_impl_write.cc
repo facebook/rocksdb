@@ -1344,7 +1344,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
                  "[%s] New memtable created with log file: #%" PRIu64
                  ". Immutable memtables: %d.\n",
                  cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
-  mutex_.Lock();
   if (s.ok() && creating_new_log) {
     log_write_mutex_.Lock();
     logfile_number_ = new_log_number;
@@ -1367,6 +1366,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
     log_write_mutex_.Unlock();
   }
+
+  mutex_.Lock();
 
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
