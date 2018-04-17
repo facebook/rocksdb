@@ -856,6 +856,9 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
   }
   auto* table_options =
       reinterpret_cast<BlockBasedTableOptions*>(table_factory->GetOptions());
+  if (table_options == nullptr) {
+    return false;
+  }
   *block_cache = table_options->block_cache.get();
   if (table_options->no_block_cache || *block_cache == nullptr) {
     return false;
