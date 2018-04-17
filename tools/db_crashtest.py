@@ -17,8 +17,7 @@ import argparse
 #       simple_default_params < blackbox|whitebox_simple_default_params < args
 
 default_params = {
-    "acquire_snapshot_one_in": 10,
-    "use_txn": 1,
+    "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
     "use_clock_cache": "false",
@@ -87,7 +86,6 @@ whitebox_default_params = {
 
 simple_default_params = {
     "block_size": 16384,
-    "use_txn": 1,
     "cache_size": 1048576,
     "use_clock_cache": "false",
     "column_families": 1,
@@ -142,8 +140,6 @@ def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
-        dest_params["memtablerep"] = "skip_list"
-    if dest_params.get("use_txn", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
     return dest_params
 

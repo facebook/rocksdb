@@ -2011,8 +2011,6 @@ class StressTest {
                 if (s.ok()) {
                   s = CommitTxn(txn);
                 }
-                else printf("Name: %s Status: %s\n", (txn)->GetName().c_str(),
-                   s.ToString().c_str());
               }
 #endif
             }
@@ -2028,8 +2026,6 @@ class StressTest {
                 if (s.ok()) {
                   s = CommitTxn(txn);
                 }
-                else printf("Name: %s Status: %s\n", (txn)->GetName().c_str(),
-                   s.ToString().c_str());
               }
 #endif
             }
@@ -2581,7 +2577,7 @@ class StressTest {
         std::vector<Transaction*> trans;
         txn_db_->GetAllPreparedTransactions(&trans);
         Random rand(FLAGS_seed);
-        for (auto txn: trans) {
+        for (auto txn : trans) {
           if (rand.OneIn(2)) {
             s = txn->Commit();
             assert(s.ok());
@@ -2593,14 +2589,14 @@ class StressTest {
         }
         trans.clear();
         txn_db_->GetAllPreparedTransactions(&trans);
-        for (auto txn: trans) {
+        for (auto txn : trans) {
           assert(0);
           txn->Commit();
         }
 #endif
       }
       assert(!s.ok() || column_families_.size() ==
-                                static_cast<size_t>(FLAGS_column_families));
+                            static_cast<size_t>(FLAGS_column_families));
     } else {
 #ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
