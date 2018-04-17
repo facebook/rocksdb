@@ -3785,6 +3785,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
+        compactionOptions.compression = FLAGS_compression_type_e;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
@@ -3836,6 +3837,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
+        compactionOptions.compression = FLAGS_compression_type_e;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
