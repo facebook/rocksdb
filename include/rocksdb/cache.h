@@ -180,6 +180,7 @@ class Cache {
   // Set the high priority pool ratio
   virtual void SetHighPriPoolRatio(double high_pri_pool_ratio) {
     // default implementation is noop
+    (void)high_pri_pool_ratio;
   }
 
   // Get the flag whether to return error on insertion when cache reaches its
