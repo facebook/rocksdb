@@ -2589,10 +2589,7 @@ class StressTest {
         }
         trans.clear();
         txn_db_->GetAllPreparedTransactions(&trans);
-        for (auto txn : trans) {
-          assert(0);
-          txn->Commit();
-        }
+        assert(trans.size() == 0);
 #endif
       }
       assert(!s.ok() || column_families_.size() ==
