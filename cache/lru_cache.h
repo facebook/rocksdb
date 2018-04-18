@@ -298,10 +298,10 @@ class LRUCache : public ShardedCache {
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual void DisownData() override;
-  virtual size_t GetHighPriPoolCapacity() const;
-  virtual size_t GetHighPriPoolUsage() const;
-  virtual double GetHighPriPoolRatio() const;
-  virtual void SetHighPriPoolRatio(double high_pri_pool_ratio);
+  virtual size_t GetHighPriPoolCapacity() const override;
+  virtual size_t GetHighPriPoolUsage() const override;
+  virtual double GetHighPriPoolRatio() const override;
+  virtual void SetHighPriPoolRatio(double high_pri_pool_ratio) override;
   // Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
 
