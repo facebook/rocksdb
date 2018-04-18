@@ -5,6 +5,12 @@
 
 #pragma once
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+
 #include "util/set_comparator.h"
 
 namespace rocksdb {
@@ -41,7 +47,25 @@ class DuplicateDetector {
   using CFKeys = std::set<Slice, SetComparator>;
   std::map<uint32_t, CFKeys> keys_;
   void InitWithComp(const uint32_t cf) {
-    auto cmp = db_->GetColumnFamilyHandle(cf)->GetComparator();
+    auto h = db_->GetColumnFamilyHandle(cf);
+    if (!h) {
+      // TODO(myabandeh): This is not a concern in MyRocks as drop cf is not
+      // implemented yet. When it does, we should return proper error instead
+      // of throwing exception.
+      ROCKS_LOG_FATAL(
+          db_->immutable_db_options().info_log,
+          "Recovering an entry from the dropped column family %" PRIu32
+          ". WAL must must have been emptied before dropping the column "
+          "family");
+#ifndef ROCKSDB_LITE
+      throw std::runtime_error(
+          "Recovering an entry from the dropped column family %" PRIu32
+          ". WAL must must have been flushed before dropping the column "
+          "family");
+#endif
+      return;
+    }
+    auto cmp = h->GetComparator();
     keys_[cf] = CFKeys(SetComparator(cmp));
   }
 };
