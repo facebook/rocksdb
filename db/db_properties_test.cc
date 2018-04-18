@@ -1490,7 +1490,7 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
-  ASSERT_EQ(50, value);
+  ASSERT_EQ(kSize1, value);
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
   ASSERT_EQ(0, value);
@@ -1524,8 +1524,17 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
       db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
   ASSERT_EQ(kSize2 + kSize3, value);
 
+  // Check size after release.
   block_cache->Release(item2);
   block_cache->Release(item3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  // item2 will be evicted, while item3 remain in cache after release.
+  ASSERT_EQ(kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
 }
 
 #endif  // ROCKSDB_LITE
