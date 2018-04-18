@@ -208,7 +208,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
 
   // return a two-level iterator: first level is on the partition index
   virtual InternalIterator* NewIterator(BlockIter* /*iter*/ = nullptr,
-                                        bool /*dont_care*/ = true) override {
+                                        bool /*dont_care*/ = true, bool fill_cache = true) override {
     // Filters are already checked before seeking the index
     if (!partition_map_.empty()) {
       return NewTwoLevelIterator(
@@ -217,7 +217,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           index_block_->NewIterator(icomparator_, nullptr, true));
     } else {
       auto ro = ReadOptions();
-      ro.fill_cache = false;
+      ro.fill_cache = fill_cache;
       return new BlockBasedTableIterator(
           table_, ro, *icomparator_,
           index_block_->NewIterator(icomparator_, nullptr, true), false);
@@ -367,7 +367,7 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool /*dont_care*/ = true) override {
+                                        bool /*dont_care*/ = true, bool /*dont_care*/ = true) override {
     return index_block_->NewIterator(icomparator_, iter, true);
   }
 
@@ -477,7 +477,7 @@ class HashIndexReader : public IndexReader {
   }
 
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool total_order_seek = true) override {
+                                        bool total_order_seek = true, bool /*dont_care*/ = true) override {
     return index_block_->NewIterator(icomparator_, iter, total_order_seek);
   }
 
@@ -1369,12 +1369,13 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   // index reader has already been pre-populated.
   if (rep_->index_reader) {
     return rep_->index_reader->NewIterator(
-        input_iter, read_options.total_order_seek);
+        input_iter, read_options.total_order_seek, read_options.fill_cache);
   }
   // we have a pinned index block
   if (rep_->index_entry.IsSet()) {
     return rep_->index_entry.value->NewIterator(input_iter,
-                                                read_options.total_order_seek);
+                                                read_options.total_order_seek,
+                                                read_options.fill_cache);
   }
 
   PERF_TIMER_GUARD(read_index_block_nanos);
