@@ -208,7 +208,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
 
   // return a two-level iterator: first level is on the partition index
   virtual InternalIterator* NewIterator(BlockIter* /*iter*/ = nullptr,
-                                        bool /*dont_care*/ = true, bool fill_cache = true) override {
+                                        bool /*dont_care*/ = true,
+                                        bool fill_cache = true) override {
     // Filters are already checked before seeking the index
     if (!partition_map_.empty()) {
       return NewTwoLevelIterator(
@@ -366,7 +367,8 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool /*dont_care*/ = true, bool /*dont_care*/ = true) override {
+                                        bool /*dont_care*/ = true,
+                                        bool /*dont_care*/ = true) override {
     return index_block_->NewIterator(icomparator_, iter, true);
   }
 
@@ -476,7 +478,8 @@ class HashIndexReader : public IndexReader {
   }
 
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool total_order_seek = true, bool /*dont_care*/ = true) override {
+                                        bool total_order_seek = true,
+                                        bool /*dont_care*/ = true) override {
     return index_block_->NewIterator(icomparator_, iter, total_order_seek);
   }
 
@@ -1370,9 +1373,8 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   }
   // we have a pinned index block
   if (rep_->index_entry.IsSet()) {
-    return rep_->index_entry.value->NewIterator(input_iter,
-                                                read_options.total_order_seek,
-                                                read_options.fill_cache);
+    return rep_->index_entry.value->NewIterator(
+        input_iter, read_options.total_order_seek, read_options.fill_cache);
   }
 
   PERF_TIMER_GUARD(read_index_block_nanos);
