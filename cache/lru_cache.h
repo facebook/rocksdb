@@ -234,6 +234,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   // holding the mutex_
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
+  // Reset the high-pri pool capacity based on the capacity and ratio.
+  void ResetHighPriPoolCapacity();
+
   // Initialized before use.
   size_t capacity_;
 
@@ -248,7 +251,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 
   // High-pri pool size, equals to capacity * high_pri_pool_ratio.
   // Remember the value to avoid recomputing each time.
-  double high_pri_pool_capacity_;
+  size_t high_pri_pool_capacity_;
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.

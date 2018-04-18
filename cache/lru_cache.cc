@@ -261,7 +261,7 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   {
     MutexLock l(&mutex_);
     capacity_ = capacity;
-    high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
+    ResetHighPriPoolCapacity();
     EvictFromLRU(0, &last_reference_list);
   }
   // we free the entries here outside of mutex for
@@ -302,8 +302,13 @@ bool LRUCacheShard::Ref(Cache::Handle* h) {
 void LRUCacheShard::SetHighPriPoolRatio(double high_pri_pool_ratio) {
   MutexLock l(&mutex_);
   high_pri_pool_ratio_ = high_pri_pool_ratio;
-  high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
+  ResetHighPriPoolCapacity();
   MaintainPoolSize();
+}
+
+void LRUCacheShard::ResetHighPriPoolCapacity() {
+  high_pri_pool_capacity_ = 
+      static_cast<size_t>(capacity_ * high_pri_pool_ratio_);
 }
 
 bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
