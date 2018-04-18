@@ -1930,6 +1930,9 @@ class StressTest {
              i == thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
         assert(snap_state.snapshot);
+        // Note: this is unsafe as the cf might be dropped concurrently. But it
+        // is ok since unclean cf drop is cunnrently not supported by write
+        // prepared transactions.
         Status s =
             AssertSame(db_, column_families_[snap_state.cf_at], snap_state);
         if (!s.ok()) {
@@ -2589,6 +2592,23 @@ class StressTest {
         s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                                 cf_descriptors, &column_families_, &txn_db_);
         db_ = txn_db_;
+        // after a crash, rollback to commit recovered transactions
+        std::vector<Transaction*> trans;
+        txn_db_->GetAllPreparedTransactions(&trans);
+        Random rand(FLAGS_seed);
+        for (auto txn : trans) {
+          if (rand.OneIn(2)) {
+            s = txn->Commit();
+            assert(s.ok());
+          } else {
+            s = txn->Rollback();
+            assert(s.ok());
+          }
+          delete txn;
+        }
+        trans.clear();
+        txn_db_->GetAllPreparedTransactions(&trans);
+        assert(trans.size() == 0);
 #endif
       }
       assert(!s.ok() || column_families_.size() ==
