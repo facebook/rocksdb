@@ -375,6 +375,8 @@ class InternalStats {
   void DumpCFStatsNoFileHistogram(std::string* value);
   void DumpCFFileHistogram(std::string* value);
 
+  bool HandleBlockCacheStat(Cache** block_cache);
+
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
   // Per-ColumnFamily stats
@@ -531,6 +533,10 @@ class InternalStats {
                                     Version* version);
   bool HandleIsWriteStopped(uint64_t* value, DBImpl* db, Version* version);
   bool HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* db,
+                                   Version* version);
+  bool HandleBlockCacheCapacity(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,
                                    Version* version);
 
   // Total number of background errors encountered. Every time a flush task
