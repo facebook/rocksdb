@@ -611,6 +611,17 @@ class DB {
     //      FIFO compaction with
     //      compaction_options_fifo.allow_compaction = false.
     static const std::string kEstimateOldestKeyTime;
+
+    //  "rocksdb.block-cache-capacity" - returns block cache capacity.
+    static const std::string kBlockCacheCapacity;
+
+    //  "rocksdb.block-cache-usage" - returns the memory size for the entries
+    //      residing in block cache.
+    static const std::string kBlockCacheUsage;
+
+    // "rocksdb.block-cache-pinned-usage" - returns the memory size for the
+    //      entries being pinned.
+    static const std::string kBlockCachePinnedUsage;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -663,6 +674,9 @@ class DB {
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
   //  "rocksdb.estimate-oldest-key-time"
+  //  "rocksdb.block-cache-capacity"
+  //  "rocksdb.block-cache-usage"
+  //  "rocksdb.block-cache-pinned-usage"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {

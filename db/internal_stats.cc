@@ -18,9 +18,10 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "db/column_family.h"
 
+#include "db/column_family.h"
 #include "db/db_impl.h"
+#include "table/block_based_table_factory.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -245,6 +246,9 @@ static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
 static const std::string estimate_oldest_key_time = "estimate-oldest-key-time";
+static const std::string block_cache_capacity = "block-cache-capacity";
+static const std::string block_cache_usage = "block-cache-usage";
+static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -322,6 +326,12 @@ const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
 const std::string DB::Properties::kEstimateOldestKeyTime =
     rocksdb_prefix + estimate_oldest_key_time;
+const std::string DB::Properties::kBlockCacheCapacity =
+    rocksdb_prefix + block_cache_capacity;
+const std::string DB::Properties::kBlockCacheUsage =
+    rocksdb_prefix + block_cache_usage;
+const std::string DB::Properties::kBlockCachePinnedUsage =
+    rocksdb_prefix + block_cache_pinned_usage;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -424,6 +434,13 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr}},
         {DB::Properties::kEstimateOldestKeyTime,
          {false, nullptr, &InternalStats::HandleEstimateOldestKeyTime,
+          nullptr}},
+        {DB::Properties::kBlockCacheCapacity,
+         {false, nullptr, &InternalStats::HandleBlockCacheCapacity, nullptr}},
+        {DB::Properties::kBlockCacheUsage,
+         {false, nullptr, &InternalStats::HandleBlockCacheUsage, nullptr}},
+        {DB::Properties::kBlockCachePinnedUsage,
+         {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage,
           nullptr}},
 };
 
@@ -828,6 +845,58 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
                        cfd_->imm()->ApproximateOldestKeyTime(), *value});
   }
   return *value > 0 && *value < std::numeric_limits<uint64_t>::max();
+}
+
+bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
+  assert(block_cache != nullptr);
+  auto* table_factory = cfd_->ioptions()->table_factory;
+  assert(table_factory != nullptr);
+  if (BlockBasedTableFactory::kName != table_factory->Name()) {
+    return false;
+  }
+  auto* table_options =
+      reinterpret_cast<BlockBasedTableOptions*>(table_factory->GetOptions());
+  if (table_options == nullptr) {
+    return false;
+  }
+  *block_cache = table_options->block_cache.get();
+  if (table_options->no_block_cache || *block_cache == nullptr) {
+    return false;
+  }
+  return true;
+}
+
+bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
+                                             Version* /*version*/) {
+  Cache* block_cache;
+  bool ok = HandleBlockCacheStat(&block_cache);
+  if (!ok) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(block_cache->GetCapacity());
+  return true;
+}
+
+bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
+                                          Version* /*version*/) {
+  Cache* block_cache;
+  bool ok = HandleBlockCacheStat(&block_cache);
+  if (!ok) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(block_cache->GetUsage());
+  return true;
+}
+
+bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
+                                                Version* /*version*/) {
+  Cache* block_cache;
+  bool ok = HandleBlockCacheStat(&block_cache);
+  if (!ok) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(block_cache->GetPinnedUsage());
+  return true;
 }
 
 void InternalStats::DumpDBStats(std::string* value) {
