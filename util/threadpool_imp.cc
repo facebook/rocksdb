@@ -20,11 +20,12 @@
 #  include <sys/syscall.h>
 #endif
 
+#include <stdlib.h>
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include <stdlib.h>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -313,11 +314,14 @@ void ThreadPoolImpl::Impl::StartBGThreads() {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
     auto th_handle = p_t.native_handle();
-    char name_buf[16];
-    snprintf(name_buf, sizeof name_buf, "rocksdb:bg%" ROCKSDB_PRIszt,
-             bgthreads_.size());
-    name_buf[sizeof name_buf - 1] = '\0';
-    pthread_setname_np(th_handle, name_buf);
+    std::string thread_priority = Env::PriorityToString(GetThreadPriority());
+    std::ostringstream thread_name_stream;
+    thread_name_stream << "rocksdb:";
+    for (char c : thread_priority) {
+      thread_name_stream << static_cast<char>(tolower(c));
+    }
+    thread_name_stream << bgthreads_.size();
+    pthread_setname_np(th_handle, thread_name_stream.str().c_str());
 #endif
 #endif
     bgthreads_.push_back(std::move(p_t));

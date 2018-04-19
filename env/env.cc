@@ -22,6 +22,20 @@ namespace rocksdb {
 Env::~Env() {
 }
 
+std::string Env::PriorityToString(Env::Priority priority) {
+  switch (priority) {
+    case Env::Priority::BOTTOM:
+      return "Bottom";
+    case Env::Priority::LOW:
+      return "Low";
+    case Env::Priority::HIGH:
+      return "High";
+    case Env::Priority::TOTAL:
+      assert(false);
+  }
+  return "Invalid";
+}
+
 uint64_t Env::GetThreadID() const {
   std::hash<std::thread::id> hasher;
   return hasher(std::this_thread::get_id());
