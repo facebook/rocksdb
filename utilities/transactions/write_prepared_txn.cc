@@ -312,10 +312,16 @@ Status WritePreparedTxn::RollbackInternal() {
   const bool DISABLE_MEMTABLE = true;
   const uint64_t NO_REF_LOG = 0;
   uint64_t seq_used = kMaxSequenceNumber;
-  const size_t ZERO_PREPARES = 0;
   const size_t ONE_BATCH = 1;
+  // We commit the rolled back prepared batches. ALthough this is
+  // counter-intuitive, i) it is safe to do so, since the prepared batches are
+  // already canceled out by the rollback batch, ii) adding the commit entry to
+  // CommitCache will allow us to benefit from the existing mechanism in
+  // CommitCache that keeps an entry evicted due to max advance and yet overlaps
+  // with a live snapshot around so that the live snapshot properly skips the
+  // entry even if its prepare seq is lower than max_evicted_seq_.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
-      wpt_db_, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, ONE_BATCH);
+      wpt_db_, db_impl_, GetId(), prepare_batch_cnt_, ONE_BATCH);
   // Note: the rollback batch does not need AddPrepared since it is written to
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
@@ -328,11 +334,7 @@ Status WritePreparedTxn::RollbackInternal() {
     return s;
   }
   if (do_one_write) {
-    // Mark the txn as rolled back
-    uint64_t& rollback_seq = seq_used;
-    for (size_t i = 0; i < prepare_batch_cnt_; i++) {
-      wpt_db_->RollbackPrepared(GetId() + i, rollback_seq);
-    }
+    wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
     return s;
   }  // else do the 2nd write for commit
   uint64_t& prepare_seq = seq_used;
@@ -355,9 +357,16 @@ Status WritePreparedTxn::RollbackInternal() {
   // Mark the txn as rolled back
   uint64_t& rollback_seq = seq_used;
   if (s.ok()) {
+    // Note: it is safe to do it after PreReleaseCallback via WriteImpl since
+    // all the writes by the prpared batch are already blinded by the rollback
+    // batch. The only reason we commit the prepared batch here is to benefit
+    // from the existing mechanism in CommitCache that takes care of the rare
+    // cases that the prepare seq is visible to a snsapshot but max evicted seq
+    // advances that prepare seq.
     for (size_t i = 0; i < prepare_batch_cnt_; i++) {
-      wpt_db_->RollbackPrepared(GetId() + i, rollback_seq);
+      wpt_db_->AddCommitted(GetId() + i, rollback_seq);
     }
+    wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
 
   return s;
