@@ -279,7 +279,7 @@ struct InlineSkipList<Comparator>::Node {
   // next_[0].  This is used for passing data from AllocateKey to Insert.
   void StashHeight(const int height) {
     assert(sizeof(int) <= sizeof(next_[0]));
-    memcpy(&next_[0], &height, sizeof(int));
+    memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
   }
 
   // Retrieves the value passed to StashHeight.  Undefined after a call
@@ -299,30 +299,30 @@ struct InlineSkipList<Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return (next_[-n].load(std::memory_order_acquire));
+    return ((&next_[0] - n)->load(std::memory_order_acquire));
   }
 
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    next_[-n].store(x, std::memory_order_release);
+    (&next_[0] - n)->store(x, std::memory_order_release);
   }
 
   bool CASNext(int n, Node* expected, Node* x) {
     assert(n >= 0);
-    return next_[-n].compare_exchange_strong(expected, x);
+    return (&next_[0] - n)->compare_exchange_strong(expected, x);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return next_[-n].load(std::memory_order_relaxed);
+    return (&next_[0] - n)->load(std::memory_order_relaxed);
   }
 
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    next_[-n].store(x, std::memory_order_relaxed);
+    (&next_[0] - n)->store(x, std::memory_order_relaxed);
   }
 
   // Insert node after prev on specific level.
