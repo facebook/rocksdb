@@ -167,7 +167,7 @@ TEST_F(EnvPosixTest, AreFilesSame) {
 #endif
 
 #ifdef OS_LINUX
-TEST_F(EnvPosixTest, FilePermission) {
+TEST_F(EnvPosixTest, DISABLED_FilePermission) {
   // Only works for Linux environment
   if (env_ == Env::Default()) {
     EnvOptions soptions;
