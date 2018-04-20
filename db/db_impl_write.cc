@@ -1054,6 +1054,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       if (!status.ok()) {
         break;
       }
+      cfd->imm()->FlushRequested();
       SchedulePendingFlush(cfd, FlushReason::kWriteBufferManager);
     }
   }
@@ -1100,6 +1101,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     status = SwitchMemtable(cfd_picked, write_context,
                             FlushReason::kWriteBufferFull);
     if (status.ok()) {
+      cfd_picked->imm()->FlushRequested();
       SchedulePendingFlush(cfd_picked, FlushReason::kWriteBufferFull);
       MaybeScheduleFlushOrCompaction();
     }
@@ -1395,7 +1397,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  cfd->imm()->FlushRequested();
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
                                      mutable_cf_options, flush_reason);
   if (two_write_queues_) {
