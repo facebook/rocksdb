@@ -2595,7 +2595,7 @@ class StressTest {
         // after a crash, rollback to commit recovered transactions
         std::vector<Transaction*> trans;
         txn_db_->GetAllPreparedTransactions(&trans);
-        Random rand(FLAGS_seed);
+        Random rand(static_cast<uint32_t>(FLAGS_seed));
         for (auto txn : trans) {
           if (rand.OneIn(2)) {
             s = txn->Commit();
