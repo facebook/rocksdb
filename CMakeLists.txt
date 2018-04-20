@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 14 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 -DJNI=1 ..
+#        sample command: cmake -G "Visual Studio 15 Win64" -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m ot use all avail cores)
 #        msbuild rocksdb.sln
@@ -34,19 +34,29 @@
 
 cmake_minimum_required(VERSION 2.8.12)
 project(rocksdb)
+enable_language(CXX)
+enable_language(C)
+enable_language(ASM)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
+option(WITH_SNAPPY "build with SNAPPY" OFF)
+option(WITH_LZ4 "build with lz4" OFF)
+option(WITH_ZLIB "build with zlib" OFF)
 if(MSVC)
+  # Defaults currently different for GFLAGS.
+  #  We will address find_package work a little later
+  option(WITH_GFLAGS "build with GFlags" OFF)
+  option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
-    # FreeBSD has jemaloc as default malloc
+    # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
   else()
@@ -57,7 +67,17 @@ else()
     endif()
   endif()
 
-  option(WITH_SNAPPY "build with SNAPPY" OFF)
+  # No config file for this
+  option(WITH_GFLAGS "build with GFlags" ON)
+  if(WITH_GFLAGS)
+    find_package(gflags)
+    if(gflags_FOUND)
+      add_definitions(-DGFLAGS=1)
+      include_directories(${gflags_INCLUDE_DIR})
+      list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
+    endif()
+  endif()
+
   if(WITH_SNAPPY)
     find_package(snappy REQUIRED)
     add_definitions(-DSNAPPY)
@@ -65,7 +85,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${SNAPPY_LIBRARIES})
   endif()
 
-  option(WITH_ZLIB "build with zlib" OFF)
   if(WITH_ZLIB)
     find_package(zlib REQUIRED)
     add_definitions(-DZLIB)
@@ -81,7 +100,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${BZIP2_LIBRARIES})
   endif()
 
-  option(WITH_LZ4 "build with lz4" OFF)
   if(WITH_LZ4)
     find_package(lz4 REQUIRED)
     add_definitions(-DLZ4)
@@ -114,20 +132,17 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
-if(NOT WIN32)
-  execute_process(COMMAND
-      "./build_tools/version.sh" "full"
-      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-      OUTPUT_VARIABLE ROCKSDB_VERSION
-  )
-  string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
-  execute_process(COMMAND
-      "./build_tools/version.sh" "major"
-      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-      OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
-  )
-  string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
-endif()
+
+# Read rocksdb version from version.h header file.
+file(READ include/rocksdb/version.h version_header_file)
+string(REGEX MATCH "#define ROCKSDB_MAJOR ([0-9]+)" _ ${version_header_file})
+set(ROCKSDB_VERSION_MAJOR ${CMAKE_MATCH_1})
+string(REGEX MATCH "#define ROCKSDB_MINOR ([0-9]+)" _ ${version_header_file})
+set(ROCKSDB_VERSION_MINOR ${CMAKE_MATCH_1})
+string(REGEX MATCH "#define ROCKSDB_PATCH ([0-9]+)" _ ${version_header_file})
+set(ROCKSDB_VERSION_PATCH ${CMAKE_MATCH_1})
+set(ROCKSDB_VERSION ${ROCKSDB_VERSION_MAJOR}.${ROCKSDB_VERSION_MINOR}.${ROCKSDB_VERSION_PATCH})
+
 
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
@@ -163,6 +178,18 @@ else()
   endif()
 endif()
 
+include(CheckCCompilerFlag)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
+  CHECK_C_COMPILER_FLAG("-maltivec" HAS_ALTIVEC)
+  if(HAS_ALTIVEC)
+    message(STATUS " HAS_ALTIVEC yes")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -maltivec")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maltivec")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=power8")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power8")
+  endif(HAS_ALTIVEC)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
@@ -175,7 +202,9 @@ else()
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    if(NOT HAVE_POWER8)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    endif()
   endif()
 endif()
 
@@ -198,6 +227,7 @@ int main() {
 unset(CMAKE_REQUIRED_FLAGS)
 if(HAVE_SSE42)
   add_definitions(-DHAVE_SSE42)
+  add_definitions(-DHAVE_PCLMUL)
 elseif(FORCE_SSE42)
   message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
@@ -252,13 +282,6 @@ if(WITH_UBSAN)
   if(WITH_JEMALLOC)
     message(FATAL "UBSAN does not work well with JeMalloc")
   endif()
-endif()
-
-find_package(gflags)
-if(gflags_FOUND)
-  add_definitions(-DGFLAGS=1)
-  include_directories(${gflags_INCLUDE_DIR})
-  list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
 endif()
 
 find_package(NUMA)
@@ -545,12 +568,14 @@ set(SOURCES
         util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
+        util/sync_point_impl.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
         util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
+        utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
         utilities/blob_db/blob_dump_tool.cc
@@ -578,6 +603,7 @@ set(SOURCES
         utilities/leveldb_options/leveldb_options.cc
         utilities/lua/rocks_lua_compaction_filter.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
         utilities/merge_operators/string_append/stringappend.cc
@@ -618,6 +644,12 @@ set_source_files_properties(
   endif()
 endif()
 
+if(HAVE_POWER8)
+  list(APPEND SOURCES
+    util/crc32c_ppc.c
+    util/crc32c_ppc_asm.S)
+endif(HAVE_POWER8)
+
 if(WIN32)
   list(APPEND SOURCES
     port/win/io_win.cc
@@ -643,6 +675,14 @@ endif()
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
+
+option(WITH_LIBRADOS "Build with librados" OFF)
+if(WITH_LIBRADOS)
+  list(APPEND SOURCES
+    utilities/env_librados.cc)
+  list(APPEND THIRDPARTY_LIBS rados)
+endif()
+
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
   set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
@@ -659,13 +699,6 @@ else()
                         SOVERSION ${ROCKSDB_VERSION_MAJOR}
                         CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
-endif()
-
-option(WITH_LIBRADOS "Build with librados" OFF)
-if(WITH_LIBRADOS)
-  list(APPEND SOURCES
-    utilities/env_librados.cc)
-  list(APPEND THIRDPARTY_LIBS rados)
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
@@ -712,7 +745,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   set(package_config_destination ${CMAKE_INSTALL_LIBDIR}/cmake/rocksdb)
 
   configure_package_config_file(
-    ${CMAKE_SOURCE_DIR}/cmake/RocksDBConfig.cmake.in RocksDBConfig.cmake
+    ${CMAKE_CURRENT_LIST_DIR}/cmake/RocksDBConfig.cmake.in RocksDBConfig.cmake
     INSTALL_DESTINATION ${package_config_destination}
   )
 
@@ -800,6 +833,7 @@ if(WITH_TESTS)
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
+        db/obsolete_files_test.cc
         db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc
         db/fault_injection_test.cc
@@ -942,17 +976,18 @@ if(WITH_TESTS)
 
   foreach(sourcefile ${TEST_EXES})
       get_filename_component(exename ${sourcefile} NAME_WE)
-      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
+      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile}
         $<TARGET_OBJECTS:testharness>)
-      set_target_properties(${exename}${ARTIFACT_SUFFIX}
+      set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+        OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
         )
-      target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TEST_EXES})
 

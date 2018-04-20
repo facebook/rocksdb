@@ -30,6 +30,7 @@ namespace rocksdb {
 
 class Version;
 class VersionSet;
+class VersionStorageInfo;
 class MemTable;
 class MemTableListVersion;
 class CompactionPicker;
@@ -138,6 +139,9 @@ extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 extern Status CheckConcurrentWritesSupported(
     const ColumnFamilyOptions& cf_options);
 
+extern Status CheckCFPathsSupported(const DBOptions& db_options,
+                                    const ColumnFamilyOptions& cf_options);
+
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
 // Wrap user defined table proproties collector factories `from cf_options`
@@ -202,6 +206,10 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
+  void SetFlushReason(FlushReason flush_reason) {
+    flush_reason_ = flush_reason;
+  }
+  FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
@@ -239,7 +247,12 @@ class ColumnFamilyData {
   void SetCurrent(Version* _current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
-  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
+  uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
+  void SetMemtable(MemTable* new_mem) {
+    uint64_t memtable_id = last_memtable_id_.fetch_add(1) + 1;
+    new_mem->SetID(memtable_id);
+    mem_ = new_mem;
+  }
 
   // calculate the oldest log needed for the durability of this column family
   uint64_t OldestLogToKeep();
@@ -264,6 +277,16 @@ class ColumnFamilyData {
   bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
                                   const Slice& largest_user_key,
                                   int level) const;
+
+  // Check if the passed ranges overlap with any unflushed memtables
+  // (immutable or mutable).
+  //
+  // @param super_version A referenced SuperVersion that will be held for the
+  //    duration of this function.
+  //
+  // Thread-safe
+  Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
+                                    SuperVersion* super_version, bool* overlap);
 
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.
@@ -327,6 +350,17 @@ class ColumnFamilyData {
   bool pending_flush() { return pending_flush_; }
   bool pending_compaction() { return pending_compaction_; }
 
+  enum class WriteStallCause {
+    kNone,
+    kMemtableLimit,
+    kL0FileCountLimit,
+    kPendingCompactionBytes,
+  };
+  static std::pair<WriteStallCondition, WriteStallCause>
+  GetWriteStallConditionAndCause(int num_unflushed_memtables, int num_l0_files,
+                                 uint64_t num_compaction_needed_bytes,
+                                 const MutableCFOptions& mutable_cf_options);
+
   // Recalculate some small conditions, which are changed only during
   // compaction, adding new memtable and/or
   // recalculation of compaction score. These values are used in
@@ -339,7 +373,15 @@ class ColumnFamilyData {
 
   bool initialized() const { return initialized_.load(); }
 
+  const ColumnFamilyOptions& initial_cf_options() {
+    return initial_cf_options_;
+  }
+
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
+
+  Status AddDirectories();
+
+  Directory* GetDataDir(size_t path_id) const;
 
  private:
   friend class ColumnFamilySet;
@@ -400,6 +442,8 @@ class ColumnFamilyData {
   // recovered from
   uint64_t log_number_;
 
+  std::atomic<FlushReason> flush_reason_;
+
   // An object that keeps all the compaction stats
   // and picks the next compaction
   std::unique_ptr<CompactionPicker> compaction_picker_;
@@ -419,6 +463,12 @@ class ColumnFamilyData {
 
   // if the database was opened with 2pc enabled
   bool allow_2pc_;
+
+  // Memtable id to track flush.
+  std::atomic<uint64_t> last_memtable_id_;
+
+  // Directories corresponding to cf_paths.
+  std::vector<std::unique_ptr<Directory>> data_dirs_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

@@ -126,10 +126,10 @@ class TestKeyComparator : public Comparator {
     return "TestKeyComparator";
   }
 
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override {}
+  virtual void FindShortestSeparator(std::string* /*start*/,
+                                     const Slice& /*limit*/) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const override {}
+  virtual void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 namespace {
@@ -887,7 +887,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as HashSkipList and HashLinkList are not supported in "
           "ROCKSDB_LITE\n");

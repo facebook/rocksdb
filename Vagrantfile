@@ -14,6 +14,11 @@ Vagrant.configure("2") do |config|
     box.vm.box = "chef/centos-6.5"
   end
 
+  config.vm.define "centos7" do |box|
+    box.vm.box = "centos/7"
+    box.vm.provision "shell", path: "build_tools/setup_centos7.sh"
+  end
+
   config.vm.define "FreeBSD10" do |box|
     box.vm.guest = :freebsd
     box.vm.box = "robin/freebsd-10"

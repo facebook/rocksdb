@@ -103,29 +103,30 @@ class DummyTableFactory : public TableFactory {
   virtual const char* Name() const override { return "DummyTableFactory"; }
 
   virtual Status NewTableReader(
-      const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
-      bool prefetch_index_and_filter_in_cache) const override {
+      const TableReaderOptions& /*table_reader_options*/,
+      unique_ptr<RandomAccessFileReader>&& /*file*/, uint64_t /*file_size*/,
+      unique_ptr<TableReader>* /*table_reader*/,
+      bool /*prefetch_index_and_filter_in_cache*/) const override {
     return Status::NotSupported();
   }
 
   virtual TableBuilder* NewTableBuilder(
-      const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const override {
+      const TableBuilderOptions& /*table_builder_options*/,
+      uint32_t /*column_family_id*/,
+      WritableFileWriter* /*file*/) const override {
     return nullptr;
   }
 
   virtual Status SanitizeOptions(
-      const DBOptions& db_opts,
-      const ColumnFamilyOptions& cf_opts) const override {
+      const DBOptions& /*db_opts*/,
+      const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::NotSupported();
   }
 
   virtual std::string GetPrintableTableOptions() const override { return ""; }
 
-  Status GetOptionString(std::string* opt_string,
-                         const std::string& delimiter) const override {
+  Status GetOptionString(std::string* /*opt_string*/,
+                         const std::string& /*delimiter*/) const override {
     return Status::OK();
   }
 };
@@ -135,15 +136,15 @@ class DummyMergeOperator : public MergeOperator {
   DummyMergeOperator() {}
   virtual ~DummyMergeOperator() {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                           MergeOperationOutput* /*merge_out*/) const override {
     return false;
   }
 
-  virtual bool PartialMergeMulti(const Slice& key,
-                                 const std::deque<Slice>& operand_list,
-                                 std::string* new_value,
-                                 Logger* logger) const override {
+  virtual bool PartialMergeMulti(const Slice& /*key*/,
+                                 const std::deque<Slice>& /*operand_list*/,
+                                 std::string* /*new_value*/,
+                                 Logger* /*logger*/) const override {
     return false;
   }
 
@@ -162,10 +163,10 @@ class DummySliceTransform : public SliceTransform {
   virtual Slice Transform(const Slice& src) const { return src; }
 
   // determine whether this is a valid src upon the function applies
-  virtual bool InDomain(const Slice& src) const { return false; }
+  virtual bool InDomain(const Slice& /*src*/) const { return false; }
 
   // determine whether dst=Transform(src) for some src
-  virtual bool InRange(const Slice& dst) const { return false; }
+  virtual bool InRange(const Slice& /*dst*/) const { return false; }
 };
 
 }  // namespace
@@ -310,7 +311,7 @@ int main(int argc, char** argv) {
 #else
 #include <cstdio>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Skipped in RocksDBLite as utilities are not supported.\n");
   return 0;
 }

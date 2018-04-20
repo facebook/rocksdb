@@ -73,7 +73,7 @@ class WalManagerTest : public testing::Test {
   }
 
   // NOT thread safe
-  void RollTheLog(bool archived) {
+  void RollTheLog(bool /*archived*/) {
     current_log_number_++;
     std::string fname = ArchivedLogFileName(dbname_, current_log_number_);
     unique_ptr<WritableFile> file;
@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as WalManager is not supported in ROCKSDB_LITE\n");
   return 0;
 }

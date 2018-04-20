@@ -25,15 +25,15 @@
 namespace rocksdb {
 
 // Usage:
-//     LevelIterator iter;
+//     ForwardLevelIterator iter;
 //     iter.SetFileIndex(file_index);
 //     iter.Seek(target);
 //     iter.Next()
-class LevelIterator : public InternalIterator {
+class ForwardLevelIterator : public InternalIterator {
  public:
-  LevelIterator(const ColumnFamilyData* const cfd,
-                const ReadOptions& read_options,
-                const std::vector<FileMetaData*>& files)
+  ForwardLevelIterator(const ColumnFamilyData* const cfd,
+                       const ReadOptions& read_options,
+                       const std::vector<FileMetaData*>& files)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -42,7 +42,7 @@ class LevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr) {}
 
-  ~LevelIterator() {
+  ~ForwardLevelIterator() {
     // Reset current pointer
     if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
       pinned_iters_mgr_->PinIterator(file_iter_);
@@ -84,11 +84,11 @@ class LevelIterator : public InternalIterator {
     }
   }
   void SeekToLast() override {
-    status_ = Status::NotSupported("LevelIterator::SeekToLast()");
+    status_ = Status::NotSupported("ForwardLevelIterator::SeekToLast()");
     valid_ = false;
   }
   void Prev() override {
-    status_ = Status::NotSupported("LevelIterator::Prev()");
+    status_ = Status::NotSupported("ForwardLevelIterator::Prev()");
     valid_ = false;
   }
   bool Valid() const override {
@@ -104,8 +104,8 @@ class LevelIterator : public InternalIterator {
     file_iter_->Seek(internal_key);
     valid_ = file_iter_->Valid();
   }
-  void SeekForPrev(const Slice& internal_key) override {
-    status_ = Status::NotSupported("LevelIterator::SeekForPrev()");
+  void SeekForPrev(const Slice& /*internal_key*/) override {
+    status_ = Status::NotSupported("ForwardLevelIterator::SeekForPrev()");
     valid_ = false;
   }
   void Next() override {
@@ -196,35 +196,57 @@ ForwardIterator::~ForwardIterator() {
   Cleanup(true);
 }
 
-namespace {
-// Used in PinnedIteratorsManager to release pinned SuperVersion
-static void ReleaseSuperVersionFunc(void* sv) {
-  delete reinterpret_cast<SuperVersion*>(sv);
-}
-}  // namespace
-
-void ForwardIterator::SVCleanup() {
-  if (sv_ != nullptr && sv_->Unref()) {
+void ForwardIterator::SVCleanup(DBImpl* db, SuperVersion* sv,
+                                bool background_purge_on_iterator_cleanup) {
+  if (sv->Unref()) {
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
-    db_->mutex_.Lock();
-    sv_->Cleanup();
-    db_->FindObsoleteFiles(&job_context, false, true);
-    if (read_options_.background_purge_on_iterator_cleanup) {
-      db_->ScheduleBgLogWriterClose(&job_context);
+    db->mutex_.Lock();
+    sv->Cleanup();
+    db->FindObsoleteFiles(&job_context, false, true);
+    if (background_purge_on_iterator_cleanup) {
+      db->ScheduleBgLogWriterClose(&job_context);
     }
-    db_->mutex_.Unlock();
-    if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
-      pinned_iters_mgr_->PinPtr(sv_, &ReleaseSuperVersionFunc);
-    } else {
-      delete sv_;
-    }
+    db->mutex_.Unlock();
+    delete sv;
     if (job_context.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(
-          job_context, read_options_.background_purge_on_iterator_cleanup);
+      db->PurgeObsoleteFiles(job_context, background_purge_on_iterator_cleanup);
     }
     job_context.Clean();
+  }
+}
+
+namespace {
+struct SVCleanupParams {
+  DBImpl* db;
+  SuperVersion* sv;
+  bool background_purge_on_iterator_cleanup;
+};
+}
+
+// Used in PinnedIteratorsManager to release pinned SuperVersion
+void ForwardIterator::DeferredSVCleanup(void* arg) {
+  auto d = reinterpret_cast<SVCleanupParams*>(arg);
+  ForwardIterator::SVCleanup(
+    d->db, d->sv, d->background_purge_on_iterator_cleanup);
+  delete d;
+}
+
+void ForwardIterator::SVCleanup() {
+  if (sv_ == nullptr) {
+    return;
+  }
+  if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
+    // pinned_iters_mgr_ tells us to make sure that all visited key-value slices
+    // are alive until pinned_iters_mgr_->ReleasePinnedData() is called.
+    // The slices may point into some memtables owned by sv_, so we need to keep
+    // sv_ referenced until pinned_iters_mgr_ unpins everything.
+    auto p = new SVCleanupParams{
+      db_, sv_, read_options_.background_purge_on_iterator_cleanup};
+    pinned_iters_mgr_->PinPtr(p, &ForwardIterator::DeferredSVCleanup);
+  } else {
+    SVCleanup(db_, sv_, read_options_.background_purge_on_iterator_cleanup);
   }
 }
 
@@ -361,14 +383,13 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
       if (!l0_iters_[i]->status().ok()) {
         immutable_status_ = l0_iters_[i]->status();
-      } else if (l0_iters_[i]->Valid()) {
-        if (!IsOverUpperBound(l0_iters_[i]->key())) {
-          immutable_min_heap_.push(l0_iters_[i]);
-        } else {
-          has_iter_trimmed_for_upper_bound_ = true;
-          DeleteIterator(l0_iters_[i]);
-          l0_iters_[i] = nullptr;
-        }
+      } else if (l0_iters_[i]->Valid() &&
+                 !IsOverUpperBound(l0_iters_[i]->key())) {
+        immutable_min_heap_.push(l0_iters_[i]);
+      } else {
+        has_iter_trimmed_for_upper_bound_ = true;
+        DeleteIterator(l0_iters_[i]);
+        l0_iters_[i] = nullptr;
       }
     }
 
@@ -395,15 +416,14 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
         if (!level_iters_[level - 1]->status().ok()) {
           immutable_status_ = level_iters_[level - 1]->status();
-        } else if (level_iters_[level - 1]->Valid()) {
-          if (!IsOverUpperBound(level_iters_[level - 1]->key())) {
-            immutable_min_heap_.push(level_iters_[level - 1]);
-          } else {
-            // Nothing in this level is interesting. Remove.
-            has_iter_trimmed_for_upper_bound_ = true;
-            DeleteIterator(level_iters_[level - 1]);
-            level_iters_[level - 1] = nullptr;
-          }
+        } else if (level_iters_[level - 1]->Valid() &&
+                   !IsOverUpperBound(level_iters_[level - 1]->key())) {
+          immutable_min_heap_.push(level_iters_[level - 1]);
+        } else {
+          // Nothing in this level is interesting. Remove.
+          has_iter_trimmed_for_upper_bound_ = true;
+          DeleteIterator(level_iters_[level - 1]);
+          level_iters_[level - 1] = nullptr;
         }
       }
     }
@@ -541,7 +561,7 @@ void ForwardIterator::UpdateChildrenPinnedItersMgr() {
   }
 
   // Set PinnedIteratorsManager for L1+ levels iterators.
-  for (LevelIterator* child_iter : level_iters_) {
+  for (ForwardLevelIterator* child_iter : level_iters_) {
     if (child_iter) {
       child_iter->SetPinnedItersMgr(pinned_iters_mgr_);
     }
@@ -703,7 +723,7 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
       }
     } else {
       level_iters_.push_back(
-          new LevelIterator(cfd_, read_options_, level_files));
+          new ForwardLevelIterator(cfd_, read_options_, level_files));
     }
   }
 }

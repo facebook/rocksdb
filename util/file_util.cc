@@ -62,8 +62,7 @@ Status CopyFile(Env* env, const std::string& source,
     }
     size -= slice.size();
   }
-  dest_writer->Sync(use_fsync);
-  return Status::OK();
+  return dest_writer->Sync(use_fsync);
 }
 
 // Utility function to create a file with the provided contents
@@ -83,12 +82,11 @@ Status CreateFile(Env* env, const std::string& destination,
 }
 
 Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname, uint32_t path_id) {
-  // TODO(tec): support sst_file_manager for multiple path_ids
+                     const std::string& fname) {
 #ifndef ROCKSDB_LITE
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
-  if (sfm && path_id == 0) {
+  if (sfm) {
     return sfm->ScheduleFileDeletion(fname);
   } else {
     return db_options->env->DeleteFile(fname);

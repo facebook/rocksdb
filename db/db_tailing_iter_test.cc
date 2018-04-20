@@ -157,10 +157,10 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::RenewIterators:Null",
-      [&](void* arg) { file_iters_renewed_null = true; });
+      [&](void* /*arg*/) { file_iters_renewed_null = true; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::RenewIterators:Copy",
-      [&](void* arg) { file_iters_renewed_copy = true; });
+      [&](void* /*arg*/) { file_iters_renewed_copy = true; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   const int num_records = 1000;
   for (int i = 1; i < num_records; ++i) {
@@ -214,9 +214,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   }
   ASSERT_TRUE(file_iters_renewed_null);
   ASSERT_TRUE(file_iters_renewed_copy);
-  iter = 0;
-  itern = 0;
-  iterh = 0;
+  iter = nullptr;
+  itern = nullptr;
+  iterh = nullptr;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   table_options.block_cache_compressed = nullptr;
@@ -229,7 +229,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   Slice target1(buf5, 20);
   iteri->Seek(target1);
   ASSERT_TRUE(iteri->status().IsIncomplete());
-  iteri = 0;
+  iteri = nullptr;
 
   read_options.read_tier = kReadAllTier;
   options.table_factory.reset(NewBlockBasedTableFactory());
@@ -415,7 +415,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
   int immutable_seeks = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::SeekInternal:Immutable",
-      [&](void* arg) { ++immutable_seeks; });
+      [&](void* /*arg*/) { ++immutable_seeks; });
 
   // Seek to 13. This should not require any immutable seeks.
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -809,6 +809,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
+  (void) argc;
+  (void) argv;
   return 0;
 #endif
 }

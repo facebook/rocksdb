@@ -156,7 +156,7 @@ struct BlockBasedTableOptions {
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
   // Use partitioned full filters for each SST file. This option is
-  // incompatibile with block-based filters.
+  // incompatible with block-based filters.
   bool partition_filters = false;
 
   // Use delta encoding to compress keys in blocks.
@@ -214,14 +214,22 @@ struct BlockBasedTableOptions {
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use
   // this.
-  // This option only affects newly written tables. When reading exising tables,
+  // This option only affects newly written tables. When reading existing tables,
   // the information about version is read from the footer.
   uint32_t format_version = 2;
+
+  // Store index blocks on disk in compressed format. Changing this option to
+  // false  will avoid the overhead of decompression if index blocks are evicted
+  // and read back
+  bool enable_index_compression = true;
+
+  // Align data blocks on lesser of page size and block size
+  bool block_align = false;
 };
 
 // Table Properties that are specific to block-based table properties.
 struct BlockBasedTablePropertyNames {
-  // value of this propertis is a fixed int32 number.
+  // value of this properties is a fixed int32 number.
   static const std::string kIndexType;
   // value is "1" for true and "0" for false.
   static const std::string kWholeKeyFiltering;
@@ -314,7 +322,7 @@ struct PlainTableOptions {
 };
 
 // -- Plain Table with prefix-only seek
-// For this factory, you need to set Options.prefix_extrator properly to make it
+// For this factory, you need to set Options.prefix_extractor properly to make it
 // work. Look-up will starts with prefix hash lookup for key prefix. Inside the
 // hash bucket found, a binary search is executed for hash conflicts. Finally,
 // a linear search is used.
@@ -377,7 +385,7 @@ struct CuckooTableOptions {
   bool identity_as_first_hash = false;
   // If this option is set to true, module is used during hash calculation.
   // This often yields better space efficiency at the cost of performance.
-  // If this optino is set to false, # of entries in table is constrained to be
+  // If this option is set to false, # of entries in table is constrained to be
   // power of two, and bit and is used to calculate hash, which is faster in
   // general.
   bool use_module_hash = true;
@@ -414,7 +422,7 @@ class TableFactory {
   //     and cache the table object returned.
   // (2) SstFileReader (for SST Dump) opens the table and dump the table
   //     contents using the iterator of the table.
-  // (3) DBImpl::AddFile() calls this function to read the contents of
+  // (3) DBImpl::IngestExternalFile() calls this function to read the contents of
   //     the sst file it's attempting to add
   //
   // table_reader_options is a TableReaderOptions which contain all the
@@ -462,8 +470,8 @@ class TableFactory {
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
 
-  virtual Status GetOptionString(std::string* opt_string,
-                                 const std::string& delimiter) const {
+  virtual Status GetOptionString(std::string* /*opt_string*/,
+                                 const std::string& /*delimiter*/) const {
     return Status::NotSupported(
         "The table factory doesn't implement GetOptionString().");
   }

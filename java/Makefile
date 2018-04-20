@@ -1,6 +1,7 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
 	org.rocksdb.AbstractSlice\
+	org.rocksdb.AbstractTransactionNotifier\
 	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDBOptions\
 	org.rocksdb.BlockBasedTableConfig\
@@ -29,6 +30,9 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MergeOperator\
+	org.rocksdb.NativeComparatorWrapper\
+	org.rocksdb.OptimisticTransactionDB\
+	org.rocksdb.OptimisticTransactionOptions\
 	org.rocksdb.Options\
 	org.rocksdb.OptionsUtil\
 	org.rocksdb.PlainTableConfig\
@@ -43,8 +47,13 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.RocksMemEnv\
 	org.rocksdb.SkipListMemTableConfig\
 	org.rocksdb.Slice\
+	org.rocksdb.SstFileManager\
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.Statistics\
+	org.rocksdb.Transaction\
+	org.rocksdb.TransactionDB\
+	org.rocksdb.TransactionDBOptions\
+	org.rocksdb.TransactionOptions\
 	org.rocksdb.TransactionLogIterator\
 	org.rocksdb.TtlDB\
 	org.rocksdb.VectorMemTableConfig\
@@ -57,6 +66,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.WBWIRocksIterator
 
 NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
+    org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper\
     org.rocksdb.WriteBatchTest\
     org.rocksdb.WriteBatchTestInternalHelper
 
@@ -104,7 +114,11 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
+	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
+	org.rocksdb.OptimisticTransactionTest\
+	org.rocksdb.OptimisticTransactionDBTest\
+	org.rocksdb.OptimisticTransactionOptionsTest\
 	org.rocksdb.OptionsUtilTest\
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
@@ -119,7 +133,12 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.util.SizeUnitTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
+	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
+	org.rocksdb.TransactionTest\
+	org.rocksdb.TransactionDBTest\
+	org.rocksdb.TransactionOptionsTest\
+	org.rocksdb.TransactionDBOptionsTest\
 	org.rocksdb.TransactionLogIteratorTest\
 	org.rocksdb.TtlDBTest\
 	org.rocksdb.StatisticsTest\
@@ -207,6 +226,20 @@ column_family_sample: java
 	$(AM_V_at)javac $(JAVAC_ARGS) -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBColumnFamilySample.java
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	java $(JAVA_ARGS) -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBColumnFamilySample /tmp/rocksdbjni
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
+
+transaction_sample: java
+	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
+	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/TransactionSample.java
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
+	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) TransactionSample /tmp/rocksdbjni
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
+
+optimistic_transaction_sample: java
+	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
+	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/OptimisticTransactionSample.java
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
+	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) OptimisticTransactionSample /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 
 resolve_test_deps:

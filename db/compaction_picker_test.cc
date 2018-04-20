@@ -20,7 +20,9 @@ namespace rocksdb {
 class CountingLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override { log_count++; }
+  virtual void Logv(const char* /*format*/, va_list /*ap*/) override {
+    log_count++;
+  }
   size_t log_count;
 };
 
@@ -57,7 +59,7 @@ class CompactionPickerTest : public testing::Test {
         vstorage_(nullptr) {
     fifo_options_.max_table_files_size = 1;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
-    ioptions_.db_paths.emplace_back("dummy",
+    ioptions_.cf_paths.emplace_back("dummy",
                                     std::numeric_limits<uint64_t>::max());
   }
 
@@ -175,6 +177,8 @@ TEST_F(CompactionPickerTest, Level1Trigger) {
 }
 
 TEST_F(CompactionPickerTest, Level1Trigger2) {
+  mutable_cf_options_.target_file_size_base = 10000000000;
+  mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   NewVersionStorage(6, kCompactionStyleLevel);
   Add(1, 66U, "150", "200", 1000000001U);
   Add(1, 88U, "201", "300", 1000000000U);
@@ -191,13 +195,14 @@ TEST_F(CompactionPickerTest, Level1Trigger2) {
   ASSERT_EQ(66U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(6U, compaction->input(1, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 1)->fd.GetNumber());
+  ASSERT_EQ(uint64_t{1073741824}, compaction->OutputFilePreallocationSize());
 }
 
 TEST_F(CompactionPickerTest, LevelMaxScore) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.target_file_size_base = 10000000;
-  mutable_cf_options_.target_file_size_multiplier = 10;
   mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
+  mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   Add(0, 1U, "150", "200", 1000000U);
   // Level 1 score 1.2
   Add(1, 66U, "150", "200", 6000000U);
@@ -218,6 +223,9 @@ TEST_F(CompactionPickerTest, LevelMaxScore) {
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(7U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(mutable_cf_options_.target_file_size_base +
+                mutable_cf_options_.target_file_size_base / 10,
+            compaction->OutputFilePreallocationSize());
 }
 
 TEST_F(CompactionPickerTest, NeedsCompactionLevel) {
@@ -521,9 +529,10 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   NewVersionStorage(6, kCompactionStyleLevel);
   ioptions_.compaction_pri = kMinOverlappingRatio;
-  mutable_cf_options_.target_file_size_base = 10000000;
+  mutable_cf_options_.target_file_size_base = 100000000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
   mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
+  mutable_cf_options_.RefreshDerivedOptions(ioptions_);
 
   Add(2, 6U, "150", "179", 50000000U);
   Add(2, 7U, "180", "220", 50000000U);
@@ -543,6 +552,8 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Pick file 8 because it overlaps with 0 files on level 3.
   ASSERT_EQ(8U, compaction->input(0, 0)->fd.GetNumber());
+  // Compaction input size * 1.1
+  ASSERT_GE(uint64_t{55000000}, compaction->OutputFilePreallocationSize());
 }
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {

@@ -43,8 +43,9 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   ~FullFilterBlockBuilder() {}
 
   virtual bool IsBlockBased() override { return false; }
-  virtual void StartBlock(uint64_t block_offset) override {}
+  virtual void StartBlock(uint64_t /*block_offset*/) override {}
   virtual void Add(const Slice& key) override;
+  virtual size_t NumAdded() const override { return num_added_; }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
   using FilterBlockBuilder::Finish;
 

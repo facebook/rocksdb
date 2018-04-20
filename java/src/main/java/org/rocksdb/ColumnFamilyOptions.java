@@ -27,10 +27,42 @@ public class ColumnFamilyOptions extends RocksObject
    * Construct ColumnFamilyOptions.
    *
    * This constructor will create (by allocating a block of memory)
-   * an {@code rocksdb::DBOptions} in the c++ side.
+   * an {@code rocksdb::ColumnFamilyOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
     super(newColumnFamilyOptions());
+  }
+
+  /**
+   * Copy constructor for ColumnFamilyOptions.
+   *
+   * NOTE: This does a shallow copy, which means comparator, merge_operator, compaction_filter,
+   * compaction_filter_factory and other pointers will be cloned!
+   *
+   * @param other The ColumnFamilyOptions to copy.
+   */
+  public ColumnFamilyOptions(ColumnFamilyOptions other) {
+    super(copyColumnFamilyOptions(other.nativeHandle_));
+    this.memTableConfig_ = other.memTableConfig_;
+    this.tableFormatConfig_ = other.tableFormatConfig_;
+    this.comparator_ = other.comparator_;
+    this.compactionFilter_ = other.compactionFilter_;
+    this.compactionFilterFactory_ = other.compactionFilterFactory_;
+    this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
+    this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
+    this.compressionOptions_ = other.compressionOptions_;
+  }
+
+  /**
+   * <p>Constructor to be used by
+   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)},
+   * {@link ColumnFamilyDescriptor#columnFamilyOptions()}
+   * and also called via JNI.</p>
+   *
+   * @param handle native handle to ColumnFamilyOptions instance.
+   */
+  ColumnFamilyOptions(final long handle) {
+    super(handle);
   }
 
   /**
@@ -131,7 +163,7 @@ public class ColumnFamilyOptions extends RocksObject
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isOwningHandle());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
-            comparator instanceof DirectComparator);
+            comparator.getComparatorType().getValue());
     comparator_ = comparator;
     return this;
   }
@@ -768,21 +800,11 @@ public class ColumnFamilyOptions extends RocksObject
     return forceConsistencyChecks(nativeHandle_);
   }
 
-  /**
-   * <p>Constructor to be used by
-   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
-   * and also called via JNI.
-   *
-   * @param handle native handle to ColumnFamilyOptions instance.
-   */
-  public ColumnFamilyOptions(final long handle) {
-    super(handle);
-  }
-
   private static native long getColumnFamilyOptionsFromProps(
       String optString);
 
   private static native long newColumnFamilyOptions();
+  private static native long copyColumnFamilyOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);
@@ -794,7 +816,7 @@ public class ColumnFamilyOptions extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle, boolean isDirect);
+      long comparatorHandle, byte comparatorType);
   private native void setMergeOperatorName(long handle, String name);
   private native void setMergeOperator(long handle, long mergeOperatorHandle);
   private native void setCompactionFilterHandle(long handle,
@@ -934,6 +956,7 @@ public class ColumnFamilyOptions extends RocksObject
   private native boolean forceConsistencyChecks(final long handle);
 
   // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;
   private AbstractComparator<? extends AbstractSlice<?>> comparator_;

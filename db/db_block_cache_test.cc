@@ -47,7 +47,7 @@ class DBBlockCacheTest : public DBTestBase {
     return options;
   }
 
-  void InitTable(const Options& options) {
+  void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks; i++) {
       ASSERT_OK(Put(ToString(i), value.c_str()));
@@ -110,6 +110,31 @@ class DBBlockCacheTest : public DBTestBase {
     compressed_failure_count_ = new_failure_count;
   }
 };
+
+TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  InitTable(options);
+
+  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  table_options.block_cache = cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+  RecordCacheCounters(options);
+
+  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
+  Iterator* iter = nullptr;
+
+  ASSERT_EQ(0, cache->GetUsage());
+  iter = db_->NewIterator(read_options);
+  iter->Seek(ToString(0));
+  ASSERT_LT(0, cache->GetUsage());
+  delete iter;
+  iter = nullptr;
+  ASSERT_EQ(0, cache->GetUsage());
+}
 
 TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   ReadOptions read_options;

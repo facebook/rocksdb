@@ -36,8 +36,10 @@
 
 namespace rocksdb {
 
-class TransactionTest : public ::testing::TestWithParam<
-                            std::tuple<bool, bool, TxnDBWritePolicy>> {
+// Return true if the ith bit is set in combination represented by comb
+bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
+
+class TransactionTestBase : public ::testing::Test {
  public:
   TransactionDB* db;
   FaultInjectionTestEnv* env;
@@ -45,8 +47,11 @@ class TransactionTest : public ::testing::TestWithParam<
   Options options;
 
   TransactionDBOptions txn_db_options;
+  bool use_stackable_db_;
 
-  TransactionTest() {
+  TransactionTestBase(bool use_stackable_db, bool two_write_queue,
+                      TxnDBWritePolicy write_policy)
+      : use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
@@ -54,15 +59,16 @@ class TransactionTest : public ::testing::TestWithParam<
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
-    options.two_write_queues = std::get<1>(GetParam());
+    options.two_write_queues = two_write_queue;
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
-    txn_db_options.write_policy = std::get<2>(GetParam());
+    txn_db_options.write_policy = write_policy;
+    txn_db_options.rollback_merge_operands = true;
     Status s;
-    if (std::get<0>(GetParam()) == false) {
+    if (use_stackable_db == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -70,8 +76,13 @@ class TransactionTest : public ::testing::TestWithParam<
     assert(s.ok());
   }
 
-  ~TransactionTest() {
+  ~TransactionTestBase() {
     delete db;
+    // This is to skip the assert statement in FaultInjectionTestEnv. There
+    // seems to be a bug in btrfs that the makes readdir return recently
+    // unlink-ed files. By using the default fs we simply ignore errors resulted
+    // from attempting to delete such files in DestroyDB.
+    options.env = Env::Default();
     DestroyDB(dbname, options);
     delete env;
   }
@@ -83,10 +94,31 @@ class TransactionTest : public ::testing::TestWithParam<
     env->DropUnsyncedFileData();
     env->ResetState();
     Status s;
-    if (std::get<0>(GetParam()) == false) {
+    if (use_stackable_db_ == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
+    }
+    return s;
+  }
+
+  Status ReOpenNoDelete(std::vector<ColumnFamilyDescriptor>& cfs,
+                        std::vector<ColumnFamilyHandle*>* handles) {
+    for (auto h : *handles) {
+      delete h;
+    }
+    handles->clear();
+    delete db;
+    db = nullptr;
+    env->AssertNoOpenFile();
+    env->DropUnsyncedFileData();
+    env->ResetState();
+    Status s;
+    if (use_stackable_db_ == false) {
+      s = TransactionDB::Open(options, txn_db_options, dbname, cfs, handles,
+                              &db);
+    } else {
+      s = OpenWithStackableDB(cfs, handles);
     }
     return s;
   }
@@ -95,10 +127,28 @@ class TransactionTest : public ::testing::TestWithParam<
     delete db;
     DestroyDB(dbname, options);
     Status s;
-    if (std::get<0>(GetParam()) == false) {
+    if (use_stackable_db_ == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
+    }
+    return s;
+  }
+
+  Status OpenWithStackableDB(std::vector<ColumnFamilyDescriptor>& cfs,
+                             std::vector<ColumnFamilyHandle*>* handles) {
+    std::vector<size_t> compaction_enabled_cf_indices;
+    TransactionDB::PrepareWrap(&options, &cfs, &compaction_enabled_cf_indices);
+    DB* root_db;
+    Options options_copy(options);
+    const bool use_seq_per_batch =
+        txn_db_options.write_policy == WRITE_PREPARED;
+    Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
+                            use_seq_per_batch);
+    if (s.ok()) {
+      s = TransactionDB::WrapStackableDB(
+          new StackableDB(root_db), txn_db_options,
+          compaction_enabled_cf_indices, *handles, &db);
     }
     return s;
   }
@@ -390,6 +440,15 @@ class TransactionTest : public ::testing::TestWithParam<
       ASSERT_EQ(kv.second, value);
     }
   }
+};
+
+class TransactionTest : public TransactionTestBase,
+                        virtual public ::testing::WithParamInterface<
+                            std::tuple<bool, bool, TxnDBWritePolicy>> {
+ public:
+  TransactionTest()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam())){};
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};

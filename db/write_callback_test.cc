@@ -54,9 +54,7 @@ class WriteCallbackTestWriteCallback1 : public WriteCallback {
 
 class WriteCallbackTestWriteCallback2 : public WriteCallback {
  public:
-  Status Callback(DB *db) override {
-    return Status::Busy();
-  }
+  Status Callback(DB* /*db*/) override { return Status::Busy(); }
   bool AllowWriteBatching() override { return true; }
 };
 
@@ -74,7 +72,7 @@ class MockWriteCallback : public WriteCallback {
     was_called_.store(other.was_called_.load());
   }
 
-  Status Callback(DB* db) override {
+  Status Callback(DB* /*db*/) override {
     was_called_.store(true);
     if (should_fail_) {
       return Status::Busy();
@@ -291,20 +289,25 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 woptions.disableWAL = !enable_WAL;
                 woptions.sync = enable_WAL;
                 Status s;
-                if (seq_per_batch && two_queues) {
+                if (seq_per_batch) {
                   class PublishSeqCallback : public PreReleaseCallback {
                    public:
                     PublishSeqCallback(DBImpl* db_impl_in)
                         : db_impl_(db_impl_in) {}
-                    virtual Status Callback(SequenceNumber last_seq) {
+                    virtual Status Callback(SequenceNumber last_seq,
+                                            bool /*not used*/) override {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();
                     }
                     DBImpl* db_impl_;
                   } publish_seq_callback(db_impl);
-                  s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
-                                         &write_op.callback_, nullptr, 0, false,
-                                         nullptr, &publish_seq_callback);
+                  // seq_per_batch requires a natural batch separator or Noop
+                  WriteBatchInternal::InsertNoop(&write_op.write_batch_);
+                  const size_t ONE_BATCH = 1;
+                  s = db_impl->WriteImpl(
+                      woptions, &write_op.write_batch_, &write_op.callback_,
+                      nullptr, 0, false, nullptr, ONE_BATCH,
+                      two_queues ? &publish_seq_callback : nullptr);
                 } else {
                   s = db_impl->WriteWithCallback(
                       woptions, &write_op.write_batch_, &write_op.callback_);
@@ -429,7 +432,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as WriteWithCallback is not supported in ROCKSDB_LITE\n");
   return 0;

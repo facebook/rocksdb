@@ -163,7 +163,7 @@ class LogTest : public ::testing::TestWithParam<int> {
         source_holder_(
             test::GetSequentialFileReader(new StringSource(reader_contents_))),
         writer_(std::move(dest_holder_), 123, GetParam()),
-        reader_(NULL, std::move(source_holder_), &report_, true /*checksum*/,
+        reader_(nullptr, std::move(source_holder_), &report_, true /*checksum*/,
                 0 /*initial_offset*/, 123) {
     int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
     initial_offset_last_record_offsets_[0] = 0;
@@ -271,7 +271,7 @@ class LogTest : public ::testing::TestWithParam<int> {
     unique_ptr<SequentialFileReader> file_reader(
         test::GetSequentialFileReader(new StringSource(reader_contents_)));
     unique_ptr<Reader> offset_reader(
-        new Reader(NULL, std::move(file_reader), &report_,
+        new Reader(nullptr, std::move(file_reader), &report_,
                    true /*checksum*/, WrittenBytes() + offset_past_end, 123));
     Slice record;
     std::string scratch;
@@ -284,7 +284,7 @@ class LogTest : public ::testing::TestWithParam<int> {
     unique_ptr<SequentialFileReader> file_reader(
         test::GetSequentialFileReader(new StringSource(reader_contents_)));
     unique_ptr<Reader> offset_reader(
-        new Reader(NULL, std::move(file_reader), &report_,
+        new Reader(nullptr, std::move(file_reader), &report_,
                    true /*checksum*/, initial_offset, 123));
     Slice record;
     std::string scratch;

@@ -96,6 +96,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
+  options.enable_pipelined_write = immutable_db_options.enable_pipelined_write;
   options.allow_concurrent_memtable_write =
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
@@ -208,6 +209,18 @@ std::unordered_map<std::string, ChecksumType>
                                                {"kCRC32c", kCRC32c},
                                                {"kxxHash", kxxHash}};
 
+std::unordered_map<std::string, CompressionType>
+    OptionsHelper::compression_type_string_map = {
+        {"kNoCompression", kNoCompression},
+        {"kSnappyCompression", kSnappyCompression},
+        {"kZlibCompression", kZlibCompression},
+        {"kBZip2Compression", kBZip2Compression},
+        {"kLZ4Compression", kLZ4Compression},
+        {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kXpressCompression", kXpressCompression},
+        {"kZSTD", kZSTD},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+        {"kDisableCompressionOption", kDisableCompressionOption}};
 #ifndef ROCKSDB_LITE
 
 template <typename T>
@@ -691,7 +704,7 @@ bool SerializeSingleOptionHelper(const char* opt_address,
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
-    MutableCFOptions* new_options) {
+    Logger* info_log, MutableCFOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
   for (const auto& o : options_map) {
@@ -703,6 +716,13 @@ Status GetMutableOptionsFromStrings(
       const auto& opt_info = iter->second;
       if (!opt_info.is_mutable) {
         return Status::InvalidArgument("Option not changeable: " + o.first);
+      }
+      if (opt_info.verification == OptionVerificationType::kDeprecated) {
+        // log warning when user tries to set a deprecated option but don't fail
+        // the call for compatibility.
+        ROCKS_LOG_WARN(info_log, "%s is a deprecated option and cannot be set",
+                       o.first.c_str());
+        continue;
       }
       bool is_ok = ParseOptionHelper(
           reinterpret_cast<char*>(new_options) + opt_info.mutable_offset,
@@ -905,6 +925,17 @@ Status ParseColumnFamilyOption(const std::string& name,
               "unable to parse the specified CF option " + name);
         }
         new_options->compression_opts.max_dict_bytes =
+            ParseInt(value.substr(start, value.size() - start));
+        end = value.find(':', start);
+      }
+      // zstd_max_train_bytes is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->compression_opts.zstd_max_train_bytes =
             ParseInt(value.substr(start, value.size() - start));
       }
     } else {
@@ -1476,19 +1507,6 @@ std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
           0}}};
 
-std::unordered_map<std::string, CompressionType>
-    OptionsHelper::compression_type_string_map = {
-        {"kNoCompression", kNoCompression},
-        {"kSnappyCompression", kSnappyCompression},
-        {"kZlibCompression", kZlibCompression},
-        {"kBZip2Compression", kBZip2Compression},
-        {"kLZ4Compression", kLZ4Compression},
-        {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression},
-        {"kZSTD", kZSTD},
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
-        {"kDisableCompressionOption", kDisableCompressionOption}};
-
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
@@ -1582,8 +1600,6 @@ int offset_of(T1 CompactionOptionsUniversal::*member) {
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::cf_options_type_info = {
         /* not yet supported
-        CompactionOptionsFIFO compaction_options_fifo;
-        CompactionOptionsUniversal compaction_options_universal;
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
         typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
@@ -1592,6 +1608,7 @@ std::unordered_map<std::string, OptionTypeInfo>
                                          uint34_t* existing_value_size,
                                          Slice delta_value,
                                          std::string* merged_value);
+        std::vector<DbPath> cf_paths;
          */
         {"report_bg_io_stats",
          {offset_of(&ColumnFamilyOptions::report_bg_io_stats),
@@ -1810,7 +1827,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_options_universal),
           OptionType::kCompactionOptionsUniversal,
           OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, compaction_options_universal)}}};
+          offsetof(struct MutableCFOptions, compaction_options_universal)}},
+        {"ttl",
+         {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, false, 0}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {

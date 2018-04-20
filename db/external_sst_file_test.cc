@@ -388,15 +388,17 @@ class SstFileWriterCollector : public TablePropertiesCollector {
   const char* Name() const override { return name_.c_str(); }
 
   Status Finish(UserCollectedProperties* properties) override {
+    std::string count = std::to_string(count_);
     *properties = UserCollectedProperties{
         {prefix_ + "_SstFileWriterCollector", "YES"},
-        {prefix_ + "_Count", std::to_string(count_)},
+        {prefix_ + "_Count", count},
     };
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
     ++count_;
     return Status::OK();
   }
@@ -416,7 +418,7 @@ class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
   explicit SstFileWriterCollectorFactory(std::string prefix)
       : prefix_(prefix), num_created_(0) {}
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override {
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     num_created_++;
     return new SstFileWriterCollector(prefix_);
   }
@@ -687,7 +689,7 @@ TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
   DestroyAndReopen(options);
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::AddFile:FileCopied", [&](void* arg) {
+      "ExternalSstFileIngestionJob::Prepare:FileAdded", [&](void* /* arg */) {
         ASSERT_OK(Put("aaa", "bbb"));
         ASSERT_OK(Flush());
         ASSERT_OK(Put("aaa", "xxx"));
@@ -1126,7 +1128,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   std::atomic<bool> bg_compact_started(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:Start",
-      [&](void* arg) { bg_compact_started.store(true); });
+      [&](void* /*arg*/) { bg_compact_started.store(true); });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1407,12 +1409,16 @@ TEST_F(ExternalSSTFileTest, AddFileTrivialMoveBug) {
   ASSERT_OK(GenerateAndAddExternalFile(options, {22, 23}, 6));  // L2
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Start", [&](void* arg) {
+      "CompactionJob::Run():Start", [&](void* /*arg*/) {
         // fit in L3 but will overlap with compaction so will be added
         // to L2 but a compaction will trivially move it to L3
         // and break LSM consistency
-        ASSERT_OK(dbfull()->SetOptions({{"max_bytes_for_level_base", "1"}}));
-        ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7));
+        static std::atomic<bool> called = {false};
+        if (!called) {
+          called = true;
+          ASSERT_OK(dbfull()->SetOptions({{"max_bytes_for_level_base", "1"}}));
+          ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7));
+        }
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1795,9 +1801,59 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
   ASSERT_OK(db_->IngestExternalFile(handles_[2], {unknown_sst}, ifo));
 }
 
+/*
+ * Test and verify the functionality of ingestion_options.move_files.
+ */
+TEST_F(ExternalSSTFileTest, LinkExternalSst) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  const int kNumKeys = 10000;
+
+  std::string file_path = sst_files_dir_ + "file1.sst";
+  // Create SstFileWriter for default column family
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  ASSERT_OK(sst_file_writer.Open(file_path));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
+  }
+  ASSERT_OK(sst_file_writer.Finish());
+  uint64_t file_size = 0;
+  ASSERT_OK(env_->GetFileSize(file_path, &file_size));
+
+  IngestExternalFileOptions ifo;
+  ifo.move_files = true;
+  ASSERT_OK(db_->IngestExternalFile({file_path}, ifo));
+
+  ColumnFamilyHandleImpl* cfh =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
+  ColumnFamilyData* cfd = cfh->cfd();
+  const InternalStats* internal_stats_ptr = cfd->internal_stats();
+  const std::vector<InternalStats::CompactionStats>& comp_stats =
+      internal_stats_ptr->TEST_GetCompactionStats();
+  uint64_t bytes_copied = 0;
+  uint64_t bytes_moved = 0;
+  for (const auto& stats : comp_stats) {
+    bytes_copied += stats.bytes_written;
+    bytes_moved += stats.bytes_moved;
+  }
+  // If bytes_moved > 0, it means external sst resides on the same FS
+  // supporting hard link operation. Therefore,
+  // 0 bytes should be copied, and the bytes_moved == file_size.
+  // Otherwise, FS does not support hard link, or external sst file resides on
+  // a different file system, then the bytes_copied should be equal to
+  // file_size.
+  if (bytes_moved > 0) {
+    ASSERT_EQ(0, bytes_copied);
+    ASSERT_EQ(file_size, bytes_moved);
+  } else {
+    ASSERT_EQ(file_size, bytes_copied);
+  }
+}
+
 class TestIngestExternalFileListener : public EventListener {
  public:
-  void OnExternalFileIngested(DB* db,
+  void OnExternalFileIngested(DB* /*db*/,
                               const ExternalFileIngestionInfo& info) override {
     ingested_files.push_back(info);
   }
@@ -1940,6 +1996,55 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
 }
+
+TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
+  Options options = CurrentOptions();
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+
+  // Create external SST file and include bloom filters
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+  {
+    std::string file_path = sst_files_dir_ + "sst_with_bloom.sst";
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    ASSERT_OK(sst_file_writer.Put("Key1", "Value1"));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    ASSERT_OK(
+        db_->IngestExternalFile({file_path}, IngestExternalFileOptions()));
+
+    ASSERT_EQ(Get("Key1"), "Value1");
+    ASSERT_GE(
+        options.statistics->getTickerCount(Tickers::BLOCK_CACHE_FILTER_ADD), 1);
+  }
+
+  // Create external SST file but skip bloom filters
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+  {
+    std::string file_path = sst_files_dir_ + "sst_with_no_bloom.sst";
+    SstFileWriter sst_file_writer(EnvOptions(), options, nullptr, true,
+                                  Env::IOPriority::IO_TOTAL,
+                                  true /* skip_filters */);
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    ASSERT_OK(sst_file_writer.Put("Key1", "Value1"));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    ASSERT_OK(
+        db_->IngestExternalFile({file_path}, IngestExternalFileOptions()));
+
+    ASSERT_EQ(Get("Key1"), "Value1");
+    ASSERT_EQ(
+        options.statistics->getTickerCount(Tickers::BLOCK_CACHE_FILTER_ADD), 0);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -1951,7 +2056,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as External SST File Writer and Ingestion are not supported "
           "in ROCKSDB_LITE\n");

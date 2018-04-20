@@ -21,7 +21,8 @@ Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found);
 // Seek to the compression dictionary block.
 // If it successfully seeks to the properties block, "is_found" will be
 // set to true.
-Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found);
+Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
+                          BlockHandle* block_handle);
 
 // TODO(andrewkr) should not put all meta block in table_properties.h/cc
 Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,

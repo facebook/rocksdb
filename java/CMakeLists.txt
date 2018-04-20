@@ -7,6 +7,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/clock_cache.cc
         rocksjni/columnfamilyhandle.cc
         rocksjni/compaction_filter.cc
+        rocksjni/compaction_filter_factory.cc
+        rocksjni/compaction_filter_factory_jnicallback.cc
         rocksjni/compaction_options_fifo.cc
         rocksjni/compaction_options_universal.cc
         rocksjni/comparator.cc
@@ -17,14 +19,17 @@ set(JNI_NATIVE_SOURCES
         rocksjni/filter.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
+        rocksjni/jnicallback.cc
         rocksjni/loggerjnicallback.cc
         rocksjni/lru_cache.cc
         rocksjni/memtablejni.cc
         rocksjni/merge_operator.cc
+        rocksjni/native_comparator_wrapper_test.cc
         rocksjni/options.cc
         rocksjni/options_util.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
+        rocksjni/rocks_callback_object.cc
         rocksjni/cassandra_compactionfilterjni.cc
         rocksjni/cassandra_value_operator.cc
         rocksjni/restorejni.cc
@@ -32,6 +37,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/rocksjni.cc
         rocksjni/slice.cc
         rocksjni/snapshot.cc
+        rocksjni/sst_file_manager.cc
         rocksjni/sst_file_writerjni.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
@@ -83,6 +89,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.LRUCache
         org.rocksdb.MemTableConfig
         org.rocksdb.MergeOperator
+        org.rocksdb.NativeComparatorWrapper
+        org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper
         org.rocksdb.NativeLibraryLoader
         org.rocksdb.Options
         org.rocksdb.OptionsUtil
@@ -104,6 +112,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.Slice
         org.rocksdb.Snapshot
         org.rocksdb.SnapshotTest
+        org.rocksdb.SstFileManager
         org.rocksdb.SstFileWriter
         org.rocksdb.Statistics
         org.rocksdb.StringAppendOperator
@@ -118,6 +127,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.WriteBatchTestInternalHelper
         org.rocksdb.WriteBatchWithIndex
         org.rocksdb.WriteOptions
+        org.rocksdb.util.CapturingWriteBatchHandler
+        org.rocksdb.util.WriteBatchGetter
 )
 
 include(FindJava)
@@ -173,6 +184,7 @@ add_jar(
   src/main/java/org/rocksdb/CompactionStyle.java
   src/main/java/org/rocksdb/Comparator.java
   src/main/java/org/rocksdb/ComparatorOptions.java
+  src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
   src/main/java/org/rocksdb/DBOptions.java
@@ -199,11 +211,13 @@ add_jar(
   src/main/java/org/rocksdb/MergeOperator.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
+  src/main/java/org/rocksdb/NativeComparatorWrapper.java
   src/main/java/org/rocksdb/NativeLibraryLoader.java
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/RateLimiter.java
+  src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
@@ -220,6 +234,7 @@ add_jar(
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
+  src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileWriter.java
   src/main/java/org/rocksdb/Statistics.java
   src/main/java/org/rocksdb/StatsLevel.java
@@ -239,11 +254,14 @@ add_jar(
   src/main/java/org/rocksdb/WriteOptions.java
   src/test/java/org/rocksdb/BackupEngineTest.java
   src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
+  src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksMemoryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/WriteBatchTest.java
+  src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/test/java/org/rocksdb/util/WriteBatchGetter.java
   INCLUDE_JARS ${JAVA_TESTCLASSPATH}
 )
 

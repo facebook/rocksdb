@@ -4,6 +4,7 @@
 
 #pragma once
 #include <map>
+#include <memory>
 #include <string>
 #include "rocksdb/db.h"
 
@@ -18,12 +19,23 @@ namespace rocksdb {
 // This class contains APIs to stack rocksdb wrappers.Eg. Stack TTL over base d
 class StackableDB : public DB {
  public:
-  // StackableDB is the owner of db now!
+  // StackableDB take sole ownership of the underlying db.
   explicit StackableDB(DB* db) : db_(db) {}
 
+  // StackableDB take shared ownership of the underlying db.
+  explicit StackableDB(std::shared_ptr<DB> db)
+      : db_(db.get()), shared_db_ptr_(db) {}
+
   ~StackableDB() {
-    delete db_;
+    if (shared_db_ptr_ == nullptr) {
+      delete db_;
+    } else {
+      assert(shared_db_ptr_.get() == db_);
+    }
+    db_ = nullptr;
   }
+
+  virtual Status Close() override { return db_->Close(); }
 
   virtual DB* GetBaseDB() {
     return db_;
@@ -207,10 +219,11 @@ class StackableDB : public DB {
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& input_file_names,
-      const int output_level, const int output_path_id = -1) override {
+      const int output_level, const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr) override {
     return db_->CompactFiles(
         compact_options, column_family, input_file_names,
-        output_level, output_path_id);
+        output_level, output_path_id, output_file_names);
   }
 
   virtual Status PauseBackgroundWork() override {
@@ -373,6 +386,7 @@ class StackableDB : public DB {
 
  protected:
   DB* db_;
+  std::shared_ptr<DB> shared_db_ptr_;
 };
 
 } //  namespace rocksdb

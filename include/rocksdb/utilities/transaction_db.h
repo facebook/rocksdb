@@ -75,7 +75,7 @@ struct TransactionDBOptions {
   // expiration set.
   int64_t default_lock_timeout = 1000;  // 1 second
 
-  // If set, the TransactionDB will use this implemenation of a mutex and
+  // If set, the TransactionDB will use this implementation of a mutex and
   // condition variable for all transaction locking instead of the default
   // mutex/condvar implementation.
   std::shared_ptr<TransactionDBMutexFactory> custom_mutex_factory;
@@ -85,6 +85,14 @@ struct TransactionDBOptions {
   // before the commit phase. The DB then needs to provide the mechanisms to
   // tell apart committed from uncommitted data.
   TxnDBWritePolicy write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+
+  // TODO(myabandeh): remove this option
+  // Note: this is a temporary option as a hot fix in rollback of writeprepared
+  // txns in myrocks. MyRocks uses merge operands for autoinc column id without
+  // however obtaining locks. This breaks the assumption behind the rollback
+  // logic in myrocks. This hack of simply not rolling back merge operands works
+  // for the special way that myrocks uses this operands.
+  bool rollback_merge_operands = false;
 };
 
 struct TransactionOptions {
@@ -98,9 +106,10 @@ struct TransactionOptions {
   bool deadlock_detect = false;
 
   // If set, it states that the CommitTimeWriteBatch represents the latest state
-  // of the application and meant to be used later during recovery. It enables
-  // an optimization to postpone updating the memtable with CommitTimeWriteBatch
-  // to only SwithcMamtable or recovery.
+  // of the application, has only one sub-batch, i.e., no duplicate keys,  and
+  // meant to be used later during recovery. It enables an optimization to
+  // postpone updating the memtable with CommitTimeWriteBatch to only
+  // SwitchMemtable or recovery.
   bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow
@@ -128,6 +137,20 @@ struct TransactionOptions {
 
   // The maximum number of bytes used for the write batch. 0 means no limit.
   size_t max_write_batch_size = 0;
+};
+
+// The per-write optimizations that do not involve transactions. TransactionDB
+// implementation might or might not make use of the specified optimizations.
+struct TransactionDBWriteOptimizations {
+  // If it is true it means that the application guarantees that the
+  // key-set in the write batch do not conflict with any concurrent transaction
+  // and hence the concurrency control mechanism could be skipped for this
+  // write.
+  bool skip_concurrency_control = false;
+  // If true, the application guarantees that there is no duplicate <column
+  // family, key> in the write batch and any employed mechanism to handle
+  // duplicate keys could be skipped.
+  bool skip_duplicate_key_check = false;
 };
 
 struct KeyLockInfo {
@@ -158,6 +181,16 @@ struct DeadlockPath {
 
 class TransactionDB : public StackableDB {
  public:
+  // Optimized version of ::Write that receives more optimization request such
+  // as skip_concurrency_control.
+  using StackableDB::Write;
+  virtual Status Write(const WriteOptions& opts,
+                       const TransactionDBWriteOptimizations&,
+                       WriteBatch* updates) {
+    // The default implementation ignores TransactionDBWriteOptimizations and
+    // falls back to the un-optimized version of ::Write
+    return Write(opts, updates);
+  }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
   static Status Open(const Options& options,

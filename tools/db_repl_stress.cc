@@ -12,8 +12,8 @@ int main() {
 }
 #else
 
-#include <cstdio>
 #include <atomic>
+#include <cstdio>
 
 #include "db/write_batch_internal.h"
 #include "rocksdb/db.h"
@@ -34,7 +34,7 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 
 struct DataPumpThread {
   size_t no_records;
-  DB* db; // Assumption DB is Open'ed already.
+  DB* db;  // Assumption DB is Open'ed already.
 };
 
 static std::string RandomString(Random* rnd, int len) {
@@ -48,9 +48,10 @@ static void DataPumpThreadBody(void* arg) {
   DB* db = t->db;
   Random rnd(301);
   size_t i = 0;
-  while(i++ < t->no_records) {
-    if(!db->Put(WriteOptions(), Slice(RandomString(&rnd, 500)),
-                Slice(RandomString(&rnd, 500))).ok()) {
+  while (i++ < t->no_records) {
+    if (!db->Put(WriteOptions(), Slice(RandomString(&rnd, 500)),
+                 Slice(RandomString(&rnd, 500)))
+             .ok()) {
       fprintf(stderr, "Error in put\n");
       exit(1);
     }
@@ -71,29 +72,29 @@ static void ReplicationThreadBody(void* arg) {
   while (!t->stop.load(std::memory_order_acquire)) {
     iter.reset();
     Status s;
-    while(!db->GetUpdatesSince(currentSeqNum, &iter).ok()) {
+    while (!db->GetUpdatesSince(currentSeqNum, &iter).ok()) {
       if (t->stop.load(std::memory_order_acquire)) {
         return;
       }
     }
     fprintf(stderr, "Refreshing iterator\n");
-    for(;iter->Valid(); iter->Next(), t->no_read++, currentSeqNum++) {
+    for (; iter->Valid(); iter->Next(), t->no_read++, currentSeqNum++) {
       BatchResult res = iter->GetBatch();
       if (res.sequence != currentSeqNum) {
-        fprintf(stderr,
-                "Missed a seq no. b/w %ld and %ld\n",
-                (long)currentSeqNum,
-                (long)res.sequence);
+        fprintf(stderr, "Missed a seq no. b/w %ld and %ld\n",
+                (long)currentSeqNum, (long)res.sequence);
         exit(1);
       }
     }
   }
 }
 
-DEFINE_uint64(num_inserts, 1000, "the num of inserts the first thread should"
+DEFINE_uint64(num_inserts, 1000,
+              "the num of inserts the first thread should"
               " perform.");
 DEFINE_uint64(wal_ttl_seconds, 1000, "the wal ttl for the run(in seconds)");
-DEFINE_uint64(wal_size_limit_MB, 10, "the wal size limit for the run"
+DEFINE_uint64(wal_size_limit_MB, 10,
+              "the wal size limit for the run"
               "(in MB)");
 
 int main(int argc, const char** argv) {
@@ -132,7 +133,8 @@ int main(int argc, const char** argv) {
   replThread.stop.store(false, std::memory_order_release);
 
   env->StartThread(ReplicationThreadBody, &replThread);
-  while(replThread.no_read < FLAGS_num_inserts);
+  while (replThread.no_read < FLAGS_num_inserts)
+    ;
   replThread.stop.store(true, std::memory_order_release);
   if (replThread.no_read < dataPump.no_records) {
     // no. read should be => than inserted.
@@ -150,7 +152,7 @@ int main(int argc, const char** argv) {
 
 #else  // ROCKSDB_LITE
 #include <stdio.h>
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "Not supported in lite mode.\n");
   return 1;
 }

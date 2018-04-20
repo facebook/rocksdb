@@ -276,8 +276,10 @@ class WALDumperCommand : public LDBCommand {
   bool print_header_;
   std::string wal_file_;
   bool print_values_;
+  bool is_write_committed_;  // default will be set to true
 
   static const std::string ARG_WAL_FILE;
+  static const std::string ARG_WRITE_COMMITTED;
   static const std::string ARG_PRINT_HEADER;
   static const std::string ARG_PRINT_VALUE;
 };

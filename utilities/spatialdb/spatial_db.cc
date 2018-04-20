@@ -704,7 +704,7 @@ DBOptions GetDBOptionsFromSpatialDBOptions(const SpatialDBOptions& options) {
   return db_options;
 }
 
-ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
+ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& /*options*/,
                                            std::shared_ptr<Cache> block_cache) {
   ColumnFamilyOptions column_family_options;
   column_family_options.write_buffer_size = 128 * 1024 * 1024;  // 128MB

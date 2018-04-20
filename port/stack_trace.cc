@@ -13,7 +13,7 @@
 namespace rocksdb {
 namespace port {
 void InstallStackTraceHandler() {}
-void PrintStack(int first_frames_to_skip) {}
+void PrintStack(int /*first_frames_to_skip*/) {}
 }  // namespace port
 }  // namespace rocksdb
 
@@ -32,7 +32,7 @@ namespace port {
 
 namespace {
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_FREEBSD)
 const char* GetExecutableName() {
   static char name[1024];
 

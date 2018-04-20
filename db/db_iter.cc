@@ -217,6 +217,9 @@ class DBIter final: public Iterator {
         *prop = "Iterator is not valid.";
       }
       return Status::OK();
+    } else if (prop_name == "rocksdb.iterator.internal-key") {
+      *prop = saved_key_.GetUserKey().ToString();
+      return Status::OK();
     }
     return Status::InvalidArgument("Undentified property.");
   }
@@ -611,10 +614,12 @@ void DBIter::MergeValuesNewToOld() {
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(iter_->value(),
                              iter_->IsValuePinned() /* operand_pinned */);
+  TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
   Status s;
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
+    TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
       // skip corrupted key
       continue;
@@ -972,6 +977,17 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // assume there is at least one parseable key for this user key
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kForward);
+  assert(iter_->Valid());
+  assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
+
+  // In case read_callback presents, the value we seek to may not be visible.
+  // Seek for the next value that's visible.
+  while (!IsVisible(ikey.sequence)) {
+    iter_->Next();
+    FindParseableKey(&ikey, kForward);
+    assert(iter_->Valid());
+    assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
+  }
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(

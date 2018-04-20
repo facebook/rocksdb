@@ -11,6 +11,7 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/utilities/stackable_db.h"
 
 namespace rocksdb {
 
@@ -30,7 +31,7 @@ struct OptimisticTransactionOptions {
   const Comparator* cmp = BytewiseComparator();
 };
 
-class OptimisticTransactionDB {
+class OptimisticTransactionDB : public StackableDB {
  public:
   // Open an OptimisticTransactionDB similar to DB::Open().
   static Status Open(const Options& options, const std::string& dbname,
@@ -57,18 +58,12 @@ class OptimisticTransactionDB {
           OptimisticTransactionOptions(),
       Transaction* old_txn = nullptr) = 0;
 
-  // Return the underlying Database that was opened
-  virtual DB* GetBaseDB() = 0;
+  OptimisticTransactionDB(const OptimisticTransactionDB&) = delete;
+  void operator=(const OptimisticTransactionDB&) = delete;
 
  protected:
   // To Create an OptimisticTransactionDB, call Open()
-  explicit OptimisticTransactionDB(DB* db) {}
-  OptimisticTransactionDB() {}
-
- private:
-  // No copying allowed
-  OptimisticTransactionDB(const OptimisticTransactionDB&);
-  void operator=(const OptimisticTransactionDB&);
+  explicit OptimisticTransactionDB(DB* db) : StackableDB(db) {}
 };
 
 }  // namespace rocksdb

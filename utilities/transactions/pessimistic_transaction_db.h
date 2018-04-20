@@ -35,6 +35,8 @@ class PessimisticTransactionDB : public TransactionDB {
 
   virtual ~PessimisticTransactionDB();
 
+  virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
+
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,
       const std::vector<ColumnFamilyHandle*>& handles);
@@ -63,7 +65,7 @@ class PessimisticTransactionDB : public TransactionDB {
                        ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) override;
 
-  using StackableDB::Write;
+  using TransactionDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using StackableDB::CreateColumnFamily;
@@ -113,6 +115,13 @@ class PessimisticTransactionDB : public TransactionDB {
   std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
   void SetDeadlockInfoBufferSize(uint32_t target_size) override;
 
+  // The default implementation does nothing. The actual implementation is moved
+  // to the child classes that actually need this information. This was due to
+  // an odd performance drop we observed when the added std::atomic member to
+  // the base class even when the subclass do not read it in the fast path.
+  virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
+  virtual void UpdateCFComparatorMap(const ColumnFamilyHandle*) {}
+
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;
@@ -122,9 +131,17 @@ class PessimisticTransactionDB : public TransactionDB {
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
 
+  virtual Status VerifyCFOptions(const ColumnFamilyOptions& cf_options);
+
  private:
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
+  friend class TransactionTest_DoubleEmptyWrite_Test;
+  friend class TransactionTest_DuplicateKeys_Test;
+  friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
+  friend class TransactionTest_TwoPhaseLongPrepareTest_Test;
+  friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
+  friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
   TransactionLockMgr lock_mgr_;
 
   // Must be held when adding/dropping column families.
@@ -141,6 +158,10 @@ class PessimisticTransactionDB : public TransactionDB {
   // map from name to two phase transaction instance
   std::mutex name_map_mutex_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
+
+  // Signal that we are testing a crash scenario. Some asserts could be relaxed
+  // in such cases.
+  virtual void TEST_Crash() {}
 };
 
 // A PessimisticTransactionDB that writes the data to the DB after the commit.
@@ -160,6 +181,13 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
+
+  // Optimized version of ::Write that makes use of skip_concurrency_control
+  // hint
+  using TransactionDB::Write;
+  virtual Status Write(const WriteOptions& opts,
+                       const TransactionDBWriteOptimizations& optimizations,
+                       WriteBatch* updates) override;
 };
 
 }  //  namespace rocksdb

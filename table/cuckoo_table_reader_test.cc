@@ -61,7 +61,7 @@ void AddHashLookups(const std::string& s, uint64_t bucket_id,
 }
 
 uint64_t GetSliceHash(const Slice& s, uint32_t index,
-    uint64_t max_num_buckets) {
+                      uint64_t /*max_num_buckets*/) {
   return hash_map[s.ToString()][index];
 }
 }  // namespace
@@ -560,7 +560,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
   return 0;
 }

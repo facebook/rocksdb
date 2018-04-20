@@ -8,7 +8,7 @@
 namespace rocksdb {
 
 namespace {
-template<class T>
+template <class T>
 inline T SafeDivide(T a, T b) {
   return b == 0 ? 0 : a / b;
 }
@@ -17,7 +17,8 @@ inline T SafeDivide(T a, T b) {
 void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
   *jwriter << "time_micros"
            << std::chrono::duration_cast<std::chrono::microseconds>(
-                  std::chrono::system_clock::now().time_since_epoch()).count();
+                  std::chrono::system_clock::now().time_since_epoch())
+                  .count();
 }
 
 #ifndef ROCKSDB_LITE
@@ -52,6 +53,11 @@ void EventHelpers::NotifyOnBackgroundError(
     listener->OnBackgroundError(reason, bg_error);
   }
   db_mutex->Lock();
+#else
+  (void)listeners;
+  (void)reason;
+  (void)bg_error;
+  (void)db_mutex;
 #endif  // ROCKSDB_LITE
 }
 
@@ -117,20 +123,25 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   for (auto& listener : listeners) {
     listener->OnTableFileCreated(info);
   }
+#else
+  (void)listeners;
+  (void)db_name;
+  (void)cf_name;
+  (void)file_path;
+  (void)reason;
 #endif  // !ROCKSDB_LITE
 }
 
 void EventHelpers::LogAndNotifyTableFileDeletion(
-    EventLogger* event_logger, int job_id,
-    uint64_t file_number, const std::string& file_path,
-    const Status& status, const std::string& dbname,
+    EventLogger* event_logger, int job_id, uint64_t file_number,
+    const std::string& file_path, const Status& status,
+    const std::string& dbname,
     const std::vector<std::shared_ptr<EventListener>>& listeners) {
-
   JSONWriter jwriter;
   AppendCurrentTime(&jwriter);
 
-  jwriter << "job" << job_id
-          << "event" << "table_file_deletion"
+  jwriter << "job" << job_id << "event"
+          << "table_file_deletion"
           << "file_number" << file_number;
   if (!status.ok()) {
     jwriter << "status" << status.ToString();
@@ -149,6 +160,10 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   for (auto& listener : listeners) {
     listener->OnTableFileDeleted(info);
   }
+#else
+  (void)file_path;
+  (void)dbname;
+  (void)listeners;
 #endif  // !ROCKSDB_LITE
 }
 

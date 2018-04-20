@@ -32,10 +32,26 @@ static Key Decode(const char* key) {
 }
 
 struct TestComparator {
+  typedef Key DecodedType;
+
+  static DecodedType decode_key(const char* b) {
+    return Decode(b);
+  }
+
   int operator()(const char* a, const char* b) const {
     if (Decode(a) < Decode(b)) {
       return -1;
     } else if (Decode(a) > Decode(b)) {
+      return +1;
+    } else {
+      return 0;
+    }
+  }
+
+  int operator()(const char* a, const DecodedType b) const {
+    if (Decode(a) < b) {
+      return -1;
+    } else if (Decode(a) > b) {
       return +1;
     } else {
       return 0;
@@ -54,11 +70,12 @@ class InlineSkipTest : public testing::Test {
     keys_.insert(key);
   }
 
-  void InsertWithHint(TestInlineSkipList* list, Key key, void** hint) {
+  bool InsertWithHint(TestInlineSkipList* list, Key key, void** hint) {
     char* buf = list->AllocateKey(sizeof(Key));
     memcpy(buf, &key, sizeof(Key));
-    list->InsertWithHint(buf, hint);
+    bool res = list->InsertWithHint(buf, hint);
     keys_.insert(key);
+    return res;
   }
 
   void Validate(TestInlineSkipList* list) {

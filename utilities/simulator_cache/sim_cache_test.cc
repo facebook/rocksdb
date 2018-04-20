@@ -39,7 +39,7 @@ class SimCacheTest : public DBTestBase {
     return options;
   }
 
-  void InitTable(const Options& options) {
+  void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks * 2; i++) {
       ASSERT_OK(Put(ToString(i), value.c_str()));
@@ -193,6 +193,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_EQ(add_num, num_block_entries);
 
   // Log things again but stop logging automatically after reaching 512 bytes
+ // @lint-ignore TXT2 T25377293 Grandfathered in
 	int max_size = 512;
   ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_, max_size));
   for (int it = 0; it < 10; it++) {

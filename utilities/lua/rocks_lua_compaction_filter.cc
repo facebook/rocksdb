@@ -158,7 +158,7 @@ const char* RocksLuaCompactionFilter::Name() const {
         "return value is not a string while string is expected");
   } else {
     const char* name_buf = lua_tostring(lua_state, -1);
-    const size_t name_size __attribute__((unused)) = lua_strlen(lua_state, -1);
+    const size_t name_size __attribute__((__unused__)) = lua_strlen(lua_state, -1);
     assert(name_buf[name_size] == '\0');
     assert(strlen(name_buf) <= name_size);
     name_ = name_buf;
@@ -218,7 +218,7 @@ RocksLuaCompactionFilterFactory::RocksLuaCompactionFilterFactory(
 
 std::unique_ptr<CompactionFilter>
 RocksLuaCompactionFilterFactory::CreateCompactionFilter(
-    const CompactionFilter::Context& context) {
+    const CompactionFilter::Context& /*context*/) {
   std::lock_guard<std::mutex> lock(opt_mutex_);
   return std::unique_ptr<CompactionFilter>(new RocksLuaCompactionFilter(opt_));
 }

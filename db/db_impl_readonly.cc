@@ -24,8 +24,7 @@ DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
   LogFlush(immutable_db_options_.info_log);
 }
 
-DBImplReadOnly::~DBImplReadOnly() {
-}
+DBImplReadOnly::~DBImplReadOnly() {}
 
 // Implementations of the DB interface
 Status DBImplReadOnly::Get(const ReadOptions& read_options,
@@ -107,7 +106,7 @@ Status DBImplReadOnly::NewIterators(
 }
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                           DB** dbptr, bool error_if_log_file_exist) {
+                           DB** dbptr, bool /*error_if_log_file_exist*/) {
   *dbptr = nullptr;
 
   // Try to first open DB as fully compacted DB
@@ -183,20 +182,21 @@ Status DB::OpenForReadOnly(
   return s;
 }
 
-#else  // !ROCKSDB_LITE
+#else   // !ROCKSDB_LITE
 
-Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                           DB** dbptr, bool error_if_log_file_exist) {
+Status DB::OpenForReadOnly(const Options& /*options*/,
+                           const std::string& /*dbname*/, DB** /*dbptr*/,
+                           bool /*error_if_log_file_exist*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 
 Status DB::OpenForReadOnly(
-    const DBOptions& db_options, const std::string& dbname,
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-    bool error_if_log_file_exist) {
+    const DBOptions& /*db_options*/, const std::string& /*dbname*/,
+    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
+    std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/,
+    bool /*error_if_log_file_exist*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 #endif  // !ROCKSDB_LITE
 
-}   // namespace rocksdb
+}  // namespace rocksdb

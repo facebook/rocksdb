@@ -57,7 +57,8 @@ class DummyDB : public StackableDB {
   }
 
   using DB::GetOptions;
-  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
+  virtual Options GetOptions(
+      ColumnFamilyHandle* /*column_family*/) const override {
     return options_;
   }
 
@@ -65,7 +66,7 @@ class DummyDB : public StackableDB {
     return DBOptions(options_);
   }
 
-  virtual Status EnableFileDeletions(bool force) override {
+  virtual Status EnableFileDeletions(bool /*force*/) override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
     return Status::OK();
@@ -78,7 +79,7 @@ class DummyDB : public StackableDB {
   }
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                              bool flush_memtable = true) override {
+                              bool /*flush_memtable*/ = true) override {
     EXPECT_TRUE(!deletions_enabled_);
     vec = live_files_;
     *mfs = 100;
@@ -135,7 +136,7 @@ class DummyDB : public StackableDB {
   }
 
   // To avoid FlushWAL called on stacked db which is nullptr
-  virtual Status FlushWAL(bool sync) override { return Status::OK(); }
+  virtual Status FlushWAL(bool /*sync*/) override { return Status::OK(); }
 
   std::vector<std::string> live_files_;
   // pair<filename, alive?>
@@ -521,7 +522,7 @@ class BackupableDBTest : public testing::Test {
 
   void OpenDBAndBackupEngineShareWithChecksum(
       bool destroy_old_data = false, bool dummy = false,
-      bool share_table_files = true, bool share_with_checksums = false) {
+      bool /*share_table_files*/ = true, bool share_with_checksums = false) {
     backupable_options_->share_files_with_checksum = share_with_checksums;
     OpenDBAndBackupEngine(destroy_old_data, dummy, share_with_checksums);
   }
@@ -810,9 +811,9 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
-      "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
+      "/shared/.00010.sst.tmp",   "/shared/.00011.sst.tmp",
       "/private/1.tmp/CURRENT",   "/private/1.tmp/MANIFEST-01",
-      "/private/1.tmp/00011.log", "/meta/1.tmp"};
+      "/private/1.tmp/00011.log", "/meta/.1.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -828,9 +829,9 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
 
-  should_have_written = {"/shared/00015.sst.tmp", "/private/2.tmp/CURRENT",
+  should_have_written = {"/shared/.00015.sst.tmp", "/private/2.tmp/CURRENT",
                          "/private/2.tmp/MANIFEST-01",
-                         "/private/2.tmp/00011.log", "/meta/2.tmp"};
+                         "/private/2.tmp/00011.log", "/meta/.2.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -1169,7 +1170,7 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
     } else {
       shared_tmp += "/shared";
     }
-    shared_tmp += "/00006.sst.tmp";
+    shared_tmp += "/.00006.sst.tmp";
     std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
     std::string private_tmp_file = private_tmp_dir + "/00003.sst";
     file_manager_->WriteToFile(shared_tmp, "tmp");
@@ -1575,6 +1576,37 @@ TEST_F(BackupableDBTest, WriteOnlyEngine) {
   ASSERT_EQ(2, backup_infos[0].backup_id);
 }
 
+TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
+  // Verifies a write-only BackupEngine does not delete files belonging to valid
+  // backups when GarbageCollect, PurgeOldBackups, or DeleteBackup are called.
+  const int kNumKeys = 5000;
+  for (int i = 0; i < 3; ++i) {
+    OpenDBAndBackupEngine(i == 0 /* destroy_old_data */);
+    FillDB(db_.get(), i * kNumKeys, (i + 1) * kNumKeys);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+    CloseDBAndBackupEngine();
+
+    backupable_options_->max_valid_backups_to_open = 0;
+    OpenDBAndBackupEngine();
+    switch (i) {
+      case 0:
+        ASSERT_OK(backup_engine_->GarbageCollect());
+        break;
+      case 1:
+        ASSERT_OK(backup_engine_->PurgeOldBackups(1 /* num_backups_to_keep */));
+        break;
+      case 2:
+        ASSERT_OK(backup_engine_->DeleteBackup(2 /* backup_id */));
+        break;
+      default:
+        assert(false);
+    }
+    CloseDBAndBackupEngine();
+
+    backupable_options_->max_valid_backups_to_open = port::kMaxInt32;
+    AssertBackupConsistency(i + 1, 0, (i + 1) * kNumKeys);
+  }
+}
 }  // anon namespace
 
 } //  namespace rocksdb
@@ -1588,7 +1620,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as BackupableDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }

@@ -14,6 +14,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
@@ -68,27 +69,27 @@ TEST_F(DBPropertiesTest, Empty) {
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("1", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("2", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("3", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->EnableFileDeletions(false));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("2", num);
+    ASSERT_EQ("0", num);
 
     ASSERT_OK(db_->EnableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
-    ASSERT_EQ("0", num);
+    ASSERT_EQ("1", num);
   } while (ChangeOptions());
 }
 
@@ -985,8 +986,9 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
     ++count_;
     return Status::OK();
   }
@@ -1027,8 +1029,9 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "CountingDeleteTabPropCollector"; }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType type, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
     if (type == kEntryDelete) {
       num_deletes_++;
     }
@@ -1055,7 +1058,7 @@ class CountingDeleteTabPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override {
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     return new CountingDeleteTabPropCollector();
   }
   const char* Name() const override {
@@ -1381,6 +1384,157 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
 
   // Close before mock_env destructs.
   Close();
+}
+
+TEST_F(DBPropertiesTest, SstFilesSize) {
+  struct TestListener : public EventListener {
+    void OnCompactionCompleted(DB* db,
+                               const CompactionJobInfo& /*info*/) override {
+      assert(callback_triggered == false);
+      assert(size_before_compaction > 0);
+      callback_triggered = true;
+      uint64_t total_sst_size = 0;
+      uint64_t live_sst_size = 0;
+      bool ok = db->GetIntProperty(DB::Properties::kTotalSstFilesSize,
+                                   &total_sst_size);
+      ASSERT_TRUE(ok);
+      // total_sst_size include files before and after compaction.
+      ASSERT_GT(total_sst_size, size_before_compaction);
+      ok =
+          db->GetIntProperty(DB::Properties::kLiveSstFilesSize, &live_sst_size);
+      ASSERT_TRUE(ok);
+      // live_sst_size only include files after compaction.
+      ASSERT_GT(live_sst_size, 0);
+      ASSERT_LT(live_sst_size, size_before_compaction);
+    }
+
+    uint64_t size_before_compaction = 0;
+    bool callback_triggered = false;
+  };
+  std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
+
+  Options options;
+  options.disable_auto_compactions = true;
+  options.listeners.push_back(listener);
+  Reopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("key" + ToString(i), std::string(1000, 'v')));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(Delete("key" + ToString(i)));
+  }
+  ASSERT_OK(Flush());
+  uint64_t sst_size;
+  bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
+  ASSERT_TRUE(ok);
+  ASSERT_GT(sst_size, 0);
+  listener->size_before_compaction = sst_size;
+  // Compact to clean all keys and trigger listener.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(listener->callback_triggered);
+}
+
+TEST_F(DBPropertiesTest, BlockCacheProperties) {
+  Options options;
+  uint64_t value;
+
+  // Block cache properties are not available for tables other than
+  // block-based table.
+  options.table_factory.reset(NewPlainTableFactory());
+  Reopen(options);
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_FALSE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+
+  options.table_factory.reset(NewCuckooTableFactory());
+  Reopen(options);
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_FALSE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+
+  // Block cache properties are not available if block cache is not used.
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_FALSE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_FALSE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+
+  // Test with empty block cache.
+  constexpr size_t kCapacity = 100;
+  auto block_cache = NewLRUCache(kCapacity, 0 /*num_shard_bits*/);
+  table_options.block_cache = block_cache;
+  table_options.no_block_cache = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(0, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert unpinned item to the cache and check size.
+  constexpr size_t kSize1 = 50;
+  block_cache->Insert("item1", nullptr /*value*/, kSize1, nullptr /*deleter*/);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(kSize1, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert pinned item to the cache and check size.
+  constexpr size_t kSize2 = 30;
+  Cache::Handle* item2 = nullptr;
+  block_cache->Insert("item2", nullptr /*value*/, kSize2, nullptr /*deleter*/,
+                      &item2);
+  ASSERT_NE(nullptr, item2);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(kSize1 + kSize2, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2, value);
+
+  // Insert another pinned item to make the cache over-sized.
+  constexpr size_t kSize3 = 80;
+  Cache::Handle* item3 = nullptr;
+  block_cache->Insert("item3", nullptr /*value*/, kSize3, nullptr /*deleter*/,
+                      &item3);
+  ASSERT_NE(nullptr, item2);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  // Item 1 is evicted.
+  ASSERT_EQ(kSize2 + kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2 + kSize3, value);
+
+  // Check size after release.
+  block_cache->Release(item2);
+  block_cache->Release(item3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  // item2 will be evicted, while item3 remain in cache after release.
+  ASSERT_EQ(kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
 }
 
 #endif  // ROCKSDB_LITE

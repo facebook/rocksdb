@@ -107,6 +107,62 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
             * run `brew tap homebrew/versions; brew install gcc48 --use-llvm` to install gcc 4.8 (or higher).
     * run `brew install rocksdb`
 
+* **FreeBSD** (11.01):
+
+    * You can either install RocksDB from the Ports system using `cd /usr/ports/databases/rocksdb && make install`, or you can follow the details below to install dependencies and compile from source code:
+
+    * Install the dependencies for RocksDB:
+
+        export BATCH=YES
+        cd /usr/ports/devel/gmake && make install
+        cd /usr/ports/devel/gflags && make install
+
+        cd /usr/ports/archivers/snappy && make install
+        cd /usr/ports/archivers/bzip2 && make install
+        cd /usr/ports/archivers/liblz4 && make install
+        cd /usr/ports/archivesrs/zstd && make install
+
+        cd /usr/ports/devel/git && make install
+
+
+    * Install the dependencies for RocksJava (optional):
+
+        export BATCH=yes
+        cd /usr/ports/java/openjdk7 && make install
+
+    * Build RocksDB from source:
+        cd ~
+        git clone https://github.com/facebook/rocksdb.git
+        cd rocksdb
+        gmake static_lib
+
+    * Build RocksJava from source (optional):
+        cd rocksdb
+        export JAVA_HOME=/usr/local/openjdk7
+        gmake rocksdbjava
+
+* **OpenBSD** (6.3/-current):
+
+    * As RocksDB is not available in the ports yet you have to build it on your own:
+
+    * Install the dependencies for RocksDB:
+
+        pkg_add gmake gflags snappy bzip2 lz4 zstd git jdk bash findutils gnuwatch 
+
+    * Build RocksDB from source:
+
+        cd ~
+        git clone https://github.com/facebook/rocksdb.git
+        cd rocksdb
+        gmake static_lib
+
+    * Build RocksJava from source (optional):
+
+        cd rocksdb
+        export JAVA_HOME=/usr/local/jdk-1.8.0
+        export PATH=$PATH:/usr/local/jdk-1.8.0/bin
+        gmake rocksdbjava
+
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
 

@@ -87,6 +87,15 @@ public class Status {
       throw new IllegalArgumentException(
           "Illegal value provided for Code (" + value + ").");
     }
+
+    /**
+     * Returns the byte value of the enumerations value.
+     *
+     * @return byte representation
+     */
+    public byte getValue() {
+      return value;
+    }
   }
 
   // should stay in sync with /include/rocksdb/status.h:SubCode and /java/rocksjni/portal.h:toJavaStatusSubCode
@@ -115,6 +124,15 @@ public class Status {
       }
       throw new IllegalArgumentException(
           "Illegal value provided for SubCode (" + value + ").");
+    }
+
+    /**
+     * Returns the byte value of the enumerations value.
+     *
+     * @return byte representation
+     */
+    public byte getValue() {
+      return value;
     }
   }
 }

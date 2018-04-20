@@ -70,7 +70,7 @@ uint64_t Now(Env* env, bool measured_by_nanosecond) {
 namespace {
 void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           ReadOptions& read_options, int num_keys1,
-                          int num_keys2, int num_iter, int prefix_len,
+                          int num_keys2, int num_iter, int /*prefix_len*/,
                           bool if_query_empty_keys, bool for_iterator,
                           bool through_db, bool measured_by_nanosecond) {
   rocksdb::InternalKeyComparator ikc(opts.comparator);

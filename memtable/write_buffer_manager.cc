@@ -60,6 +60,8 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
     // Construct the cache key using the pointer to this.
     cache_rep_.reset(new CacheRep(cache));
   }
+#else
+  (void)cache;
 #endif  // ROCKSDB_LITE
 }
 
@@ -92,6 +94,8 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
     cache_rep_->dummy_handles_.push_back(handle);
     cache_rep_->cache_allocated_size_ += kSizeDummyEntry;
   }
+#else
+  (void)mem;
 #endif  // ROCKSDB_LITE
 }
 
@@ -119,6 +123,8 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
     cache_rep_->dummy_handles_.pop_back();
     cache_rep_->cache_allocated_size_ -= kSizeDummyEntry;
   }
+#else
+  (void)mem;
 #endif  // ROCKSDB_LITE
 }
 }  // namespace rocksdb

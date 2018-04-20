@@ -54,6 +54,36 @@
 
 namespace rocksdb {
 
+const char* GetFlushReasonString (FlushReason flush_reason) {
+  switch (flush_reason) {
+    case FlushReason::kOthers:
+      return "Other Reasons";
+    case FlushReason::kGetLiveFiles:
+      return "Get Live Files";
+    case FlushReason::kShutDown:
+      return "Shut down";
+    case FlushReason::kExternalFileIngestion:
+      return "External File Ingestion";
+    case FlushReason::kManualCompaction:
+      return "Manual Compaction";
+    case FlushReason::kWriteBufferManager:
+      return "Write Buffer Manager";
+    case FlushReason::kWriteBufferFull:
+      return "Write Buffer Full";
+    case FlushReason::kTest:
+      return "Test";
+    case FlushReason::kDeleteFiles:
+      return "Delete Files";
+    case FlushReason::kAutoCompaction:
+      return "Auto Compaction";
+    case FlushReason::kManualFlush:
+      return "Manual Flush";
+    default:
+      return "Invalid";
+  }
+}
+
+
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
@@ -278,12 +308,13 @@ Status FlushJob::WriteLevel0Table() {
       total_memory_usage += m->ApproximateMemoryUsage();
     }
 
-    event_logger_->Log() << "job" << job_context_->job_id << "event"
-                         << "flush_started"
-                         << "num_memtables" << mems_.size() << "num_entries"
-                         << total_num_entries << "num_deletes"
-                         << total_num_deletes << "memory_usage"
-                         << total_memory_usage;
+    event_logger_->Log()
+        << "job" << job_context_->job_id << "event"
+        << "flush_started"
+        << "num_memtables" << mems_.size() << "num_entries" << total_num_entries
+        << "num_deletes" << total_num_deletes << "memory_usage"
+        << total_memory_usage << "flush_reason"
+        << GetFlushReasonString(cfd_->GetFlushReason());
 
     {
       ScopedArenaIterator iter(
@@ -361,7 +392,7 @@ Status FlushJob::WriteLevel0Table() {
   }
 
   // Note that here we treat flush as level 0 compaction in internal stats
-  InternalStats::CompactionStats stats(1);
+  InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
   MeasureTime(stats_, FLUSH_TIME, stats.micros);

@@ -67,21 +67,23 @@ class SstFileWriter {
   // be ingested into this column_family, note that passing nullptr means that
   // the column_family is unknown.
   // If invalidate_page_cache is set to true, SstFileWriter will give the OS a
-  // hint that this file pages is not needed everytime we write 1MB to the file.
+  // hint that this file pages is not needed every time we write 1MB to the file.
   // To use the rate limiter an io_priority smaller than IO_TOTAL can be passed.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
-                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL)
+                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
+                bool skip_filters = false)
       : SstFileWriter(env_options, options, options.comparator, column_family,
-                      invalidate_page_cache, io_priority) {}
+                      invalidate_page_cache, io_priority, skip_filters) {}
 
   // Deprecated API
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
-                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL);
+                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
+                bool skip_filters = false);
 
   ~SstFileWriter();
 

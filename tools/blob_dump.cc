@@ -27,9 +27,13 @@ int main(int argc, char** argv) {
       {"file", required_argument, nullptr, 'f'},
       {"show_key", optional_argument, nullptr, 'k'},
       {"show_blob", optional_argument, nullptr, 'b'},
+      {"show_uncompressed_blob", optional_argument, nullptr, 'r'},
+      {"show_summary", optional_argument, nullptr, 's'},
   };
   DisplayType show_key = DisplayType::kRaw;
   DisplayType show_blob = DisplayType::kNone;
+  DisplayType show_uncompressed_blob = DisplayType::kNone;
+  bool show_summary = false;
   std::string file;
   while (true) {
     int c = getopt_long(argc, argv, "hk::b::f:", options, nullptr);
@@ -42,7 +46,9 @@ int main(int argc, char** argv) {
         fprintf(stdout,
                 "Usage: blob_dump --file=filename "
                 "[--show_key[=none|raw|hex|detail]] "
-                "[--show_blob[=none|raw|hex|detail]]\n");
+                "[--show_blob[=none|raw|hex|detail]] "
+                "[--show_uncompressed_blob[=none|raw|hex|detail]] "
+                "[--show_summary]\n");
         return 0;
       case 'f':
         file = optarg;
@@ -64,8 +70,22 @@ int main(int argc, char** argv) {
           }
           show_blob = display_types.at(arg_str);
         } else {
-          show_blob = DisplayType::kDetail;
+          show_blob = DisplayType::kHex;
         }
+        break;
+      case 'r':
+        if (optarg) {
+          if (display_types.count(arg_str) == 0) {
+            fprintf(stderr, "Unrecognized blob display type.\n");
+            return -1;
+          }
+          show_uncompressed_blob = display_types.at(arg_str);
+        } else {
+          show_uncompressed_blob = DisplayType::kHex;
+        }
+        break;
+      case 's':
+        show_summary = true;
         break;
       default:
         fprintf(stderr, "Unrecognized option.\n");
@@ -73,7 +93,8 @@ int main(int argc, char** argv) {
     }
   }
   BlobDumpTool tool;
-  Status s = tool.Run(file, show_key, show_blob);
+  Status s =
+      tool.Run(file, show_key, show_blob, show_uncompressed_blob, show_summary);
   if (!s.ok()) {
     fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
     return -1;
@@ -82,7 +103,7 @@ int main(int argc, char** argv) {
 }
 #else
 #include <stdio.h>
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "Not supported in lite mode.\n");
   return -1;
 }
