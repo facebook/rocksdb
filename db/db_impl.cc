@@ -215,6 +215,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // as well.
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
+      atomic_flush_(options.atomic_flush),
       closed_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 

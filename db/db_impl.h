@@ -1451,6 +1451,8 @@ class DBImpl : public DB {
   std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   const bool preserve_deletes_;
 
+  const bool atomic_flush_;
+
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 };
