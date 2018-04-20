@@ -926,6 +926,9 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  // If true flushes all column families atomically.
+  bool atomic_flush = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
