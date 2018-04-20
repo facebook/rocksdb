@@ -167,7 +167,8 @@ class BlockBasedTable : public TableReader {
     // a different object then iter and the callee has the ownership of the
     // returned object.
     virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                          bool total_order_seek = true) = 0;
+                                          bool total_order_seek = true,
+                                          bool fill_cache = true) = 0;
 
     // The size of the index.
     virtual size_t size() const = 0;

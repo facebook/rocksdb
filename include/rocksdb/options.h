@@ -1033,10 +1033,11 @@ struct ReadOptions {
   // Default: true
   bool verify_checksums;
 
-  // Should the "data block"/"index block"/"filter block" read for this
-  // iteration be cached in memory?
+  // Should the "data block"/"index block"" read for this iteration be placed in
+  // block cache?
   // Callers may wish to set this field to false for bulk scans.
-  // Default: true
+  // This would help not to the change eviction order of existing items in the
+  // block cache. Default: true
   bool fill_cache;
 
   // Specify to create a tailing iterator -- a special iterator that has a
