@@ -3295,8 +3295,10 @@ class TickerTypeJni {
         return 0x5C;
       case rocksdb::Tickers::NUMBER_ITER_SKIP:
         return 0x5D;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x5F;
 
       default:
         // undefined/default
@@ -3497,6 +3499,8 @@ class TickerTypeJni {
       case 0x5D:
         return rocksdb::Tickers::NUMBER_ITER_SKIP;
       case 0x5E:
+        return rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
+      case 0x5F:
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:
