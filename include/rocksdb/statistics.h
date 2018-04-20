@@ -321,6 +321,7 @@ enum Tickers : uint32_t {
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
 
   // Number of keys actually found in MultiGet calls (vs number requested by caller)
+  // NUMBER_MULTIGET_KEYS_READ gives the number requested by caller
   NUMBER_MULTIGET_KEYS_FOUND,
   TICKER_ENUM_MAX
 };
