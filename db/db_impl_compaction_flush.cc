@@ -79,6 +79,9 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
       s = log->file()->Sync(immutable_db_options_.use_fsync);
+      if (!s.ok()) {
+        break;
+      }
     }
     if (s.ok()) {
       s = directories_.GetWalDir()->Fsync();
@@ -216,6 +219,10 @@ Status DBImpl::FlushMemTableToOutputFile(
 #endif  // ROCKSDB_LITE
   }
   return s;
+}
+
+Status DBImpl::FlushMemTablesToOutputFiles() {
+  return Status::OK();
 }
 
 void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
@@ -1100,6 +1107,17 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
+  if (immutable_db_options_.atomic_flush) {
+    return FlushMemTablesInternal(flush_options, flush_reason, writes_stopped);
+  } else {
+    return FlushMemTableInternal(cfd, flush_options, flush_reason,
+        writes_stopped);
+  }
+}
+
+Status DBImpl::FlushMemTableInternal(ColumnFamilyData* cfd,
+    const FlushOptions& flush_options, FlushReason flush_reason,
+    bool writes_stopped) {
   Status s;
   uint64_t flush_memtable_id = 0;
   {
@@ -1119,22 +1137,71 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
+    if (s.ok()) {
+      cfd->imm()->FlushRequested();
+      // schedule flush
+      SchedulePendingFlush(cfd, flush_reason);
+    }
     flush_memtable_id = cfd->imm()->GetLatestMemTableID();
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
     }
 
-    cfd->imm()->FlushRequested();
-
-    // schedule flush
-    SchedulePendingFlush(cfd, flush_reason);
     MaybeScheduleFlushOrCompaction();
   }
 
   if (s.ok() && flush_options.wait) {
     // Wait until the compaction completes
     s = WaitForFlushMemTable(cfd, &flush_memtable_id);
+  }
+  return s;
+}
+
+Status DBImpl::FlushMemTablesInternal(const FlushOptions& flush_options,
+    FlushReason flush_reason, bool writes_stopped) {
+  Status s;
+  std::vector<ColumnFamilyData*> cfds;
+  std::vector<uint64_t> nums;
+  std::vector<uint64_t*> flush_memtable_ids;
+  {
+    WriteContext context;
+    InstrumentedMutexLock guard_lock(&mutex_);
+
+    WriteThread::Writer w;
+    if (!writes_stopped) {
+      write_thread_.EnterUnbatched(&w, &mutex_);
+    }
+
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped() ||
+          (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+          cached_recoverable_state_empty_.load())) {
+        continue;
+      }
+      // SwitchMemtable will release and re-acquire mutex during execution
+      s = SwitchMemtable(cfd, &context);
+      if (!s.ok()) {
+        break;
+      }
+      cfds.push_back(cfd);
+      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      nums.push_back(flush_memtable_id);
+      flush_memtable_ids.push_back(&nums[nums.size() - 1]);
+      cfd->imm()->FlushRequested();
+      // cfd will be refcounted.
+      SchedulePendingFlush(cfd, flush_reason);
+    }
+
+    if (!writes_stopped) {
+      write_thread_.ExitUnbatched(&w);
+    }
+
+    MaybeScheduleFlushOrCompaction();
+  }
+
+  if (s.ok() && flush_options.wait) {
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   return s;
 }
@@ -1155,6 +1222,38 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
       // we will loop forever since cfd->imm()->NumNotFlushed() will never
       // drop to zero
       return Status::InvalidArgument("Cannot flush a dropped CF");
+    }
+    bg_cv_.Wait();
+  }
+  if (!bg_error_.ok()) {
+    s = bg_error_;
+  }
+  return s;
+}
+
+Status DBImpl::WaitForFlushMemTables(std::vector<ColumnFamilyData*>& cfds,
+    const std::vector<uint64_t*>& flush_memtable_ids) {
+  Status s;
+  InstrumentedMutexLock l(&mutex_);
+  while (bg_error_.ok()) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return Status::ShutdownInProgress();
+    }
+    bool exit = true;
+    for (int i = 0; i < (int) cfds.size(); i++) {
+      if (cfds[i]->IsDropped()) {
+        s = Status::InvalidArgument("Cannot flush a dropped CF");
+        break;
+      }
+      if (cfds[i]->imm()->NumNotFlushed() > 0 &&
+          (flush_memtable_ids[i] == nullptr ||
+           cfds[i]->imm()->GetEarliestMemTableID() <= *flush_memtable_ids[i])) {
+        exit = false;
+        break;
+      }
+    }
+    if (exit) {
+      break;
     }
     bg_cv_.Wait();
   }
@@ -1194,22 +1293,43 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
-  while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
-         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-    unscheduled_flushes_--;
-    bg_flush_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
-  }
+  if (immutable_db_options_.atomic_flush) {
+    if (!is_flush_pool_empty &&
+        bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+      unscheduled_flushes_ = 0;
+      bg_flush_scheduled_++;
+      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+    }
 
-  // special case -- if high-pri (flush) thread pool is empty, then schedule
-  // flushes in low-pri (compaction) thread pool.
-  if (is_flush_pool_empty) {
-    while (unscheduled_flushes_ > 0 &&
-           bg_flush_scheduled_ + bg_compaction_scheduled_ <
-               bg_job_limits.max_flushes) {
+    // special case -- if high-pri (flush) thread pool is empty, then schedule
+    // flushes in low-pri (compaction) thread pool.
+    if (is_flush_pool_empty) {
+      if (unscheduled_flushes_ > 0 &&
+          bg_flush_scheduled_ + bg_compaction_scheduled_ <
+          bg_job_limits.max_flushes) {
+        unscheduled_flushes_ = 0;
+        bg_flush_scheduled_++;
+        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      }
+    }
+  } else {
+    while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
+        bg_flush_scheduled_ < bg_job_limits.max_flushes) {
       unscheduled_flushes_--;
       bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+    }
+
+    // special case -- if high-pri (flush) thread pool is empty, then schedule
+    // flushes in low-pri (compaction) thread pool.
+    if (is_flush_pool_empty) {
+      while (unscheduled_flushes_ > 0 &&
+          bg_flush_scheduled_ + bg_compaction_scheduled_ <
+          bg_job_limits.max_flushes) {
+        unscheduled_flushes_--;
+        bg_flush_scheduled_++;
+        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      }
     }
   }
 
@@ -1388,6 +1508,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   }
 
   ColumnFamilyData* cfd = nullptr;
+  std::vector<ColumnFamilyData*> cfds;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     auto first_cfd = PopFirstFromFlushQueue();
@@ -1401,11 +1522,15 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     }
 
     // found a flush!
-    cfd = first_cfd;
-    break;
+    if (immutable_db_options_.atomic_flush) {
+      cfds.push_back(cfd);
+    } else {
+      cfd = first_cfd;
+      break;
+    }
   }
 
-  if (cfd != nullptr) {
+  if (!immutable_db_options_.atomic_flush && cfd != nullptr) {
     const MutableCFOptions mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
     auto bg_job_limits = GetBGJobLimits();
@@ -1421,6 +1546,16 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
                                        job_context, log_buffer);
     if (cfd->Unref()) {
       delete cfd;
+    }
+  } else if (immutable_db_options_.atomic_flush && !cfds.empty()) {
+    status = FlushMemTablesToOutputFiles();
+    // Attempt to delete cf only when all flushes succeed.
+    if (status.ok()) {
+      for (auto cfd_ptr : cfds) {
+        if (cfd_ptr->Unref()) {
+          delete cfd_ptr;
+        }
+      }
     }
   }
   return status;

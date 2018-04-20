@@ -62,8 +62,7 @@ Status CopyFile(Env* env, const std::string& source,
     }
     size -= slice.size();
   }
-  dest_writer->Sync(use_fsync);
-  return Status::OK();
+  return dest_writer->Sync(use_fsync);
 }
 
 // Utility function to create a file with the provided contents

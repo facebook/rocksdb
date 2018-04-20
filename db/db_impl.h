@@ -827,6 +827,7 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
+  Status FlushMemTablesToOutputFiles();
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -855,6 +856,10 @@ class DBImpl : public DB {
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
+  Status FlushMemTableInternal(ColumnFamilyData* cfd,
+      const FlushOptions& options, FlushReason flush_reason, bool writes_stopped);
+  Status FlushMemTablesInternal(const FlushOptions& flush_options,
+      FlushReason reason, bool writes_stopped);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID
@@ -862,6 +867,8 @@ class DBImpl : public DB {
   // memtable pending flush.
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
                               const uint64_t* flush_memtable_id = nullptr);
+  Status WaitForFlushMemTables(std::vector<ColumnFamilyData*>& cfds,
+      const std::vector<uint64_t*>& flush_memtable_ids);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
