@@ -359,12 +359,8 @@ class TransactionTestBase : public ::testing::Test {
           WriteBatch wb;
           committed_kvs[k] = v;
           wb.Put(k, v);
-          // TODO(myabandeh): remove this when we supprot duplicate keys in
-          // db->Write method
-          if (false) {
-            committed_kvs[k] = v2;
-            wb.Put(k, v2);
-          }
+          committed_kvs[k] = v2;
+          wb.Put(k, v2);
           s = db->Write(write_options, &wb);
           ASSERT_OK(s);
         } break;
@@ -376,12 +372,8 @@ class TransactionTestBase : public ::testing::Test {
           committed_kvs[k] = v;
           s = txn->Put(k, v);
           ASSERT_OK(s);
-          // TODO(myabandeh): remove this when we supprot duplicate keys in
-          // db->Write method
-          if (false) {
-            committed_kvs[k] = v2;
-            s = txn->Put(k, v2);
-          }
+          committed_kvs[k] = v2;
+          s = txn->Put(k, v2);
           ASSERT_OK(s);
           if (type == 3) {
             s = txn->Prepare();
