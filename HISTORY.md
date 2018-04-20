@@ -3,6 +3,7 @@
 ### Public API Change
 * Add a BlockBasedTableOption to align uncompressed data blocks on the smaller of block size or page size boundary, to reduce flash reads by avoiding reads spanning 4K pages.
 * The background thread naming convention changed (on supporting platforms) to "rocksdb:<thread pool priority><thread number>", e.g., "rocksdb:low0".
+* Add a new ticker stat rocksdb.number.multiget.keys.found to count number of keys successfully read in MultiGet calls
 
 ### New Features
 * Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
