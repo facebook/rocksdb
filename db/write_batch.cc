@@ -421,6 +421,11 @@ Status WriteBatch::Iterate(Handler* handler) const {
     } else {
       assert(s.IsTryAgain());
       assert(!last_was_try_again); // to detect infinite loop bugs
+      if (UNLIKELY(last_was_try_again)) {
+        return Status::Corruption(
+            "two consecutive TryAgain in WriteBatch handler; this is either a "
+            "software bug or data corruption.");
+      }
       last_was_try_again = true;
       s = Status::OK();
     }
