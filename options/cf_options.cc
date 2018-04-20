@@ -104,10 +104,28 @@ void MutableCFOptions::RefreshDerivedOptions(int num_levels,
   }
 }
 
-uint64_t MutableCFOptions::MaxFileSizeForLevel(int level) const {
-  assert(level >= 0);
-  assert(level < (int)max_file_size.size());
-  return max_file_size[level];
+// when level_compaction_dynamic_level_bytes is true and leveled compaction
+// is used, the base level is not always L1, so precomupted max_file_size can
+// no longer be used. Recompute file_size_for_level from base level.
+uint64_t MutableCFOptions::MaxFileSizeForLevel(
+    int level, CompactionStyle compaction_style, int base_level,
+    bool level_compaction_dynamic_level_bytes) const {
+  if (!level_compaction_dynamic_level_bytes || level < base_level ||
+      compaction_style != kCompactionStyleLevel) {
+    assert(level >= 0);
+    assert(level < (int)max_file_size.size());
+    return max_file_size[level];
+  } else {
+    assert(level >= 0 && base_level >= 0);
+    assert(level < (int)max_file_size.size() &&
+           base_level < (int)max_file_size.size());
+    uint64_t file_size_for_level = target_file_size_base;
+    for (int i = base_level + 1; i <= level; ++i) {
+      file_size_for_level = MultiplyCheckOverflow(file_size_for_level,
+                                                  target_file_size_multiplier);
+    }
+    return file_size_for_level;
+  }
 }
 
 void MutableCFOptions::Dump(Logger* log) const {

@@ -3796,7 +3796,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
           compactionOptions.output_file_size_limit =
               mutable_cf_options.MaxFileSizeForLevel(
-                  static_cast<int>(output_level));
+                  static_cast<int>(output_level), compaction_style);
           std::cout << sorted_runs[i][j].size() << std::endl;
           db->CompactFiles(compactionOptions, {sorted_runs[i][j].back().name,
                                                sorted_runs[i][j].front().name},
@@ -3848,7 +3848,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
           compactionOptions.output_file_size_limit =
               mutable_cf_options.MaxFileSizeForLevel(
-                  static_cast<int>(output_level));
+                  static_cast<int>(output_level), compaction_style);
           db->CompactFiles(
               compactionOptions,
               {sorted_runs[i][j].back().name, sorted_runs[i][j].front().name},

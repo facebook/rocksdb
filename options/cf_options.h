@@ -193,7 +193,9 @@ struct MutableCFOptions {
   }
 
   // Get the max file size in a given level.
-  uint64_t MaxFileSizeForLevel(int level) const;
+  uint64_t MaxFileSizeForLevel(
+      int level, CompactionStyle compaction_style, int base_level = 1,
+      bool level_compaction_dynamic_level_bytes = false) const;
   int MaxBytesMultiplerAdditional(int level) const {
     if (level >=
         static_cast<int>(max_bytes_for_level_multiplier_additional.size())) {
