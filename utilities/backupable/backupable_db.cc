@@ -1307,14 +1307,20 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   } else {
     dst_relative = GetPrivateFileRel(backup_id, false, dst_relative);
   }
-  // We copy into `copy_dest_path` and, once finished, rename it to
-  // `rename_dest_path`. This allows files to atomically appear at
-  // `rename_dest_path`. The rename does not happen for files where it's
-  // unnecessary, like those in private backup directories.
+
+  // We copy into `temp_dest_path` and, once finished, rename it to
+  // `final_dest_path`. This allows files to atomically appear at
+  // `final_dest_path`. We can copy directly to the final path when atomicity
+  // is unnecessary, like for files in private backup directories.
+  const std::string* copy_dest_path;
+  std::string temp_dest_path;
   std::string final_dest_path = GetAbsolutePath(dst_relative);
-  std::string copy_dest_path = dst_relative_tmp.empty()
-                                   ? final_dest_path
-                                   : GetAbsolutePath(dst_relative_tmp);
+  if (!dst_relative_tmp.empty()) {
+    temp_dest_path = GetAbsolutePath(dst_relative_tmp);
+    copy_dest_path = &temp_dest_path;
+  } else {
+    copy_dest_path = &final_dest_path;
+  }
 
   // if it's shared, we also need to check if it exists -- if it does, no need
   // to copy it again.
@@ -1367,21 +1373,21 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   if (!contents.empty() || need_to_copy) {
     ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
-                   copy_dest_path.c_str());
+                   copy_dest_path->c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
-        src_dir.empty() ? "" : src_dir + fname, copy_dest_path, contents,
+        src_dir.empty() ? "" : src_dir + fname, *copy_dest_path, contents,
         db_env_, backup_env_, options_.sync, rate_limiter, size_limit,
         progress_callback);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
-        backup_env_, copy_dest_path, final_dest_path, dst_relative);
+        backup_env_, temp_dest_path, final_dest_path, dst_relative);
     files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
   } else {
     std::promise<CopyOrCreateResult> promise_result;
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         promise_result.get_future(), shared, need_to_copy, backup_env_,
-        copy_dest_path, final_dest_path, dst_relative);
+        temp_dest_path, final_dest_path, dst_relative);
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
     CopyOrCreateResult result;
     result.status = s;
