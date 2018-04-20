@@ -1121,18 +1121,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     // SwitchMemtable() will release and reacquire mutex during execution
-    s = SwitchMemtable(cfd, &context);
+    s = SwitchMemtable(cfd, &context, flush_reason);
     flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+    cfd->imm()->FlushRequested();
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
     }
-
-    cfd->imm()->FlushRequested();
-
-    // schedule flush
-    SchedulePendingFlush(cfd, flush_reason);
-    MaybeScheduleFlushOrCompaction();
   }
 
   if (s.ok() && flush_options.wait) {
