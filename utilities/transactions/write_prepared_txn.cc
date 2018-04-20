@@ -351,9 +351,9 @@ Status WritePreparedTxn::RollbackInternal() {
   uint64_t& rollback_seq = seq_used;
   if (s.ok()) {
     // Note: it is safe to do it after PreReleaseCallback via WriteImpl since
-    // all teh writes by the prpared batch are already blinded by the rollback
+    // all the writes by the prpared batch are already blinded by the rollback
     // batch. The only reason we commit the prepared batch here is to benefit
-    // from teh existing mechanism in CommitCache that takes care of the rare
+    // from the existing mechanism in CommitCache that takes care of the rare
     // cases that the prepare seq is visible to a snsapshot but max evicted seq
     // advances that prepare seq.
     for (size_t i = 0; i < prepare_batch_cnt_; i++) {
