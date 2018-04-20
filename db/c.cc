@@ -1403,23 +1403,24 @@ void rocksdb_writebatch_put_log_data(
   b->rep.PutLogData(Slice(blob, len));
 }
 
+class H : public WriteBatch::Handler {
+ public:
+  void* state_;
+  void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
+  void (*deleted_)(void*, const char* k, size_t klen);
+  virtual void Put(const Slice& key, const Slice& value) override {
+    (*put_)(state_, key.data(), key.size(), value.data(), value.size());
+  }
+  virtual void Delete(const Slice& key) override {
+    (*deleted_)(state_, key.data(), key.size());
+  }
+};
+
 void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t* b,
     void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen)) {
-  class H : public WriteBatch::Handler {
-   public:
-    void* state_;
-    void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
-    void (*deleted_)(void*, const char* k, size_t klen);
-    virtual void Put(const Slice& key, const Slice& value) override {
-      (*put_)(state_, key.data(), key.size(), value.data(), value.size());
-    }
-    virtual void Delete(const Slice& key) override {
-      (*deleted_)(state_, key.data(), key.size());
-    }
-  };
   H handler;
   handler.state_ = state;
   handler.put_ = put;
@@ -1664,18 +1665,6 @@ void rocksdb_writebatch_wi_iterate(
     void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen)) {
-  class H : public WriteBatch::Handler {
-   public:
-    void* state_;
-    void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
-    void (*deleted_)(void*, const char* k, size_t klen);
-    virtual void Put(const Slice& key, const Slice& value) override {
-      (*put_)(state_, key.data(), key.size(), value.data(), value.size());
-    }
-    virtual void Delete(const Slice& key) override {
-      (*deleted_)(state_, key.data(), key.size());
-    }
-  };
   H handler;
   handler.state_ = state;
   handler.put_ = put;
@@ -3124,20 +3113,21 @@ void rocksdb_slicetransform_destroy(rocksdb_slicetransform_t* st) {
   delete st;
 }
 
+struct Wrapper : public rocksdb_slicetransform_t {
+  const SliceTransform* rep_;
+  ~Wrapper() { delete rep_; }
+  const char* Name() const override { return rep_->Name(); }
+  Slice Transform(const Slice& src) const override {
+    return rep_->Transform(src);
+  }
+  bool InDomain(const Slice& src) const override {
+    return rep_->InDomain(src);
+  }
+  bool InRange(const Slice& src) const override { return rep_->InRange(src); }
+  static void DoNothing(void*) { }
+};
+
 rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t prefixLen) {
-  struct Wrapper : public rocksdb_slicetransform_t {
-    const SliceTransform* rep_;
-    ~Wrapper() { delete rep_; }
-    const char* Name() const override { return rep_->Name(); }
-    Slice Transform(const Slice& src) const override {
-      return rep_->Transform(src);
-    }
-    bool InDomain(const Slice& src) const override {
-      return rep_->InDomain(src);
-    }
-    bool InRange(const Slice& src) const override { return rep_->InRange(src); }
-    static void DoNothing(void*) { }
-  };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = rocksdb::NewFixedPrefixTransform(prefixLen);
   wrapper->state_ = nullptr;
@@ -3146,19 +3136,6 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t pref
 }
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create_noop() {
-  struct Wrapper : public rocksdb_slicetransform_t {
-    const SliceTransform* rep_;
-    ~Wrapper() { delete rep_; }
-    const char* Name() const override { return rep_->Name(); }
-    Slice Transform(const Slice& src) const override {
-      return rep_->Transform(src);
-    }
-    bool InDomain(const Slice& src) const override {
-      return rep_->InDomain(src);
-    }
-    bool InRange(const Slice& src) const override { return rep_->InRange(src); }
-    static void DoNothing(void*) { }
-  };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = rocksdb::NewNoopTransform();
   wrapper->state_ = nullptr;
