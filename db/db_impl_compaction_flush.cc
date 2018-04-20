@@ -1123,7 +1123,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context, flush_reason);
     flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-    cfd->imm()->FlushRequested();
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
