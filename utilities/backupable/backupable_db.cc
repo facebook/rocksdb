@@ -747,6 +747,19 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   BackupID new_backup_id = latest_backup_id_ + 1;
 
   assert(backups_.find(new_backup_id) == backups_.end());
+
+  auto private_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id));
+  Status s = backup_env_->FileExists(private_dir);
+  if (s.ok()) {
+    // maybe last backup failed and left partial state behind, clean it up.
+    // need to do this before updating backups_ such that a private dir
+    // named after new_backup_id will be cleaned up
+    s = GarbageCollect();
+  } else if (s.IsNotFound()) {
+    // normal case, the new backup's private dir doesn't exist yet
+    s = Status::OK();
+  }
+
   auto ret = backups_.insert(std::make_pair(
       new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
                          GetBackupMetaFile(new_backup_id, false /* tmp */),
@@ -757,23 +770,13 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   new_backup->RecordTimestamp();
   new_backup->SetAppMetadata(app_metadata);
 
-  auto start_backup = backup_env_-> NowMicros();
+  auto start_backup = backup_env_->NowMicros();
 
   ROCKS_LOG_INFO(options_.info_log,
                  "Started the backup process -- creating backup %u",
                  new_backup_id);
-
-  auto private_tmp_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id, true));
-  Status s = backup_env_->FileExists(private_tmp_dir);
   if (s.ok()) {
-    // maybe last backup failed and left partial state behind, clean it up
-    s = GarbageCollect();
-  } else if (s.IsNotFound()) {
-    // normal case, the new backup's private dir doesn't exist yet
-    s = Status::OK();
-  }
-  if (s.ok()) {
-    s = backup_env_->CreateDir(private_tmp_dir);
+    s = backup_env_->CreateDir(private_dir);
   }
 
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
@@ -858,18 +861,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   // we copied all the files, enable file deletions
   db->EnableFileDeletions(false);
-
-  if (s.ok()) {
-    // move tmp private backup to real backup folder
-    ROCKS_LOG_INFO(
-        options_.info_log,
-        "Moving tmp backup directory to the real one: %s -> %s\n",
-        GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)).c_str(),
-        GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)).c_str());
-    s = backup_env_->RenameFile(
-        GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)),  // tmp
-        GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)));
-  }
 
   auto backup_time = backup_env_->NowMicros() - start_backup;
 
@@ -1314,22 +1305,33 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     dst_relative_tmp = GetSharedFileRel(dst_relative, true);
     dst_relative = GetSharedFileRel(dst_relative, false);
   } else {
-    dst_relative_tmp = GetPrivateFileRel(backup_id, true, dst_relative);
     dst_relative = GetPrivateFileRel(backup_id, false, dst_relative);
   }
-  std::string dst_path = GetAbsolutePath(dst_relative);
-  std::string dst_path_tmp = GetAbsolutePath(dst_relative_tmp);
+
+  // We copy into `temp_dest_path` and, once finished, rename it to
+  // `final_dest_path`. This allows files to atomically appear at
+  // `final_dest_path`. We can copy directly to the final path when atomicity
+  // is unnecessary, like for files in private backup directories.
+  const std::string* copy_dest_path;
+  std::string temp_dest_path;
+  std::string final_dest_path = GetAbsolutePath(dst_relative);
+  if (!dst_relative_tmp.empty()) {
+    temp_dest_path = GetAbsolutePath(dst_relative_tmp);
+    copy_dest_path = &temp_dest_path;
+  } else {
+    copy_dest_path = &final_dest_path;
+  }
 
   // if it's shared, we also need to check if it exists -- if it does, no need
   // to copy it again.
   bool need_to_copy = true;
-  // true if dst_path is the same path as another live file
+  // true if final_dest_path is the same path as another live file
   const bool same_path =
-      live_dst_paths.find(dst_path) != live_dst_paths.end();
+      live_dst_paths.find(final_dest_path) != live_dst_paths.end();
 
   bool file_exists = false;
   if (shared && !same_path) {
-    Status exist = backup_env_->FileExists(dst_path);
+    Status exist = backup_env_->FileExists(final_dest_path);
     if (exist.ok()) {
       file_exists = true;
     } else if (exist.IsNotFound()) {
@@ -1358,7 +1360,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
           "overwrite the file.",
           fname.c_str());
       need_to_copy = true;
-      backup_env_->DeleteFile(dst_path);
+      backup_env_->DeleteFile(final_dest_path);
     } else {
       // the file is present and referenced by a backup
       ROCKS_LOG_INFO(options_.info_log,
@@ -1367,25 +1369,25 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
                             &checksum_value);
     }
   }
-  live_dst_paths.insert(dst_path);
+  live_dst_paths.insert(final_dest_path);
 
   if (!contents.empty() || need_to_copy) {
     ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
-                   dst_path_tmp.c_str());
+                   copy_dest_path->c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
-        src_dir.empty() ? "" : src_dir + fname, dst_path_tmp, contents, db_env_,
-        backup_env_, options_.sync, rate_limiter, size_limit,
+        src_dir.empty() ? "" : src_dir + fname, *copy_dest_path, contents,
+        db_env_, backup_env_, options_.sync, rate_limiter, size_limit,
         progress_callback);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
-        backup_env_, dst_path_tmp, dst_path, dst_relative);
+        backup_env_, temp_dest_path, final_dest_path, dst_relative);
     files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
   } else {
     std::promise<CopyOrCreateResult> promise_result;
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         promise_result.get_future(), shared, need_to_copy, backup_env_,
-        dst_path_tmp, dst_path, dst_relative);
+        temp_dest_path, final_dest_path, dst_relative);
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
     CopyOrCreateResult result;
     result.status = s;
@@ -1551,7 +1553,7 @@ Status BackupEngineImpl::GarbageCollect() {
     }
     // here we have to delete the dir and all its children
     std::string full_private_path =
-        GetAbsolutePath(GetPrivateFileRel(backup_id, tmp_dir));
+        GetAbsolutePath(GetPrivateFileRel(backup_id));
     std::vector<std::string> subchildren;
     backup_env_->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
