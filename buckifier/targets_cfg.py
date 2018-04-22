@@ -29,6 +29,10 @@ rocksdb_compiler_flags = [
     "-DTBB",
     # Needed to compile in fbcode
     "-Wno-expansion-to-defined",
+    # Added missing flags from output of build_detect_platform
+    "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
+    "-DROCKSDB_BACKTRACE",
+    "-Wshorten-64-to-32",
 ]
 
 rocksdb_external_deps = [
@@ -50,7 +54,10 @@ rocksdb_preprocessor_flags = [
 ]
 
 rocksdb_arch_preprocessor_flags = {
-    "x86_64": ["-DHAVE_SSE42"],
+    "x86_64": [
+        "-DHAVE_SSE42",
+        "-DHAVE_PCLMUL",
+    ],
 }
 
 build_mode = read_config("fbcode", "build_mode")

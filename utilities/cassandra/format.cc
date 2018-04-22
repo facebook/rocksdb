@@ -129,7 +129,7 @@ std::shared_ptr<Tombstone> ExpiringColumn::ToTombstone() const {
   int64_t marked_for_delete_at =
     std::chrono::duration_cast<std::chrono::microseconds>(expired_at).count();
   return std::make_shared<Tombstone>(
-    ColumnTypeMask::DELETION_MASK,
+    static_cast<int8_t>(ColumnTypeMask::DELETION_MASK),
     Index(),
     local_deletion_time,
     marked_for_delete_at);

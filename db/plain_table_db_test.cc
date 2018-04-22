@@ -327,7 +327,7 @@ class TestPlainTableFactory : public PlainTableFactory {
       const TableReaderOptions& table_reader_options,
       unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table,
-      bool prefetch_index_and_filter_in_cache) const override {
+      bool /*prefetch_index_and_filter_in_cache*/) const override {
     TableProperties* props = nullptr;
     auto s =
         ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
@@ -1170,7 +1170,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as plain table is not supported in ROCKSDB_LITE\n");
   return 0;
 }

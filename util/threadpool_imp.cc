@@ -20,11 +20,12 @@
 #  include <sys/syscall.h>
 #endif
 
+#include <stdlib.h>
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include <stdlib.h>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -254,11 +255,25 @@ void* ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
   size_t thread_id = meta->thread_id_;
   ThreadPoolImpl::Impl* tp = meta->thread_pool_;
 #ifdef ROCKSDB_USING_THREAD_STATUS
-  // for thread-status
-  ThreadStatusUtil::RegisterThread(
-      tp->GetHostEnv(), (tp->GetThreadPriority() == Env::Priority::HIGH
-                             ? ThreadStatus::HIGH_PRIORITY
-                             : ThreadStatus::LOW_PRIORITY));
+  // initialize it because compiler isn't good enough to see we don't use it
+  // uninitialized
+  ThreadStatus::ThreadType thread_type = ThreadStatus::NUM_THREAD_TYPES;
+  switch (tp->GetThreadPriority()) {
+    case Env::Priority::HIGH:
+      thread_type = ThreadStatus::HIGH_PRIORITY;
+      break;
+    case Env::Priority::LOW:
+      thread_type = ThreadStatus::LOW_PRIORITY;
+      break;
+    case Env::Priority::BOTTOM:
+      thread_type = ThreadStatus::BOTTOM_PRIORITY;
+      break;
+    case Env::Priority::TOTAL:
+      assert(false);
+      return nullptr;
+  }
+  assert(thread_type != ThreadStatus::NUM_THREAD_TYPES);
+  ThreadStatusUtil::RegisterThread(tp->GetHostEnv(), thread_type);
 #endif
   delete meta;
   tp->BGThread(thread_id);
@@ -299,11 +314,14 @@ void ThreadPoolImpl::Impl::StartBGThreads() {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
     auto th_handle = p_t.native_handle();
-    char name_buf[16];
-    snprintf(name_buf, sizeof name_buf, "rocksdb:bg%" ROCKSDB_PRIszt,
-             bgthreads_.size());
-    name_buf[sizeof name_buf - 1] = '\0';
-    pthread_setname_np(th_handle, name_buf);
+    std::string thread_priority = Env::PriorityToString(GetThreadPriority());
+    std::ostringstream thread_name_stream;
+    thread_name_stream << "rocksdb:";
+    for (char c : thread_priority) {
+      thread_name_stream << static_cast<char>(tolower(c));
+    }
+    thread_name_stream << bgthreads_.size();
+    pthread_setname_np(th_handle, thread_name_stream.str().c_str());
 #endif
 #endif
     bgthreads_.push_back(std::move(p_t));

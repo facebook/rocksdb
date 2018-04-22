@@ -24,7 +24,9 @@ class PreReleaseCallback {
   // propagated to all the writers in the write group.
   // seq is the sequence number that is used for this write and will be
   // released.
-  virtual Status Callback(SequenceNumber seq) = 0;
+  // is_mem_disabled is currently used for debugging purposes to assert that
+  // the callback is done from the right write queue.
+  virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) = 0;
 };
 
 }  //  namespace rocksdb

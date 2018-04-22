@@ -17,7 +17,7 @@ namespace rocksdb {
 class Env;
 class Logger;
 
-// SstFileManager is used to track SST files in the DB and control there
+// SstFileManager is used to track SST files in the DB and control their
 // deletion rate.
 // All SstFileManager public functions are thread-safe.
 // SstFileManager is not extensible.
@@ -29,11 +29,17 @@ class SstFileManager {
   // the total size of the SST files exceeds max_allowed_space, writes to
   // RocksDB will fail.
   //
-  // Setting max_allowed_space to 0 will disable this feature, maximum allowed
+  // Setting max_allowed_space to 0 will disable this feature; maximum allowed
   // space will be infinite (Default value).
   //
   // thread-safe.
   virtual void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) = 0;
+
+  // Set the amount of buffer room each compaction should be able to leave.
+  // In other words, at its maximum disk space consumption, the compaction
+  // should still leave compaction_buffer_size available on the disk so that
+  // other background functions may continue, such as logging and flushing.
+  virtual void SetCompactionBufferSize(uint64_t compaction_buffer_size) = 0;
 
   // Return true if the total size of SST files exceeded the maximum allowed
   // space usage.
@@ -41,11 +47,15 @@ class SstFileManager {
   // thread-safe.
   virtual bool IsMaxAllowedSpaceReached() = 0;
 
+  // Returns true if the total size of SST files as well as estimated size
+  // of ongoing compactions exceeds the maximums allowed space usage.
+  virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
+
   // Return the total size of all tracked files.
   // thread-safe
   virtual uint64_t GetTotalSize() = 0;
 
-  // Return a map containing all tracked files and there corresponding sizes.
+  // Return a map containing all tracked files and their corresponding sizes.
   // thread-safe
   virtual std::unordered_map<std::string, uint64_t> GetTrackedFiles() = 0;
 
@@ -86,10 +96,14 @@ class SstFileManager {
 // @param max_trash_db_ratio: If the trash size constitutes for more than this
 //    fraction of the total DB size we will start deleting new files passed to
 //    DeleteScheduler immediately
+// @param bytes_max_delete_chunk: if a single file is larger than delete chunk,
+//    ftruncate the file by this size each time, rather than dropping the whole
+//    file. 0 means to always delete the whole file.
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
-    double max_trash_db_ratio = 0.25);
+    double max_trash_db_ratio = 0.25,
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
 
 }  // namespace rocksdb

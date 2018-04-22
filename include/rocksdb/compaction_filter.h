@@ -94,12 +94,10 @@ class CompactionFilter {
   // be used by a single thread that is doing the compaction run, and this
   // call does not need to be thread-safe.  However, multiple filters may be
   // in existence and operating concurrently.
-  //
-  // The last paragraph is not true if you set max_subcompactions to more than
-  // 1. In that case, subcompaction from multiple threads may call a single
-  // CompactionFilter concurrently.
-  virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
-                      std::string* new_value, bool* value_changed) const {
+  virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                      const Slice& /*existing_value*/,
+                      std::string* /*new_value*/,
+                      bool* /*value_changed*/) const {
     return false;
   }
 
@@ -112,8 +110,8 @@ class CompactionFilter {
   // may not realize there is a write conflict and may allow a Transaction to
   // Commit that should have failed.  Instead, it is better to implement any
   // Merge filtering inside the MergeOperator.
-  virtual bool FilterMergeOperand(int level, const Slice& key,
-                                  const Slice& operand) const {
+  virtual bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
+                                  const Slice& /*operand*/) const {
     return false;
   }
 
@@ -158,7 +156,7 @@ class CompactionFilter {
   // MergeOperator.
   virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
                             const Slice& existing_value, std::string* new_value,
-                            std::string* skip_until) const {
+                            std::string* /*skip_until*/) const {
     switch (value_type) {
       case ValueType::kValue: {
         bool value_changed = false;

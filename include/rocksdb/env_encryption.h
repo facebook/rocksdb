@@ -133,7 +133,7 @@ class EncryptionProvider {
     // GetPrefixLength returns the length of the prefix that is added to every file
     // and used for storing encryption options.
     // For optimal performance, the prefix length should be a multiple of 
-    // the a page size.
+    // the page size.
     virtual size_t GetPrefixLength() = 0;
 
     // CreateNewPrefix initialized an allocated block of prefix memory 
@@ -165,7 +165,7 @@ class CTREncryptionProvider : public EncryptionProvider {
     // GetPrefixLength returns the length of the prefix that is added to every file
     // and used for storing encryption options.
     // For optimal performance, the prefix length should be a multiple of 
-    // the a page size.
+    // the page size.
     virtual size_t GetPrefixLength() override;
 
     // CreateNewPrefix initialized an allocated block of prefix memory 

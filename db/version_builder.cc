@@ -199,7 +199,7 @@ class VersionBuilder::Rep {
     }
   }
 
-  void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
+  void CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
                                   int level) {
 #ifdef NDEBUG
     if (!base_vstorage_->force_consistency_checks()) {
@@ -420,7 +420,7 @@ class VersionBuilder::Rep {
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
-      // f is to-be-delected table file
+      // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
       vstorage->AddFile(level, f, info_log_);

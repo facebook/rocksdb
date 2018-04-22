@@ -192,10 +192,11 @@ static void CheckDel(void* ptr, const char* k, size_t klen) {
   (*state)++;
 }
 
-static void CmpDestroy(void* arg) { }
+static void CmpDestroy(void* arg) { (void)arg; }
 
 static int CmpCompare(void* arg, const char* a, size_t alen,
                       const char* b, size_t blen) {
+  (void)arg;
   size_t n = (alen < blen) ? alen : blen;
   int r = memcmp(a, b, n);
   if (r == 0) {
@@ -206,13 +207,15 @@ static int CmpCompare(void* arg, const char* a, size_t alen,
 }
 
 static const char* CmpName(void* arg) {
+  (void)arg;
   return "foo";
 }
 
 // Custom filter policy
 static unsigned char fake_filter_result = 1;
-static void FilterDestroy(void* arg) { }
+static void FilterDestroy(void* arg) { (void)arg; }
 static const char* FilterName(void* arg) {
+  (void)arg;
   return "TestFilter";
 }
 static char* FilterCreate(
@@ -220,6 +223,10 @@ static char* FilterCreate(
     const char* const* key_array, const size_t* key_length_array,
     int num_keys,
     size_t* filter_length) {
+  (void)arg;
+  (void)key_array;
+  (void)key_length_array;
+  (void)num_keys;
   *filter_length = 4;
   char* result = malloc(4);
   memcpy(result, "fake", 4);
@@ -229,20 +236,30 @@ static unsigned char FilterKeyMatch(
     void* arg,
     const char* key, size_t length,
     const char* filter, size_t filter_length) {
+  (void)arg;
+  (void)key;
+  (void)length;
   CheckCondition(filter_length == 4);
   CheckCondition(memcmp(filter, "fake", 4) == 0);
   return fake_filter_result;
 }
 
 // Custom compaction filter
-static void CFilterDestroy(void* arg) {}
-static const char* CFilterName(void* arg) { return "foo"; }
+static void CFilterDestroy(void* arg) { (void)arg; }
+static const char* CFilterName(void* arg) {
+  (void)arg;
+  return "foo";
+}
 static unsigned char CFilterFilter(void* arg, int level, const char* key,
                                    size_t key_length,
                                    const char* existing_value,
                                    size_t value_length, char** new_value,
                                    size_t* new_value_length,
                                    unsigned char* value_changed) {
+  (void)arg;
+  (void)level;
+  (void)existing_value;
+  (void)value_length;
   if (key_length == 3) {
     if (memcmp(key, "bar", key_length) == 0) {
       return 1;
@@ -256,10 +273,15 @@ static unsigned char CFilterFilter(void* arg, int level, const char* key,
   return 0;
 }
 
-static void CFilterFactoryDestroy(void* arg) {}
-static const char* CFilterFactoryName(void* arg) { return "foo"; }
+static void CFilterFactoryDestroy(void* arg) { (void)arg; }
+static const char* CFilterFactoryName(void* arg) {
+  (void)arg;
+  return "foo";
+}
 static rocksdb_compactionfilter_t* CFilterCreate(
     void* arg, rocksdb_compactionfiltercontext_t* context) {
+  (void)arg;
+  (void)context;
   return rocksdb_compactionfilter_create(NULL, CFilterDestroy, CFilterFilter,
                                          CFilterName);
 }
@@ -290,8 +312,9 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
 }
 
 // Custom merge operator
-static void MergeOperatorDestroy(void* arg) { }
+static void MergeOperatorDestroy(void* arg) { (void)arg; }
 static const char* MergeOperatorName(void* arg) {
+  (void)arg;
   return "TestMergeOperator";
 }
 static char* MergeOperatorFullMerge(
@@ -301,6 +324,14 @@ static char* MergeOperatorFullMerge(
     const char* const* operands_list, const size_t* operands_list_length,
     int num_operands,
     unsigned char* success, size_t* new_value_length) {
+  (void)arg;
+  (void)key;
+  (void)key_length;
+  (void)existing_value;
+  (void)existing_value_length;
+  (void)operands_list;
+  (void)operands_list_length;
+  (void)num_operands;
   *new_value_length = 4;
   *success = 1;
   char* result = malloc(4);
@@ -313,6 +344,12 @@ static char* MergeOperatorPartialMerge(
     const char* const* operands_list, const size_t* operands_list_length,
     int num_operands,
     unsigned char* success, size_t* new_value_length) {
+  (void)arg;
+  (void)key;
+  (void)key_length;
+  (void)operands_list;
+  (void)operands_list_length;
+  (void)num_operands;
   *new_value_length = 4;
   *success = 1;
   char* result = malloc(4);
@@ -377,6 +414,8 @@ static void CheckTxnDBGetCF(rocksdb_transactiondb_t* txn_db,
 }
 
 int main(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
   rocksdb_t* db;
   rocksdb_comparator_t* cmp;
   rocksdb_cache_t* cache;

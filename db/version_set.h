@@ -115,7 +115,7 @@ class VersionStorageInfo {
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
-  // Decrease the current stat form a to-be-delected file-meta
+  // Decrease the current stat from a to-be-deleted file-meta
   void RemoveCurrentStats(FileMetaData* file_meta);
 
   void ComputeCompensatedSizes();
@@ -134,6 +134,10 @@ class VersionStorageInfo {
   // This computes files_marked_for_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
+
+  // This computes ttl_expired_files_ and is called by
+  // ComputeCompactionScore()
+  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -284,6 +288,13 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_compaction_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
+    assert(finalized_);
+    return expired_ttl_files_;
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -446,6 +457,8 @@ class VersionStorageInfo {
   // ComputeCompactionScore()
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
 
+  autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
+
   // These files are considered bottommost because none of their keys can exist
   // at lower levels. They are not necessarily all in the same level. The marked
   // ones are eligible for compaction because they contain duplicate key
@@ -491,7 +504,7 @@ class VersionStorageInfo {
   uint64_t accumulated_num_deletions_;
   // current number of non_deletion entries
   uint64_t current_num_non_deletions_;
-  // current number of delection entries
+  // current number of deletion entries
   uint64_t current_num_deletions_;
   // current number of file samples
   uint64_t current_num_samples_;
@@ -524,6 +537,11 @@ class Version {
   void AddIteratorsForLevel(const ReadOptions&, const EnvOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
+
+  Status OverlapWithLevelIterator(const ReadOptions&, const EnvOptions&,
+                                  const Slice& smallest_user_key,
+                                  const Slice& largest_user_key,
+                                  int level, bool* overlap);
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
@@ -565,13 +583,13 @@ class Version {
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
 
-  // Returns the version nuber of this version
+  // Returns the version number of this version
   uint64_t GetVersionNumber() const { return version_number_; }
 
   // REQUIRES: lock is held
   // On success, "tp" will contains the table properties of the file
   // specified in "file_meta".  If the file name of "file_meta" is
-  // known ahread, passing it by a non-null "fname" can save a
+  // known ahead, passing it by a non-null "fname" can save a
   // file-name conversion.
   Status GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                             const FileMetaData* file_meta,
@@ -580,14 +598,14 @@ class Version {
   // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
-  // tables' propertis, represented as shared_ptr.
+  // tables' properties, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
   // REQUIRES: lock is held
-  // On success, "tp" will contains the aggregated table property amoug
+  // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
   Status GetAggregatedTableProperties(
       std::shared_ptr<const TableProperties>* tp, int level = -1);
@@ -613,6 +631,8 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  uint64_t GetSstFilesSize();
+
  private:
   Env* env_;
   friend class VersionSet;
@@ -635,7 +655,7 @@ class Version {
   bool IsFilterSkipped(int level, bool is_file_last_in_level = false);
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
-  // fields of file_mata from its associated TableProperties.
+  // fields of file_meta from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.
   bool MaybeInitializeFileMetaData(FileMetaData* file_meta);
 
@@ -673,6 +693,36 @@ class Version {
   // No copying allowed
   Version(const Version&);
   void operator=(const Version&);
+};
+
+struct ObsoleteFileInfo {
+  FileMetaData* metadata;
+  std::string   path;
+
+  ObsoleteFileInfo() noexcept : metadata(nullptr) {}
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
+      : metadata(f), path(file_path) {}
+
+  ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
+  ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
+
+  ObsoleteFileInfo(ObsoleteFileInfo&& rhs) noexcept :
+    ObsoleteFileInfo() {
+      *this = std::move(rhs);
+  }
+
+  ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
+    path = std::move(rhs.path);
+    metadata = rhs.metadata;
+    rhs.metadata = nullptr;
+
+    return *this;
+  }
+
+  void DeleteMetadata() {
+    delete metadata;
+    metadata = nullptr;
+  }
 };
 
 class VersionSet {
@@ -752,6 +802,10 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
+  uint64_t latest_deleted_log_number() const {
+    return latest_deleted_log_number_.load();
+  }
+
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
@@ -773,7 +827,7 @@ class VersionSet {
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
-    // Last visible seqeunce must always be less than last written seq
+    // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
@@ -798,6 +852,11 @@ class VersionSet {
   // Mark the specified file number as used.
   // REQUIRED: this is only called during single-threaded recovery or repair.
   void MarkFileNumberUsed(uint64_t number);
+
+  // Mark the specified log number as deleted
+  // REQUIRED: this is only called during single-threaded recovery or repair, or
+  // from ::LogAndApply where the global mutex is held.
+  void MarkDeletedLogNumber(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
@@ -847,7 +906,7 @@ class VersionSet {
   // This function doesn't support leveldb SST filenames
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
-  void GetObsoleteFiles(std::vector<FileMetaData*>* files,
+  void GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
@@ -870,7 +929,7 @@ class VersionSet {
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
-    virtual void Corruption(size_t bytes, const Status& s) override {
+    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
       if (this->status->ok()) *this->status = s;
     }
   };
@@ -896,6 +955,8 @@ class VersionSet {
   const std::string dbname_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
+  // Any log number equal or lower than this should be ignored during recovery.
+  std::atomic<uint64_t> latest_deleted_log_number_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
@@ -911,7 +972,7 @@ class VersionSet {
   // The last allocated sequence that is also published to the readers. This is
   // applicable only when last_seq_same_as_publish_seq_ is not set. Otherwise
   // last_sequence_ also indicates the last published seq.
-  // We have last_sequence <= last_published_seqeunce_ <=
+  // We have last_sequence <= last_published_sequence_ <=
   // last_allocated_sequence_
   std::atomic<uint64_t> last_published_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
@@ -928,7 +989,7 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
-  std::vector<FileMetaData*> obsolete_files_;
+  std::vector<ObsoleteFileInfo> obsolete_files_;
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions

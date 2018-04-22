@@ -148,11 +148,13 @@ LIB_SOURCES =                                                   \
   util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
+  util/sync_point_impl.cc                                       \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
+  utilities/blob_db/blob_compaction_filter.cc                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
   utilities/blob_db/blob_file.cc                                \
@@ -182,6 +184,7 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
+  utilities/merge_operators/bytesxor.cc                         \
   utilities/option_change_migration/option_change_migration.cc  \
   utilities/options/options_util.cc                             \
   utilities/persistent_cache/block_cache_tier.cc                \
@@ -279,6 +282,7 @@ MAIN_SOURCES =                                                          \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
+  db/obsolete_files_test.cc						\
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -396,6 +400,9 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/lru_cache.cc                                  \
   java/rocksjni/memtablejni.cc                                \
   java/rocksjni/merge_operator.cc                             \
+  java/rocksjni/native_comparator_wrapper_test.cc             \
+  java/rocksjni/optimistic_transaction_db.cc                  \
+  java/rocksjni/optimistic_transaction_options.cc             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/options_util.cc                               \
   java/rocksjni/ratelimiterjni.cc                             \
@@ -408,11 +415,18 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/rocksdb_exception_test.cc                     \
   java/rocksjni/slice.cc                                      \
   java/rocksjni/snapshot.cc                                   \
+  java/rocksjni/sst_file_manager.cc                           \
   java/rocksjni/sst_file_writerjni.cc                         \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \
+  java/rocksjni/transaction.cc                                \
+  java/rocksjni/transaction_db.cc                             \
+  java/rocksjni/transaction_options.cc                        \
+  java/rocksjni/transaction_db_options.cc                     \
   java/rocksjni/transaction_log.cc                            \
+  java/rocksjni/transaction_notifier.cc                       \
+  java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \

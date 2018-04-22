@@ -37,8 +37,7 @@ class FlushedFileCollector : public EventListener {
   FlushedFileCollector() {}
   ~FlushedFileCollector() {}
 
-  virtual void OnFlushCompleted(
-      DB* db, const FlushJobInfo& info) override {
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
     flushed_files_.push_back(info.file_path);
   }
@@ -257,9 +256,9 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   class FilterWithGet : public CompactionFilter {
    public:
-    virtual bool Filter(int level, const Slice& key, const Slice& value,
-                        std::string* new_value,
-                        bool* value_changed) const override {
+    virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                        const Slice& /*value*/, std::string* /*new_value*/,
+                        bool* /*value_changed*/) const override {
       if (db_ == nullptr) {
         return true;
       }
@@ -319,7 +318,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as DBImpl::CompactFiles is not supported in ROCKSDB_LITE\n");
   return 0;

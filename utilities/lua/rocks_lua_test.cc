@@ -483,7 +483,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("LUA_PATH is not set.  Ignoring the test.\n");
 }
 
@@ -491,7 +491,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Lua is not supported in RocksDBLite.  Ignoring the test.\n");
 }
 

@@ -20,6 +20,25 @@ public class WriteOptions extends RocksObject {
 
   }
 
+  // TODO(AR) consider ownership
+  WriteOptions(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
+  }
+
+  /**
+   * Copy constructor for WriteOptions.
+   *
+   * NOTE: This does a shallow copy, which means comparator, merge_operator, compaction_filter,
+   * compaction_filter_factory and other pointers will be cloned!
+   *
+   * @param other The ColumnFamilyOptions to copy.
+   */
+  public WriteOptions(WriteOptions other) {
+    super(copyWriteOptions(other.nativeHandle_));
+  }
+
+
   /**
    * If true, the write will be flushed from the operating system
    * buffer cache (by calling WritableFile::Sync()) before the write
@@ -145,6 +164,7 @@ public class WriteOptions extends RocksObject {
   }
 
   private native static long newWriteOptions();
+  private native static long copyWriteOptions(long handle);
   private native void setSync(long handle, boolean flag);
   private native boolean sync(long handle);
   private native void setDisableWAL(long handle, boolean flag);

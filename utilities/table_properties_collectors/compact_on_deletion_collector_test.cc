@@ -20,7 +20,7 @@
 #include "util/random.h"
 #include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   const int kWindowSizes[] =
       {1000, 10000, 10000, 127, 128, 129, 255, 256, 257, 2, 10000};
   const int kDeletionTriggers[] =
@@ -171,7 +171,7 @@ int main(int argc, char** argv) {
   fprintf(stderr, "PASSED\n");
 }
 #else
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
   return 0;
 }

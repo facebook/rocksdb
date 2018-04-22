@@ -74,6 +74,10 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
+inline mode_t GetDBFileMode(bool allow_non_owner_access) {
+  return allow_non_owner_access ? 0644 : 0600;
+}
+
 // list of pathnames that are locked
 static std::set<std::string> lockedFiles;
 static port::Mutex mutex_lockedFiles;
@@ -167,7 +171,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, 0644);
+      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       return IOError("While opening a file for sequentially reading", fname,
@@ -217,7 +221,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, 0644);
+      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       return IOError("While open a file for random read", fname, errno);
@@ -288,7 +292,7 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), flags, 0644);
+      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
 
     if (fd < 0) {
@@ -376,7 +380,8 @@ class PosixEnv : public Env {
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(old_fname.c_str(), flags, 0644);
+      fd = open(old_fname.c_str(), flags,
+                GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       s = IOError("while reopen file for write", fname, errno);
@@ -436,7 +441,8 @@ class PosixEnv : public Env {
     int fd = -1;
     while (fd < 0) {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+      fd = open(fname.c_str(), O_CREAT | O_RDWR,
+                GetDBFileMode(allow_non_owner_access_));
       if (fd < 0) {
         // Error while opening the file
         if (errno == EINTR) {
@@ -647,7 +653,7 @@ class PosixEnv : public Env {
 
   virtual void Schedule(void (*function)(void* arg1), void* arg,
                         Priority pri = LOW, void* tag = nullptr,
-                        void (*unschedFunction)(void* arg) = 0) override;
+                        void (*unschedFunction)(void* arg) = nullptr) override;
 
   virtual int UnSchedule(void* arg, Priority pri) override;
 
@@ -763,7 +769,7 @@ class PosixEnv : public Env {
 
   virtual Status GetAbsolutePath(const std::string& db_path,
                                  std::string* output_path) override {
-    if (db_path.find('/') == 0) {
+    if (!db_path.empty() && db_path[0] == '/') {
       *output_path = db_path;
       return Status::OK();
     }
@@ -789,6 +795,11 @@ class PosixEnv : public Env {
     return thread_pools_[pri].GetBackgroundThreads();
   }
 
+  virtual Status SetAllowNonOwnerAccess(bool allow_non_owner_access) override {
+    allow_non_owner_access_ = allow_non_owner_access;
+    return Status::OK();
+  }
+
   // Allow increasing the number of worker threads.
   virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
     assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
@@ -799,6 +810,8 @@ class PosixEnv : public Env {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
 #ifdef OS_LINUX
     thread_pools_[pool].LowerIOPriority();
+#else
+    (void)pool;
 #endif
   }
 
@@ -876,6 +889,7 @@ class PosixEnv : public Env {
         return false;
     }
 #else
+    (void)path;
     return false;
 #endif
   }
@@ -885,13 +899,17 @@ class PosixEnv : public Env {
   std::vector<ThreadPoolImpl> thread_pools_;
   pthread_mutex_t mu_;
   std::vector<pthread_t> threads_to_join_;
+  // If true, allow non owner read access for db files. Otherwise, non-owner
+  //  has no access to db files.
+  bool allow_non_owner_access_;
 };
 
 PosixEnv::PosixEnv()
     : checkedDiskForMmap_(false),
       forceMmapOff_(false),
       page_size_(getpagesize()),
-      thread_pools_(Priority::TOTAL) {
+      thread_pools_(Priority::TOTAL),
+      allow_non_owner_access_(true) {
   ThreadPoolImpl::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(

@@ -166,6 +166,8 @@ class WritableFileWriter {
 
   Status Append(const Slice& data);
 
+  Status Pad(const size_t pad_bytes);
+
   Status Flush();
 
   Status Close();

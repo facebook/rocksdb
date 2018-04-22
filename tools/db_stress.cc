@@ -28,7 +28,10 @@ int main() {
 }
 #else
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif  // __STDC_FORMAT_MACROS
+
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -37,6 +40,7 @@ int main() {
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <queue>
 #include <thread>
 
 #include "db/db_impl.h"
@@ -51,6 +55,8 @@ int main() {
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -88,7 +94,7 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
 }
 
 DEFINE_uint64(seed, 2341234, "Seed for PRNG");
-static const bool FLAGS_seed_dummy __attribute__((unused)) =
+static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
 DEFINE_int64(max_key, 1 * KB* KB,
@@ -268,7 +274,7 @@ DEFINE_bool(allow_concurrent_memtable_write, false,
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
-static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
+static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
 static bool ValidateInt32Positive(const char* flagname, int32_t value) {
@@ -280,7 +286,7 @@ static bool ValidateInt32Positive(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(reopen, 10, "Number of times database reopens");
-static const bool FLAGS_reopen_dummy __attribute__((unused)) =
+static const bool FLAGS_reopen_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
 DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
@@ -318,7 +324,7 @@ DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 DEFINE_int32(kill_random_test, 0,
              "If non-zero, kill at various points in source code with "
              "probability 1/this");
-static const bool FLAGS_kill_random_test_dummy __attribute__((unused)) =
+static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
@@ -350,6 +356,10 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
+DEFINE_bool(use_txn, false,
+            "Use TransactionDB. Currently the default write policy is "
+            "TxnDBWritePolicy::WRITE_PREPARED");
+
 // Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called one for every N "
@@ -374,29 +384,29 @@ static bool ValidateInt32Percent(const char* flagname, int32_t value) {
 
 DEFINE_int32(readpercent, 10,
              "Ratio of reads to total workload (expressed as a percentage)");
-static const bool FLAGS_readpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_readpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
 
 DEFINE_int32(prefixpercent, 20,
              "Ratio of prefix iterators to total workload (expressed as a"
              " percentage)");
-static const bool FLAGS_prefixpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_prefixpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
 
 DEFINE_int32(writepercent, 45,
              "Ratio of writes to total workload (expressed as a percentage)");
-static const bool FLAGS_writepercent_dummy __attribute__((unused)) =
+static const bool FLAGS_writepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
 
 DEFINE_int32(delpercent, 15,
              "Ratio of deletes to total workload (expressed as a percentage)");
-static const bool FLAGS_delpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_delpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
 
 DEFINE_int32(delrangepercent, 0,
              "Ratio of range deletions to total workload (expressed as a "
              "percentage). Cannot be used with test_batches_snapshots");
-static const bool FLAGS_delrangepercent_dummy __attribute__((unused)) =
+static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_delrangepercent, &ValidateInt32Percent);
 
 DEFINE_int32(nooverwritepercent, 60,
@@ -407,11 +417,11 @@ static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(iterpercent, 10, "Ratio of iterations to total workload"
              " (expressed as a percentage)");
-static const bool FLAGS_iterpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
-static const bool FLAGS_num_iterations_dummy __attribute__((unused)) =
+static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
 namespace {
@@ -488,11 +498,11 @@ DEFINE_string(hdfs, "", "Name of hdfs environment");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
-static const bool FLAGS_ops_per_thread_dummy __attribute__((unused)) =
+static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
 
 DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
-static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
+static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
@@ -531,7 +541,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
-static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
+static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
@@ -781,18 +791,34 @@ class SharedState {
     // overwrite
 
     printf("Choosing random keys with no overwrite\n");
-    Random rnd(seed_);
-    size_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
-    for (auto& cf_ids : no_overwrite_ids_) {
-      for (size_t i = 0; i < num_no_overwrite_keys; i++) {
-        size_t rand_key;
-        do {
-          rand_key = rnd.Next() % max_key_;
-        } while (cf_ids.find(rand_key) != cf_ids.end());
-        cf_ids.insert(rand_key);
-      }
-      assert(cf_ids.size() == num_no_overwrite_keys);
+    Random64 rnd(seed_);
+    // Start with the identity permutation. Subsequent iterations of
+    // for loop below will start with perm of previous for loop
+    int64_t *permutation = new int64_t[max_key_];
+    for (int64_t i = 0; i < max_key_; i++) {
+      permutation[i] = i;
     }
+
+    for (auto& cf_ids : no_overwrite_ids_) {
+      // Now do the Knuth shuffle
+      int64_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
+      // Only need to figure out first num_no_overwrite_keys of permutation
+      for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+        int64_t rand_index = i + rnd.Next() % (max_key_ - 1 - i);
+        // Swap i and rand_index;
+        int64_t temp = permutation[i];
+        permutation[i] = permutation[rand_index];
+        permutation[rand_index] = temp;
+      }
+
+      // Now fill cf_ids with the first num_no_overwrite_keys of permutation
+      cf_ids.reserve(num_no_overwrite_keys);
+      for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+        cf_ids.insert(permutation[i]);
+      }
+      assert(cf_ids.size() == static_cast<size_t>(num_no_overwrite_keys));
+    }
+    delete[] permutation;
 
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
@@ -969,7 +995,7 @@ class SharedState {
   std::atomic<bool> verification_failure_;
 
   // Keys that should not be overwritten
-  std::vector<std::set<size_t> > no_overwrite_ids_;
+  std::vector<std::unordered_set<size_t> > no_overwrite_ids_;
 
   std::vector<std::vector<uint32_t>> values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
@@ -981,11 +1007,24 @@ const uint32_t SharedState::SENTINEL = 0xffffffff;
 
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
-  uint32_t tid; // 0..n-1
-  Random rand;  // Has different seeds for different threads
+  uint32_t tid;  // 0..n-1
+  Random rand;   // Has different seeds for different threads
   SharedState* shared;
   Stats stats;
-  std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
+  struct SnapshotState {
+    const Snapshot* snapshot;
+    // The cf from which we did a Get at this snapshot
+    int cf_at;
+    // The name of the cf at the time that we did a read
+    std::string cf_at_name;
+    // The key with which we did a Get at this snapshot
+    std::string key;
+    // The status of the Get
+    Status status;
+    // The value of the Get
+    std::string value;
+  };
+  std::queue<std::pair<uint64_t, SnapshotState> > snapshot_queue;
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
@@ -994,13 +1033,13 @@ struct ThreadState {
 class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
-                   const std::vector<DbPath>& db_paths)
-      : db_name_(db_name), db_paths_(db_paths) {}
+                   const std::vector<DbPath>& db_paths,
+                   const std::vector<ColumnFamilyDescriptor>& column_families)
+      : db_name_(db_name), db_paths_(db_paths),
+        column_families_(column_families) {}
   virtual ~DbStressListener() {}
 #ifndef ROCKSDB_LITE
-  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
-    assert(db);
-    assert(db->GetName() == db_name_);
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
     // pretending doing some work here
@@ -1008,10 +1047,8 @@ class DbStressListener : public EventListener {
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 
-  virtual void OnCompactionCompleted(DB* db,
+  virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& ci) override {
-    assert(db);
-    assert(db->GetName() == db_name_);
     assert(IsValidColumnFamilyName(ci.cf_name));
     assert(ci.input_files.size() + ci.output_files.size() > 0U);
     for (const auto& file_path : ci.input_files) {
@@ -1062,7 +1099,16 @@ class DbStressListener : public EventListener {
         return;
       }
     }
+    for (auto& cf : column_families_) {
+      for (const auto& cf_path : cf.options.cf_paths) {
+        if (cf_path.path == file_dir) {
+            return;
+        }
+      }
+    }
     assert(false);
+#else
+    (void)file_dir;
 #endif  // !NDEBUG
   }
 
@@ -1073,6 +1119,8 @@ class DbStressListener : public EventListener {
     bool result = ParseFileName(file_name, &file_number, &file_type);
     assert(result);
     assert(file_type == kTableFile);
+#else
+    (void)file_name;
 #endif  // !NDEBUG
   }
 
@@ -1087,6 +1135,8 @@ class DbStressListener : public EventListener {
       }
       VerifyFileName(file_path.substr(pos));
     }
+#else
+    (void)file_path;
 #endif  // !NDEBUG
   }
 #endif  // !ROCKSDB_LITE
@@ -1094,6 +1144,7 @@ class DbStressListener : public EventListener {
  private:
   std::string db_name_;
   std::vector<DbPath> db_paths_;
+  std::vector<ColumnFamilyDescriptor> column_families_;
 };
 
 }  // namespace
@@ -1109,6 +1160,9 @@ class StressTest {
                                  : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
                            : nullptr),
         db_(nullptr),
+#ifndef ROCKSDB_LITE
+        txn_db_(nullptr),
+#endif
         new_column_family_name_(1),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
@@ -1316,6 +1370,37 @@ class StressTest {
   }
 
  private:
+  Status AssertSame(DB* db, ColumnFamilyHandle* cf,
+                    ThreadState::SnapshotState& snap_state) {
+    Status s;
+    if (cf->GetName() != snap_state.cf_at_name) {
+      return s;
+    }
+    ReadOptions ropt;
+    ropt.snapshot = snap_state.snapshot;
+    PinnableSlice exp_v(&snap_state.value);
+    exp_v.PinSelf();
+    PinnableSlice v;
+    s = db->Get(ropt, cf, snap_state.key, &v);
+    if (!s.ok() && !s.IsNotFound()) {
+      return s;
+    }
+    if (snap_state.status != s) {
+      return Status::Corruption(
+          "The snapshot gave inconsistent results for key " +
+          ToString(Hash(snap_state.key.c_str(), snap_state.key.size(), 0)) +
+          " in cf " + cf->GetName() + ": (" + snap_state.status.ToString() +
+          ") vs. (" + s.ToString() + ")");
+    }
+    if (s.ok()) {
+      if (exp_v != v) {
+        return Status::Corruption("The snapshot gave inconsistent values: (" +
+                                  exp_v.ToString() + ") vs. (" + v.ToString() +
+                                  ")");
+      }
+    }
+    return Status::OK();
+  }
 
   static void ThreadBody(void* v) {
     ThreadState* thread = reinterpret_cast<ThreadState*>(v);
@@ -1641,6 +1726,32 @@ class StressTest {
     return db_->SetOptions(cfh, opts);
   }
 
+#ifndef ROCKSDB_LITE
+  Status NewTxn(WriteOptions& write_opts, Transaction** txn) {
+    if (!FLAGS_use_txn) {
+      return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
+    }
+    static std::atomic<uint64_t> txn_id = {0};
+    TransactionOptions txn_options;
+    *txn = txn_db_->BeginTransaction(write_opts, txn_options);
+    auto istr = std::to_string(txn_id.fetch_add(1));
+    Status s = (*txn)->SetName("xid" + istr);
+    return s;
+  }
+
+  Status CommitTxn(Transaction* txn) {
+    if (!FLAGS_use_txn) {
+      return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
+    }
+    Status s = txn->Prepare();
+    if (s.ok()) {
+      s = txn->Commit();
+    }
+    delete txn;
+    return s;
+  }
+#endif
+
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
@@ -1667,7 +1778,8 @@ class StressTest {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
           while (!thread->snapshot_queue.empty()) {
-            db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
+            db_->ReleaseSnapshot(
+                thread->snapshot_queue.front().second.snapshot);
             thread->snapshot_queue.pop();
           }
           thread->shared->IncVotedReopen();
@@ -1709,7 +1821,7 @@ class StressTest {
                 cf, new_name.c_str());
           }
           thread->shared->LockColumnFamily(cf);
-          Status s __attribute__((unused));
+          Status s __attribute__((__unused__));
           s = db_->DropColumnFamily(column_families_[cf]);
           delete column_families_[cf];
           if (!s.ok()) {
@@ -1781,19 +1893,6 @@ class StressTest {
         }
       }
 #endif                // !ROCKSDB_LITE
-      if (FLAGS_acquire_snapshot_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-        thread->snapshot_queue.emplace(
-            std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
-            db_->GetSnapshot());
-      }
-      if (!thread->snapshot_queue.empty()) {
-        while (i == thread->snapshot_queue.front().first) {
-          db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
-          thread->snapshot_queue.pop();
-        }
-      }
-
       const double completed_ratio =
           static_cast<double>(i) / FLAGS_ops_per_thread;
       const int64_t base_key = static_cast<int64_t>(
@@ -1807,7 +1906,41 @@ class StressTest {
         l.reset(new MutexLock(
             shared->GetMutexForKey(rand_column_family, rand_key)));
       }
+
       auto column_family = column_families_[rand_column_family];
+
+      if (FLAGS_acquire_snapshot_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
+        auto snapshot = db_->GetSnapshot();
+        ReadOptions ropt;
+        ropt.snapshot = snapshot;
+        std::string value_at;
+        // When taking a snapshot, we also read a key from that snapshot. We
+        // will later read the same key before releasing the snapshot and verify
+        // that the results are the same.
+        auto status_at = db_->Get(ropt, column_family, key, &value_at);
+        ThreadState::SnapshotState snap_state = {
+            snapshot, rand_column_family, column_family->GetName(),
+            keystr,   status_at,          value_at};
+        thread->snapshot_queue.emplace(
+            std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
+            snap_state);
+      }
+      while (!thread->snapshot_queue.empty() &&
+             i == thread->snapshot_queue.front().first) {
+        auto snap_state = thread->snapshot_queue.front().second;
+        assert(snap_state.snapshot);
+        // Note: this is unsafe as the cf might be dropped concurrently. But it
+        // is ok since unclean cf drop is cunnrently not supported by write
+        // prepared transactions.
+        Status s =
+            AssertSame(db_, column_families_[snap_state.cf_at], snap_state);
+        if (!s.ok()) {
+          VerificationAbort(shared, "Snapshot gave inconsistent state", s);
+        }
+        db_->ReleaseSnapshot(snap_state.snapshot);
+        thread->snapshot_queue.pop();
+      }
 
       int prob_op = thread->rand.Uniform(100);
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
@@ -1885,9 +2018,35 @@ class StressTest {
           shared->Put(rand_column_family, rand_key, value_base);
           Status s;
           if (FLAGS_use_merge) {
-            s = db_->Merge(write_opts, column_family, key, v);
+            if (!FLAGS_use_txn) {
+              s = db_->Merge(write_opts, column_family, key, v);
+            } else {
+#ifndef ROCKSDB_LITE
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->Merge(column_family, key, v);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
+#endif
+            }
           } else {
-            s = db_->Put(write_opts, column_family, key, v);
+            if (!FLAGS_use_txn) {
+              s = db_->Put(write_opts, column_family, key, v);
+            } else {
+#ifndef ROCKSDB_LITE
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->Put(column_family, key, v);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
+#endif
+            }
           }
           if (!s.ok()) {
             fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
@@ -1921,7 +2080,21 @@ class StressTest {
           // otherwise.
           if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
             shared->Delete(rand_column_family, rand_key);
-            Status s = db_->Delete(write_opts, column_family, key);
+            Status s;
+            if (!FLAGS_use_txn) {
+              s = db_->Delete(write_opts, column_family, key);
+            } else {
+#ifndef ROCKSDB_LITE
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->Delete(column_family, key);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
+#endif
+            }
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
@@ -1929,7 +2102,21 @@ class StressTest {
             }
           } else {
             shared->SingleDelete(rand_column_family, rand_key);
-            Status s = db_->SingleDelete(write_opts, column_family, key);
+            Status s;
+            if (!FLAGS_use_txn) {
+              s = db_->SingleDelete(write_opts, column_family, key);
+            } else {
+#ifndef ROCKSDB_LITE
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->SingleDelete(column_family, key);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
+#endif
+            }
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "single delete error: %s\n",
@@ -2067,6 +2254,12 @@ class StressTest {
     }
   }
 
+  void VerificationAbort(SharedState* shared, std::string msg, Status s) const {
+    printf("Verification failed: %s. Status is %s\n", msg.c_str(),
+           s.ToString().c_str());
+    shared->SetVerificationFailure();
+  }
+
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const {
     printf("Verification failed for column family %d key %" PRIi64 ": %s\n", cf, key,
@@ -2074,7 +2267,7 @@ class StressTest {
     shared->SetVerificationFailure();
   }
 
-  bool VerifyValue(int cf, int64_t key, const ReadOptions& opts,
+  bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                    SharedState* shared, const std::string& value_from_db,
                    Status s, bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
@@ -2127,6 +2320,7 @@ class StressTest {
     size_t value_sz =
         ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
     assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
+    (void) max_sz;
     *((uint32_t*)v) = rand;
     for (size_t i=sizeof(uint32_t); i < value_sz; i++) {
       v[i] = (char)(rand ^ i);
@@ -2138,6 +2332,8 @@ class StressTest {
   void PrintEnv() const {
     fprintf(stdout, "RocksDB version           : %d.%d\n", kMajorVersion,
             kMinorVersion);
+    fprintf(stdout, "TransactionDB             : %s\n",
+            FLAGS_use_txn ? "true" : "false");
     fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
     if (!FLAGS_test_batches_snapshots) {
       fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -2210,6 +2406,9 @@ class StressTest {
 
   void Open() {
     assert(db_ == nullptr);
+#ifndef ROCKSDB_LITE
+    assert(txn_db_ == nullptr);
+#endif
     BlockBasedTableOptions block_based_options;
     block_based_options.block_cache = cache_;
     block_based_options.block_cache_compressed = compressed_cache_;
@@ -2380,10 +2579,38 @@ class StressTest {
       }
       options_.listeners.clear();
       options_.listeners.emplace_back(
-          new DbStressListener(FLAGS_db, options_.db_paths));
+          new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
       options_.create_missing_column_families = true;
-      s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-                   &column_families_, &db_);
+      if (!FLAGS_use_txn) {
+        s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
+                     &column_families_, &db_);
+      } else {
+#ifndef ROCKSDB_LITE
+        TransactionDBOptions txn_db_options;
+        // For the moment it is sufficient to test WRITE_PREPARED policy
+        txn_db_options.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
+        s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
+                                cf_descriptors, &column_families_, &txn_db_);
+        db_ = txn_db_;
+        // after a crash, rollback to commit recovered transactions
+        std::vector<Transaction*> trans;
+        txn_db_->GetAllPreparedTransactions(&trans);
+        Random rand(static_cast<uint32_t>(FLAGS_seed));
+        for (auto txn : trans) {
+          if (rand.OneIn(2)) {
+            s = txn->Commit();
+            assert(s.ok());
+          } else {
+            s = txn->Rollback();
+            assert(s.ok());
+          }
+          delete txn;
+        }
+        trans.clear();
+        txn_db_->GetAllPreparedTransactions(&trans);
+        assert(trans.size() == 0);
+#endif
+      }
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {
@@ -2409,6 +2636,9 @@ class StressTest {
     column_families_.clear();
     delete db_;
     db_ = nullptr;
+#ifndef ROCKSDB_LITE
+    txn_db_ = nullptr;
+#endif
 
     num_times_reopened_++;
     auto now = FLAGS_env->NowMicros();
@@ -2429,6 +2659,9 @@ class StressTest {
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
+#ifndef ROCKSDB_LITE
+  TransactionDB* txn_db_;
+#endif
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;
   std::vector<std::string> column_family_names_;

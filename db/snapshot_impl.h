@@ -21,6 +21,10 @@ class SnapshotList;
 class SnapshotImpl : public Snapshot {
  public:
   SequenceNumber number_;  // const after creation
+  // It indicates the smallest uncommitted data at the time the snapshot was
+  // taken. This is currently used by WritePrepared transactions to limit the
+  // scope of queries to IsInSnpashot.
+  SequenceNumber min_uncommitted_ = 0;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
@@ -45,6 +49,10 @@ class SnapshotList {
     list_.prev_ = &list_;
     list_.next_ = &list_;
     list_.number_ = 0xFFFFFFFFL;      // placeholder marker, for debugging
+    // Set all the variables to make UBSAN happy.
+    list_.list_ = nullptr;
+    list_.unix_time_ = 0;
+    list_.is_write_conflict_boundary_ = false;
     count_ = 0;
   }
 
@@ -52,8 +60,8 @@ class SnapshotList {
   SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
   SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
 
-  const SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq,
-                          uint64_t unix_time, bool is_write_conflict_boundary) {
+  SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
+                    bool is_write_conflict_boundary) {
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->is_write_conflict_boundary_ = is_write_conflict_boundary;
@@ -106,22 +114,6 @@ class SnapshotList {
       s = s->next_;
     }
     return ret;
-  }
-
-  // Whether there is an active snapshot in range [lower_bound, upper_bound).
-  bool HasSnapshotInRange(SequenceNumber lower_bound,
-                          SequenceNumber upper_bound) {
-    if (empty()) {
-      return false;
-    }
-    const SnapshotImpl* s = &list_;
-    while (s->next_ != &list_) {
-      if (s->next_->number_ >= lower_bound) {
-        return s->next_->number_ < upper_bound;
-      }
-      s = s->next_;
-    }
-    return false;
   }
 
   // get the sequence number of the most recent snapshot

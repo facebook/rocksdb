@@ -31,7 +31,7 @@
  * FbsonErrType, and can be retrieved by calling getErrorCode().
  *
  * ** External dictionary **
- * During parsing a JSON string, you can pass a call-back function to map a key
+ * During parsing a JSON string, you can pass a callback function to map a key
  * string to an id, and store the dictionary id in FBSON to save space. The
  * purpose of using an external dictionary is more towards a collection of
  * documents (which has common keys) rather than a single document, so that

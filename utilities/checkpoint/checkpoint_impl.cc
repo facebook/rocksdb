@@ -37,8 +37,8 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   return Status::OK();
 }
 
-Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir,
-                                    uint64_t log_size_for_flush) {
+Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
+                                    uint64_t /*log_size_for_flush*/) {
   return Status::NotSupported("");
 }
 
@@ -59,7 +59,22 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
       db_options.info_log,
       "Started the snapshot process -- creating snapshot in directory %s",
       checkpoint_dir.c_str());
-  std::string full_private_path = checkpoint_dir + ".tmp";
+
+  size_t final_nonslash_idx = checkpoint_dir.find_last_not_of('/');
+  if (final_nonslash_idx == std::string::npos) {
+    // npos means it's only slashes or empty. Non-empty means it's the root
+    // directory, but it shouldn't be because we verified above the directory
+    // doesn't exist.
+    assert(checkpoint_dir.empty());
+    return Status::InvalidArgument("invalid checkpoint directory name");
+  }
+
+  std::string full_private_path =
+      checkpoint_dir.substr(0, final_nonslash_idx + 1) + ".tmp";
+  ROCKS_LOG_INFO(
+      db_options.info_log,
+      "Snapshot process -- using temporary directory %s",
+      full_private_path.c_str());
   // create snapshot directory
   s = db_->GetEnv()->CreateDir(full_private_path);
   uint64_t sequence_number = 0;

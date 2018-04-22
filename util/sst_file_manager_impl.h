@@ -11,6 +11,7 @@
 
 #include "port/port.h"
 
+#include "db/compaction.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/delete_scheduler.h"
 
@@ -26,7 +27,8 @@ class SstFileManagerImpl : public SstFileManager {
  public:
   explicit SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                               int64_t rate_bytes_per_sec,
-                              double max_trash_db_ratio);
+                              double max_trash_db_ratio,
+                              uint64_t bytes_max_delete_chunk);
 
   ~SstFileManagerImpl();
 
@@ -50,11 +52,28 @@ class SstFileManagerImpl : public SstFileManager {
   // thread-safe.
   void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) override;
 
+  void SetCompactionBufferSize(uint64_t compaction_buffer_size) override;
+
   // Return true if the total size of SST files exceeded the maximum allowed
   // space usage.
   //
   // thread-safe.
   bool IsMaxAllowedSpaceReached() override;
+
+  bool IsMaxAllowedSpaceReachedIncludingCompactions() override;
+
+  // Returns true is there is enough (approximate) space for the specified
+  // compaction. Space is approximate because this function conservatively
+  // estimates how much space is currently being used by compactions (i.e.
+  // if a compaction has started, this function bumps the used space by
+  // the full compaction size).
+  bool EnoughRoomForCompaction(const std::vector<CompactionInputFiles>& inputs);
+
+  // Bookkeeping so total_file_sizes_ goes back to normal after compaction
+  // finishes
+  void OnCompactionCompletion(Compaction* c);
+
+  uint64_t GetCompactionsReservedSize();
 
   // Return the total size of all tracked files.
   uint64_t GetTotalSize() override;
@@ -95,6 +114,11 @@ class SstFileManagerImpl : public SstFileManager {
   port::Mutex mu_;
   // The summation of the sizes of all files in tracked_files_ map
   uint64_t total_files_size_;
+  // Compactions should only execute if they can leave at least
+  // this amount of buffer space for logs and flushes
+  uint64_t compaction_buffer_size_;
+  // Estimated size of the current ongoing compactions
+  uint64_t cur_compactions_reserved_size_;
   // A map containing all tracked files and there sizes
   //  file_path => file_size
   std::unordered_map<std::string, uint64_t> tracked_files_;

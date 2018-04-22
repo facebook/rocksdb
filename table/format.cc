@@ -196,7 +196,7 @@ Status Footer::DecodeFrom(Slice* input) {
 }
 
 std::string Footer::ToString() const {
-  std::string result, handle_;
+  std::string result;
   result.reserve(1024);
 
   bool legacy = IsLegacyFooterFormat(table_magic_number_);
@@ -369,9 +369,9 @@ Status UncompressBlockContentsForCompressionType(
   if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
     MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
       timer.ElapsedNanos());
-    MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
-    RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
   }
+  MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
+  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
 
   return Status::OK();
 }

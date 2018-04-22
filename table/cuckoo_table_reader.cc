@@ -139,8 +139,9 @@ CuckooTableReader::CuckooTableReader(
   status_ = file_->Read(0, file_size, &file_data_, nullptr);
 }
 
-Status CuckooTableReader::Get(const ReadOptions& readOptions, const Slice& key,
-                              GetContext* get_context, bool skip_filters) {
+Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
+                              const Slice& key, GetContext* get_context,
+                              bool /*skip_filters*/) {
   assert(key.size() == key_length_ + (is_last_level_ ? 8 : 0));
   Slice user_key = ExtractUserKey(key);
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
@@ -169,7 +170,8 @@ Status CuckooTableReader::Get(const ReadOptions& readOptions, const Slice& key,
           Slice full_key(bucket, key_length_);
           ParsedInternalKey found_ikey;
           ParseInternalKey(full_key, &found_ikey);
-          get_context->SaveValue(found_ikey, value);
+          bool dont_care __attribute__((__unused__));
+          get_context->SaveValue(found_ikey, value, &dont_care);
         }
         // We don't support merge operations. So, we return here.
         return Status::OK();
@@ -311,7 +313,7 @@ void CuckooTableIterator::Seek(const Slice& target) {
   PrepareKVAtCurrIdx();
 }
 
-void CuckooTableIterator::SeekForPrev(const Slice& target) {
+void CuckooTableIterator::SeekForPrev(const Slice& /*target*/) {
   // Not supported
   assert(false);
 }
@@ -376,7 +378,7 @@ extern InternalIterator* NewErrorInternalIterator(const Status& status,
                                                   Arena* arena);
 
 InternalIterator* CuckooTableReader::NewIterator(
-    const ReadOptions& read_options, Arena* arena, bool skip_filters) {
+    const ReadOptions& /*read_options*/, Arena* arena, bool /*skip_filters*/) {
   if (!status().ok()) {
     return NewErrorInternalIterator(
         Status::Corruption("CuckooTableReader status is not okay."), arena);

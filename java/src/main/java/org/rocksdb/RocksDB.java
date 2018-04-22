@@ -435,7 +435,7 @@ public class RocksDB extends RocksObject {
         path));
   }
 
-  private void storeOptionsInstance(DBOptionsInterface options) {
+  protected void storeOptionsInstance(DBOptionsInterface options) {
     options_ = options;
   }
 
@@ -1683,7 +1683,7 @@ public class RocksDB extends RocksObject {
    * @return The handle of the default column family
    */
   public ColumnFamilyHandle getDefaultColumnFamily() {
-    ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
+    final ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
         getDefaultColumnFamily(nativeHandle_));
     cfHandle.disOwnNativeHandle();
     return cfHandle;
@@ -2359,8 +2359,9 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyHandles, final long readOptHandle)
       throws RocksDBException;
   protected native long getSnapshot(long nativeHandle);
-  protected native void releaseSnapshot(long nativeHandle, long snapshotHandle);
-  @Override protected final native void disposeInternal(final long handle);
+  protected native void releaseSnapshot(
+      long nativeHandle, long snapshotHandle);
+  @Override protected native void disposeInternal(final long handle);
   private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions)

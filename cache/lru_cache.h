@@ -57,7 +57,7 @@ struct LRUHandle {
   // Include the following flags:
   //   in_cache:    whether this entry is referenced by the hash table.
   //   is_high_pri: whether this entry is high priority entry.
-  //   in_high_pro_pool: whether this entry is in high-pri pool.
+  //   in_high_pri_pool: whether this entry is in high-pri pool.
   char flags;
 
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons

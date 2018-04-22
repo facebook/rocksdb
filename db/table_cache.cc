@@ -30,7 +30,7 @@ namespace rocksdb {
 namespace {
 
 template <class T>
-static void DeleteEntry(const Slice& key, void* value) {
+static void DeleteEntry(const Slice& /*key*/, void* value) {
   T* typed_value = reinterpret_cast<T*>(value);
   delete typed_value;
 }
@@ -41,7 +41,7 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
-static void DeleteTableReader(void* arg1, void* arg2) {
+static void DeleteTableReader(void* arg1, void* /*arg2*/) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
   delete table_reader;
 }
@@ -92,7 +92,7 @@ Status TableCache::GetTableReader(
     bool skip_filters, int level, bool prefetch_index_and_filter_in_cache,
     bool for_compaction) {
   std::string fname =
-      TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
+      TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
 
@@ -272,9 +272,8 @@ InternalIterator* TableCache::NewRangeTombstoneIterator(
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
     HistogramImpl* file_read_hist, bool skip_filters, int level) {
   Status s;
-  TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
-  table_reader = fd.table_reader;
+  TableReader* table_reader = fd.table_reader;
   if (table_reader == nullptr) {
     s = FindTable(env_options, icomparator, fd, &handle,
                   options.read_tier == kBlockCacheTier /* no_io */,

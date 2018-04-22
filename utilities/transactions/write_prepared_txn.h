@@ -34,8 +34,8 @@ namespace rocksdb {
 
 class WritePreparedTxnDB;
 
-// This impl could write to DB also uncomitted data and then later tell apart
-// committed data from uncomitted data. Uncommitted data could be after the
+// This impl could write to DB also uncommitted data and then later tell apart
+// committed data from uncommitted data. Uncommitted data could be after the
 // Prepare phase in 2PC (WritePreparedTxn) or before that
 // (WriteUnpreparedTxnImpl).
 class WritePreparedTxn : public PessimisticTransaction {
@@ -61,14 +61,22 @@ class WritePreparedTxn : public PessimisticTransaction {
   virtual Iterator* GetIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
 
+  virtual void SetSnapshot() override;
+
+ protected:
+  // Override the protected SetId to make it visible to the friend class
+  // WritePreparedTxnDB
+  inline void SetId(uint64_t id) override { Transaction::SetId(id); }
+
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTxnDB;
 
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;
 
-  Status CommitBatchInternal(WriteBatch* batch) override;
+  Status CommitBatchInternal(WriteBatch* batch, size_t batch_cnt) override;
 
   // Since the data is already written to memtables at the Prepare phase, the
   // commit entails writing only a commit marker in the WAL. The sequence number
@@ -84,11 +92,15 @@ class WritePreparedTxn : public PessimisticTransaction {
                                   const Slice& key,
                                   SequenceNumber* tracked_at_seq) override;
 
+  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+
   // No copying allowed
   WritePreparedTxn(const WritePreparedTxn&);
   void operator=(const WritePreparedTxn&);
 
   WritePreparedTxnDB* wpt_db_;
+  // Number of sub-batches in prepare
+  size_t prepare_batch_cnt_ = 0;
 };
 
 }  // namespace rocksdb

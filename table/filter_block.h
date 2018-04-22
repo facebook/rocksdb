@@ -51,6 +51,7 @@ class FilterBlockBuilder {
   virtual bool IsBlockBased() = 0;                    // If is blockbased filter
   virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
   virtual void Add(const Slice& key) = 0;      // Add a key to current filter
+  virtual size_t NumAdded() const = 0;         // Number of keys added
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
@@ -114,7 +115,7 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual void CacheDependencies(bool pin) {}
+  virtual void CacheDependencies(bool /*pin*/) {}
 
  protected:
   bool whole_key_filtering_;

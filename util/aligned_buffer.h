@@ -23,6 +23,8 @@ inline size_t Roundup(size_t x, size_t y) {
   return ((x + y - 1) / y) * y;
 }
 
+inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
+
 // This class is to manage an aligned user
 // allocated buffer for direct I/O purposes
 // though can be used for any purpose.
@@ -157,6 +159,12 @@ public:
       memset(bufstart_ + cursize_, padding, pad_size);
       cursize_ += pad_size;
     }
+  }
+
+  void PadWith(size_t pad_size, int padding) {
+    assert((pad_size + cursize_) <= capacity_);
+    memset(bufstart_ + cursize_, padding, pad_size);
+    cursize_ += pad_size;
   }
 
   // After a partial flush move the tail to the beginning of the buffer

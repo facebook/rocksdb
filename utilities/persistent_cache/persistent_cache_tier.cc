@@ -75,12 +75,12 @@ Status PersistentCacheTier::Close() {
   return Status::OK();
 }
 
-bool PersistentCacheTier::Reserve(const size_t size) {
+bool PersistentCacheTier::Reserve(const size_t /*size*/) {
   // default implementation is a pass through
   return true;
 }
 
-bool PersistentCacheTier::Erase(const Slice& key) {
+bool PersistentCacheTier::Erase(const Slice& /*key*/) {
   // default implementation is a pass through since not all cache tiers might
   // support erase
   return true;

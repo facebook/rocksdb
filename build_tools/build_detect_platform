@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 #
 # Detects OS we're compiling on and outputs a file specified by the first
 # argument, which in turn gets read while processing Makefile.
@@ -16,6 +16,8 @@
 #   PLATFORM_CXXFLAGS           C++ compiler flags.  Will contain:
 #   PLATFORM_SHARED_VERSIONED   Set to 'true' if platform supports versioned
 #                               shared libraries, empty otherwise.
+#   FIND			Command for the find utility
+#   WATCH			Command for the watch utility
 #
 # The PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS might include the following:
 #
@@ -64,11 +66,23 @@ rm -f "$OUTPUT"
 touch "$OUTPUT"
 
 if test -z "$CC"; then
-   CC=cc
+    if [ -x "$(command -v cc)" ]; then
+        CC=cc
+    elif [ -x "$(command -v clang)" ]; then
+        CC=clang
+    else
+        CC=cc
+    fi
 fi
 
 if test -z "$CXX"; then
-    CXX=g++
+    if [ -x "$(command -v g++)" ]; then
+        CXX=g++
+    elif [ -x "$(command -v clang++)" ]; then
+        CXX=clang++
+    else
+        CXX=g++
+    fi
 fi
 
 # Detect OS
@@ -85,7 +99,15 @@ if test -z "$CLANG_SCAN_BUILD"; then
 fi
 
 if test -z "$CLANG_ANALYZER"; then
-    CLANG_ANALYZER=$(which clang++ 2> /dev/null)
+    CLANG_ANALYZER=$(command -v clang++ 2> /dev/null)
+fi
+
+if test -z "$FIND"; then
+    FIND=find
+fi
+
+if test -z "$WATCH"; then
+    WATCH=watch
 fi
 
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
@@ -141,6 +163,7 @@ case "$TARGET_OS" in
         ;;
     FreeBSD)
         PLATFORM=OS_FREEBSD
+        CXX=clang++
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/freebsd/freebsd_specific.cc
@@ -153,9 +176,12 @@ case "$TARGET_OS" in
         ;;
     OpenBSD)
         PLATFORM=OS_OPENBSD
+	CXX=clang++
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_OPENBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread"
         # PORT_FILES=port/openbsd/openbsd_specific.cc
+	FIND=gfind
+	WATCH=gnuwatch
         ;;
     DragonFly)
         PLATFORM=OS_DRAGONFLYBSD
@@ -481,13 +507,18 @@ if test -z "$PORTABLE"; then
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
-  elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^arm`"; then
+    # TODO: Handle this with approprite options.
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif [ "$TARGET_OS" == "IOS" ]; then
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif [ "$TARGET_OS" != "AIX" ] && [ "$TARGET_OS" != "SunOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   elif test "$USE_SSE"; then
-    COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
+    COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
   fi
 elif test "$USE_SSE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
+  COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -501,6 +532,24 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+  exit 1
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <wmmintrin.h>
+  int main() {
+    const auto a = _mm_set_epi64x(0, 0);
+    const auto b = _mm_set_epi64x(0, 0);
+    const auto c = _mm_clmulepi64_si128(a, b, 0x00);
+    auto d = _mm_cvtsi128_si64(c);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
+  exit 1
 fi
 
 # iOS doesn't support thread-local storage, but this check would erroneously
@@ -551,6 +600,8 @@ echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
+echo "FIND=$FIND" >> "$OUTPUT"
+echo "WATCH=$WATCH" >> "$OUTPUT"
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"

@@ -269,16 +269,18 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       return Status::OK();
     }
 
-    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    Status PutCF(uint32_t /*cf*/, const Slice& /*key*/,
+                 const Slice& /*val*/) override {
       return Status::OK();
     }
-    Status DeleteCF(uint32_t cf, const Slice& key) override {
+    Status DeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
       return Status::OK();
     }
-    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    Status SingleDeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
       return Status::OK();
     }
-    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    Status MergeCF(uint32_t /*cf*/, const Slice& /*key*/,
+                   const Slice& /*val*/) override {
       return Status::OK();
     }
     Status MarkBeginPrepare() override { return Status::OK(); }

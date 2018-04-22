@@ -33,6 +33,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   void AddKey(const Slice& key) override;
 
+  size_t NumAdded() const override { return num_added_; }
+
   virtual Slice Finish(const BlockHandle& last_partition_block_handle,
                        Status* status) override;
 
@@ -59,9 +61,12 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   uint32_t filters_per_partition_;
   // The current number of filters in the last partition
   uint32_t filters_in_partition_;
+  // Number of keys added
+  size_t num_added_;
 };
 
-class PartitionedFilterBlockReader : public FilterBlockReader {
+class PartitionedFilterBlockReader : public FilterBlockReader,
+                                     public Cleanable {
  public:
   explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
                                         bool whole_key_filtering,
