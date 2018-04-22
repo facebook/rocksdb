@@ -1090,7 +1090,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             new_log_number,
             new log::Writer(
                 std::move(file_writer), new_log_number,
-                impl->immutable_db_options_.recycle_log_file_num > 0));
+                impl->immutable_db_options_.recycle_log_file_num > 0,
+                impl->immutable_db_options_.manual_wal_flush));
       }
 
       // set column family handles
