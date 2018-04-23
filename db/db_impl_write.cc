@@ -362,6 +362,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
   }
+  printf("%s\n", status.ToString().c_str());
 
   bool should_exit_batch_group = true;
   if (in_parallel_group) {
