@@ -209,7 +209,8 @@ class Env {
   // only, i.e., no appends). On success, stores a raw buffer covering the whole
   // file in `*result`. The file must exist prior to this call.
   virtual Status NewMemoryMappedFileBuffer(
-      const std::string& fname, unique_ptr<MemoryMappedFileBuffer>* result) {
+      const std::string& /*fname*/,
+      unique_ptr<MemoryMappedFileBuffer>* /*result*/) {
     return Status::NotSupported(
         "MemoryMappedFileBuffer is not implemented in this Env");
   }
