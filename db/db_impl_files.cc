@@ -350,8 +350,6 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
 };  // namespace
 
 // Delete obsolete files and log status and information of file deletion
-// Note: All WAL files must be deleted through this function (unelss they are
-// archived) to ensure that maniefest is updated properly.
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                                     FileType type, uint64_t number) {
   Status file_deletion_status;
@@ -359,16 +357,6 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
     file_deletion_status =
         DeleteSSTFile(&immutable_db_options_, fname);
   } else {
-    if (type == kLogFile) {
-      // Before deleting the file, mark file as deleted in the manifest
-      VersionEdit edit;
-      edit.SetDeletedLogNumber(number);
-      auto edit_cfd = versions_->GetColumnFamilySet()->GetDefault();
-      auto edit_cf_opts = edit_cfd->GetLatestMutableCFOptions();
-      mutex_.Lock();
-      versions_->LogAndApply(edit_cfd, *edit_cf_opts, &edit, &mutex_);
-      mutex_.Unlock();
-    }
     file_deletion_status = env_->DeleteFile(fname);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion",

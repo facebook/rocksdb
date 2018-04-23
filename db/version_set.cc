@@ -3122,7 +3122,6 @@ Status VersionSet::Recover(
   uint64_t log_number = 0;
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
-  uint64_t deleted_log_number = 0;
   std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
 
   // add default column family
@@ -3263,11 +3262,6 @@ Status VersionSet::Recover(
         max_column_family = edit.max_column_family_;
       }
 
-      if (edit.has_deleted_log_number_) {
-        deleted_log_number =
-            std::max(deleted_log_number, edit.deleted_log_number_);
-      }
-
       if (edit.has_last_sequence_) {
         last_sequence = edit.last_sequence_;
         have_last_sequence = true;
@@ -3290,7 +3284,6 @@ Status VersionSet::Recover(
 
     column_family_set_->UpdateMaxColumnFamily(max_column_family);
 
-    MarkDeletedLogNumber(deleted_log_number);
     MarkFileNumberUsed(previous_log_number);
     MarkFileNumberUsed(log_number);
   }
@@ -3362,12 +3355,11 @@ Status VersionSet::Recover(
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu,"
-        "max_column_family is %u,"
-        "deleted_log_number is %lu\n",
+        "max_column_family is %u\n",
         manifest_filename.c_str(), (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
         (unsigned long)log_number, (unsigned long)prev_log_number_,
-        column_family_set_->GetMaxColumnFamily(), latest_deleted_log_number());
+        column_family_set_->GetMaxColumnFamily());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -3673,10 +3665,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       if (edit.has_max_column_family_) {
         column_family_set_->UpdateMaxColumnFamily(edit.max_column_family_);
       }
-
-      if (edit.has_deleted_log_number_) {
-        MarkDeletedLogNumber(edit.deleted_log_number_);
-      }
     }
   }
   file_reader.reset();
@@ -3735,11 +3723,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
     printf(
         "next_file_number %lu last_sequence "
-        "%lu  prev_log_number %lu max_column_family %u deleted_log_number "
-        "%" PRIu64 "\n",
+        "%lu  prev_log_number %lu max_column_family %u\n",
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)previous_log_number,
-        column_family_set_->GetMaxColumnFamily(), latest_deleted_log_number());
+        column_family_set_->GetMaxColumnFamily());
   }
 
   return s;
@@ -3751,14 +3738,6 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   // works because there can't be concurrent calls
   if (next_file_number_.load(std::memory_order_relaxed) <= number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
-  }
-}
-
-// Called only either from ::LogAndApply which is protected by mutex or during
-// recovery which is single-threaded.
-void VersionSet::MarkDeletedLogNumber(uint64_t number) {
-  if (latest_deleted_log_number_.load(std::memory_order_relaxed) < number) {
-    latest_deleted_log_number_.store(number, std::memory_order_relaxed);
   }
 }
 

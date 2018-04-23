@@ -451,9 +451,8 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status NewSequentialFile(const std::string& f,
-                                   unique_ptr<SequentialFile>* r,
-                                   const EnvOptions& soptions) override {
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
       CountingFile(unique_ptr<SequentialFile>&& target,
