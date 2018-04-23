@@ -1062,7 +1062,9 @@ class SharedState {
   }
 
   bool Exists(int cf, int64_t key) {
-    return Value(cf, key) != DELETION_SENTINEL;
+    uint32_t expected_value = Value(cf, key).load();
+    assert(expected_value != UNKNOWN_SENTINEL);
+    return expected_value != DELETION_SENTINEL;
   }
 
   uint32_t GetSeed() const { return seed_; }
