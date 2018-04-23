@@ -811,9 +811,8 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
-      "/shared/.00010.sst.tmp",   "/shared/.00011.sst.tmp",
-      "/private/1.tmp/CURRENT",   "/private/1.tmp/MANIFEST-01",
-      "/private/1.tmp/00011.log", "/meta/.1.tmp"};
+      "/shared/.00010.sst.tmp", "/shared/.00011.sst.tmp", "/private/1/CURRENT",
+      "/private/1/MANIFEST-01", "/private/1/00011.log",   "/meta/.1.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -829,9 +828,9 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
 
-  should_have_written = {"/shared/.00015.sst.tmp", "/private/2.tmp/CURRENT",
-                         "/private/2.tmp/MANIFEST-01",
-                         "/private/2.tmp/00011.log", "/meta/.2.tmp"};
+  should_have_written = {"/shared/.00015.sst.tmp", "/private/2/CURRENT",
+                         "/private/2/MANIFEST-01", "/private/2/00011.log",
+                         "/meta/.2.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -976,7 +975,7 @@ TEST_F(BackupableDBTest, InterruptCreationTest) {
       backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)).ok());
   CloseDBAndBackupEngine();
   // should also fail cleanup so the tmp directory stays behind
-  ASSERT_OK(backup_chroot_env_->FileExists(backupdir_ + "/private/1.tmp/"));
+  ASSERT_OK(backup_chroot_env_->FileExists(backupdir_ + "/private/1/"));
 
   OpenDBAndBackupEngine(false /* destroy_old_data */);
   test_backup_env_->SetLimitWrittenFiles(1000000);
@@ -1171,7 +1170,7 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
       shared_tmp += "/shared";
     }
     shared_tmp += "/.00006.sst.tmp";
-    std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
+    std::string private_tmp_dir = backupdir_ + "/private/10";
     std::string private_tmp_file = private_tmp_dir + "/00003.sst";
     file_manager_->WriteToFile(shared_tmp, "tmp");
     file_manager_->CreateDir(private_tmp_dir);
