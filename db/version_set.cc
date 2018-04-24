@@ -3669,8 +3669,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
 
       if (cfd != nullptr && edit.has_min_log_number_to_keep_ &&
-          edit.has_min_log_number_to_keep_ > latest_min_log_number_to_keep_) {
-        latest_min_log_number_to_keep_ = edit.has_min_log_number_to_keep_;
+          edit.min_log_number_to_keep_ > latest_min_log_number_to_keep_) {
+        latest_min_log_number_to_keep_ = edit.min_log_number_to_keep_;
       }
 
       if (edit.has_prev_log_number_) {
