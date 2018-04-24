@@ -14,10 +14,14 @@
 
 namespace rocksdb {
 
+// This class is used to track the log files with outstanding prepare entries.
 class LogsWithPrepTracker {
  public:
+  // Called when a transaction prepared in `log` has been committed or aborted.
   void MarkLogAsHavingPrepSectionFlushed(uint64_t log);
+  // Called when a transaction is prepared in `log`.
   void MarkLogAsContainingPrepSection(uint64_t log);
+  // Return the earliest log file with outstanding prepare entries.
   uint64_t FindMinLogContainingOutstandingPrep();
   size_t TEST_PreparedSectionCompletedSize() {
     return prepared_section_completed_.size();

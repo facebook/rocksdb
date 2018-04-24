@@ -2663,16 +2663,16 @@ struct VersionSet::ManifestWriter {
 };
 
 VersionSet::VersionSet(const std::string& dbname,
-                       const ImmutableDBOptions* db_options,
+                       const ImmutableDBOptions* _db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller)
     : column_family_set_(
-          new ColumnFamilySet(dbname, db_options, storage_options, table_cache,
+          new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
                               write_buffer_manager, write_controller)),
-      env_(db_options->env),
+      env_(_db_options->env),
       dbname_(dbname),
-      db_options_(db_options),
+      db_options_(_db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),

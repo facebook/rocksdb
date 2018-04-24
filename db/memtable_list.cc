@@ -349,6 +349,8 @@ uint64_t FindMinPrepLogReferencedByMemTable(
   return min_log;
 }
 
+// Return the earliest log file to keep after the memtable flush is
+// finalized.
 uint64_t PrecomputeMinLogNumberToKeep(
     ColumnFamilyData* cfd, autovector<VersionEdit*> edit_list,
     const autovector<MemTable*>& memtables_to_flush,
@@ -463,6 +465,8 @@ Status MemTableList::InstallMemtableFlushResults(
     if (batch_count > 0) {
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
+        // We piggyback the information of  earliest log file to keep in the
+        // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
             cfd, edit_list, memtables_to_flush, prep_tracker, vset));
       }
