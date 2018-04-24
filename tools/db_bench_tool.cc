@@ -992,6 +992,8 @@ DEFINE_int32(memtable_insert_with_hint_prefix_size, 0,
              "memtable insert with hint with the given prefix size.");
 DEFINE_bool(enable_io_prio, false, "Lower the background flush/compaction "
             "threads' IO priority");
+DEFINE_bool(enable_cpu_prio, false, "Lower the background flush/compaction "
+            "threads' CPU priority");
 DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
             "table becomes an identity function. This is only valid when key "
             "is 8 bytes");
@@ -3320,6 +3322,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (FLAGS_enable_io_prio) {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
+    }
+    if (FLAGS_enable_cpu_prio) {
+      FLAGS_env->LowerThreadPoolCPUPriority(Env::LOW);
+      FLAGS_env->LowerThreadPoolCPUPriority(Env::HIGH);
     }
     options.env = FLAGS_env;
 
