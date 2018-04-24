@@ -201,7 +201,9 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
 
   // Create an iterator and flush all memtables for each db
   for (int i = 0; i < kNumDBs; ++i) {
-    iters.push_back(dbs[i]->NewIterator(ReadOptions()));
+    for (auto* handle : vec_handles[i]) {
+      iters.push_back(dbs[i]->NewIterator(ReadOptions(), handle));
+    }
     dbs[i]->Flush(FlushOptions());
 
     for (int j = 0; j < 100; ++j) {
@@ -231,7 +233,10 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   }
   usage_check_point = usage_history_[MemoryUtil::kMemTableTotal].size();
   for (int i = 0; i < kNumDBs; ++i) {
-    delete iters[i];
+    for (int j = i * (int) vec_handles[i].size();
+        j < (i + 1) * (int) vec_handles[i].size(); ++j) {
+      delete iters[j];
+    }
     UpdateUsagesHistory(dbs);
   }
   for (size_t i = usage_check_point;

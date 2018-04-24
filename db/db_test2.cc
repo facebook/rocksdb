@@ -231,8 +231,13 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   Flush(0);
   ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
             static_cast<uint64_t>(1));
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-            static_cast<uint64_t>(1));
+  if (options.atomic_flush) {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+        static_cast<uint64_t>(2));
+  } else {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+        static_cast<uint64_t>(1));
+  }
 
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
   if (cost_cache_) {
@@ -256,8 +261,13 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
               static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(1));
+    if (options.atomic_flush) {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+          static_cast<uint64_t>(2));
+    } else {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+          static_cast<uint64_t>(1));
+    }
   }
 
   // Trigger a flush. Flushing "nikitich".
@@ -266,14 +276,19 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
   wait_flush();
   {
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+    if (options.atomic_flush) {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+          static_cast<uint64_t>(2));
+    } else {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+          static_cast<uint64_t>(1));
+    }
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(2));
+        static_cast<uint64_t>(2));
   }
 
   // Without hitting the threshold, no flush should trigger.
@@ -284,8 +299,13 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   wait_flush();
   {
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+    if (options.atomic_flush) {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+          static_cast<uint64_t>(2));
+    } else {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+          static_cast<uint64_t>(1));
+    }
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
@@ -311,8 +331,13 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
               static_cast<uint64_t>(2));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
               static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(0));
+    if (options.atomic_flush) {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+          static_cast<uint64_t>(1));
+    } else {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+          static_cast<uint64_t>(0));
+    }
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
               static_cast<uint64_t>(2));
   }
@@ -335,8 +360,13 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(2));
+    if (options.atomic_flush) {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+          static_cast<uint64_t>(3));
+    } else {
+      ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+          static_cast<uint64_t>(2));
+    }
   }
   if (cost_cache_) {
     ASSERT_GE(cache->GetUsage(), 1024 * 1024);
@@ -971,8 +1001,12 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
     dbfull()->Write(WriteOptions(), &batch);
   }
 
-  // On Recovery we should only find the second batch applicable to default CF
+  // If atomic_flush=false, on Recovery we should only find the second
+  // batch applicable to default CF
   // But both batches applicable to pikachu CF
+  // If atomic_flush=true, on Recovery we should find the first batch
+  // does NOT apply to either default CF or pikachu CF, while the second
+  // batch applies to both CFs.
 
   // Create a test filter that would add extra keys
   TestWalFilterWithColumnFamilies test_wal_filter_column_families;
@@ -984,8 +1018,9 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
     TryReopenWithColumnFamilies({ "default", "pikachu" }, options);
   ASSERT_TRUE(status.ok());
 
-  // verify that handles_[0] only has post_flush keys
-  // while handles_[1] has pre and post flush keys
+  // verify that handles_[0] only has post_flush keys whether atomic_flush is
+  // true or faulse
+  // while handles_[1] has pre and post flush keys if atomic_flush is false.
   auto cf_wal_keys = test_wal_filter_column_families.GetColumnFamilyKeys();
   auto name_id_map = test_wal_filter_column_families.GetColumnFamilyNameIdMap();
   size_t index = 0;
@@ -1002,12 +1037,15 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
 
   index = 0;
   keys_cf = cf_wal_keys[name_id_map["pikachu"]];
-  //pikachu column-family, all keys are expected
+  //pikachu column-family, all keys are expected if atomic_flush is false.
+  // If atomic_flush is true, then only keys in post_flush are expected.
   for (size_t i = 0; i < batch_keys_pre_flush.size(); i++) {
     for (size_t j = 0; j < batch_keys_pre_flush[i].size(); j++) {
-      Slice key_from_the_log(keys_cf[index++]);
-      Slice batch_key(batch_keys_pre_flush[i][j]);
-      ASSERT_TRUE(key_from_the_log.compare(batch_key) == 0);
+      if (!options.atomic_flush) {
+        Slice key_from_the_log(keys_cf[index++]);
+        Slice batch_key(batch_keys_pre_flush[i][j]);
+        ASSERT_TRUE(key_from_the_log.compare(batch_key) == 0);
+      }
     }
   }
 
