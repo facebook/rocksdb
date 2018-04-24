@@ -59,6 +59,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // should NOT dereference them.
   const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
+  std::string last_whole_key_str_;
+  std::string last_prefix_str_;
 
   uint32_t num_added_;
   std::unique_ptr<const char[]> filter_data_;
