@@ -174,7 +174,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                    ioptions.statistics, GetContext::kNotFound,
                                    Slice(key), &value, nullptr, &merge_context,
                                    &range_del_agg, env);
-            s = table_reader->Get(read_options, key, &get_context);
+            s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
           }
@@ -196,7 +196,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           Iterator* iter = nullptr;
           InternalIterator* iiter = nullptr;
           if (!through_db) {
-            iiter = table_reader->NewIterator(read_options);
+            iiter = table_reader->NewIterator(read_options, nullptr);
           } else {
             iter = db->NewIterator(read_options);
           }

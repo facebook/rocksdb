@@ -191,16 +191,9 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
 void PlainTableReader::SetupForCompaction() {
 }
 
-InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
-                                                const SliceTransform* /* prefix_extractor */,
-                                                Arena* arena,
-                                                bool skip_filters) {
-  return NewIterator(options, arena, skip_filters);
-}
-
-InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
-                                                Arena* arena,
-                                                bool /*skip_filters*/) {
+InternalIterator* PlainTableReader::NewIterator(
+    const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
+    Arena* arena, bool /*skip_filters*/) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
@@ -547,14 +540,10 @@ void PlainTableReader::Prepare(const Slice& target) {
   }
 }
 
-Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
-                             GetContext* get_context,
-                             const SliceTransform* /*prefix_extractor*/,
-                             bool skip_filters) {
-  return Get(ro, target, get_context, skip_filters);
-}
 Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
-                             GetContext* get_context, bool /*skip_filters*/) {
+                             GetContext* get_context,
+                             const SliceTransform* /* prefix_extractor */,
+                             bool /*skip_filters*/) {
   // Check bloom filter first.
   Slice prefix_slice;
   uint32_t prefix_hash;

@@ -174,8 +174,14 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 }
 
 bool PrefixExtractorChanged(std::string prefix_extractor_block,
-                            const SliceTransform* prefix_extractor) {
+                            const SliceTransform* prefix_extractor,
+                            BlockBasedTableOptions::IndexType index_type) {
   bool prefix_extractor_changed = false;
+  // only needed for hash based index
+  if (index_type != BlockBasedTableOptions::kHashSearch &&
+      prefix_extractor != nullptr) {
+    return prefix_extractor_changed;
+  }
   if (prefix_extractor_block.compare("nullptr") != 0 && prefix_extractor != nullptr &&
       prefix_extractor_block.compare(prefix_extractor->Name()) != 0) {
     prefix_extractor_changed = true;
@@ -879,8 +885,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // block_cache
 
       CachableEntry<IndexReader> index_entry;
-      bool prefix_extractor_changed = PrefixExtractorChanged(
-        rep->table_properties->prefix_extractor_name, prefix_extractor);
+      bool prefix_extractor_changed =
+          PrefixExtractorChanged(rep->table_properties->prefix_extractor_name,
+                                 prefix_extractor, rep->index_type);
       unique_ptr<InternalIterator> iter(
           new_table->NewIndexIterator(ReadOptions(), prefix_extractor_changed,
                                       nullptr, &index_entry));
@@ -900,7 +907,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         // Hack: Call GetFilter() to implicitly add filter to the block_cache
         auto filter_entry = new_table->GetFilter(prefix_extractor);
         if (filter_entry.value != nullptr) {
-          filter_entry.value->CacheDependencies(pin);
+          filter_entry.value->CacheDependencies(pin, prefix_extractor);
         }
         // if pin_l0_filter_and_index_blocks_in_cache is true, and this is
         // a level0 file, then save it in rep_->filter_entry; it will be
@@ -1749,8 +1756,9 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
       no_io_read_options.read_tier = kBlockCacheTier;
 
       // Then, try find it within each block
-      bool prefix_extractor_changed = PrefixExtractorChanged(
-        rep_->table_properties->prefix_extractor_name, prefix_extractor);
+      bool prefix_extractor_changed =
+          PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
+                                 prefix_extractor, rep_->index_type);
       unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options,
                                          prefix_extractor_changed));
       iiter->Seek(internal_prefix);
@@ -2011,17 +2019,12 @@ void BlockBasedTableIterator::FindKeyBackward() {
 }
 
 InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
-                                               Arena* arena,
-                                               bool skip_filters) {
-  return NewIterator(read_options, nullptr, arena, skip_filters);
-}
-
-InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
                                                const SliceTransform* prefix_extractor,
                                                Arena* arena,
                                                bool skip_filters) {
-  bool prefix_extractor_changed = PrefixExtractorChanged(
-    rep_->table_properties->prefix_extractor_name, prefix_extractor);
+  bool prefix_extractor_changed =
+      PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
+                             prefix_extractor, rep_->index_type);
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
@@ -2082,7 +2085,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
   const Slice* const const_ikey_ptr = &internal_key;
   bool may_match = true;
   if (filter->whole_key_filtering()) {
-    may_match = filter->KeyMayMatch(user_key, kNotValid, no_io, const_ikey_ptr);
+    may_match = filter->KeyMayMatch(user_key, prefix_extractor, kNotValid,
+                                    no_io, const_ikey_ptr);
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0 &&
@@ -2096,13 +2100,6 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE);
   }
   return may_match;
-}
-
-// TODO(Zhongyi): find all callers of Get() and provide prefix_extractor
-Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
-                            GetContext* get_context,
-                            bool skip_filters) {
-  return Get(read_options, key, get_context, nullptr, skip_filters);
 }
 
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
@@ -2127,9 +2124,10 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   } else {
     BlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
-    // BlockPrefixIndex
-    bool prefix_extractor_changed = PrefixExtractorChanged(
-      rep_->table_properties->prefix_extractor_name, prefix_extractor);
+    // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
+    bool prefix_extractor_changed =
+        PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
+                               prefix_extractor, rep_->index_type);
     auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
                                   &iiter_on_stack, /* index_entry */ nullptr,
                                   get_context);
@@ -2527,10 +2525,6 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     kv_pair_blocks->push_back(std::move(kv_pair_block));
   }
   return Status::OK();
-}
-
-Status BlockBasedTable::DumpTable(WritableFile* out_file) {
-  return DumpTable(out_file, nullptr);
 }
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file,

@@ -1184,7 +1184,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
         nullptr /* range_del_agg */,
-        cfd->GetLatestMutableCFOptions()->prefix_extractor.get(), nullptr,
+        sub_compact->compaction->mutable_cf_options()->prefix_extractor.get(),
+        nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),
         false, nullptr /* arena */, false /* skip_filters */,
@@ -1387,7 +1388,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
 
   sub_compact->builder.reset(NewTableBuilder(
-      *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
+      *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),

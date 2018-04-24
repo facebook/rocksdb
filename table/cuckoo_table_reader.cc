@@ -139,14 +139,9 @@ CuckooTableReader::CuckooTableReader(
   status_ = file_->Read(0, file_size, &file_data_, nullptr);
 }
 
-Status CuckooTableReader::Get(const ReadOptions& readOptions,
-                              const Slice& key, GetContext* get_context,
-                              const SliceTransform* /* prefix_extractor */,
-                              bool skip_filters) {
-  return Get(readOptions, key, get_context, skip_filters);
-}
 Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
                               const Slice& key, GetContext* get_context,
+                              const SliceTransform* /* prefix_extractor */,
                               bool /*skip_filters*/) {
   assert(key.size() == key_length_ + (is_last_level_ ? 8 : 0));
   Slice user_key = ExtractUserKey(key);
@@ -383,12 +378,9 @@ extern InternalIterator* NewErrorInternalIterator(const Status& status,
                                                   Arena* arena);
 
 InternalIterator* CuckooTableReader::NewIterator(
-    const ReadOptions& read_options, const SliceTransform* /*prefix_extractor*/,
-    Arena* arena, bool skip_filters) {
-  return NewIterator(read_options, arena, skip_filters);
-}
-InternalIterator* CuckooTableReader::NewIterator(
-    const ReadOptions& /*read_options*/, Arena* arena, bool /*skip_filters*/) {
+    const ReadOptions& /*read_options*/,
+    const SliceTransform* /* prefix_extractor */, Arena* arena,
+    bool /*skip_filters*/) {
   if (!status().ok()) {
     return NewErrorInternalIterator(
         Status::Corruption("CuckooTableReader status is not okay."), arena);

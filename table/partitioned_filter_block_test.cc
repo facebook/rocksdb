@@ -140,23 +140,27 @@ class PartitionedFilterBlockTest : public testing::Test {
     for (auto key : keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey_slice));
+      ASSERT_TRUE(
+          reader->KeyMayMatch(key, nullptr, kNotValid, !no_io, &ikey_slice));
     }
     {
       // querying a key twice
       auto ikey = InternalKey(keys[0], 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(keys[0], kNotValid, !no_io, &ikey_slice));
+      ASSERT_TRUE(reader->KeyMayMatch(keys[0], nullptr, kNotValid, !no_io,
+                                      &ikey_slice));
     }
     // querying missing keys
     for (auto key : missing_keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
-        ASSERT_TRUE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey_slice));
+        ASSERT_TRUE(
+            reader->KeyMayMatch(key, nullptr, kNotValid, !no_io, &ikey_slice));
       } else {
         // assuming a good hash function
-        ASSERT_FALSE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey_slice));
+        ASSERT_FALSE(
+            reader->KeyMayMatch(key, nullptr, kNotValid, !no_io, &ikey_slice));
       }
     }
   }

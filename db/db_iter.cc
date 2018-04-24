@@ -1511,9 +1511,8 @@ Status ArenaWrappedDBIter::Refresh() {
     new (&arena_) Arena();
 
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
-    Init(env, read_options_, *(cfd_->ioptions()),
-         *(cfd_->GetLatestMutableCFOptions()), latest_seq,
-         sv->mutable_cf_options.max_sequential_skip_in_iterations,
+    Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
+         latest_seq, sv->mutable_cf_options.max_sequential_skip_in_iterations,
          cur_sv_number, read_callback_, allow_blob_, allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(

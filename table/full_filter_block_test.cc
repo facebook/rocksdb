@@ -113,7 +113,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   // Remain same symantic with blockbased filter
-  ASSERT_TRUE(reader.KeyMayMatch("foo"));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
 }
 
 TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
@@ -128,13 +128,13 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   FullFilterBlockReader reader(
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo"));
-  ASSERT_TRUE(reader.KeyMayMatch("bar"));
-  ASSERT_TRUE(reader.KeyMayMatch("box"));
-  ASSERT_TRUE(reader.KeyMayMatch("hello"));
-  ASSERT_TRUE(reader.KeyMayMatch("foo"));
-  ASSERT_TRUE(!reader.KeyMayMatch("missing"));
-  ASSERT_TRUE(!reader.KeyMayMatch("other"));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("bar", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("hello", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch("missing", nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch("other", nullptr));
 }
 
 class FullFilterBlockTest : public testing::Test {
@@ -158,7 +158,7 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   // Remain same symantic with blockbased filter
-  ASSERT_TRUE(reader.KeyMayMatch("foo"));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
 }
 
 TEST_F(FullFilterBlockTest, DuplicateEntries) {
@@ -208,13 +208,13 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockReader reader(
       nullptr, true, block,
       table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo"));
-  ASSERT_TRUE(reader.KeyMayMatch("bar"));
-  ASSERT_TRUE(reader.KeyMayMatch("box"));
-  ASSERT_TRUE(reader.KeyMayMatch("hello"));
-  ASSERT_TRUE(reader.KeyMayMatch("foo"));
-  ASSERT_TRUE(!reader.KeyMayMatch("missing"));
-  ASSERT_TRUE(!reader.KeyMayMatch("other"));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("bar", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("hello", nullptr));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch("missing", nullptr));
+  ASSERT_TRUE(!reader.KeyMayMatch("other", nullptr));
 }
 
 }  // namespace rocksdb

@@ -33,20 +33,10 @@ InternalIterator* MockTableReader::NewIterator(const ReadOptions&,
   return new MockTableIterator(table_);
 }
 
-InternalIterator* MockTableReader::NewIterator(const ReadOptions&,
-                                               Arena* /*arena*/,
-                                               bool /*skip_filters*/) {
-  return new MockTableIterator(table_);
-}
-
-Status MockTableReader::Get(const ReadOptions& ro, const Slice& key,
+Status MockTableReader::Get(const ReadOptions&, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* /*prefix_extractor*/,
-                            bool skip_filters) {
-  return Get(ro, key, get_context, skip_filters);
-}
-Status MockTableReader::Get(const ReadOptions&, const Slice& key,
-                            GetContext* get_context, bool /*skip_filters*/) {
+                            bool /*skip_filters*/) {
   std::unique_ptr<MockTableIterator> iter(new MockTableIterator(table_));
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;

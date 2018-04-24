@@ -130,12 +130,6 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
 }
 
 bool PartitionedFilterBlockReader::KeyMayMatch(
-    const Slice& key, uint64_t block_offset, const bool no_io,
-    const Slice* const const_ikey_ptr) {
-  return KeyMayMatch(key, nullptr, block_offset, no_io, const_ikey_ptr);
-}
-
-bool PartitionedFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* prefix_extractor,
     uint64_t block_offset, const bool no_io,
     const Slice* const const_ikey_ptr) {
@@ -158,7 +152,8 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
-  auto res = filter_partition.value->KeyMayMatch(key, block_offset, no_io);
+  auto res = filter_partition.value->KeyMayMatch(key, prefix_extractor,
+                                                 block_offset, no_io);
   if (cached) {
     return res;
   }
@@ -170,11 +165,6 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   return res;
 }
 
-bool PartitionedFilterBlockReader::PrefixMayMatch(
-    const Slice& prefix, uint64_t block_offset, const bool no_io,
-    const Slice* const const_ikey_ptr) {
-  return PrefixMayMatch(prefix, nullptr, block_offset, no_io, const_ikey_ptr);
-}
 bool PartitionedFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* prefix_extractor,
     uint64_t block_offset, const bool no_io,
@@ -271,10 +261,6 @@ void ReleaseFilterCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
   cache->Release(handle);
-}
-
-void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
-  CacheDependencies(pin, nullptr);
 }
 
 // TODO(myabandeh): merge this with the same function in IndexReader

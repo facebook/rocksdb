@@ -93,9 +93,6 @@ class FilterBlockReader {
    * built upon InternalKey and must be provided via const_ikey_ptr when running
    * queries.
    */
-  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
-                           const bool no_io = false,
-                           const Slice* const const_ikey_ptr = nullptr) = 0;
   virtual bool KeyMayMatch(
      const Slice& key, const SliceTransform* prefix_extractor,
      uint64_t block_offset = kNotValid,
@@ -105,10 +102,6 @@ class FilterBlockReader {
   /**
    * no_io and const_ikey_ptr here means the same as in KeyMayMatch
    */
-  virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid,
-                              const bool no_io = false,
-                              const Slice* const const_ikey_ptr = nullptr) = 0;
   virtual bool PrefixMayMatch(
       const Slice& prefix, const SliceTransform* prefix_extractor,
       uint64_t block_offset = kNotValid,
@@ -127,7 +120,6 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual void CacheDependencies(bool /*pin*/) {}
   virtual void CacheDependencies(bool /*pin*/,
                                  const SliceTransform* /*prefix_extractor*/) {}
  protected:

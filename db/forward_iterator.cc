@@ -33,14 +33,16 @@ class ForwardLevelIterator : public InternalIterator {
  public:
   ForwardLevelIterator(const ColumnFamilyData* const cfd,
                        const ReadOptions& read_options,
-                       const std::vector<FileMetaData*>& files)
+                       const std::vector<FileMetaData*>& files,
+                       const SliceTransform* prefix_extractor)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
         valid_(false),
         file_index_(std::numeric_limits<uint32_t>::max()),
         file_iter_(nullptr),
-        pinned_iters_mgr_(nullptr) {}
+        pinned_iters_mgr_(nullptr),
+        prefix_extractor_(prefix_extractor) {}
 
   ~ForwardLevelIterator() {
     // Reset current pointer
@@ -75,8 +77,7 @@ class ForwardLevelIterator : public InternalIterator {
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
         files_[file_index_]->fd,
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
-        cfd_->GetLatestMutableCFOptions()->prefix_extractor.get(),
-        nullptr /* table_reader_ptr */, nullptr, false);
+        prefix_extractor_, nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     valid_ = false;
     if (!range_del_agg.IsEmpty()) {
@@ -189,6 +190,7 @@ class ForwardLevelIterator : public InternalIterator {
   Status status_;
   InternalIterator* file_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
+  const SliceTransform* prefix_extractor_;
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
@@ -747,8 +749,9 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
         has_iter_trimmed_for_upper_bound_ = true;
       }
     } else {
-      level_iters_.push_back(
-          new ForwardLevelIterator(cfd_, read_options_, level_files));
+      level_iters_.push_back(new ForwardLevelIterator(
+          cfd_, read_options_, level_files,
+          sv_->mutable_cf_options.prefix_extractor.get()));
     }
   }
 }

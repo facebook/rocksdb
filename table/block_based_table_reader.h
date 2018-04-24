@@ -102,10 +102,6 @@ class BlockBasedTable : public TableReader {
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
   InternalIterator* NewIterator(
-      const ReadOptions&, Arena* arena = nullptr,
-      bool skip_filters = false) override;
-
-  InternalIterator* NewIterator(
       const ReadOptions&, const SliceTransform* prefix_extractor,
       Arena* arena = nullptr,
       bool skip_filters = false) override;
@@ -114,10 +110,6 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& read_options) override;
 
   // @param skip_filters Disables loading/accessing the filter block
-  Status Get(const ReadOptions& readOptions, const Slice& key,
-             GetContext* get_context,
-             bool skip_filters = false) override;
-
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context,
              const SliceTransform* prefix_extractor,
@@ -149,8 +141,6 @@ class BlockBasedTable : public TableReader {
   size_t ApproximateMemoryUsage() const override;
 
   // convert SST file to a human readable form
-  Status DumpTable(WritableFile* out_file) override;
-
   Status DumpTable(WritableFile* out_file,
                    const SliceTransform* prefix_extractor = nullptr) override;
 
