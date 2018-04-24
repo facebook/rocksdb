@@ -236,6 +236,12 @@ class PosixRandomRWFile : public RandomRWFile {
   int fd_;
 };
 
+struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
+  PosixMemoryMappedFileBuffer(void* _base, size_t _length)
+      : MemoryMappedFileBuffer(_base, _length) {}
+  virtual ~PosixMemoryMappedFileBuffer();
+};
+
 class PosixDirectory : public Directory {
  public:
   explicit PosixDirectory(int fd) : fd_(fd) {}
