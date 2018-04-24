@@ -719,7 +719,11 @@ TEST_F(DBBasicTest, FlushOneColumnFamily) {
   for (int i = 0; i < 8; ++i) {
     Flush(i);
     auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), i + 1U);
+    if (options.atomic_flush) {
+      ASSERT_EQ(tables.size(), 8U);
+    } else {
+      ASSERT_EQ(tables.size(), i + 1U);
+    }
   }
 }
 

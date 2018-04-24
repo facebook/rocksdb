@@ -827,7 +827,6 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
-  Status FlushMemTablesToOutputFiles();
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,

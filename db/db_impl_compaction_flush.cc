@@ -221,10 +221,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   return s;
 }
 
-Status DBImpl::FlushMemTablesToOutputFiles() {
-  return Status::OK();
-}
-
 void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                                 const MutableCFOptions& mutable_cf_options,
                                 int job_id, TableProperties prop) {
@@ -1294,7 +1290,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   if (atomic_flush_) {
-    if (!is_flush_pool_empty &&
+    if (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
       unscheduled_flushes_ = 0;
       bg_flush_scheduled_++;
@@ -1522,10 +1518,10 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     }
 
     // found a flush!
+    cfd = first_cfd;
     if (atomic_flush_) {
       cfds.push_back(cfd);
     } else {
-      cfd = first_cfd;
       break;
     }
   }
@@ -1548,12 +1544,17 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       delete cfd;
     }
   } else if (atomic_flush_ && !cfds.empty()) {
-    status = FlushMemTablesToOutputFiles();
+    for (auto cfd_iter : cfds) {
+      const MutableCFOptions mutable_cf_options =
+        *cfd_iter->GetLatestMutableCFOptions();
+      Status s = FlushMemTableToOutputFile(cfd_iter, mutable_cf_options,
+          made_progress, job_context, log_buffer);
+    }
     // Attempt to delete cf only when all flushes succeed.
     if (status.ok()) {
-      for (auto cfd_ptr : cfds) {
-        if (cfd_ptr->Unref()) {
-          delete cfd_ptr;
+      for (auto cfd_iter : cfds) {
+        if (cfd_iter->Unref()) {
+          delete cfd_iter;
         }
       }
     }

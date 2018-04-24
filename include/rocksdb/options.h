@@ -928,7 +928,7 @@ struct DBOptions {
   bool manual_wal_flush = false;
 
   // If true flushes all column families atomically.
-  bool atomic_flush = false;
+  bool atomic_flush = true;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
