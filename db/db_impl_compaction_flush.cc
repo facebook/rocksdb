@@ -1193,6 +1193,11 @@ Status DBImpl::FlushMemTablesInternal(const FlushOptions& flush_options,
       write_thread_.ExitUnbatched(&w);
     }
 
+    if (cfds.empty()) {
+      // No need to flush.
+      return Status::OK();
+    }
+
     MaybeScheduleFlushOrCompaction();
   }
 
@@ -1549,13 +1554,14 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         *cfd_iter->GetLatestMutableCFOptions();
       Status s = FlushMemTableToOutputFile(cfd_iter, mutable_cf_options,
           made_progress, job_context, log_buffer);
+      if (!s.ok()) {
+        status = s;
+      }
     }
     // Attempt to delete cf only when all flushes succeed.
-    if (status.ok()) {
-      for (auto cfd_iter : cfds) {
-        if (cfd_iter->Unref()) {
-          delete cfd_iter;
-        }
+    for (auto cfd_iter : cfds) {
+      if (cfd_iter->Unref()) {
+        delete cfd_iter;
       }
     }
   }
