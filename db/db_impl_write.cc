@@ -122,15 +122,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   write_thread_.JoinBatchGroup(&w);
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
-    PERF_TIMER_GUARD(write_memtable_time);
 
     if (w.ShouldWriteToMemtable()) {
+      PERF_TIMER_STOP(write_pre_and_post_process_time);
+      PERF_TIMER_GUARD(write_memtable_time);
+
       ColumnFamilyMemTablesImpl column_family_memtables(
           versions_->GetColumnFamilySet());
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt);
+
+      PERF_TIMER_START(write_pre_and_post_process_time);
     }
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
@@ -190,7 +194,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // With concurrent writes we do preprocess only in the write thread that
     // also does write to memtable to avoid sync issue on shared data structure
     // with the other thread
+
+    // PreprocessWrite does its own perf timing.
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
+
     status = PreprocessWrite(write_options, &need_log_sync, &write_context);
+
+    PERF_TIMER_START(write_pre_and_post_process_time);
   }
   log::Writer* log_writer = logs_.back().writer;
 
@@ -353,7 +363,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
     mutex_.Unlock();
     // Requesting sync with two_write_queues_ is expected to be very rare. We
-    // hance provide a simple implementation that is not necessarily efficient.
+    // hence provide a simple implementation that is not necessarily efficient.
     if (two_write_queues_) {
       if (manual_wal_flush_) {
         status = FlushWAL(true);
@@ -414,7 +424,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     mutex_.Lock();
     bool need_log_sync = !write_options.disableWAL && write_options.sync;
     bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
+    // PreprocessWrite does its own perf timing.
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
     w.status = PreprocessWrite(write_options, &need_log_sync, &write_context);
+    PERF_TIMER_START(write_pre_and_post_process_time);
     log::Writer* log_writer = logs_.back().writer;
     mutex_.Unlock();
 
@@ -704,6 +717,8 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   assert(write_context != nullptr && need_log_sync != nullptr);
   Status status;
 
+  PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
+
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
   if (UNLIKELY(status.ok() && !single_column_family_mode_ &&
@@ -728,14 +743,19 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     status = ScheduleFlushes(write_context);
   }
 
+  PERF_TIMER_STOP(write_scheduling_flushes_compactions_time);
+  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+
   if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
                                write_controller_.NeedsDelay()))) {
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
     PERF_TIMER_GUARD(write_delay_time);
     // We don't know size of curent batch so that we always use the size
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
     status = DelayWrite(last_batch_group_size_, write_options);
+    PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
   if (status.ok() && *need_log_sync) {
@@ -1189,6 +1209,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       // is that in case the write is heavy, low pri writes may never have
       // a chance to run. Now we guarantee we are still slowly making
       // progress.
+      PERF_TIMER_GUARD(write_delay_time);
       write_controller_.low_pri_rate_limiter()->Request(
           my_batch->GetDataSize(), Env::IO_HIGH, nullptr /* stats */,
           RateLimiter::OpType::kWrite);
