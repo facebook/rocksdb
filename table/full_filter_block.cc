@@ -23,10 +23,23 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
 }
 
 void FullFilterBlockBuilder::Add(const Slice& key) {
+  const bool add_prefix = prefix_extractor_ && prefix_extractor_->InDomain(key);
   if (whole_key_filtering_) {
-    AddKey(key);
+    if (!add_prefix) {
+      AddKey(key);
+    } else {
+      // if both whole_key and prefix are added to bloom then we will have whole
+      // key and prefix addition being interleaved and thus cannot rely on the
+      // bits builder to properly detect the duplicates by comparing with the
+      // last item.
+      Slice last_whole_key = Slice(last_whole_key_str_);
+      if (last_whole_key.compare(key) != 0) {
+        AddKey(key);
+        last_whole_key_str_ = key.ToString();
+      }
+    }
   }
-  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
+  if (add_prefix) {
     AddPrefix(key);
   }
 }
@@ -40,7 +53,19 @@ inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
 // Add prefix to filter if needed
 inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   Slice prefix = prefix_extractor_->Transform(key);
-  AddKey(prefix);
+  if (whole_key_filtering_) {
+    // if both whole_key and prefix are added to bloom then we will have whole
+    // key and prefix addition being interleaved and thus cannot rely on the
+    // bits builder to properly detect the duplicates by comparing with the last
+    // item.
+    Slice last_prefix = Slice(last_prefix_str_);
+    if (last_prefix.compare(prefix) != 0) {
+      AddKey(prefix);
+      last_prefix_str_ = prefix.ToString();
+    }
+  } else {
+    AddKey(prefix);
+  }
 }
 
 Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
