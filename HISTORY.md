@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+### New Features
+* Add `Env::LowerThreadPoolCPUPriority(Priority)` method, which lowers the CPU priority of background (esp. compaction) threads to minimize interference with foreground tasks.
+
 ## 5.13.0 (3/20/2018)
 ### Public API Change
 * RocksDBOptionsParser::Parse()'s `ignore_unknown_options` argument will only be effective if the option file shows it is generated using a higher version of RocksDB than the current version.

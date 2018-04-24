@@ -18,6 +18,7 @@
 
 #ifdef OS_LINUX
 #  include <sys/syscall.h>
+#  include <sys/resource.h>
 #endif
 
 #include <algorithm>
@@ -52,6 +53,8 @@ struct ThreadPoolImpl::Impl {
   }
 
   void LowerIOPriority();
+
+  void LowerCPUPriority();
 
   void WakeUpAllThreads() {
     bgsignal_.notify_all();
@@ -97,6 +100,7 @@ private:
   static void* BGThreadWrapper(void* arg);
 
   bool low_io_priority_;
+  bool low_cpu_priority_;
   Env::Priority priority_;
   Env*         env_;
 
@@ -125,6 +129,7 @@ inline
 ThreadPoolImpl::Impl::Impl()
     :
       low_io_priority_(false),
+      low_cpu_priority_(false),
       priority_(Env::LOW),
       env_(nullptr),
       total_threads_limit_(0),
@@ -171,9 +176,16 @@ void ThreadPoolImpl::Impl::LowerIOPriority() {
   low_io_priority_ = true;
 }
 
+inline
+void ThreadPoolImpl::Impl::LowerCPUPriority() {
+  std::lock_guard<std::mutex> lock(mu_);
+  low_cpu_priority_ = true;
+}
 
 void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
   bool low_io_priority = false;
+  bool low_cpu_priority = false;
+
   while (true) {
 // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
@@ -213,9 +225,20 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
                      std::memory_order_relaxed);
 
     bool decrease_io_priority = (low_io_priority != low_io_priority_);
+    bool decrease_cpu_priority = (low_cpu_priority != low_cpu_priority_);
     lock.unlock();
 
 #ifdef OS_LINUX
+    if (decrease_cpu_priority) {
+      setpriority(
+          PRIO_PROCESS,
+          // Current thread.
+          0,
+          // Lowest priority possible.
+          19);
+      low_cpu_priority = true;
+    }
+
     if (decrease_io_priority) {
 #define IOPRIO_CLASS_SHIFT (13)
 #define IOPRIO_PRIO_VALUE(class, data) (((class) << IOPRIO_CLASS_SHIFT) | data)
@@ -236,6 +259,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     }
 #else
     (void)decrease_io_priority;  // avoid 'unused variable' error
+    (void)decrease_cpu_priority;
 #endif
     func();
   }
@@ -419,6 +443,10 @@ void ThreadPoolImpl::WaitForJobsAndJoinAllThreads() {
 
 void ThreadPoolImpl::LowerIOPriority() {
   impl_->LowerIOPriority();
+}
+
+void ThreadPoolImpl::LowerCPUPriority() {
+  impl_->LowerCPUPriority();
 }
 
 void ThreadPoolImpl::IncBackgroundThreadsIfNeeded(int num) {

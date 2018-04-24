@@ -802,6 +802,15 @@ class PosixEnv : public Env {
 #endif
   }
 
+  virtual void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+    assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
+#ifdef OS_LINUX
+    thread_pools_[pool].LowerCPUPriority();
+#else
+    (void)pool;
+#endif
+  }
+
   virtual std::string TimeToString(uint64_t secondsSince1970) override {
     const time_t seconds = (time_t)secondsSince1970;
     struct tm t;
