@@ -390,6 +390,14 @@ class ColumnFamilyTest : public testing::Test {
 
   void AssertFilesPerLevel(const std::string& value, int cf) {
 #ifndef ROCKSDB_LITE
+    if (dbfull()->TEST_AtomicFlushEnabled()) {
+      // If atomic flush is enabled, number of files per level for one column
+      // family is affected by flushes of other column families, making many
+      // such assertions to fail. Therefore, we disable it for now when atomic
+      // flush is enabled.
+      // TODO (yanqin) rethink the possibility of re-enabling this assertion.
+      return;
+    }
     ASSERT_EQ(value, FilesPerLevel(cf));
 #else
     (void) value;

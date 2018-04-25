@@ -358,6 +358,8 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   Flush();
   ASSERT_OK(Put(2, "two", "two"));
 
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
   DB* snapshotDB;
   ReadOptions roptions;
   std::string result;
