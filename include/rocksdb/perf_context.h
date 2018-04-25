@@ -95,16 +95,27 @@ struct PerfContext {
   // total nanos spent on iterating internal entries to find the next user entry
   uint64_t find_next_user_entry_time;
 
+  // This group of stats provide a breakdown of time spent by Write().
+  // May be inaccurate when 2PC, two_write_queues or enable_pipelined_write
+  // are enabled.
+  //
   // total nanos spent on writing to WAL
   uint64_t write_wal_time;
   // total nanos spent on writing to mem tables
   uint64_t write_memtable_time;
-  // total nanos spent on delaying write
+  // total nanos spent on delaying or throttling write
   uint64_t write_delay_time;
-  // total nanos spent on writing a record, excluding the above three times
+  // total nanos spent on switching memtable/wal and scheduling
+  // flushes/compactions.
+  uint64_t write_scheduling_flushes_compactions_time;
+  // total nanos spent on writing a record, excluding the above four things
   uint64_t write_pre_and_post_process_time;
 
-  uint64_t db_mutex_lock_nanos;      // time spent on acquiring DB mutex.
+  // time spent waiting for other threads of the batch group
+  uint64_t write_thread_wait_nanos;
+
+  // time spent on acquiring DB mutex.
+  uint64_t db_mutex_lock_nanos;
   // Time spent on waiting with a condition variable created with DB mutex.
   uint64_t db_condition_wait_nanos;
   // Time spent on merge operator.

@@ -227,6 +227,9 @@ void ProfileQueries(bool enabled_time = false) {
   HistogramImpl hist_write_pre_post;
   HistogramImpl hist_write_wal_time;
   HistogramImpl hist_write_memtable_time;
+  HistogramImpl hist_write_delay_time;
+  HistogramImpl hist_write_thread_wait_nanos;
+  HistogramImpl hist_write_scheduling_time;
 
   uint64_t total_db_mutex_nanos = 0;
 
@@ -270,9 +273,15 @@ void ProfileQueries(bool enabled_time = false) {
       ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
 #endif
     }
-    hist_write_pre_post.Add(get_perf_context()->write_pre_and_post_process_time);
+    hist_write_pre_post.Add(
+        get_perf_context()->write_pre_and_post_process_time);
     hist_write_wal_time.Add(get_perf_context()->write_wal_time);
     hist_write_memtable_time.Add(get_perf_context()->write_memtable_time);
+    hist_write_delay_time.Add(get_perf_context()->write_delay_time);
+    hist_write_thread_wait_nanos.Add(
+        get_perf_context()->write_thread_wait_nanos);
+    hist_write_scheduling_time.Add(
+        get_perf_context()->write_scheduling_flushes_compactions_time);
     hist_put.Add(get_perf_context()->user_key_comparison_count);
     total_db_mutex_nanos += get_perf_context()->db_mutex_lock_nanos;
   }
@@ -320,6 +329,11 @@ void ProfileQueries(bool enabled_time = false) {
               << hist_write_wal_time.ToString() << "\n"
               << " Writing Mem Table time: \n"
               << hist_write_memtable_time.ToString() << "\n"
+              << " Write Delay: \n" << hist_write_delay_time.ToString() << "\n"
+              << " Waiting for Batch time: \n"
+              << hist_write_thread_wait_nanos.ToString() << "\n"
+              << " Scheduling Flushes and Compactions Time: \n"
+              << hist_write_scheduling_time.ToString() << "\n"
               << " Total DB mutex nanos: \n" << total_db_mutex_nanos << "\n";
 
     std::cout << "Get(): Time to get snapshot: \n"
@@ -359,6 +373,14 @@ void ProfileQueries(bool enabled_time = false) {
     ASSERT_GT(hist_mget_files.Average(), 0);
     ASSERT_GT(hist_mget_post_process.Average(), 0);
     ASSERT_GT(hist_mget_num_memtable_checked.Average(), 0);
+
+    EXPECT_GT(hist_write_pre_post.Average(), 0);
+    EXPECT_GT(hist_write_wal_time.Average(), 0);
+    EXPECT_GT(hist_write_memtable_time.Average(), 0);
+    EXPECT_EQ(hist_write_delay_time.Average(), 0);
+    EXPECT_EQ(hist_write_thread_wait_nanos.Average(), 0);
+    EXPECT_GT(hist_write_scheduling_time.Average(), 0);
+
 #ifndef NDEBUG
     ASSERT_GT(total_db_mutex_nanos, 2000U);
 #endif

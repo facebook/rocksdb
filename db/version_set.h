@@ -802,10 +802,6 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
-  uint64_t latest_deleted_log_number() const {
-    return latest_deleted_log_number_.load();
-  }
-
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
@@ -852,11 +848,6 @@ class VersionSet {
   // Mark the specified file number as used.
   // REQUIRED: this is only called during single-threaded recovery or repair.
   void MarkFileNumberUsed(uint64_t number);
-
-  // Mark the specified log number as deleted
-  // REQUIRED: this is only called during single-threaded recovery or repair, or
-  // from ::LogAndApply where the global mutex is held.
-  void MarkDeletedLogNumber(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
@@ -955,8 +946,6 @@ class VersionSet {
   const std::string dbname_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
-  // Any log number equal or lower than this should be ignored during recovery.
-  std::atomic<uint64_t> latest_deleted_log_number_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
