@@ -964,11 +964,16 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] Manual flush finished, status: %s\n",
-                 cfh->GetName().c_str(), s.ToString().c_str());
+  Status s;
+  if (atomic_flush_) {
+    s = FlushMemTables(flush_options, FlushReason::kManualFlush,
+        false /* writes_stopped */);
+  } else {
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+        "[%s] Manual flush finished, status: %s\n",
+        cfh->GetName().c_str(), s.ToString().c_str());
+  }
   return s;
 }
 
@@ -1103,17 +1108,6 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
-  if (atomic_flush_) {
-    return FlushMemTablesInternal(flush_options, flush_reason, writes_stopped);
-  } else {
-    return FlushMemTableInternal(cfd, flush_options, flush_reason,
-        writes_stopped);
-  }
-}
-
-Status DBImpl::FlushMemTableInternal(ColumnFamilyData* cfd,
-    const FlushOptions& flush_options, FlushReason flush_reason,
-    bool writes_stopped) {
   Status s;
   uint64_t flush_memtable_id = 0;
   {
@@ -1154,7 +1148,7 @@ Status DBImpl::FlushMemTableInternal(ColumnFamilyData* cfd,
   return s;
 }
 
-Status DBImpl::FlushMemTablesInternal(const FlushOptions& flush_options,
+Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
     FlushReason flush_reason, bool writes_stopped) {
   Status s;
   std::vector<ColumnFamilyData*> cfds;
