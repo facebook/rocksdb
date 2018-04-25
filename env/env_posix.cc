@@ -479,7 +479,7 @@ class PosixEnv : public Env {
     if (status.ok()) {
       status = GetFileSize(fname, &size);
     }
-    void* base;
+    void* base = nullptr;
     if (status.ok()) {
       base = mmap(nullptr, static_cast<size_t>(size), PROT_READ | PROT_WRITE,
                   MAP_SHARED, fd, 0);
