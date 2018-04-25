@@ -51,7 +51,8 @@ DeleteScheduler::~DeleteScheduler() {
   }
 }
 
-Status DeleteScheduler::DeleteFile(const std::string& file_path) {
+Status DeleteScheduler::DeleteFile(const std::string& file_path,
+                                   const std::string& dir_to_sync) {
   Status s;
   if (rate_bytes_per_sec_.load() <= 0 ||
       total_trash_size_.load() >
@@ -87,7 +88,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   // Add file to delete queue
   {
     InstrumentedMutexLock l(&mu_);
-    queue_.push(trash_file);
+    queue_.emplace(trash_file, dir_to_sync);
     pending_files_++;
     if (pending_files_ == 1) {
       cv_.SignalAll();
@@ -128,7 +129,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
     if (sfm) {
       // We have an SstFileManager that will schedule the file delete
       sfm->OnAddFile(trash_file);
-      file_delete = sfm->ScheduleFileDeletion(trash_file);
+      file_delete = sfm->ScheduleFileDeletion(trash_file, path);
     } else {
       // Delete the file immediately
       file_delete = env->DeleteFile(trash_file);
@@ -209,14 +210,16 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       }
 
       // Get new file to delete
-      std::string path_in_trash = queue_.front();
+      const FileAndDir& fad = queue_.front();
+      std::string path_in_trash = fad.fname;
 
       // We dont need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
       // Delete file from trash and update total_penlty value
-      Status s = DeleteTrashFile(path_in_trash, &deleted_bytes, &is_complete);
+      Status s =
+          DeleteTrashFile(path_in_trash, fad.dir, &deleted_bytes, &is_complete);
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
       if (is_complete) {
@@ -254,6 +257,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
 }
 
 Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
+                                        const std::string& dir_to_sync,
                                         uint64_t* deleted_bytes,
                                         bool* is_complete) {
   uint64_t file_size;
@@ -286,6 +290,18 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
 
     if (need_full_delete) {
       s = env_->DeleteFile(path_in_trash);
+      if (!dir_to_sync.empty()) {
+        std::unique_ptr<Directory> dir_obj;
+        if (s.ok()) {
+          s = env_->NewDirectory(dir_to_sync, &dir_obj);
+        }
+        if (s.ok()) {
+          s = dir_obj->Fsync();
+          TEST_SYNC_POINT_CALLBACK(
+              "DeleteScheduler::DeleteTrashFile::AfterSyncDir",
+              reinterpret_cast<void*>(const_cast<std::string*>(&dir_to_sync)));
+        }
+      }
       *deleted_bytes = file_size;
       sst_file_manager_->OnDeleteFile(path_in_trash);
     }

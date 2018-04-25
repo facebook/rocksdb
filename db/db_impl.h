@@ -798,7 +798,8 @@ class DBImpl : public DB {
   void DeleteObsoleteFiles();
   // Delete obsolete files and log status and information of file deletion
   void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
-                              FileType type, uint64_t number);
+                              const std::string& path_to_sync, FileType type,
+                              uint64_t number);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
@@ -919,8 +920,8 @@ class DBImpl : public DB {
   void MaybeScheduleFlushOrCompaction();
   void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
-  void SchedulePendingPurge(std::string fname, FileType type, uint64_t number,
-                            int job_id);
+  void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
+                            FileType type, uint64_t number, int job_id);
   static void BGWorkCompaction(void* arg);
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
@@ -1164,11 +1165,13 @@ class DBImpl : public DB {
   // purge_queue_
   struct PurgeFileInfo {
     std::string fname;
+    std::string dir_to_sync;
     FileType type;
     uint64_t number;
     int job_id;
-    PurgeFileInfo(std::string fn, FileType t, uint64_t num, int jid)
-        : fname(fn), type(t), number(num), job_id(jid) {}
+    PurgeFileInfo(std::string fn, std::string d, FileType t, uint64_t num,
+                  int jid)
+        : fname(fn), dir_to_sync(d), type(t), number(num), job_id(jid) {}
   };
 
   // flush_queue_ and compaction_queue_ hold column families that we need to
