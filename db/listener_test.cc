@@ -256,13 +256,8 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
     dbfull()->TEST_WaitForFlushMemTable();
-    if (options.atomic_flush) {
-      ASSERT_EQ(listener->flushed_dbs_.size(), 7);
-      ASSERT_EQ(listener->flushed_column_family_names_.size(), 7);
-    } else {
-      ASSERT_EQ(listener->flushed_dbs_.size(), i);
-      ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
-    }
+    ASSERT_EQ(listener->flushed_dbs_.size(), i);
+    ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
 
   // make sure callback functions are called in the right order
@@ -297,13 +292,8 @@ TEST_F(EventListenerTest, MultiCF) {
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
-    if (options.atomic_flush) {
-      ASSERT_EQ(listener->flushed_dbs_.size(), 7);
-      ASSERT_EQ(listener->flushed_column_family_names_.size(), 7);
-    } else {
-      ASSERT_EQ(listener->flushed_dbs_.size(), i);
-      ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
-    }
+    ASSERT_EQ(listener->flushed_dbs_.size(), i);
+    ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
 
   // make sure callback functions are called in the right order
@@ -373,21 +363,11 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
 
   for (auto* listener : listeners) {
     int pos = 0;
-    if (options.atomic_flush) {
+    for (size_t c = 0; c < cf_names.size(); ++c) {
       for (int d = 0; d < kNumDBs; ++d) {
-        for (size_t c = 0; c < cf_names.size(); ++c) {
-          ASSERT_EQ(listener->flushed_dbs_[pos], dbs[d]);
-          ASSERT_EQ(listener->flushed_column_family_names_[pos], cf_names[c]);
-          pos++;
-        }
-      }
-    } else {
-      for (size_t c = 0; c < cf_names.size(); ++c) {
-        for (int d = 0; d < kNumDBs; ++d) {
-          ASSERT_EQ(listener->flushed_dbs_[pos], dbs[d]);
-          ASSERT_EQ(listener->flushed_column_family_names_[pos], cf_names[c]);
-          pos++;
-        }
+        ASSERT_EQ(listener->flushed_dbs_[pos], dbs[d]);
+        ASSERT_EQ(listener->flushed_column_family_names_[pos], cf_names[c]);
+        pos++;
       }
     }
   }
