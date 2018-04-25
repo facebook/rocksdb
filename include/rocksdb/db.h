@@ -53,7 +53,6 @@ struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
-enum EntryType;
 
 using std::unique_ptr;
 
