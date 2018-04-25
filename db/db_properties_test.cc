@@ -148,6 +148,7 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
 
   uint64_t before_flush_trm;
   uint64_t after_flush_trm;
+  bool first_flush = true;
   for (auto* handle : handles_) {
     ASSERT_TRUE(db_->GetAggregatedIntProperty(
         DB::Properties::kEstimateTableReadersMem, &before_flush_trm));
@@ -157,7 +158,12 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
 
     ASSERT_TRUE(db_->GetAggregatedIntProperty(
         DB::Properties::kEstimateTableReadersMem, &after_flush_trm));
-    ASSERT_GT(after_flush_trm, before_flush_trm);
+    // If atomic_flush is true, then the first flush will flush all column
+    // families and later flush requests are no-ops.
+    if (!options.atomic_flush || first_flush) {
+      ASSERT_GT(after_flush_trm, before_flush_trm);
+      first_flush = false;
+    }
   }
 }
 

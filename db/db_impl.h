@@ -443,6 +443,7 @@ class DBImpl : public DB {
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
+  bool TEST_AtomicFlushEnabled() const { return atomic_flush_; }
 
 #endif  // NDEBUG
 

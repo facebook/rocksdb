@@ -1564,6 +1564,11 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
+  if (db_impl->TEST_AtomicFlushEnabled()) {
+    // atomic_flush is not designed to work with WAL enabled.
+    return;
+  }
+
   Status s;
   string v;
   ColumnFamilyHandle *cfa, *cfb;
@@ -1715,6 +1720,11 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
 
 TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+
+  if (db_impl->TEST_AtomicFlushEnabled()) {
+    // atomic_flush is not for transaction
+    return;
+  }
 
   Status s;
   ColumnFamilyHandle *cfa, *cfb;
