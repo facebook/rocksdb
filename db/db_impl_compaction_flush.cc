@@ -1151,6 +1151,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
     FlushReason flush_reason, bool writes_stopped) {
   Status s;
+  bool schedule_flush = false;
   std::vector<ColumnFamilyData*> cfds;
   std::vector<uint64_t> nums;
   std::vector<uint64_t*> flush_memtable_ids;
@@ -1163,39 +1164,52 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
+    int cfs_to_flush = 0;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped() ||
           (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
           cached_recoverable_state_empty_.load())) {
         continue;
       }
-      // SwitchMemtable will release and re-acquire mutex during execution
-      s = SwitchMemtable(cfd, &context);
-      if (!s.ok()) {
-        break;
-      }
+      ++cfs_to_flush;
       cfds.push_back(cfd);
-      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      nums.push_back(flush_memtable_id);
-      flush_memtable_ids.push_back(&nums[nums.size() - 1]);
-      cfd->imm()->FlushRequested();
-      // cfd will be refcounted.
-      SchedulePendingFlush(cfd, flush_reason);
+    }
+
+    if (cfs_to_flush > 0) {
+      for (auto cfd : cfds) {
+        // SwitchMemtable will release and re-acquire mutex during execution
+        s = SwitchMemtable(cfd, &context);
+        if (!s.ok()) {
+          break;
+        }
+        --cfs_to_flush;
+      }
+
+      // If memtable_switches < cfs_to_flush, then it means At least one
+      // memtable switch failed, and s.ok() must be false.
+      if (0 == cfs_to_flush) {
+        for (auto cfd : cfds) {
+          uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+          nums.push_back(flush_memtable_id);
+          flush_memtable_ids.push_back(&nums[nums.size() - 1]);
+          cfd->imm()->FlushRequested();
+          // cfd will be refcounted.
+          SchedulePendingFlush(cfd, flush_reason);
+        }
+        schedule_flush = true;
+      }
     }
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
     }
 
-    if (cfds.empty()) {
-      // No need to flush.
-      return Status::OK();
+    if (schedule_flush) {
+      MaybeScheduleFlushOrCompaction();
     }
-
-    MaybeScheduleFlushOrCompaction();
   }
 
-  if (s.ok() && flush_options.wait) {
+  if (schedule_flush && s.ok() && flush_options.wait) {
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   return s;
