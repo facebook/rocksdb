@@ -144,6 +144,8 @@ case "$TARGET_OS" in
         COMMON_FLAGS="$COMMON_FLAGS -DOS_LINUX"
         if [ -z "$USE_CLANG" ]; then
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/linux/linux_specific.cc
@@ -196,6 +198,8 @@ case "$TARGET_OS" in
         COMMON_FLAGS="$COMMON_FLAGS -DCYGWIN"
         if [ -z "$USE_CLANG" ]; then
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/linux/linux_specific.cc
