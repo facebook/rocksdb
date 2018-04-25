@@ -1102,6 +1102,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // happen while we're in the write thread
   ColumnFamilyData* cfd_picked = nullptr;
   SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
+  std::vector<ColumnFamilyData*> cfds_picked;
 
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
@@ -1110,14 +1111,34 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (!cfd->mem()->IsEmpty()) {
       // We only consider active mem table, hoping immutable memtable is
       // already in the process of flushing.
-      uint64_t seq = cfd->mem()->GetCreationSeq();
-      if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-        cfd_picked = cfd;
-        seq_num_for_cf_picked = seq;
+      if (atomic_flush_) {
+        cfds_picked.push_back(cfd);
+      } else {
+        uint64_t seq = cfd->mem()->GetCreationSeq();
+        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+          cfd_picked = cfd;
+          seq_num_for_cf_picked = seq;
+        }
       }
     }
   }
-  if (cfd_picked != nullptr) {
+  if (atomic_flush_ && !cfds_picked.empty()) {
+    for (auto cfd : cfds_picked) {
+      Status s = SwitchMemtable(cfd, write_context,
+          FlushReason::kWriteBufferFull);
+      if (!s.ok()) {
+        status = s;
+        break;
+      }
+    }
+    if (status.ok()) {
+      for (auto cfd : cfds_picked) {
+        cfd->imm()->FlushRequested();
+        SchedulePendingFlush(cfd, FlushReason::kWriteBufferFull);
+      }
+      MaybeScheduleFlushOrCompaction();
+    }
+  } else if (!atomic_flush_ && cfd_picked != nullptr) {
     status = SwitchMemtable(cfd_picked, write_context,
                             FlushReason::kWriteBufferFull);
     if (status.ok()) {
