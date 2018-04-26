@@ -1164,40 +1164,29 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    int cfs_to_flush = 0;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped() ||
           (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
           cached_recoverable_state_empty_.load())) {
         continue;
       }
-      ++cfs_to_flush;
+      s = SwitchMemtable(cfd, &context);
+      if (!s.ok()) {
+        break;
+      }
       cfds.push_back(cfd);
     }
 
-    if (cfs_to_flush > 0) {
+    if (s.ok()) {
       for (auto cfd : cfds) {
-        // SwitchMemtable will release and re-acquire mutex during execution
-        s = SwitchMemtable(cfd, &context);
-        if (!s.ok()) {
-          break;
-        }
-        --cfs_to_flush;
+        uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+        nums.push_back(flush_memtable_id);
+        flush_memtable_ids.push_back(&nums[nums.size() - 1]);
+        cfd->imm()->FlushRequested();
+        // cfd will be refcounted.
+        SchedulePendingFlush(cfd, flush_reason);
       }
-
-      // If memtable_switches < cfs_to_flush, then it means At least one
-      // memtable switch failed, and s.ok() must be false.
-      if (0 == cfs_to_flush) {
-        for (auto cfd : cfds) {
-          uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-          nums.push_back(flush_memtable_id);
-          flush_memtable_ids.push_back(&nums[nums.size() - 1]);
-          cfd->imm()->FlushRequested();
-          // cfd will be refcounted.
-          SchedulePendingFlush(cfd, flush_reason);
-        }
-        schedule_flush = true;
-      }
+      schedule_flush = true;
     }
 
     if (!writes_stopped) {
@@ -2275,9 +2264,13 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush(cfd, flush_reason);
-  SchedulePendingCompaction(cfd);
-  MaybeScheduleFlushOrCompaction();
+  if (atomic_flush_) {
+    SchedulePendingCompaction(cfd);
+  } else {
+    SchedulePendingFlush(cfd, flush_reason);
+    SchedulePendingCompaction(cfd);
+    MaybeScheduleFlushOrCompaction();
+  }
 
   // Update max_total_in_memory_state_
   max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +

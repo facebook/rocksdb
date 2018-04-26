@@ -1240,17 +1240,50 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
-  ColumnFamilyData* cfd;
-  while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-    auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
-    if (cfd->Unref()) {
-      delete cfd;
+  if (atomic_flush_) {
+    if (flush_scheduler_.Empty()) {
+      return Status::OK();
     }
-    if (!status.ok()) {
-      return status;
+    Status s;
+    std::vector<ColumnFamilyData*> cfds;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped() ||
+          (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty())) {
+        continue;
+      }
+      s = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+      if (!s.ok()) {
+        break;
+      }
+      cfds.push_back(cfd);
     }
+    if (s.ok()) {
+      for (auto cfd : cfds) {
+        cfd->imm()->FlushRequested();
+        SchedulePendingFlush(cfd, FlushReason::kWriteBufferFull);
+      }
+      ColumnFamilyData* cfd;
+      while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+        if (cfd->Unref()) {
+          delete cfd;
+        }
+      }
+      MaybeScheduleFlushOrCompaction();
+    }
+    return s;
+  } else {
+    ColumnFamilyData* cfd;
+    while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+      auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+      if (cfd->Unref()) {
+        delete cfd;
+      }
+      if (!status.ok()) {
+        return status;
+      }
+    }
+    return Status::OK();
   }
-  return Status::OK();
 }
 
 #ifndef ROCKSDB_LITE
