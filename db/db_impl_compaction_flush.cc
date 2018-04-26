@@ -1288,10 +1288,10 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
 }
 
 void DBImpl::AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason) {
-  assert(!cfd->pending_flush());
+  assert(!cfd->queued_for_flush());
   cfd->Ref();
   flush_queue_.push_back(cfd);
-  cfd->set_pending_flush(true);
+  cfd->set_queued_for_flush(true);
   cfd->SetFlushReason(flush_reason);
 }
 
@@ -1299,15 +1299,15 @@ ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   auto cfd = *flush_queue_.begin();
   flush_queue_.pop_front();
-  assert(cfd->pending_flush());
-  cfd->set_pending_flush(false);
+  assert(cfd->queued_for_flush());
+  cfd->set_queued_for_flush(false);
   // TODO: need to unset flush reason?
   return cfd;
 }
 
 void DBImpl::SchedulePendingFlush(ColumnFamilyData* cfd,
                                   FlushReason flush_reason) {
-  if (!cfd->pending_flush() && cfd->imm()->IsFlushPending()) {
+  if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
     AddToFlushQueue(cfd, flush_reason);
     ++unscheduled_flushes_;
   }
