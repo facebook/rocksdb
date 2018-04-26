@@ -184,7 +184,9 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
         s = txn->Prepare();
         assert(s.ok());
       }
-      if (!rand_->OneIn(20)) {
+      // TODO(myabandeh): enable this when WritePreparedTxnDB::RollbackPrepared
+      // is updated to handle in-the-middle rollbacks.
+      if (!rand_->OneIn(0)) {
         s = txn->Commit();
       } else {
         // Also try 5% rollback
