@@ -17,6 +17,8 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
     FilterBitsBuilder* filter_bits_builder)
     : prefix_extractor_(prefix_extractor),
       whole_key_filtering_(whole_key_filtering),
+      last_whole_key_recorded_(false),
+      last_prefix_recorded_(false),
       num_added_(0) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
@@ -33,9 +35,10 @@ void FullFilterBlockBuilder::Add(const Slice& key) {
       // bits builder to properly detect the duplicates by comparing with the
       // last item.
       Slice last_whole_key = Slice(last_whole_key_str_);
-      if (last_whole_key.compare(key) != 0) {
+      if (!last_whole_key_recorded_ || last_whole_key.compare(key) != 0) {
         AddKey(key);
-        last_whole_key_str_ = key.ToString();
+        last_whole_key_recorded_ = true;
+        last_whole_key_str_.assign(key.data(), key.size());
       }
     }
   }
@@ -59,9 +62,10 @@ inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
     // bits builder to properly detect the duplicates by comparing with the last
     // item.
     Slice last_prefix = Slice(last_prefix_str_);
-    if (last_prefix.compare(prefix) != 0) {
+    if (!last_prefix_recorded_ || last_prefix.compare(prefix) != 0) {
       AddKey(prefix);
-      last_prefix_str_ = prefix.ToString();
+      last_prefix_recorded_ = true;
+      last_prefix_str_.assign(prefix.data(), prefix.size());
     }
   } else {
     AddKey(prefix);
