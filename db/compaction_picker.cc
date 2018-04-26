@@ -297,8 +297,13 @@ Compaction* CompactionPicker::CompactFiles(
   // shouldn't have been released since.
   assert(!FilesRangeOverlapWithCompaction(input_files, output_level));
 
+  auto ioptions = ioptions_;
+  if (compact_options.max_subcompactions > 0) {
+    ioptions.max_subcompactions = compact_options.max_subcompactions;
+  }
+
   auto c =
-      new Compaction(vstorage, ioptions_, mutable_cf_options, input_files,
+      new Compaction(vstorage, ioptions, mutable_cf_options, input_files,
                      output_level, compact_options.output_file_size_limit,
                      mutable_cf_options.max_compaction_bytes, output_path_id,
                      compact_options.compression, /* grandparents */ {}, true);

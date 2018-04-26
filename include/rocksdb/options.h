@@ -1185,10 +1185,13 @@ struct CompactionOptions {
   // Compaction will create files of size `output_file_size_limit`.
   // Default: MAX, which means that compaction will create a single file
   uint64_t output_file_size_limit;
+  // If > 0, it will replace the option in the DBOptions for this compaction.
+  uint32_t max_subcompactions;
 
   CompactionOptions()
       : compression(kSnappyCompression),
-        output_file_size_limit(std::numeric_limits<uint64_t>::max()) {}
+        output_file_size_limit(std::numeric_limits<uint64_t>::max()),
+        max_subcompactions(0) {}
 };
 
 // For level based compaction, we can configure if we want to skip/force
