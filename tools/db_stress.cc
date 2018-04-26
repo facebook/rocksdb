@@ -2611,6 +2611,10 @@ class StressTest {
       options_.compaction_options_universal.max_size_amplification_percent =
           FLAGS_universal_max_size_amplification_percent;
     } else {
+#ifdef ROCKSDB_LITE
+      fprintf(stderr, "--options_file not supported in lite mode\n");
+      exit(1);
+#else
       DBOptions db_options;
       std::vector<ColumnFamilyDescriptor> cf_descriptors;
       Status s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(),
@@ -2621,6 +2625,7 @@ class StressTest {
         exit(1);
       }
       options_ = Options(db_options, cf_descriptors[0].options);
+#endif  // ROCKSDB_LITE
     }
 
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
