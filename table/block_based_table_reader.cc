@@ -1332,7 +1332,6 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     filter =
         ReadFilter(prefetch_buffer, filter_blk_handle, is_a_filter_partition);
     if (filter != nullptr) {
-      assert(filter->size() > 0);
       Status s = block_cache->Insert(
           key, filter, filter->size(), &DeleteCachedFilterEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
