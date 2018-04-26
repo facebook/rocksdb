@@ -127,6 +127,13 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
+  int dir_synced = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile::AfterSyncDir", [&](void* arg) {
+        dir_synced++;
+        std::string* dir = reinterpret_cast<std::string*>(arg);
+        EXPECT_EQ(dummy_files_dirs_[0], *dir);
+      });
 
   int num_files = 100;  // 100 files
   uint64_t file_size = 1024;  // every file is 1 kb
@@ -141,6 +148,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
     NewDeleteScheduler();
 
+    dir_synced = 0;
     // Create 100 dummy files, every file is 1 Kb
     std::vector<std::string> generated_files;
     for (int i = 0; i < num_files; i++) {
@@ -150,7 +158,8 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
 
     // Delete dummy files and measure time spent to empty trash
     for (int i = 0; i < num_files; i++) {
-      ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i]));
+      ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i],
+                                              dummy_files_dirs_[0]));
     }
     ASSERT_EQ(CountNormalFiles(), 0);
 
@@ -171,6 +180,8 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
       ASSERT_EQ(expected_penlty, penalties[i]);
     }
     ASSERT_GT(time_spent_deleting, expected_penlty * 0.9);
+
+    ASSERT_EQ(num_files, dir_synced);
 
     ASSERT_EQ(CountTrashFiles(), 0);
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -197,7 +208,7 @@ TEST_F(DeleteSchedulerTest, MultiDirectoryDeletionsScheduled) {
 
   // Mark dummy files as trash
   for (size_t i = 0; i < kNumFiles; i++) {
-    ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i]));
+    ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i], ""));
     ASSERT_EQ(0, CountNormalFiles(i));
     ASSERT_EQ(1, CountTrashFiles(i));
   }
@@ -260,7 +271,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
       int range_start = idx * num_files;
       int range_end = range_start + num_files;
       for (int j = range_start; j < range_end; j++) {
-        ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[j]));
+        ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[j], ""));
       }
     };
 
@@ -313,7 +324,7 @@ TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
   for (int i = 0; i < 10; i++) {
     // Every file we delete will be deleted immediately
     std::string dummy_file = NewDummyFile("dummy.data");
-    ASSERT_OK(delete_scheduler_->DeleteFile(dummy_file));
+    ASSERT_OK(delete_scheduler_->DeleteFile(dummy_file, ""));
     ASSERT_TRUE(env_->FileExists(dummy_file).IsNotFound());
     ASSERT_EQ(CountNormalFiles(), 0);
     ASSERT_EQ(CountTrashFiles(), 0);
@@ -343,7 +354,7 @@ TEST_F(DeleteSchedulerTest, ConflictNames) {
   // Create "conflict.data" and move it to trash 10 times
   for (int i = 0; i < 10; i++) {
     std::string dummy_file = NewDummyFile("conflict.data");
-    ASSERT_OK(delete_scheduler_->DeleteFile(dummy_file));
+    ASSERT_OK(delete_scheduler_->DeleteFile(dummy_file, ""));
   }
   ASSERT_EQ(CountNormalFiles(), 0);
   // 10 files ("conflict.data" x 10) in trash
@@ -379,7 +390,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   // Generate 10 dummy files and move them to trash
   for (int i = 0; i < 10; i++) {
     std::string file_name = "data_" + ToString(i) + ".data";
-    ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name)));
+    ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
   }
   ASSERT_EQ(CountNormalFiles(), 0);
   ASSERT_EQ(CountTrashFiles(), 10);
@@ -421,7 +432,7 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
     // Generate 10 dummy files and move them to trash
     for (int i = 0; i < 10; i++) {
       std::string file_name = "data_" + ToString(i) + ".data";
-      ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name)));
+      ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
     }
     ASSERT_EQ(CountNormalFiles(), 0);
     delete_scheduler_->WaitForEmptyTrash();
@@ -450,10 +461,13 @@ TEST_F(DeleteSchedulerTest, DeletePartialFile) {
   NewDeleteScheduler();
 
   // Should delete in 4 batch
-  ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile("data_1", 500 * 1024)));
-  ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile("data_2", 100 * 1024)));
+  ASSERT_OK(
+      delete_scheduler_->DeleteFile(NewDummyFile("data_1", 500 * 1024), ""));
+  ASSERT_OK(
+      delete_scheduler_->DeleteFile(NewDummyFile("data_2", 100 * 1024), ""));
   // Should delete in 2 batch
-  ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile("data_2", 200 * 1024)));
+  ASSERT_OK(
+      delete_scheduler_->DeleteFile(NewDummyFile("data_2", 200 * 1024), ""));
 
   delete_scheduler_->WaitForEmptyTrash();
 
@@ -481,7 +495,7 @@ TEST_F(DeleteSchedulerTest, DestructorWithNonEmptyQueue) {
 
   for (int i = 0; i < 100; i++) {
     std::string file_name = "data_" + ToString(i) + ".data";
-    ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name)));
+    ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
   }
 
   // Deleting 100 files will need >28 hours to delete
@@ -542,7 +556,7 @@ TEST_F(DeleteSchedulerTest, DISABLED_DynamicRateLimiting1) {
 
     // Delete dummy files and measure time spent to empty trash
     for (int i = 0; i < num_files; i++) {
-      ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i]));
+      ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i], ""));
     }
     ASSERT_EQ(CountNormalFiles(), 0);
 
@@ -602,7 +616,7 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   }
 
   for (std::string& file_name : generated_files) {
-    delete_scheduler_->DeleteFile(file_name);
+    delete_scheduler_->DeleteFile(file_name, "");
   }
 
   // When we end up with 26 files in trash we will start

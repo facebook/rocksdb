@@ -94,7 +94,8 @@ class SstFileManagerImpl : public SstFileManager {
   virtual void SetMaxTrashDBRatio(double ratio) override;
 
   // Mark file as trash and schedule it's deletion.
-  virtual Status ScheduleFileDeletion(const std::string& file_path);
+  virtual Status ScheduleFileDeletion(const std::string& file_path,
+                                      const std::string& dir_to_sync);
 
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.

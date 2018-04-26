@@ -162,8 +162,9 @@ void SstFileManagerImpl::SetMaxTrashDBRatio(double r) {
   return delete_scheduler_.SetMaxTrashDBRatio(r);
 }
 
-Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path) {
-  return delete_scheduler_.DeleteFile(file_path);
+Status SstFileManagerImpl::ScheduleFileDeletion(
+    const std::string& file_path, const std::string& path_to_sync) {
+  return delete_scheduler_.DeleteFile(file_path, path_to_sync);
 }
 
 void SstFileManagerImpl::WaitForEmptyTrash() {
@@ -218,7 +219,8 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 
         std::string path_in_trash = trash_dir + "/" + trash_file;
         res->OnAddFile(path_in_trash);
-        Status file_delete = res->ScheduleFileDeletion(path_in_trash);
+        Status file_delete =
+            res->ScheduleFileDeletion(path_in_trash, trash_dir);
         if (s.ok() && !file_delete.ok()) {
           s = file_delete;
         }
