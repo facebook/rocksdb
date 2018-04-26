@@ -1112,6 +1112,11 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       // We only consider active mem table, hoping immutable memtable is
       // already in the process of flushing.
       if (atomic_flush_) {
+        status = SwitchMemtable(cfd, write_context,
+            FlushReason::kWriteBufferFull);
+        if (!status.ok()) {
+          break;
+        }
         cfds_picked.push_back(cfd);
       } else {
         uint64_t seq = cfd->mem()->GetCreationSeq();
@@ -1123,14 +1128,6 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
   }
   if (atomic_flush_ && !cfds_picked.empty()) {
-    for (auto cfd : cfds_picked) {
-      Status s = SwitchMemtable(cfd, write_context,
-          FlushReason::kWriteBufferFull);
-      if (!s.ok()) {
-        status = s;
-        break;
-      }
-    }
     if (status.ok()) {
       for (auto cfd : cfds_picked) {
         cfd->imm()->FlushRequested();
