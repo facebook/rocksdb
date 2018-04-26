@@ -351,11 +351,12 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
 
 // Delete obsolete files and log status and information of file deletion
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
+                                    const std::string& path_to_sync,
                                     FileType type, uint64_t number) {
   Status file_deletion_status;
   if (type == kTableFile) {
     file_deletion_status =
-        DeleteSSTFile(&immutable_db_options_, fname);
+        DeleteSSTFile(&immutable_db_options_, fname, path_to_sync);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }
@@ -518,13 +519,16 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
     std::string fname;
+    std::string dir_to_sync;
     if (type == kTableFile) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
       fname = MakeTableFileName(candidate_file.file_path, number);
+      dir_to_sync = candidate_file.file_path;
     } else {
-      fname = ((type == kLogFile) ? immutable_db_options_.wal_dir : dbname_) +
-              "/" + to_delete;
+      dir_to_sync =
+          (type == kLogFile) ? immutable_db_options_.wal_dir : dbname_;
+      fname = dir_to_sync + "/" + to_delete;
     }
 
 #ifndef ROCKSDB_LITE
@@ -538,9 +542,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     Status file_deletion_status;
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
-      SchedulePendingPurge(fname, type, number, state.job_id);
+      SchedulePendingPurge(fname, dir_to_sync, type, number, state.job_id);
     } else {
-      DeleteObsoleteFileImpl(state.job_id, fname, type, number);
+      DeleteObsoleteFileImpl(state.job_id, fname, dir_to_sync, type, number);
     }
   }
 

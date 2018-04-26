@@ -11,6 +11,7 @@
 * TransactionDBOptions::write_policy can be configured to enable WritePrepared 2PC transactions. Read more about them in the wiki.
 * Add DB properties "rocksdb.block-cache-capacity", "rocksdb.block-cache-usage", "rocksdb.block-cache-pinned-usage" to show block cache usage.
 * Add `Env::LowerThreadPoolCPUPriority(Priority)` method, which lowers the CPU priority of background (esp. compaction) threads to minimize interference with foreground tasks.
+* Fsync parent directory after deleting a file in delete scheduler.
 
 ### Bug Fixes
 * Fsync after writing global seq number to the ingestion file in ExternalSstFileIngestionJob.

@@ -82,16 +82,17 @@ Status CreateFile(Env* env, const std::string& destination,
 }
 
 Status DeleteSSTFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname) {
+                     const std::string& fname, const std::string& dir_to_sync) {
 #ifndef ROCKSDB_LITE
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
   if (sfm) {
-    return sfm->ScheduleFileDeletion(fname);
+    return sfm->ScheduleFileDeletion(fname, dir_to_sync);
   } else {
     return db_options->env->DeleteFile(fname);
   }
 #else
+  (void)dir_to_sync;
   // SstFileManager is not supported in ROCKSDB_LITE
   return db_options->env->DeleteFile(fname);
 #endif
