@@ -575,6 +575,17 @@ Status MockEnv::DeleteFile(const std::string& fname) {
   return Status::OK();
 }
 
+Status MockEnv::Truncate(const std::string& fname, size_t size) {
+  auto fn = NormalizePath(fname);
+  MutexLock lock(&mutex_);
+  auto iter = file_map_.find(fn);
+  if (iter == file_map_.end()) {
+    return Status::IOError(fn, "File not found");
+  }
+  iter->second->Truncate(size);
+  return Status::OK();
+}
+
 Status MockEnv::CreateDir(const std::string& dirname) {
   auto dn = NormalizePath(dirname);
   if (file_map_.find(dn) == file_map_.end()) {
@@ -723,18 +734,6 @@ uint64_t MockEnv::NowMicros() {
 
 uint64_t MockEnv::NowNanos() {
   return EnvWrapper::NowNanos() + fake_sleep_micros_.load() * 1000;
-}
-
-// Non-virtual functions, specific to MockEnv
-Status MockEnv::Truncate(const std::string& fname, size_t size) {
-  auto fn = NormalizePath(fname);
-  MutexLock lock(&mutex_);
-  auto iter = file_map_.find(fn);
-  if (iter == file_map_.end()) {
-    return Status::IOError(fn, "File not found");
-  }
-  iter->second->Truncate(size);
-  return Status::OK();
 }
 
 Status MockEnv::CorruptBuffer(const std::string& fname) {
