@@ -124,6 +124,8 @@ typedef struct rocksdb_optimistictransaction_options_t
     rocksdb_optimistictransaction_options_t;
 typedef struct rocksdb_transaction_t rocksdb_transaction_t;
 typedef struct rocksdb_checkpoint_t rocksdb_checkpoint_t;
+typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
+typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
 
 /* DB operations */
 
@@ -297,6 +299,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf(
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options);
 
+extern ROCKSDB_LIBRARY_API rocksdb_wal_iterator_t* rocksdb_get_updates_since(
+        rocksdb_t* db, uint64_t seq_number,
+        const rocksdb_wal_readoptions_t* options,
+        char** errptr
+);
+
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family);
@@ -399,6 +407,14 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_value(
     const rocksdb_iterator_t*, size_t* vlen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
     const rocksdb_iterator_t*, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wal_iter_next(rocksdb_wal_iterator_t* iter);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_wal_iter_valid(
+        const rocksdb_wal_iterator_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_wal_iter_status (const rocksdb_wal_iterator_t* iter, char** errptr) ;
+extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t* rocksdb_wal_iter_get_batch (const rocksdb_wal_iterator_t* iter, uint64_t* seq) ;
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_get_latest_sequence_number (rocksdb_t *db);
+extern ROCKSDB_LIBRARY_API void rocksdb_wal_iter_destroy (const rocksdb_wal_iterator_t* iter) ;
 
 /* Write batch */
 
