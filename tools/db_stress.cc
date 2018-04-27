@@ -55,6 +55,7 @@ int main() {
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
@@ -101,6 +102,14 @@ DEFINE_int64(max_key, 1 * KB* KB,
              "Max number of key/values to place in database");
 
 DEFINE_int32(column_families, 10, "Number of column families");
+
+DEFINE_string(
+    options_file, "",
+    "The path to a RocksDB options file.  If specified, then db_stress will "
+    "run with the RocksDB options in the default column family of the "
+    "specified options file. Note that, when an options file is provided, "
+    "db_stress will ignore the flag values for all options that may be passed "
+    "via options file.");
 
 DEFINE_int64(
     active_width, 0,
@@ -1315,18 +1324,18 @@ class StressTest {
 
     std::unordered_map<std::string, std::vector<std::string> > options_tbl = {
         {"write_buffer_size",
-         {ToString(FLAGS_write_buffer_size),
-          ToString(FLAGS_write_buffer_size * 2),
-          ToString(FLAGS_write_buffer_size * 4)}},
+         {ToString(options_.write_buffer_size),
+          ToString(options_.write_buffer_size * 2),
+          ToString(options_.write_buffer_size * 4)}},
         {"max_write_buffer_number",
-         {ToString(FLAGS_max_write_buffer_number),
-          ToString(FLAGS_max_write_buffer_number * 2),
-          ToString(FLAGS_max_write_buffer_number * 4)}},
+         {ToString(options_.max_write_buffer_number),
+          ToString(options_.max_write_buffer_number * 2),
+          ToString(options_.max_write_buffer_number * 4)}},
         {"arena_block_size",
          {
-             ToString(Options().arena_block_size),
-             ToString(FLAGS_write_buffer_size / 4),
-             ToString(FLAGS_write_buffer_size / 8),
+             ToString(options_.arena_block_size),
+             ToString(options_.write_buffer_size / 4),
+             ToString(options_.write_buffer_size / 8),
          }},
         {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
         {"max_successive_merges", {"0", "2", "4"}},
@@ -1337,47 +1346,47 @@ class StressTest {
         {"hard_rate_limit", {"0", "1.1", "2.0"}},
         {"level0_file_num_compaction_trigger",
          {
-             ToString(FLAGS_level0_file_num_compaction_trigger),
-             ToString(FLAGS_level0_file_num_compaction_trigger + 2),
-             ToString(FLAGS_level0_file_num_compaction_trigger + 4),
+             ToString(options_.level0_file_num_compaction_trigger),
+             ToString(options_.level0_file_num_compaction_trigger + 2),
+             ToString(options_.level0_file_num_compaction_trigger + 4),
          }},
         {"level0_slowdown_writes_trigger",
          {
-             ToString(FLAGS_level0_slowdown_writes_trigger),
-             ToString(FLAGS_level0_slowdown_writes_trigger + 2),
-             ToString(FLAGS_level0_slowdown_writes_trigger + 4),
+             ToString(options_.level0_slowdown_writes_trigger),
+             ToString(options_.level0_slowdown_writes_trigger + 2),
+             ToString(options_.level0_slowdown_writes_trigger + 4),
          }},
         {"level0_stop_writes_trigger",
          {
-             ToString(FLAGS_level0_stop_writes_trigger),
-             ToString(FLAGS_level0_stop_writes_trigger + 2),
-             ToString(FLAGS_level0_stop_writes_trigger + 4),
+             ToString(options_.level0_stop_writes_trigger),
+             ToString(options_.level0_stop_writes_trigger + 2),
+             ToString(options_.level0_stop_writes_trigger + 4),
          }},
         {"max_compaction_bytes",
          {
-             ToString(FLAGS_target_file_size_base * 5),
-             ToString(FLAGS_target_file_size_base * 15),
-             ToString(FLAGS_target_file_size_base * 100),
+             ToString(options_.target_file_size_base * 5),
+             ToString(options_.target_file_size_base * 15),
+             ToString(options_.target_file_size_base * 100),
          }},
         {"target_file_size_base",
          {
-             ToString(FLAGS_target_file_size_base),
-             ToString(FLAGS_target_file_size_base * 2),
-             ToString(FLAGS_target_file_size_base * 4),
+             ToString(options_.target_file_size_base),
+             ToString(options_.target_file_size_base * 2),
+             ToString(options_.target_file_size_base * 4),
          }},
         {"target_file_size_multiplier",
          {
-             ToString(FLAGS_target_file_size_multiplier), "1", "2",
+             ToString(options_.target_file_size_multiplier), "1", "2",
          }},
         {"max_bytes_for_level_base",
          {
-             ToString(FLAGS_max_bytes_for_level_base / 2),
-             ToString(FLAGS_max_bytes_for_level_base),
-             ToString(FLAGS_max_bytes_for_level_base * 2),
+             ToString(options_.max_bytes_for_level_base / 2),
+             ToString(options_.max_bytes_for_level_base),
+             ToString(options_.max_bytes_for_level_base * 2),
          }},
         {"max_bytes_for_level_multiplier",
          {
-             ToString(FLAGS_max_bytes_for_level_multiplier), "1", "2",
+             ToString(options_.max_bytes_for_level_multiplier), "1", "2",
          }},
         {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
         {"use_direct_reads", {"false", "true"}},
@@ -1394,8 +1403,8 @@ class StressTest {
 
   bool Run() {
     PrintEnv();
-    BuildOptionsTable();
     Open();
+    BuildOptionsTable();
     SharedState shared(this);
     uint32_t n = shared.GetNumThreads();
 
@@ -2539,58 +2548,86 @@ class StressTest {
 #ifndef ROCKSDB_LITE
     assert(txn_db_ == nullptr);
 #endif
-    BlockBasedTableOptions block_based_options;
-    block_based_options.block_cache = cache_;
-    block_based_options.block_cache_compressed = compressed_cache_;
-    block_based_options.checksum = FLAGS_checksum_type_e;
-    block_based_options.block_size = FLAGS_block_size;
-    block_based_options.format_version = 2;
-    block_based_options.filter_policy = filter_policy_;
-    options_.table_factory.reset(
-        NewBlockBasedTableFactory(block_based_options));
-    options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
-    options_.write_buffer_size = FLAGS_write_buffer_size;
-    options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
-    options_.min_write_buffer_number_to_merge =
-        FLAGS_min_write_buffer_number_to_merge;
-    options_.max_write_buffer_number_to_maintain =
-        FLAGS_max_write_buffer_number_to_maintain;
-    options_.memtable_prefix_bloom_size_ratio =
-        FLAGS_memtable_prefix_bloom_size_ratio;
-    options_.max_background_compactions = FLAGS_max_background_compactions;
-    options_.max_background_flushes = FLAGS_max_background_flushes;
-    options_.compaction_style =
-        static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
-    options_.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
-    options_.max_open_files = FLAGS_open_files;
-    options_.statistics = dbstats;
-    options_.env = FLAGS_env;
-    options_.use_fsync = FLAGS_use_fsync;
-    options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
-    options_.allow_mmap_reads = FLAGS_mmap_read;
-    options_.allow_mmap_writes = FLAGS_mmap_write;
-    options_.use_direct_reads = FLAGS_use_direct_reads;
-    options_.use_direct_io_for_flush_and_compaction =
-        FLAGS_use_direct_io_for_flush_and_compaction;
-    options_.target_file_size_base = FLAGS_target_file_size_base;
-    options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
-    options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
-    options_.max_bytes_for_level_multiplier =
-        FLAGS_max_bytes_for_level_multiplier;
-    options_.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
-    options_.level0_slowdown_writes_trigger =
-        FLAGS_level0_slowdown_writes_trigger;
-    options_.level0_file_num_compaction_trigger =
-        FLAGS_level0_file_num_compaction_trigger;
-    options_.compression = FLAGS_compression_type_e;
-    options_.create_if_missing = true;
-    options_.max_manifest_file_size = 10 * 1024;
-    options_.inplace_update_support = FLAGS_in_place_update;
-    options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
-    options_.allow_concurrent_memtable_write =
-        FLAGS_allow_concurrent_memtable_write;
-    options_.enable_write_thread_adaptive_yield =
-        FLAGS_enable_write_thread_adaptive_yield;
+    if (FLAGS_options_file.empty()) {
+      BlockBasedTableOptions block_based_options;
+      block_based_options.block_cache = cache_;
+      block_based_options.block_cache_compressed = compressed_cache_;
+      block_based_options.checksum = FLAGS_checksum_type_e;
+      block_based_options.block_size = FLAGS_block_size;
+      block_based_options.format_version = 2;
+      block_based_options.filter_policy = filter_policy_;
+      options_.table_factory.reset(
+          NewBlockBasedTableFactory(block_based_options));
+      options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
+      options_.write_buffer_size = FLAGS_write_buffer_size;
+      options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
+      options_.min_write_buffer_number_to_merge =
+          FLAGS_min_write_buffer_number_to_merge;
+      options_.max_write_buffer_number_to_maintain =
+          FLAGS_max_write_buffer_number_to_maintain;
+      options_.memtable_prefix_bloom_size_ratio =
+          FLAGS_memtable_prefix_bloom_size_ratio;
+      options_.max_background_compactions = FLAGS_max_background_compactions;
+      options_.max_background_flushes = FLAGS_max_background_flushes;
+      options_.compaction_style =
+          static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
+      options_.prefix_extractor.reset(
+          NewFixedPrefixTransform(FLAGS_prefix_size));
+      options_.max_open_files = FLAGS_open_files;
+      options_.statistics = dbstats;
+      options_.env = FLAGS_env;
+      options_.use_fsync = FLAGS_use_fsync;
+      options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
+      options_.allow_mmap_reads = FLAGS_mmap_read;
+      options_.allow_mmap_writes = FLAGS_mmap_write;
+      options_.use_direct_reads = FLAGS_use_direct_reads;
+      options_.use_direct_io_for_flush_and_compaction =
+          FLAGS_use_direct_io_for_flush_and_compaction;
+      options_.target_file_size_base = FLAGS_target_file_size_base;
+      options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
+      options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
+      options_.max_bytes_for_level_multiplier =
+          FLAGS_max_bytes_for_level_multiplier;
+      options_.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
+      options_.level0_slowdown_writes_trigger =
+          FLAGS_level0_slowdown_writes_trigger;
+      options_.level0_file_num_compaction_trigger =
+          FLAGS_level0_file_num_compaction_trigger;
+      options_.compression = FLAGS_compression_type_e;
+      options_.create_if_missing = true;
+      options_.max_manifest_file_size = 10 * 1024;
+      options_.inplace_update_support = FLAGS_in_place_update;
+      options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
+      options_.allow_concurrent_memtable_write =
+          FLAGS_allow_concurrent_memtable_write;
+      options_.enable_write_thread_adaptive_yield =
+          FLAGS_enable_write_thread_adaptive_yield;
+      options_.compaction_options_universal.size_ratio =
+          FLAGS_universal_size_ratio;
+      options_.compaction_options_universal.min_merge_width =
+          FLAGS_universal_min_merge_width;
+      options_.compaction_options_universal.max_merge_width =
+          FLAGS_universal_max_merge_width;
+      options_.compaction_options_universal.max_size_amplification_percent =
+          FLAGS_universal_max_size_amplification_percent;
+    } else {
+#ifdef ROCKSDB_LITE
+      fprintf(stderr, "--options_file not supported in lite mode\n");
+      exit(1);
+#else
+      DBOptions db_options;
+      std::vector<ColumnFamilyDescriptor> cf_descriptors;
+      Status s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(),
+                                     &db_options, &cf_descriptors);
+      if (!s.ok()) {
+        fprintf(stderr, "Unable to load options file %s --- %s\n",
+                FLAGS_options_file.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+      options_ = Options(db_options, cf_descriptors[0].options);
+#endif  // ROCKSDB_LITE
+    }
+
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
       options_.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
@@ -2635,24 +2672,6 @@ class StressTest {
       options_.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
     } else {
       options_.merge_operator = MergeOperators::CreatePutOperator();
-    }
-
-    // set universal style compaction configurations, if applicable
-    if (FLAGS_universal_size_ratio != 0) {
-      options_.compaction_options_universal.size_ratio =
-          FLAGS_universal_size_ratio;
-    }
-    if (FLAGS_universal_min_merge_width != 0) {
-      options_.compaction_options_universal.min_merge_width =
-          FLAGS_universal_min_merge_width;
-    }
-    if (FLAGS_universal_max_merge_width != 0) {
-      options_.compaction_options_universal.max_merge_width =
-          FLAGS_universal_max_merge_width;
-    }
-    if (FLAGS_universal_max_size_amplification_percent != 0) {
-      options_.compaction_options_universal.max_size_amplification_percent =
-          FLAGS_universal_max_size_amplification_percent;
     }
 
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
