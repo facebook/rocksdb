@@ -258,6 +258,11 @@ class Env {
   // Delete the named file.
   virtual Status DeleteFile(const std::string& fname) = 0;
 
+  // Truncate the named file to the specified size.
+  virtual Status Truncate(const std::string& /*fname*/, size_t /*size*/) {
+    return Status::NotSupported("Truncate is not supported for this Env");
+  }
+
   // Create the specified directory. Returns error if directory exists.
   virtual Status CreateDir(const std::string& dirname) = 0;
 
