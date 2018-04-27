@@ -1052,11 +1052,6 @@ Status PosixRandomRWFile::Close() {
   return Status::OK();
 }
 
-PosixMemoryMappedFileBuffer::~PosixMemoryMappedFileBuffer() {
-  // TODO should have error handling though not much we can do...
-  munmap(this->base, length);
-}
-
 /*
  * PosixDirectory
  */
