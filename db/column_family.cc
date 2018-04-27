@@ -995,11 +995,13 @@ const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
 Compaction* ColumnFamilyData::CompactRange(
     const MutableCFOptions& mutable_cf_options, int input_level,
-    int output_level, uint32_t output_path_id, const InternalKey* begin,
-    const InternalKey* end, InternalKey** compaction_end, bool* conflict) {
+    int output_level, uint32_t output_path_id, uint32_t max_subcompactions,
+    const InternalKey* begin, const InternalKey* end,
+    InternalKey** compaction_end, bool* conflict) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, current_->storage_info(), input_level,
-      output_level, output_path_id, begin, end, compaction_end, conflict);
+      output_level, output_path_id, max_subcompactions, begin, end,
+      compaction_end, conflict);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
