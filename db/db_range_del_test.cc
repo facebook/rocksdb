@@ -23,12 +23,6 @@ class DBRangeDelTest : public DBTestBase {
   }
 };
 
-const int kRangeDelSkipConfigs =
-    // Plain tables do not support range deletions.
-    DBRangeDelTest::kSkipPlainTable |
-    // MmapReads disables the iterator pinning that RangeDelAggregator requires.
-    DBRangeDelTest::kSkipMmapReads;
-
 // PlainTableFactory and NumTableFilesAtLevel() are not supported in
 // ROCKSDB_LITE
 #ifndef ROCKSDB_LITE

@@ -32,9 +32,12 @@ struct ExternalSstFileInfo {
       : file_path(""),
         smallest_key(""),
         largest_key(""),
+        smallest_range_del_key(""),
+        largest_range_del_key(""),
         sequence_number(0),
         file_size(0),
         num_entries(0),
+        num_range_del_entries(0),
         version(0) {}
 
   ExternalSstFileInfo(const std::string& _file_path,
@@ -45,17 +48,24 @@ struct ExternalSstFileInfo {
       : file_path(_file_path),
         smallest_key(_smallest_key),
         largest_key(_largest_key),
+        smallest_range_del_key(""),
+        largest_range_del_key(""),
         sequence_number(_sequence_number),
         file_size(_file_size),
         num_entries(_num_entries),
+        num_range_del_entries(0),
         version(_version) {}
 
-  std::string file_path;           // external sst file path
-  std::string smallest_key;        // smallest user key in file
-  std::string largest_key;         // largest user key in file
-  SequenceNumber sequence_number;  // sequence number of all keys in file
-  uint64_t file_size;              // file size in bytes
-  uint64_t num_entries;            // number of entries in file
+  std::string file_path;     // external sst file path
+  std::string smallest_key;  // smallest user key in file
+  std::string largest_key;   // largest user key in file
+  std::string
+      smallest_range_del_key;  // smallest range deletion user key in file
+  std::string largest_range_del_key;  // largest range deletion user key in file
+  SequenceNumber sequence_number;     // sequence number of all keys in file
+  uint64_t file_size;                 // file size in bytes
+  uint64_t num_entries;               // number of entries in file
+  uint64_t num_range_del_entries;  // number of range deletion entries in file
   int32_t version;                 // file version
 };
 
@@ -105,6 +115,9 @@ class SstFileWriter {
   // Add a deletion key to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
   Status Delete(const Slice& user_key);
+
+  // Add a range deletion tombstone to currently opened file
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
   // Finalize writing to sst file and close file.
   //

@@ -78,7 +78,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   for (IngestedFileInfo& f : files_to_ingest_) {
-    if (f.num_entries == 0) {
+    if (f.num_entries == 0 && f.num_range_deletions == 0) {
       return Status::InvalidArgument("File contain no entries");
     }
 
@@ -358,6 +358,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   }
   // Get number of entries in table
   file_to_ingest->num_entries = props->num_entries;
+  file_to_ingest->num_range_deletions = props->num_range_deletions;
 
   ParsedInternalKey key;
   ReadOptions ro;
@@ -369,26 +370,55 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   ro.fill_cache = false;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get()));
+  std::unique_ptr<InternalIterator> range_del_iter(
+      table_reader->NewRangeTombstoneIterator(ro));
 
-  // Get first (smallest) key from file
+  // Get first (smallest) and last (largest) key from file.
+  bool bounds_set = false;
   iter->SeekToFirst();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
-  }
-  if (key.sequence != 0) {
-    return Status::Corruption("external file have non zero sequence number");
-  }
-  file_to_ingest->smallest_user_key = key.user_key.ToString();
+  if (iter->Valid()) {
+    if (!ParseInternalKey(iter->key(), &key)) {
+      return Status::Corruption("external file have corrupted keys");
+    }
+    if (key.sequence != 0) {
+      return Status::Corruption("external file have non zero sequence number");
+    }
+    file_to_ingest->smallest_user_key = key.user_key.ToString();
 
-  // Get last (largest) key from file
-  iter->SeekToLast();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+    iter->SeekToLast();
+    if (!ParseInternalKey(iter->key(), &key)) {
+      return Status::Corruption("external file have corrupted keys");
+    }
+    if (key.sequence != 0) {
+      return Status::Corruption("external file have non zero sequence number");
+    }
+    file_to_ingest->largest_user_key = key.user_key.ToString();
+
+    bounds_set = true;
   }
-  if (key.sequence != 0) {
-    return Status::Corruption("external file have non zero sequence number");
+
+  // We may need to adjust these key bounds, depending on whether any range
+  // deletion tombstones extend past them.
+  const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
+  if (range_del_iter != nullptr) {
+    for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
+         range_del_iter->Next()) {
+      if (!ParseInternalKey(range_del_iter->key(), &key)) {
+        return Status::Corruption("external file have corrupted keys");
+      }
+      RangeTombstone tombstone(key, range_del_iter->value());
+
+      if (!bounds_set || ucmp->Compare(tombstone.start_key_,
+                                       file_to_ingest->smallest_user_key) < 0) {
+        file_to_ingest->smallest_user_key = tombstone.start_key_.ToString();
+      }
+      if (!bounds_set || ucmp->Compare(tombstone.end_key_,
+                                       file_to_ingest->largest_user_key) > 0) {
+        file_to_ingest->largest_user_key = tombstone.end_key_.ToString();
+      }
+      bounds_set = true;
+    }
   }
-  file_to_ingest->largest_user_key = key.user_key.ToString();
 
   file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
 

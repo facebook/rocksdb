@@ -435,10 +435,6 @@ Status RangeDelAggregator::AddTombstones(
   input->SeekToFirst();
   bool first_iter = true;
   while (input->Valid()) {
-    // The tombstone map holds slices into the iterator's memory. This assert
-    // ensures pinning the iterator also pins the keys/values.
-    assert(input->IsKeyPinned() && input->IsValuePinned());
-
     if (first_iter) {
       if (rep_ == nullptr) {
         InitRep({upper_bound_});
@@ -448,10 +444,29 @@ Status RangeDelAggregator::AddTombstones(
       first_iter = false;
     }
     ParsedInternalKey parsed_key;
-    if (!ParseInternalKey(input->key(), &parsed_key)) {
+    bool parsed;
+    if (input->IsKeyPinned()) {
+      parsed = ParseInternalKey(input->key(), &parsed_key);
+    } else {
+      // The tombstone map holds slices into the iterator's memory. Make a
+      // copy of the key if it is not pinned.
+      rep_->pinned_slices_.emplace_back(input->key().data(),
+                                        input->key().size());
+      parsed = ParseInternalKey(rep_->pinned_slices_.back(), &parsed_key);
+    }
+    if (!parsed) {
       return Status::Corruption("Unable to parse range tombstone InternalKey");
     }
-    RangeTombstone tombstone(parsed_key, input->value());
+    RangeTombstone tombstone;
+    if (input->IsValuePinned()) {
+      tombstone = RangeTombstone(parsed_key, input->value());
+    } else {
+      // The tombstone map holds slices into the iterator's memory. Make a
+      // copy of the value if it is not pinned.
+      rep_->pinned_slices_.emplace_back(input->value().data(),
+                                        input->value().size());
+      tombstone = RangeTombstone(parsed_key, rep_->pinned_slices_.back());
+    }
     // Truncate the tombstone to the range [smallest, largest].
     if (smallest != nullptr) {
       if (icmp_.user_comparator()->Compare(
