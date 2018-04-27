@@ -150,7 +150,6 @@ DEFINE_string(
     "reads\n"
     "\treadrandomwriterandom -- N threads doing random-read, "
     "random-write\n"
-    "\tprefixscanrandom      -- prefix scan N times in random order\n"
     "\tupdaterandom  -- N threads doing read-modify-write for random "
     "keys\n"
     "\txorupdaterandom  -- N threads doing read-XOR-write for "
