@@ -292,7 +292,7 @@ Status TransactionDB::WrapStackableDB(
   assert(dbptr != nullptr);
   *dbptr = nullptr;
 
-  std::unique_ptr<DB> root(db);
+  std::unique_ptr<StackableDB> root(db);
   std::unique_ptr<PessimisticTransactionDB> txn_db;
 
   switch (txn_db_options.write_policy) {
