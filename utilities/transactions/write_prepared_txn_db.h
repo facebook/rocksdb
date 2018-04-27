@@ -350,9 +350,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   std::map<uint32_t, const Comparator*>* GetCFComparatorMap() {
     return cf_map_.load();
   }
+  std::map<uint32_t, ColumnFamilyHandle*>* GetCFHandleMap() {
+    return handle_map_.load();
+  }
   void UpdateCFComparatorMap(
       const std::vector<ColumnFamilyHandle*>& handles) override;
-  void UpdateCFComparatorMap(const ColumnFamilyHandle* handle) override;
+  void UpdateCFComparatorMap(ColumnFamilyHandle* handle) override;
 
   virtual const Snapshot* GetSnapshot() override;
 
@@ -598,6 +601,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   std::atomic<std::map<uint32_t, const Comparator*>*> cf_map_;
   // GC of the object above
   std::unique_ptr<std::map<uint32_t, const Comparator*>> cf_map_gc_;
+  // A cache of the cf handles
+  std::atomic<std::map<uint32_t, ColumnFamilyHandle*>*> handle_map_;
+  // GC of the object above
+  std::unique_ptr<std::map<uint32_t, ColumnFamilyHandle*>> handle_map_gc_;
 };
 
 class WritePreparedTxnReadCallback : public ReadCallback {

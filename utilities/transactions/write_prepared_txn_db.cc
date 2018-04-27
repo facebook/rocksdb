@@ -230,25 +230,39 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
 void WritePreparedTxnDB::UpdateCFComparatorMap(
     const std::vector<ColumnFamilyHandle*>& handles) {
   auto cf_map = new std::map<uint32_t, const Comparator*>();
+  auto handle_map = new std::map<uint32_t, ColumnFamilyHandle*>();
   for (auto h : handles) {
     auto id = h->GetID();
     const Comparator* comparator = h->GetComparator();
     (*cf_map)[id] = comparator;
+    if (id != 0) { // this pointer to the default cf handle will be deleted
+      (*handle_map)[id] = h;
+    } else {
+      (*handle_map)[id] = DefaultColumnFamily();
+    }
   }
   cf_map_.store(cf_map);
   cf_map_gc_.reset(cf_map);
+  handle_map_.store(handle_map);
+  handle_map_gc_.reset(handle_map);
 }
 
 void WritePreparedTxnDB::UpdateCFComparatorMap(
-    const ColumnFamilyHandle* h) {
+    ColumnFamilyHandle* h) {
   auto old_cf_map_ptr = cf_map_.load();
   assert(old_cf_map_ptr);
   auto cf_map = new std::map<uint32_t, const Comparator*>(*old_cf_map_ptr);
+  auto old_handle_map_ptr = handle_map_.load();
+  assert(old_handle_map_ptr);
+  auto handle_map = new std::map<uint32_t, ColumnFamilyHandle*>(*old_handle_map_ptr);
   auto id = h->GetID();
   const Comparator* comparator = h->GetComparator();
   (*cf_map)[id] = comparator;
+  (*handle_map)[id] = h;
   cf_map_.store(cf_map);
   cf_map_gc_.reset(cf_map);
+  handle_map_.store(handle_map);
+  handle_map_gc_.reset(handle_map);
 }
 
 
