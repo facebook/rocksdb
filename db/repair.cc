@@ -462,7 +462,6 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      // TODO(Zhongyi): OK to use nullptr for prefix_extractor here?
       status = table_cache_->GetTableProperties(env_options_, icmp_, t->meta.fd,
                                                 &props);
     }
