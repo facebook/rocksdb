@@ -87,8 +87,6 @@ RandomAccessFile::~RandomAccessFile() {
 WritableFile::~WritableFile() {
 }
 
-MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
-
 Logger::~Logger() {}
 
 Status Logger::Close() {

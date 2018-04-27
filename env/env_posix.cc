@@ -457,47 +457,6 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  virtual Status NewMemoryMappedFileBuffer(
-      const std::string& fname,
-      unique_ptr<MemoryMappedFileBuffer>* result) override {
-    int fd = -1;
-    Status status;
-    while (fd < 0) {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_RDWR, 0644);
-      if (fd < 0) {
-        // Error while opening the file
-        if (errno == EINTR) {
-          continue;
-        }
-        status =
-            IOError("While open file for raw mmap buffer access", fname, errno);
-        break;
-      }
-    }
-    uint64_t size;
-    if (status.ok()) {
-      status = GetFileSize(fname, &size);
-    }
-    void* base = nullptr;
-    if (status.ok()) {
-      base = mmap(nullptr, static_cast<size_t>(size), PROT_READ | PROT_WRITE,
-                  MAP_SHARED, fd, 0);
-      if (base == MAP_FAILED) {
-        status = IOError("while mmap file for read", fname, errno);
-      }
-    }
-    if (status.ok()) {
-      result->reset(
-          new PosixMemoryMappedFileBuffer(base, static_cast<size_t>(size)));
-    }
-    if (fd >= 0) {
-      // don't need to keep it open after mmap has been called
-      close(fd);
-    }
-    return status;
-  }
-
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     result->reset();
