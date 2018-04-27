@@ -40,6 +40,7 @@ class Compaction {
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
+             uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
@@ -241,6 +242,8 @@ class Compaction {
 
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
+  uint32_t max_subcompactions() const { return max_subcompactions_; }
+
   uint64_t MaxInputFileCreationTime() const;
 
  private:
@@ -267,6 +270,7 @@ class Compaction {
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
+  uint32_t max_subcompactions_;
   const ImmutableCFOptions immutable_cf_options_;
   const MutableCFOptions mutable_cf_options_;
   Version* input_version_;

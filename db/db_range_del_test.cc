@@ -433,8 +433,8 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd(),
       1 /* input_level */, 2 /* output_level */, 0 /* output_path_id */,
-      nullptr /* begin */, nullptr /* end */, true /* exclusive */,
-      true /* disallow_trivial_move */));
+      0 /* max_subcompactions */, nullptr /* begin */, nullptr /* end */,
+      true /* exclusive */, true /* disallow_trivial_move */));
 }
 #endif  // ROCKSDB_LITE
 

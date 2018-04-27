@@ -531,7 +531,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
                 c->mutable_cf_options()->MaxFileSizeForLevel(out_lvl)));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
-                static_cast<uint64_t>(db_options_.max_subcompactions),
+                static_cast<uint64_t>(c->max_subcompactions()),
                 max_output_files});
 
   if (subcompactions > 1) {
