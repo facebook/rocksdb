@@ -428,7 +428,7 @@ ColumnFamilyData::ColumnFamilyData(
       flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       queued_for_flush_(false),
-      pending_compaction_(false),
+      queued_for_compaction_(false),
       prev_compaction_needed_bytes_(0),
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0) {
@@ -505,7 +505,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   // It would be wrong if this ColumnFamilyData is in flush_queue_ or
   // compaction_queue_ and we destroyed it
   assert(!queued_for_flush_);
-  assert(!pending_compaction_);
+  assert(!queued_for_compaction_);
 
   if (super_version_ != nullptr) {
     // Release SuperVersion reference kept in ThreadLocalPtr.
