@@ -345,9 +345,9 @@ class ColumnFamilyData {
   void ResetThreadLocalSuperVersions();
 
   // Protected by DB mutex
-  void set_pending_flush(bool value) { pending_flush_ = value; }
+  void set_queued_for_flush(bool value) { queued_for_flush_ = value; }
   void set_pending_compaction(bool value) { pending_compaction_ = value; }
-  bool pending_flush() { return pending_flush_; }
+  bool queued_for_flush() { return queued_for_flush_; }
   bool pending_compaction() { return pending_compaction_; }
 
   enum class WriteStallCause {
@@ -453,7 +453,7 @@ class ColumnFamilyData {
   std::unique_ptr<WriteControllerToken> write_controller_token_;
 
   // If true --> this ColumnFamily is currently present in DBImpl::flush_queue_
-  bool pending_flush_;
+  bool queued_for_flush_;
 
   // If true --> this ColumnFamily is currently present in
   // DBImpl::compaction_queue_
