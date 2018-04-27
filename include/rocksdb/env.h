@@ -259,7 +259,7 @@ class Env {
   virtual Status DeleteFile(const std::string& fname) = 0;
 
   // Truncate the named file to the specified size.
-  virtual Status Truncate(const std::string& fname, size_t size) {
+  virtual Status Truncate(const std::string& /*fname*/, size_t /*size*/) {
     return Status::NotSupported("Truncate is not supported for this Env");
   }
 
