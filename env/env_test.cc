@@ -200,41 +200,6 @@ TEST_F(EnvPosixTest, DISABLED_FilePermission) {
 }
 #endif
 
-TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
-  const int kFileBytes = 1 << 15;  // 32 KB
-  std::string expected_data;
-  std::string fname = test::TmpDir(env_) + "/" + "testfile";
-  {
-    unique_ptr<WritableFile> wfile;
-    const EnvOptions soptions;
-    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
-
-    Random rnd(301);
-    test::RandomString(&rnd, kFileBytes, &expected_data);
-    ASSERT_OK(wfile->Append(expected_data));
-  }
-
-  std::unique_ptr<MemoryMappedFileBuffer> mmap_buffer;
-  Status status = env_->NewMemoryMappedFileBuffer(fname, &mmap_buffer);
-  // it should be supported at least on linux
-#if !defined(OS_LINUX)
-  if (status.IsNotSupported()) {
-    fprintf(stderr,
-            "skipping EnvPosixTest.MemoryMappedFileBuffer due to "
-            "unsupported Env::NewMemoryMappedFileBuffer\n");
-    return;
-  }
-#endif  // !defined(OS_LINUX)
-
-  ASSERT_OK(status);
-  ASSERT_NE(nullptr, mmap_buffer.get());
-  ASSERT_NE(nullptr, mmap_buffer->base);
-  ASSERT_EQ(kFileBytes, mmap_buffer->length);
-  std::string actual_data(static_cast<char*>(mmap_buffer->base),
-                          mmap_buffer->length);
-  ASSERT_EQ(expected_data, actual_data);
-}
-
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);

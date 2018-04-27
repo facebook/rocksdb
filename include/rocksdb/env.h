@@ -42,7 +42,6 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
-struct MemoryMappedFileBuffer;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
@@ -203,16 +202,6 @@ class Env {
                                  unique_ptr<RandomRWFile>* /*result*/,
                                  const EnvOptions& /*options*/) {
     return Status::NotSupported("RandomRWFile is not implemented in this Env");
-  }
-
-  // Opens `fname` as a memory-mapped file for read and write (in-place updates
-  // only, i.e., no appends). On success, stores a raw buffer covering the whole
-  // file in `*result`. The file must exist prior to this call.
-  virtual Status NewMemoryMappedFileBuffer(
-      const std::string& /*fname*/,
-      unique_ptr<MemoryMappedFileBuffer>* /*result*/) {
-    return Status::NotSupported(
-        "MemoryMappedFileBuffer is not implemented in this Env");
   }
 
   // Create an object that represents a directory. Will fail if directory
@@ -818,17 +807,6 @@ class RandomRWFile {
   // No copying allowed
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;
-};
-
-// MemoryMappedFileBuffer object represents a memory-mapped file's raw buffer.
-// Subclasses should release the mapping upon destruction.
-struct MemoryMappedFileBuffer {
-  MemoryMappedFileBuffer(void* _base, size_t _length)
-      : base(_base), length(_length) {}
-  virtual ~MemoryMappedFileBuffer() = 0;
-
-  void* const base;
-  const size_t length;
 };
 
 // Directory object represents collection of files and implements
