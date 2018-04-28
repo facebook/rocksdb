@@ -946,9 +946,7 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   }
 
   // prefix is the first letter of the key
-  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-
-  DestroyAndReopen(options);
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:1"}}));
   ASSERT_OK(Put("a", "0"));
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("foo1", "bar1"));
