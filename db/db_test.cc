@@ -5442,7 +5442,7 @@ TEST_F(DBTest, HardLimit) {
   sleeping_task_low.WaitUntilDone();
 }
 
-#ifndef ROCKSDB_LITE
+#if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 class WriteStallListener : public EventListener {
  public:
   WriteStallListener() : cond_(&mutex_), 
@@ -5664,7 +5664,7 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
 }
-#endif  // ROCKSDB_LITE
+#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
