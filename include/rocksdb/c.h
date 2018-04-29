@@ -373,6 +373,9 @@ extern ROCKSDB_LIBRARY_API const rocksdb_livefiles_t* rocksdb_livefiles(
 extern ROCKSDB_LIBRARY_API void rocksdb_flush(
     rocksdb_t* db, const rocksdb_flushoptions_t* options, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(
+    rocksdb_t* db, unsigned char sync, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
                                                                char** errptr);
 
@@ -894,6 +897,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bytes_per_sync(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_bytes_per_sync(
         rocksdb_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
+        rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void

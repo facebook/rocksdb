@@ -1166,6 +1166,13 @@ void rocksdb_flush(
   SaveError(errptr, db->rep->Flush(options->rep));
 }
 
+void rocksdb_flush_wal(
+    rocksdb_t* db,
+    unsigned char sync,
+    char** errptr) {
+  SaveError(errptr, db->rep->FlushWAL(sync));
+}
+
 void rocksdb_disable_file_deletions(
     rocksdb_t* db,
     char** errptr) {
@@ -2360,6 +2367,11 @@ void rocksdb_options_set_use_adaptive_mutex(
 void rocksdb_options_set_wal_bytes_per_sync(
     rocksdb_options_t* opt, uint64_t v) {
   opt->rep.wal_bytes_per_sync = v;
+}
+
+void rocksdb_options_set_manual_wal_flush(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.manual_wal_flush = v;
 }
 
 void rocksdb_options_set_bytes_per_sync(
