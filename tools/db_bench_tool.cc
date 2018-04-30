@@ -45,6 +45,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
+#include "options/cf_options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/rate_limiter.h"
@@ -3795,7 +3796,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
           compactionOptions.output_file_size_limit =
-              mutable_cf_options.MaxFileSizeForLevel(
+              MaxFileSizeForLevel(mutable_cf_options,
                   static_cast<int>(output_level), compaction_style);
           std::cout << sorted_runs[i][j].size() << std::endl;
           db->CompactFiles(compactionOptions, {sorted_runs[i][j].back().name,
@@ -3847,7 +3848,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
           compactionOptions.output_file_size_limit =
-              mutable_cf_options.MaxFileSizeForLevel(
+              MaxFileSizeForLevel(mutable_cf_options,
                   static_cast<int>(output_level), compaction_style);
           db->CompactFiles(
               compactionOptions,
