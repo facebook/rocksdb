@@ -306,6 +306,14 @@ DEFINE_bool(use_block_based_filter, false, "use block based filter"
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
+DEFINE_string(
+    expected_values_path, "",
+    "File where the array of expected uint32_t values will be stored. If "
+    "provided and non-empty, the DB state will be verified against these "
+    "values after recovery. --max_key and --column_family must be kept the "
+    "same across invocations of this program that use the same "
+    "--expected_values_path.");
+
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
 
@@ -777,7 +785,11 @@ class Stats {
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
-  static const uint32_t SENTINEL;
+  // indicates a key may have any value (or not be present) as an operation on
+  // it is incomplete.
+  static const uint32_t UNKNOWN_SENTINEL;
+  // indicates a key should definitely be deleted
+  static const uint32_t DELETION_SENTINEL;
 
   explicit SharedState(StressTest* stress_test)
       : cv_(&mu_),
@@ -795,7 +807,8 @@ class SharedState {
         bg_thread_finished_(false),
         stress_test_(stress_test),
         verification_failure_(false),
-        no_overwrite_ids_(FLAGS_column_families) {
+        no_overwrite_ids_(FLAGS_column_families),
+        values_(nullptr) {
     // Pick random keys in each column family that will not experience
     // overwrite
 
@@ -829,14 +842,68 @@ class SharedState {
     }
     delete[] permutation;
 
+    size_t expected_values_size =
+        sizeof(std::atomic<uint32_t>) * FLAGS_column_families * max_key_;
+    bool values_init_needed = false;
+    Status status;
+    if (!FLAGS_expected_values_path.empty()) {
+      if (!std::atomic<uint32_t>{}.is_lock_free()) {
+        status = Status::InvalidArgument(
+            "Cannot use --expected_values_path on platforms without lock-free "
+            "std::atomic<uint32_t>");
+      }
+      if (status.ok() && FLAGS_clear_column_family_one_in > 0) {
+        status = Status::InvalidArgument(
+            "Cannot use --expected_values_path on when "
+            "--clear_column_family_one_in is greater than zero.");
+      }
+      size_t size;
+      if (status.ok()) {
+        status = FLAGS_env->GetFileSize(FLAGS_expected_values_path, &size);
+      }
+      unique_ptr<WritableFile> wfile;
+      if (status.ok() && size == 0) {
+        const EnvOptions soptions;
+        status = FLAGS_env->NewWritableFile(FLAGS_expected_values_path, &wfile,
+                                            soptions);
+      }
+      if (status.ok() && size == 0) {
+        std::string buf(expected_values_size, '\0');
+        status = wfile->Append(buf);
+        values_init_needed = true;
+      }
+      if (status.ok()) {
+        status = FLAGS_env->NewMemoryMappedFileBuffer(
+            FLAGS_expected_values_path, &expected_mmap_buffer_);
+      }
+      if (status.ok()) {
+        assert(expected_mmap_buffer_->length == expected_values_size);
+        values_ =
+            static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->base);
+        assert(values_ != nullptr);
+      } else {
+        fprintf(stderr, "Failed opening shared file '%s' with error: %s\n",
+                FLAGS_expected_values_path.c_str(), status.ToString().c_str());
+        assert(values_ == nullptr);
+      }
+    }
+    if (values_ == nullptr) {
+      values_ =
+          static_cast<std::atomic<uint32_t>*>(malloc(expected_values_size));
+      values_init_needed = true;
+    }
+    assert(values_ != nullptr);
+    if (values_init_needed) {
+      for (int i = 0; i < FLAGS_column_families; ++i) {
+        for (int j = 0; j < max_key_; ++j) {
+          Delete(i, j, false /* pending */);
+        }
+      }
+    }
+
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
       return;
-    }
-    values_.resize(FLAGS_column_families);
-
-    for (int i = 0; i < FLAGS_column_families; ++i) {
-      values_[i] = std::vector<uint32_t>(max_key_, SENTINEL);
     }
 
     long num_locks = static_cast<long>(max_key_ >> log2_keys_per_lock_);
@@ -944,27 +1011,57 @@ class SharedState {
     }
   }
 
+  std::atomic<uint32_t>& Value(int cf, int64_t key) const {
+    return values_[cf * max_key_ + key];
+  }
+
   void ClearColumnFamily(int cf) {
-    std::fill(values_[cf].begin(), values_[cf].end(), SENTINEL);
+    std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */),
+              DELETION_SENTINEL);
   }
 
-  void Put(int cf, int64_t key, uint32_t value_base) {
-    values_[cf][key] = value_base;
+  // @param pending True if the update may have started but is not yet
+  //    guaranteed finished. This is useful for crash-recovery testing when the
+  //    process may crash before updating the expected values array.
+  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
+    if (!pending) {
+      // prevent expected-value update from reordering before Write
+      std::atomic_thread_fence(std::memory_order_release);
+    }
+    Value(cf, key).store(pending ? UNKNOWN_SENTINEL : value_base,
+                         std::memory_order_relaxed);
+    if (pending) {
+      // prevent Write from reordering before expected-value update
+      std::atomic_thread_fence(std::memory_order_release);
+    }
   }
 
-  uint32_t Get(int cf, int64_t key) const { return values_[cf][key]; }
+  uint32_t Get(int cf, int64_t key) const { return Value(cf, key); }
 
-  void Delete(int cf, int64_t key) { values_[cf][key] = SENTINEL; }
+  // @param pending See comment above Put()
+  // Returns true if the key was not yet deleted.
+  bool Delete(int cf, int64_t key, bool pending) {
+    if (Value(cf, key) == DELETION_SENTINEL) {
+      return false;
+    }
+    Put(cf, key, DELETION_SENTINEL, pending);
+    return true;
+  }
 
-  void SingleDelete(int cf, int64_t key) { values_[cf][key] = SENTINEL; }
+  // @param pending See comment above Put()
+  // Returns true if the key was not yet deleted.
+  bool SingleDelete(int cf, int64_t key, bool pending) {
+    return Delete(cf, key, pending);
+  }
 
-  int DeleteRange(int cf, int64_t begin_key, int64_t end_key) {
+  // @param pending See comment above Put()
+  // Returns number of keys deleted by the call.
+  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
     int covered = 0;
     for (int64_t key = begin_key; key < end_key; ++key) {
-      if (values_[cf][key] != SENTINEL) {
+      if (Delete(cf, key, pending)) {
         ++covered;
       }
-      values_[cf][key] = SENTINEL;
     }
     return covered;
   }
@@ -973,7 +1070,15 @@ class SharedState {
     return no_overwrite_ids_[cf].find(key) == no_overwrite_ids_[cf].end();
   }
 
-  bool Exists(int cf, int64_t key) { return values_[cf][key] != SENTINEL; }
+  bool Exists(int cf, int64_t key) {
+    // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
+    // is disallowed can't be accidentally added a second time, in which case
+    // SingleDelete wouldn't be able to properly delete the key. It does allow
+    // the case where a SingleDelete might be added which covers nothing, but
+    // that's not a correctness issue.
+    uint32_t expected_value = Value(cf, key).load();
+    return expected_value != DELETION_SENTINEL;
+  }
 
   uint32_t GetSeed() const { return seed_; }
 
@@ -984,6 +1089,10 @@ class SharedState {
   void SetBgThreadFinish() { bg_thread_finished_ = true; }
 
   bool BgThreadFinished() const { return bg_thread_finished_; }
+
+  bool ShouldVerifyAtBeginning() const {
+    return expected_mmap_buffer_.get() != nullptr;
+  }
 
  private:
   port::Mutex mu_;
@@ -1006,13 +1115,15 @@ class SharedState {
   // Keys that should not be overwritten
   std::vector<std::unordered_set<size_t> > no_overwrite_ids_;
 
-  std::vector<std::vector<uint32_t>> values_;
+  std::atomic<uint32_t>* values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex> > > key_locks_;
+  std::unique_ptr<MemoryMappedFileBuffer> expected_mmap_buffer_;
 };
 
-const uint32_t SharedState::SENTINEL = 0xffffffff;
+const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
+const uint32_t SharedState::DELETION_SENTINEL = 0xffffffff;
 
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
@@ -1320,6 +1431,13 @@ class StressTest {
       while (!shared.AllInitialized()) {
         shared.GetCondVar()->Wait();
       }
+      if (shared.ShouldVerifyAtBeginning()) {
+        if (shared.HasVerificationFailedYet()) {
+          printf("Crash-recovery verification failed :(\n");
+        } else {
+          printf("Crash-recovery verification passed :)\n");
+        }
+      }
 
       auto now = FLAGS_env->NowMicros();
       fprintf(stdout, "%s Starting database operations\n",
@@ -1415,6 +1533,9 @@ class StressTest {
     ThreadState* thread = reinterpret_cast<ThreadState*>(v);
     SharedState* shared = thread->shared;
 
+    if (shared->ShouldVerifyAtBeginning()) {
+      thread->shared->GetStressTest()->VerifyDb(thread);
+    }
     {
       MutexLock l(shared->GetMutex());
       shared->IncInitialized();
@@ -1996,7 +2117,7 @@ class StressTest {
         }
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
-        uint32_t value_base = thread->rand.Next();
+        uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
         size_t sz = GenerateValue(value_base, value, sizeof(value));
         Slice v(value, sz);
         if (!FLAGS_test_batches_snapshots) {
@@ -2024,7 +2145,8 @@ class StressTest {
               break;
             }
           }
-          shared->Put(rand_column_family, rand_key, value_base);
+          shared->Put(rand_column_family, rand_key, value_base,
+                      true /* pending */);
           Status s;
           if (FLAGS_use_merge) {
             if (!FLAGS_use_txn) {
@@ -2057,6 +2179,8 @@ class StressTest {
 #endif
             }
           }
+          shared->Put(rand_column_family, rand_key, value_base,
+                      false /* pending */);
           if (!s.ok()) {
             fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
             std::terminate();
@@ -2088,7 +2212,7 @@ class StressTest {
           // Use delete if the key may be overwritten and a single deletion
           // otherwise.
           if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
-            shared->Delete(rand_column_family, rand_key);
+            shared->Delete(rand_column_family, rand_key, true /* pending */);
             Status s;
             if (!FLAGS_use_txn) {
               s = db_->Delete(write_opts, column_family, key);
@@ -2104,13 +2228,15 @@ class StressTest {
               }
 #endif
             }
+            shared->Delete(rand_column_family, rand_key, false /* pending */);
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
               std::terminate();
             }
           } else {
-            shared->SingleDelete(rand_column_family, rand_key);
+            shared->SingleDelete(rand_column_family, rand_key,
+                                 true /* pending */);
             Status s;
             if (!FLAGS_use_txn) {
               s = db_->SingleDelete(write_opts, column_family, key);
@@ -2126,6 +2252,8 @@ class StressTest {
               }
 #endif
             }
+            shared->SingleDelete(rand_column_family, rand_key,
+                                 false /* pending */);
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "single delete error: %s\n",
@@ -2159,21 +2287,24 @@ class StressTest {
                     shared->GetMutexForKey(rand_column_family, rand_key + j)));
             }
           }
+          shared->DeleteRange(rand_column_family, rand_key,
+                              rand_key + FLAGS_range_deletion_width,
+                              true /* pending */);
 
           keystr = Key(rand_key);
           key = keystr;
           column_family = column_families_[rand_column_family];
           std::string end_keystr = Key(rand_key + FLAGS_range_deletion_width);
           Slice end_key = end_keystr;
-          int covered = shared->DeleteRange(
-              rand_column_family, rand_key,
-              rand_key + FLAGS_range_deletion_width);
           Status s = db_->DeleteRange(write_opts, column_family, key, end_key);
           if (!s.ok()) {
             fprintf(stderr, "delete range error: %s\n",
                     s.ToString().c_str());
             std::terminate();
           }
+          int covered = shared->DeleteRange(
+              rand_column_family, rand_key,
+              rand_key + FLAGS_range_deletion_width, false /* pending */);
           thread->stats.AddRangeDeletions(1);
           thread->stats.AddCoveredByRangeDeletions(covered);
         }
@@ -2285,12 +2416,15 @@ class StressTest {
     // compare value_from_db with the value in the shared state
     char value[kValueMaxLen];
     uint32_t value_base = shared->Get(cf, key);
-    if (value_base == SharedState::SENTINEL && !strict) {
+    if (value_base == SharedState::UNKNOWN_SENTINEL) {
+      return true;
+    }
+    if (value_base == SharedState::DELETION_SENTINEL && !strict) {
       return true;
     }
 
     if (s.ok()) {
-      if (value_base == SharedState::SENTINEL) {
+      if (value_base == SharedState::DELETION_SENTINEL) {
         VerificationAbort(shared, "Unexpected value found", cf, key);
         return false;
       }
@@ -2305,7 +2439,7 @@ class StressTest {
         return false;
       }
     } else {
-      if (value_base != SharedState::SENTINEL) {
+      if (value_base != SharedState::DELETION_SENTINEL) {
         VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key);
         return false;
       }

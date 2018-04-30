@@ -16,14 +16,19 @@ import argparse
 #   for simple:
 #       simple_default_params < blackbox|whitebox_simple_default_params < args
 
+expected_values_file = tempfile.NamedTemporaryFile()
+
 default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
+    "clear_column_family_one_in": 0,
+    "compression_type": "snappy",
     "use_clock_cache": "false",
     "delpercent": 5,
     "destroy_db_initially": 0,
     "disable_wal": 0,
+    "expected_values_path": expected_values_file.name,
     "allow_concurrent_memtable_write": 0,
     "iterpercent": 10,
     "max_background_compactions": 20,
@@ -89,10 +94,13 @@ simple_default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
     "use_clock_cache": "false",
+    "clear_column_family_one_in": 0,
     "column_families": 1,
+    "compression_type": "snappy",
     "delpercent": 5,
     "destroy_db_initially": 0,
     "disable_wal": 0,
+    "expected_values_path": expected_values_file.name,
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "iterpercent": 10,
     "max_background_compactions": 1,
@@ -192,13 +200,16 @@ def blackbox_crash_main(args):
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
           + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
-          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n"
+          + "expected_values_path=" + str(cmd_params['expected_values_path']) + "\n")
 
     while time.time() < exit_time:
         run_had_errors = False
         killtime = time.time() + cmd_params['interval']
 
-        cmd = gen_cmd(dict(cmd_params.items() + {'db': dbname}.items()))
+        cmd = gen_cmd(dict(
+            cmd_params.items() +
+            {'db': dbname}.items()))
 
         child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
@@ -255,7 +266,8 @@ def whitebox_crash_main(args):
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
           + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
-          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n"
+          + "expected_values_path=" + str(cmd_params['expected_values_path']) + "\n")
 
     total_check_mode = 4
     check_mode = 0
@@ -360,6 +372,7 @@ def whitebox_crash_main(args):
             # we need to clean up after ourselves -- only do this on test
             # success
             shutil.rmtree(dbname, True)
+            cmd_params.pop('expected_values_path', None)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
