@@ -1071,8 +1071,12 @@ class SharedState {
   }
 
   bool Exists(int cf, int64_t key) {
+    // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
+    // is disallowed can't be accidentally added a second time, in which case
+    // SingleDelete wouldn't be able to properly delete the key. It does allow
+    // the case where a SingleDelete might be added which covers nothing, but
+    // that's not a correctness issue.
     uint32_t expected_value = Value(cf, key).load();
-    assert(expected_value != UNKNOWN_SENTINEL);
     return expected_value != DELETION_SENTINEL;
   }
 
