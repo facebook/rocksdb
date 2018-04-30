@@ -884,6 +884,10 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
             "background I/O");
 
+
+DEFINE_bool(write_rate_sine, false,
+            "Use a sine wave write_rate_limit");
+
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
@@ -1475,6 +1479,7 @@ class Stats {
  private:
   int id_;
   uint64_t start_;
+  uint64_t sine_interval_;
   uint64_t finish_;
   double seconds_;
   uint64_t done_;
@@ -1507,6 +1512,7 @@ class Stats {
     bytes_ = 0;
     seconds_ = 0;
     start_ = FLAGS_env->NowMicros();
+    sine_interval_ = FLAGS_env->NowMicros();
     finish_ = start_;
     last_report_finish_ = start_;
     message_.clear();
@@ -1577,6 +1583,18 @@ class Stats {
       }
       fprintf(stderr, "\n");
     }
+  }
+
+  void ResetSineInterval() {
+    sine_interval_ = FLAGS_env->NowMicros();
+  }
+
+  uint64_t GetSineInterval() {
+    return sine_interval_;
+  }
+
+  uint64_t GetStart() {
+    return start_;
   }
 
   void ResetLastOpTime() {
@@ -3711,6 +3729,19 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);
+      if (FLAGS_write_rate_sine) {
+        uint64_t now = FLAGS_env->NowMicros();
+
+        int64_t usecs_since_start = now - thread->stats.GetStart();
+        int64_t usecs_since_last = now - thread->stats.GetSineInterval();
+
+        if (FLAGS_stats_interval_seconds && usecs_since_last > (FLAGS_stats_interval_seconds * 1000000)) {
+          thread->stats.ResetSineInterval();
+          int test = (int) (75000000*cos(((usecs_since_start/1000)/(17500*3.14)) + 3.14) + 125000000);
+          thread->shared->write_rate_limiter.reset(
+                  NewGenericRateLimiter(test));
+        }
+      }
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
