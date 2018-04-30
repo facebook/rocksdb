@@ -1815,14 +1815,14 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
       assert(false);
   }
 
-  ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
+  ASSERT_TRUE(!db_impl->TEST_UnableToReleaseOldestLog());
 
   // request a flush for all column families such that the earliest
   // alive log file can be killed
   db_impl->TEST_SwitchWAL();
   // log cannot be flushed because txn2 has not been commited
   ASSERT_TRUE(!db_impl->TEST_IsLogGettingFlushed());
-  ASSERT_TRUE(db_impl->TEST_UnableToFlushOldestLog());
+  ASSERT_TRUE(db_impl->TEST_UnableToReleaseOldestLog());
 
   // assert that cfa has a flush requested
   ASSERT_TRUE(cfh_a->cfd()->imm()->HasFlushRequested());
@@ -1846,7 +1846,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   ASSERT_OK(s);
 
   db_impl->TEST_SwitchWAL();
-  ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
+  ASSERT_TRUE(!db_impl->TEST_UnableToReleaseOldestLog());
 
   // we should see that cfb now has a flush requested
   ASSERT_TRUE(cfh_b->cfd()->imm()->HasFlushRequested());

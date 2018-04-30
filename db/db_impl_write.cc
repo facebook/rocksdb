@@ -1033,29 +1033,33 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   }
 
   auto oldest_alive_log = alive_log_files_.begin()->number;
-  auto oldest_log_with_uncommited_prep =
-      logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
+  bool flush_will_release_oldest_log = false;
+  if (allow_2pc()) {
+    auto oldest_log_with_uncommited_prep =
+        logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
 
-  if (allow_2pc() &&
-      oldest_log_with_uncommited_prep > 0 &&
-      oldest_log_with_uncommited_prep <= oldest_alive_log) {
-    if (unable_to_flush_oldest_log_) {
+    if (oldest_log_with_uncommited_prep > 0 &&
+        oldest_log_with_uncommited_prep <= oldest_alive_log) {
+      if (unable_to_release_oldest_log_) {
         // we already attempted to flush all column families dependent on
         // the oldest alive log but the log still contained uncommited transactions.
         // the oldest alive log STILL contains uncommited transaction so there
         // is still nothing that we can do.
         return status;
-    } else {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Unable to release oldest log due to uncommited transaction");
-      unable_to_flush_oldest_log_ = true;
+      } else {
+        ROCKS_LOG_WARN(
+            immutable_db_options_.info_log,
+            "Unable to release oldest log due to uncommited transaction");
+        unable_to_release_oldest_log_ = true;
+        flush_will_release_oldest_log = true;
+      }
     }
-  } else {
+  }
+  if (!flush_will_release_oldest_log) {
     // we only mark this log as getting flushed if we have successfully
     // flushed all data in this log. If this log contains outstanding prepared
     // transactions then we cannot flush this log until those transactions are commited.
-    unable_to_flush_oldest_log_ = false;
+    unable_to_release_oldest_log_ = false;
     alive_log_files_.begin()->getting_flushed = true;
   }
 

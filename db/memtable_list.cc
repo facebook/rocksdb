@@ -12,6 +12,7 @@
 #include <inttypes.h>
 #include <limits>
 #include <string>
+#include "db/db_impl.h"
 #include "db/memtable.h"
 #include "db/version_set.h"
 #include "monitoring/thread_status_util.h"
@@ -318,88 +319,6 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   }
   imm_flush_needed.store(true, std::memory_order_release);
 }
-
-namespace {
-uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, ColumnFamilyData* cfd_to_flush,
-    const autovector<MemTable*>& memtables_to_flush) {
-  uint64_t min_log = 0;
-
-  // we must look through the memtables for two phase transactions
-  // that have been committed but not yet flushed
-  for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || loop_cfd == cfd_to_flush) {
-      continue;
-    }
-
-    auto log = loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(
-        memtables_to_flush);
-
-    if (log > 0 && (min_log == 0 || log < min_log)) {
-      min_log = log;
-    }
-
-    log = loop_cfd->mem()->GetMinLogContainingPrepSection();
-
-    if (log > 0 && (min_log == 0 || log < min_log)) {
-      min_log = log;
-    }
-  }
-
-  return min_log;
-}
-
-// Return the earliest log file to keep after the memtable flush is
-// finalized.
-uint64_t PrecomputeMinLogNumberToKeep(
-    ColumnFamilyData* cfd, autovector<VersionEdit*> edit_list,
-    const autovector<MemTable*>& memtables_to_flush,
-    LogsWithPrepTracker* prep_tracker, VersionSet* vset) {
-  assert(prep_tracker != nullptr);
-  // Calculate updated min_log_number_to_keep
-  // Only do it in 2PC mode, because in non-2pc mode, log number in
-  // the version edit should be sufficient.
-  uint64_t cf_min_log_number_to_keep = cfd->GetLogNumber();
-  for (auto& e : edit_list) {
-    if (e->has_log_number()) {
-      cf_min_log_number_to_keep =
-          std::max(cf_min_log_number_to_keep, e->log_number());
-    }
-  }
-
-  uint64_t min_log_number_to_keep = vset->PreComputeMinLogNumber(cfd);
-  if (cf_min_log_number_to_keep != 0) {
-    min_log_number_to_keep =
-        std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
-  }
-
-  // if are 2pc we must consider logs containing prepared
-  // sections of outstanding transactions.
-  //
-  // We must check min logs with outstanding prep before we check
-  // logs references by memtables because a log referenced by the
-  // first data structure could transition to the second under us.
-  //
-  // TODO: iterating over all column families under db mutex.
-  // should find more optimal solution
-  auto min_log_in_prep_heap =
-      prep_tracker->FindMinLogContainingOutstandingPrep();
-
-  if (min_log_in_prep_heap != 0 &&
-      min_log_in_prep_heap < min_log_number_to_keep) {
-    min_log_number_to_keep = min_log_in_prep_heap;
-  }
-
-  uint64_t min_log_refed_by_mem =
-      FindMinPrepLogReferencedByMemTable(vset, cfd, memtables_to_flush);
-
-  if (min_log_refed_by_mem != 0 &&
-      min_log_refed_by_mem < min_log_number_to_keep) {
-    min_log_number_to_keep = min_log_refed_by_mem;
-  }
-  return min_log_number_to_keep;
-}
-}  // namespace
 
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(

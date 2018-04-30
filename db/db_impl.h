@@ -369,9 +369,7 @@ class DBImpl : public DB {
 
   void TEST_SwitchWAL();
 
-  bool TEST_UnableToFlushOldestLog() {
-    return unable_to_flush_oldest_log_;
-  }
+  bool TEST_UnableToReleaseOldestLog() { return unable_to_release_oldest_log_; }
 
   bool TEST_IsLogGettingFlushed() {
     return alive_log_files_.begin()->getting_flushed;
@@ -730,7 +728,6 @@ class DBImpl : public DB {
                           uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
                           PreReleaseCallback* pre_release_callback = nullptr);
 
-  uint64_t FindMinPrepLogReferencedByMemTable();
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
   Status WriteRecoverableState();
@@ -1300,7 +1297,7 @@ class DBImpl : public DB {
   // We must attempt to free the dependent memtables again
   // at a later time after the transaction in the oldest
   // log is fully commited.
-  bool unable_to_flush_oldest_log_;
+  bool unable_to_release_oldest_log_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
@@ -1432,6 +1429,24 @@ extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
+
+// Return the earliest log file to keep after the memtable flush is
+// finalized.
+// `cfd_to_flush` is the column family whose memtable (specified in
+// `memtables_to_flush` will be flushed and thus will not depend on any WAL
+// file. nullptr means no memtable is being flushed.
+// The function is only applicable to 2pc mode.
+extern uint64_t PrecomputeMinLogNumberToKeep(
+    ColumnFamilyData* cfd_to_flush, autovector<VersionEdit*> edit_list,
+    const autovector<MemTable*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker, VersionSet* vset);
+
+// `cfd_to_flush` is the column family whose memtable will be flushed and thus
+// will not depend on any WAL file. nullptr means no memtable is being flushed.
+// The function is only applicable to 2pc mode.
+extern uint64_t FindMinPrepLogReferencedByMemTable(
+    VersionSet* vset, ColumnFamilyData* cfd_to_flush,
+    const autovector<MemTable*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>
