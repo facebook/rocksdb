@@ -1076,6 +1076,8 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_perfcontext_report(
     rocksdb_perfcontext_t* context, unsigned char exclude_zero_counters);
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_perfcontext_metric(
     rocksdb_perfcontext_t* context, int metric);
+extern ROCKSDB_LIBRARY_API void rocksdb_perfcontext_destroy(
+    rocksdb_perfcontext_t* context);
 
 /* Compaction Filter */
 
