@@ -539,9 +539,10 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 }
 
 uint64_t PrecomputeMinLogNumberToKeep(
-    ColumnFamilyData* cfd_to_flush, autovector<VersionEdit*> edit_list,
+    VersionSet* vset, ColumnFamilyData* cfd_to_flush,
+    autovector<VersionEdit*> edit_list,
     const autovector<MemTable*>& memtables_to_flush,
-    LogsWithPrepTracker* prep_tracker, VersionSet* vset) {
+    LogsWithPrepTracker* prep_tracker) {
   assert(prep_tracker != nullptr);
   // Calculate updated min_log_number_to_keep
   // Since the function should only be called in 2pc mode, log number in
@@ -556,7 +557,7 @@ uint64_t PrecomputeMinLogNumberToKeep(
   if (cf_min_log_number_to_keep == 0) {
     // No version edit contains information on log number. The log number
     // should stay the same as it is.
-    cf_min_log_number_to_keep = cfd_to_flush->GetLogNumber();
+    cf_min_log_number_to_keep = vset->MinLogNumberWithUnflushedData();
   }
 
   uint64_t min_log_number_to_keep =

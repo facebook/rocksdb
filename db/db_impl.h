@@ -1433,13 +1433,14 @@ extern CompressionType GetCompressionFlush(
 // Return the earliest log file to keep after the memtable flush is
 // finalized.
 // `cfd_to_flush` is the column family whose memtable (specified in
-// `memtables_to_flush` will be flushed and thus will not depend on any WAL
+// `memtables_to_flush`) will be flushed and thus will not depend on any WAL
 // file. nullptr means no memtable is being flushed.
 // The function is only applicable to 2pc mode.
 extern uint64_t PrecomputeMinLogNumberToKeep(
-    ColumnFamilyData* cfd_to_flush, autovector<VersionEdit*> edit_list,
+    VersionSet* vset, ColumnFamilyData* cfd_to_flush,
+    autovector<VersionEdit*> edit_list,
     const autovector<MemTable*>& memtables_to_flush,
-    LogsWithPrepTracker* prep_tracker, VersionSet* vset);
+    LogsWithPrepTracker* prep_tracker);
 
 // `cfd_to_flush` is the column family whose memtable will be flushed and thus
 // will not depend on any WAL file. nullptr means no memtable is being flushed.

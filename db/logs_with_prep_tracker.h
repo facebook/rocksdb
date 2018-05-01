@@ -28,7 +28,6 @@ class LogsWithPrepTracker {
   }
   size_t TEST_LogsWithPrepSize() { return logs_with_prep_.size(); }
 
-  
  private:
   // REQUIRES: logs_with_prep_mutex_ held
   //

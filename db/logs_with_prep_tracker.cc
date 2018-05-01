@@ -5,12 +5,14 @@
 //
 #include "db/logs_with_prep_tracker.h"
 
+#include "port/likely.h"
+
 namespace rocksdb {
 void LogsWithPrepTracker::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
   assert(log != 0);
   std::lock_guard<std::mutex> lock(prepared_section_completed_mutex_);
   auto it = prepared_section_completed_.find(log);
-  if (it == prepared_section_completed_.end()) {
+  if (UNLIKELY(it == prepared_section_completed_.end())) {
     prepared_section_completed_[log] = 1;
   } else {
     it->second += 1;
