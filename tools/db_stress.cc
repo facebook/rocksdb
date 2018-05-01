@@ -857,7 +857,7 @@ class SharedState {
             "Cannot use --expected_values_path on when "
             "--clear_column_family_one_in is greater than zero.");
       }
-      size_t size;
+      size_t size = 0;
       if (status.ok()) {
         status = FLAGS_env->GetFileSize(FLAGS_expected_values_path, &size);
       }

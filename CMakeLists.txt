@@ -659,8 +659,12 @@ if(WIN32)
     port/win/env_default.cc
     port/win/port_win.cc
     port/win/win_logger.cc
-    port/win/win_thread.cc
+    port/win/win_thread.cc)
+
+if(WITH_XPRESS)
+  list(APPEND SOURCES
     port/win/xpress_win.cc)
+endif()
 
 if(WITH_JEMALLOC)
   list(APPEND SOURCES
