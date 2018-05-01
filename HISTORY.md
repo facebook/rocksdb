@@ -1,6 +1,8 @@
 # Rocksdb Change Log
+## 5.13.1 (4/30/2018)
 ### New Features
 * Add `Env::LowerThreadPoolCPUPriority(Priority)` method, which lowers the CPU priority of background (esp. compaction) threads to minimize interference with foreground tasks.
+* Eliminate use of temporary directories in BackupEngine to improve reliability on distributed file systems.
 
 ## 5.13.0 (3/20/2018)
 ### Public API Change
