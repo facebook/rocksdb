@@ -102,6 +102,8 @@ using rocksdb::OptimisticTransactionDB;
 using rocksdb::OptimisticTransactionOptions;
 using rocksdb::Transaction;
 using rocksdb::Checkpoint;
+using rocksdb::TransactionLogIterator;
+using rocksdb::BatchResult;
 using rocksdb::PerfLevel;
 using rocksdb::PerfContext;
 
@@ -135,6 +137,8 @@ struct rocksdb_cuckoo_table_options_t  { CuckooTableOptions rep; };
 struct rocksdb_seqfile_t         { SequentialFile*   rep; };
 struct rocksdb_randomfile_t      { RandomAccessFile* rep; };
 struct rocksdb_writablefile_t    { WritableFile*     rep; };
+struct rocksdb_wal_iterator_t { TransactionLogIterator* rep; };
+struct rocksdb_wal_readoptions_t { TransactionLogIterator::ReadOptions rep; };
 struct rocksdb_filelock_t        { FileLock*         rep; };
 struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
 struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
@@ -928,6 +932,54 @@ rocksdb_iterator_t* rocksdb_create_iterator(
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep = db->rep->NewIterator(options->rep);
   return result;
+}
+
+rocksdb_wal_iterator_t* rocksdb_get_updates_since(
+        rocksdb_t* db, uint64_t seq_number,
+        const rocksdb_wal_readoptions_t* options,
+        char** errptr) {
+  std::unique_ptr<TransactionLogIterator> iter;
+  TransactionLogIterator::ReadOptions ro;
+  if (options!=nullptr) {
+      ro = options->rep;
+  }
+  if (SaveError(errptr, db->rep->GetUpdatesSince(seq_number, &iter, ro))) {
+    return nullptr;
+  }
+  rocksdb_wal_iterator_t* result = new rocksdb_wal_iterator_t;
+  result->rep = iter.release();
+  return result;
+}
+
+void rocksdb_wal_iter_next(rocksdb_wal_iterator_t* iter) {
+    iter->rep->Next();
+}
+
+unsigned char rocksdb_wal_iter_valid(const rocksdb_wal_iterator_t* iter) {
+    return iter->rep->Valid();
+}
+
+void rocksdb_wal_iter_status (const rocksdb_wal_iterator_t* iter, char** errptr) {
+    SaveError(errptr, iter->rep->status());
+}
+
+void rocksdb_wal_iter_destroy (const rocksdb_wal_iterator_t* iter) {
+  delete iter->rep;
+  delete iter;
+}
+
+rocksdb_writebatch_t* rocksdb_wal_iter_get_batch (const rocksdb_wal_iterator_t* iter, uint64_t* seq) {
+  rocksdb_writebatch_t* result = rocksdb_writebatch_create();
+  BatchResult wal_batch = iter->rep->GetBatch();
+  result->rep = * wal_batch.writeBatchPtr.release();
+  if (seq != nullptr) {
+    *seq = wal_batch.sequence;
+  }
+  return result;
+}
+
+uint64_t rocksdb_get_latest_sequence_number (rocksdb_t *db) {
+    return db->rep->GetLatestSequenceNumber();
 }
 
 rocksdb_iterator_t* rocksdb_create_iterator_cf(

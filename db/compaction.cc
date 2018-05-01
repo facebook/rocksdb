@@ -134,6 +134,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        int _output_level, uint64_t _target_file_size,
                        uint64_t _max_compaction_bytes, uint32_t _output_path_id,
                        CompressionType _compression,
+                       uint32_t _max_subcompactions,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
@@ -143,6 +144,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
+      max_subcompactions_(_max_subcompactions),
       immutable_cf_options_(_immutable_cf_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
@@ -162,6 +164,9 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
+  }
+  if (max_subcompactions_ == 0) {
+    max_subcompactions_ = immutable_cf_options_.max_subcompactions;
   }
 
 #ifndef NDEBUG
@@ -442,7 +447,7 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
-  if (immutable_cf_options_.max_subcompactions <= 1 || cfd_ == nullptr) {
+  if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
