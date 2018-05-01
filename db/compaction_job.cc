@@ -767,12 +767,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
   std::set<size_t> sample_begin_offsets;
   if (bottommost_level_ && kSampleBytes > 0) {
+    int base_level = 0;
+    {
+      InstrumentedMutexLock l(db_mutex_);
+      base_level = cfd->current()->storage_info()->base_level();
+    }
     const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
     const size_t kOutFileLen =
         static_cast<size_t>(MaxFileSizeForLevel(*mutable_cf_options,
             compact_->compaction->output_level(),
-            cfd->ioptions()->compaction_style,
-            cfd->current()->storage_info()->base_level(),
+            cfd->ioptions()->compaction_style, base_level,
             cfd->ioptions()->level_compaction_dynamic_level_bytes));
     if (kOutFileLen != port::kMaxSizet) {
       const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
