@@ -307,7 +307,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
 
 // With fill_cache = false, fills up the cache, then iterates over the entire
 // db, verify dummy entries inserted in `BlockBasedTable::NewDataBlockIterator`
-// does not cause heap-use-after-free errors
+// does not cause heap-use-after-free errors in COMPILE_WITH_ASAN=1 runs
 TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   ReadOptions read_options;
   read_options.fill_cache = false;
@@ -322,10 +322,15 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   ASSERT_OK(Put("key1", "val1"));
   ASSERT_OK(Put("key2", "val2"));
   ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Put("key4", "val4"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key5", "val5"));
+  ASSERT_OK(Put("key6", "val6"));
+  ASSERT_OK(Flush());
 
   Iterator* iter = nullptr;
 
-  ASSERT_EQ(0, cache->GetUsage());
   iter = db_->NewIterator(read_options);
   iter->Seek(ToString(0));
   while (iter->Valid()) {
