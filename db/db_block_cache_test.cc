@@ -338,7 +338,6 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   }
   delete iter;
   iter = nullptr;
-  ASSERT_EQ(0, cache->GetUsage());
 }
 
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
