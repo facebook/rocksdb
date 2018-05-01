@@ -872,7 +872,7 @@ class VersionSet {
   // Returns the minimum log number which still has data not flushed to any SST
   // file, except data from `cfd_to_skip`.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
-      ColumnFamilyData* cfd_to_skip) const {
+      const ColumnFamilyData* cfd_to_skip) const {
     uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
       if (cfd == cfd_to_skip) {

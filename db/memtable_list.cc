@@ -387,7 +387,7 @@ Status MemTableList::InstallMemtableFlushResults(
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-            vset, cfd, edit_list, memtables_to_flush, prep_tracker));
+            vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
       }
 
       // this can release and reacquire the mutex.

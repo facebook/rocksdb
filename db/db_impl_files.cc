@@ -510,7 +510,7 @@ void DBImpl::DeleteObsoleteFiles() {
 }
 
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, ColumnFamilyData* cfd_to_flush,
+    VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
     const autovector<MemTable*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
@@ -539,14 +539,18 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 }
 
 uint64_t PrecomputeMinLogNumberToKeep(
-    VersionSet* vset, ColumnFamilyData* cfd_to_flush,
+    VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     autovector<VersionEdit*> edit_list,
     const autovector<MemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker) {
+  assert(vset != nullptr);
   assert(prep_tracker != nullptr);
   // Calculate updated min_log_number_to_keep
   // Since the function should only be called in 2pc mode, log number in
   // the version edit should be sufficient.
+
+  // Precompute the min log number containing unflushed data for the column
+  // family being flushed (`cfd_to_flush`).
   uint64_t cf_min_log_number_to_keep = 0;
   for (auto& e : edit_list) {
     if (e->has_log_number()) {
@@ -556,12 +560,13 @@ uint64_t PrecomputeMinLogNumberToKeep(
   }
   if (cf_min_log_number_to_keep == 0) {
     // No version edit contains information on log number. The log number
-    // should stay the same as it is.
-    cf_min_log_number_to_keep = vset->MinLogNumberWithUnflushedData();
+    // for this column family should stay the same as it is.
+    cf_min_log_number_to_keep = cfd_to_flush.GetLogNumber();
   }
 
+  // Get min log number containing unflushed data for other column families.
   uint64_t min_log_number_to_keep =
-      vset->PreComputeMinLogNumberWithUnflushedData(cfd_to_flush);
+      vset->PreComputeMinLogNumberWithUnflushedData(&cfd_to_flush);
   if (cf_min_log_number_to_keep != 0) {
     min_log_number_to_keep =
         std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
@@ -585,7 +590,7 @@ uint64_t PrecomputeMinLogNumberToKeep(
   }
 
   uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
-      vset, cfd_to_flush, memtables_to_flush);
+      vset, &cfd_to_flush, memtables_to_flush);
 
   if (min_log_refed_by_mem != 0 &&
       min_log_refed_by_mem < min_log_number_to_keep) {
