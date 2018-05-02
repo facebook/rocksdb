@@ -52,8 +52,10 @@ class MergingIterator : public InternalIterator {
     }
     for (auto& child : children_) {
       if (child.Valid()) {
-        considerStatus(child.status());
+        assert(child.status().ok());
         minHeap_.push(&child);
+      } else {
+        considerStatus(child.status());
       }
     }
     current_ = CurrentForward();
@@ -73,9 +75,11 @@ class MergingIterator : public InternalIterator {
     }
     auto new_wrapper = children_.back();
     if (new_wrapper.Valid()) {
-      considerStatus(new_wrapper.status());
+      assert(new_wrapper.status().ok());
       minHeap_.push(&new_wrapper);
       current_ = CurrentForward();
+    } else {
+      considerStatus(new_wrapper.status());
     }
   }
 
@@ -96,9 +100,11 @@ class MergingIterator : public InternalIterator {
     status_ = Status::OK();
     for (auto& child : children_) {
       child.SeekToFirst();
-      considerStatus(child.status());
       if (child.Valid()) {
+        assert(child.status().ok());
         minHeap_.push(&child);
+      } else {
+        considerStatus(child.status());
       }
     }
     direction_ = kForward;
@@ -111,9 +117,11 @@ class MergingIterator : public InternalIterator {
     status_ = Status::OK();
     for (auto& child : children_) {
       child.SeekToLast();
-      considerStatus(child.status());
       if (child.Valid()) {
+        assert(child.status().ok());
         maxHeap_->push(&child);
+      } else {
+        considerStatus(child.status());
       }
     }
     direction_ = kReverse;
@@ -130,10 +138,12 @@ class MergingIterator : public InternalIterator {
       }
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
-      considerStatus(child.status());
       if (child.Valid()) {
+        assert(child.status().ok());
         PERF_TIMER_GUARD(seek_min_heap_time);
         minHeap_.push(&child);
+      } else {
+        considerStatus(child.status());
       }
     }
     direction_ = kForward;
@@ -155,10 +165,12 @@ class MergingIterator : public InternalIterator {
       }
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
-      considerStatus(child.status());
       if (child.Valid()) {
+        assert(child.status().ok());
         PERF_TIMER_GUARD(seek_max_heap_time);
         maxHeap_->push(&child);
+      } else {
+        considerStatus(child.status());
       }
     }
     direction_ = kReverse;
@@ -188,14 +200,15 @@ class MergingIterator : public InternalIterator {
 
     // as the current points to the current record. move the iterator forward.
     current_->Next();
-    considerStatus(current_->status());
     if (current_->Valid()) {
       // current is still valid after the Next() call above.  Call
       // replace_top() to restore the heap property.  When the same child
       // iterator yields a sequence of keys, this is cheap.
+      assert(current_->status().ok());
       minHeap_.replace_top(current_);
     } else {
       // current stopped being valid, remove it from the heap.
+      considerStatus(current_->status());
       minHeap_.pop();
     }
     current_ = CurrentForward();
@@ -217,15 +230,16 @@ class MergingIterator : public InternalIterator {
         if (&child != current_) {
           if (!prefix_seek_mode_) {
             child.Seek(target);
-            considerStatus(child.status());
             if (child.Valid()) {
               // Child is at first entry >= key().  Step back one to be < key()
               TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev",
                                        &child);
+              assert(child.status().ok());
               child.Prev();
             } else {
               // Child has no entries >= key().  Position at last entry.
               TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
+              considerStatus(child.status());
               child.SeekToLast();
             }
             considerStatus(child.status());
@@ -239,6 +253,7 @@ class MergingIterator : public InternalIterator {
           }
         }
         if (child.Valid()) {
+          assert(child.status().ok());
           maxHeap_->push(&child);
         }
       }
@@ -260,14 +275,15 @@ class MergingIterator : public InternalIterator {
     assert(current_ == CurrentReverse());
 
     current_->Prev();
-    considerStatus(current_->status());
     if (current_->Valid()) {
       // current is still valid after the Prev() call above.  Call
       // replace_top() to restore the heap property.  When the same child
       // iterator yields a sequence of keys, this is cheap.
+      assert(current_->status().ok());
       maxHeap_->replace_top(current_);
     } else {
       // current stopped being valid, remove it from the heap.
+      considerStatus(current_->status());
       maxHeap_->pop();
     }
     current_ = CurrentReverse();

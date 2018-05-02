@@ -528,11 +528,9 @@ class BlockBasedTableIterator : public InternalIterator {
     return data_block_iter_.value();
   }
   Status status() const override {
-    // It'd be nice if status() returned a const Status& instead of a Status
     if (!index_iter_->status().ok()) {
       return index_iter_->status();
-    } else if (block_iter_points_to_real_block_ &&
-               !data_block_iter_.status().ok()) {
+    } else if (block_iter_points_to_real_block_) {
       return data_block_iter_.status();
     } else {
       return Status::OK();
@@ -571,8 +569,7 @@ class BlockBasedTableIterator : public InternalIterator {
       if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
         data_block_iter_.DelegateCleanupsTo(pinned_iters_mgr_);
       }
-      data_block_iter_.~BlockIter();
-      new (&data_block_iter_) BlockIter();
+      data_block_iter_.Invalidate(Status::OK());
       block_iter_points_to_real_block_ = false;
     }
   }

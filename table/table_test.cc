@@ -256,7 +256,7 @@ class KeyConvertingIterator : public InternalIterator {
       delete iter_;
     }
   }
-  virtual bool Valid() const override { return iter_->Valid(); }
+  virtual bool Valid() const override { return iter_->Valid() && status_.ok(); }
   virtual void Seek(const Slice& target) override {
     ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
     std::string encoded;
@@ -2368,6 +2368,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
     iter->Next();
   }
   ASSERT_OK(iter->status());
+  iter.reset();
 
   const ImmutableCFOptions ioptions1(opt);
   ASSERT_OK(c.Reopen(ioptions1));

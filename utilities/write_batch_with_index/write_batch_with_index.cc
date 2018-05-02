@@ -79,6 +79,7 @@ class BaseDeltaIterator : public Iterator {
   void Next() override {
     if (!Valid()) {
       status_ = Status::NotSupported("Next() on invalid iterator");
+      return;
     }
 
     if (!forward_) {
@@ -114,6 +115,7 @@ class BaseDeltaIterator : public Iterator {
   void Prev() override {
     if (!Valid()) {
       status_ = Status::NotSupported("Prev() on invalid iterator");
+      return;
     }
 
     if (forward_) {
@@ -170,6 +172,21 @@ class BaseDeltaIterator : public Iterator {
  private:
   void AssertInvariants() {
 #ifndef NDEBUG
+    bool not_ok = false;
+    if (!base_iterator_->status().ok()) {
+      assert(!base_iterator_->Valid());
+      not_ok = true;
+    }
+    if (!delta_iterator_->status().ok()) {
+      assert(!delta_iterator_->Valid());
+      not_ok = true;
+    }
+    if (not_ok) {
+      assert(!Valid());
+      assert(!status().ok());
+      return;
+    }
+
     if (!Valid()) {
       return;
     }
@@ -238,13 +255,25 @@ class BaseDeltaIterator : public Iterator {
   void UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
+    status_ = Status::OK();
     while (true) {
       WriteEntry delta_entry;
       if (DeltaValid()) {
+        assert(delta_iterator_->status().ok());
         delta_entry = delta_iterator_->Entry();
+      } else if (!delta_iterator_->status().ok()) {
+        // Expose the error status and stop.
+        current_at_base_ = false;
+        return;
       }
       equal_keys_ = false;
       if (!BaseValid()) {
+        if (!base_iterator_->status().ok()) {
+          // Expose the error status and stop.
+          current_at_base_ = true;
+          return;
+        }
+
         // Base has finished.
         if (!DeltaValid()) {
           // Finished

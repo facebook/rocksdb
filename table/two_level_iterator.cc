@@ -47,8 +47,8 @@ class TwoLevelIterator : public InternalIterator {
     return second_level_iter_.value();
   }
   virtual Status status() const override {
-    // It'd be nice if status() returned a const Status& instead of a Status
     if (!first_level_iter_.status().ok()) {
+      assert(second_level_iter_.iter() == nullptr);
       return first_level_iter_.status();
     } else if (second_level_iter_.iter() != nullptr &&
                !second_level_iter_.status().ok()) {
@@ -101,7 +101,7 @@ void TwoLevelIterator::SeekForPrev(const Slice& target) {
     second_level_iter_.SeekForPrev(target);
   }
   if (!Valid()) {
-    if (!first_level_iter_.Valid()) {
+    if (!first_level_iter_.Valid() && first_level_iter_.status().ok()) {
       first_level_iter_.SeekToLast();
       InitDataBlock();
       if (second_level_iter_.iter() != nullptr) {
@@ -144,8 +144,7 @@ void TwoLevelIterator::Prev() {
 
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
   while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() &&
-          !second_level_iter_.status().IsIncomplete())) {
+         (!second_level_iter_.Valid() && second_level_iter_.status().ok())) {
     // Move to next block
     if (!first_level_iter_.Valid()) {
       SetSecondLevelIterator(nullptr);
@@ -161,8 +160,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
 
 void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
   while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() &&
-          !second_level_iter_.status().IsIncomplete())) {
+         (!second_level_iter_.Valid() && second_level_iter_.status().ok())) {
     // Move to next block
     if (!first_level_iter_.Valid()) {
       SetSecondLevelIterator(nullptr);
@@ -177,9 +175,6 @@ void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
 }
 
 void TwoLevelIterator::SetSecondLevelIterator(InternalIterator* iter) {
-  if (second_level_iter_.iter() != nullptr) {
-    SaveError(second_level_iter_.status());
-  }
   InternalIterator* old_iter = second_level_iter_.Set(iter);
   delete old_iter;
 }
