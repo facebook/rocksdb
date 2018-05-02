@@ -120,7 +120,7 @@ class PessimisticTransactionDB : public TransactionDB {
   // an odd performance drop we observed when the added std::atomic member to
   // the base class even when the subclass do not read it in the fast path.
   virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
-  virtual void UpdateCFComparatorMap(const ColumnFamilyHandle*) {}
+  virtual void UpdateCFComparatorMap(ColumnFamilyHandle*) {}
 
  protected:
   DBImpl* db_impl_;
