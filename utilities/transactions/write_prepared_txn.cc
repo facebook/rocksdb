@@ -211,6 +211,8 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
+  auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
+  auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   // In WritePrepared, the txn is is the same as prepare seq
   auto last_visible_txn = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
@@ -302,8 +304,7 @@ Status WritePreparedTxn::RollbackInternal() {
    protected:
     virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch,
-                     *wpt_db_->GetCFComparatorMap(),
-                     *wpt_db_->GetCFHandleMap(),
+                     *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                      wpt_db_->txn_db_options_.rollback_merge_operands);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
