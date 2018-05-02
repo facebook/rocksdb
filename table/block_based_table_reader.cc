@@ -1560,9 +1560,6 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
             iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
                                   cache_handle);
           }
-        } else {
-          delete block.value;
-          block.value = nullptr;
         }
       }
       iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
