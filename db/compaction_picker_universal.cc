@@ -609,7 +609,9 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
   }
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
-      mutable_cf_options.MaxFileSizeForLevel(output_level), LLONG_MAX, path_id,
+      MaxFileSizeForLevel(mutable_cf_options, output_level,
+                          kCompactionStyleUniversal),
+      LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, start_level,
                          1, enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
@@ -742,7 +744,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
 
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-      output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
+      output_level, MaxFileSizeForLevel(mutable_cf_options, output_level,
+          kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                          output_level, 1),
