@@ -515,15 +515,19 @@ Status WinEnvIO::CreateDir(const std::string& name) {
 Status  WinEnvIO::CreateDirIfMissing(const std::string& name) {
   Status result;
 
+  if (DirExists(name)) {
+    return result;
+  }
+
   BOOL ret = CreateDirectoryA(name.c_str(), NULL);
   if (!ret) {
     auto lastError = GetLastError();
     if (lastError != ERROR_ALREADY_EXISTS) {
       result = IOErrorFromWindowsError(
         "Failed to create a directory: " + name, lastError);
-    } else if (!DirExists(name)) {
+    } else {
       result =
-        Status::IOError("`" + name + "' exists but is not a directory");
+        Status::IOError(name + ": exists but is not a directory");
     }
   }
   return result;
