@@ -526,9 +526,12 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   // Group the ranges into subcompactions
   const double min_file_fill_percent = 4.0 / 5;
-  uint64_t max_output_files = static_cast<uint64_t>(
-      std::ceil(sum / min_file_fill_percent /
-                c->mutable_cf_options()->MaxFileSizeForLevel(out_lvl)));
+  int base_level = v->storage_info()->base_level();
+  uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
+      sum / min_file_fill_percent /
+      MaxFileSizeForLevel(*(c->mutable_cf_options()), out_lvl,
+          c->immutable_cf_options()->compaction_style, base_level,
+          c->immutable_cf_options()->level_compaction_dynamic_level_bytes)));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
                 static_cast<uint64_t>(c->max_subcompactions()),
@@ -766,8 +769,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (bottommost_level_ && kSampleBytes > 0) {
     const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
     const size_t kOutFileLen =
-        static_cast<size_t>(mutable_cf_options->MaxFileSizeForLevel(
-            compact_->compaction->output_level()));
+        static_cast<size_t>(MaxFileSizeForLevel(*mutable_cf_options,
+            compact_->compaction->output_level(),
+            cfd->ioptions()->compaction_style,
+            compact_->compaction->GetInputBaseLevel(),
+            cfd->ioptions()->level_compaction_dynamic_level_bytes));
     if (kOutFileLen != port::kMaxSizet) {
       const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
       Random64 generator{versions_->NewFileNumber()};
