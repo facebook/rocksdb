@@ -211,6 +211,8 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
+  auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
+  auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   // In WritePrepared, the txn is is the same as prepare seq
   auto last_visible_txn = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
@@ -219,6 +221,7 @@ Status WritePreparedTxn::RollbackInternal() {
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
+    std::map<uint32_t, ColumnFamilyHandle*>& handles_;
     using CFKeys = std::set<Slice, SetComparator>;
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
@@ -226,12 +229,14 @@ Status WritePreparedTxn::RollbackInternal() {
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
+        std::map<uint32_t, ColumnFamilyHandle*>& handles,
         bool rollback_merge_operands)
         : db_(db),
           callback(wpt_db, snap_seq,
                    0),  // 0 disables min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
+          handles_(handles),
           rollback_merge_operands_(rollback_merge_operands) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
@@ -249,7 +254,7 @@ Status WritePreparedTxn::RollbackInternal() {
 
       PinnableSlice pinnable_val;
       bool not_used;
-      auto cf_handle = db_->GetColumnFamilyHandle(cf);
+      auto cf_handle = handles_[cf];
       s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
                        &callback);
       assert(s.ok() || s.IsNotFound());
@@ -299,7 +304,7 @@ Status WritePreparedTxn::RollbackInternal() {
    protected:
     virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch,
-                     *wpt_db_->GetCFComparatorMap(),
+                     *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                      wpt_db_->txn_db_options_.rollback_merge_operands);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
