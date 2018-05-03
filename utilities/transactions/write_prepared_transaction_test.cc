@@ -540,6 +540,25 @@ class SnapshotConcurrentAccessTest
   size_t split_cnt_;
 };
 
+class SeqAdvanceConcurrentTest
+    : public WritePreparedTransactionTestBase,
+      virtual public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, size_t, size_t>> {
+ public:
+  SeqAdvanceConcurrentTest()
+      : WritePreparedTransactionTestBase(std::get<0>(GetParam()),
+                                         std::get<1>(GetParam()),
+                                         std::get<2>(GetParam())),
+        split_id_(std::get<3>(GetParam())),
+        split_cnt_(std::get<4>(GetParam())){};
+
+ protected:
+  // A test is split into split_cnt_ tests, each identified with split_id_ where
+  // 0 <= split_id_ < split_cnt_
+  size_t split_id_;
+  size_t split_cnt_;
+};
+
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransactionTest, WritePreparedTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
@@ -590,6 +609,32 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED, 17, 20),
                       std::make_tuple(false, false, WRITE_PREPARED, 18, 20),
                       std::make_tuple(false, false, WRITE_PREPARED, 19, 20)));
+
+INSTANTIATE_TEST_CASE_P(
+    TwoWriteQueues, SeqAdvanceConcurrentTest,
+    ::testing::Values(std::make_tuple(false, true, WRITE_PREPARED, 0, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 1, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 2, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 3, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 4, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 5, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 6, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 7, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 8, 10),
+                      std::make_tuple(false, true, WRITE_PREPARED, 9, 10)));
+
+INSTANTIATE_TEST_CASE_P(
+    OneWriteQueue, SeqAdvanceConcurrentTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED, 0, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 1, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 2, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 3, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 4, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 5, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 6, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 7, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 8, 10),
+                      std::make_tuple(false, false, WRITE_PREPARED, 9, 10)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -972,7 +1017,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   delete txn0;
 }
 
-TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
+TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a
   // deadlock nor a timeout unless we have a key conflict, which should be
   // almost infeasible.
@@ -999,6 +1044,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   const size_t max_n = static_cast<size_t>(std::pow(type_cnt, txn_cnt));
   printf("Number of cases being tested is %" ROCKSDB_PRIszt "\n", max_n);
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
+    if (n % split_cnt_ != split_id_) continue;
     if (n % 1000 == 0) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
@@ -1037,9 +1083,8 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
 
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
     for (size_t bi = 0; bi < txn_cnt; bi++) {
-      size_t d =
-          (n % base[bi + 1]) /
-          base[bi];  // get the bi-th digit in number system based on type_cnt
+      // get the bi-th digit in number system based on type_cnt
+      size_t d = (n % base[bi + 1]) / base[bi];
       switch (d) {
         case 0:
           threads.emplace_back(txn_t0, bi);
@@ -1062,8 +1107,8 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       // wait to be linked
       while (linked.load() <= bi) {
       }
-      if (bi + 1 ==
-          first_group_size) {  // after a queue of size first_group_size
+      // after a queue of size first_group_size
+      if (bi + 1 == first_group_size) {
         while (!batch_formed) {
         }
         // to make it more deterministic, wait until the commits are linked
