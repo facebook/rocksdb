@@ -19,8 +19,8 @@ class ColumnFamilyData;
 
 namespace rocksdb {
 
-class MemTableList;
 class DBImpl;
+class MemTableList;
 
 // Config for retrieving a property's value.
 struct DBPropertyInfo {

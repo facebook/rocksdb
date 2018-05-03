@@ -2663,16 +2663,16 @@ struct VersionSet::ManifestWriter {
 };
 
 VersionSet::VersionSet(const std::string& dbname,
-                       const ImmutableDBOptions* db_options,
+                       const ImmutableDBOptions* _db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller)
     : column_family_set_(
-          new ColumnFamilySet(dbname, db_options, storage_options, table_cache,
+          new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
                               write_buffer_manager, write_controller)),
-      env_(db_options->env),
+      env_(_db_options->env),
       dbname_(dbname),
-      db_options_(db_options),
+      db_options_(_db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),
@@ -2957,16 +2957,26 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       }
     } else {
       uint64_t max_log_number_in_batch  = 0;
+      uint64_t min_log_number_to_keep = 0;
       for (auto& e : batch_edits) {
         if (e->has_log_number_) {
           max_log_number_in_batch =
               std::max(max_log_number_in_batch, e->log_number_);
+        }
+        if (e->has_min_log_number_to_keep_) {
+          min_log_number_to_keep =
+              std::max(min_log_number_to_keep, e->min_log_number_to_keep_);
         }
       }
       if (max_log_number_in_batch != 0) {
         assert(column_family_data->GetLogNumber() <= max_log_number_in_batch);
         column_family_data->SetLogNumber(max_log_number_in_batch);
       }
+      if (min_log_number_to_keep != 0) {
+        // Should only be set in 2PC mode.
+        MarkMinLogNumberToKeep2PC(min_log_number_to_keep);
+      }
+
       AppendVersion(column_family_data, v);
     }
 
@@ -3122,6 +3132,7 @@ Status VersionSet::Recover(
   uint64_t log_number = 0;
   uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
+  uint64_t min_log_number_to_keep = 0;
   std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
 
   // add default column family
@@ -3262,6 +3273,11 @@ Status VersionSet::Recover(
         max_column_family = edit.max_column_family_;
       }
 
+      if (edit.has_min_log_number_to_keep_) {
+        min_log_number_to_keep =
+            std::max(min_log_number_to_keep, edit.min_log_number_to_keep_);
+      }
+
       if (edit.has_last_sequence_) {
         last_sequence = edit.last_sequence_;
         have_last_sequence = true;
@@ -3284,6 +3300,9 @@ Status VersionSet::Recover(
 
     column_family_set_->UpdateMaxColumnFamily(max_column_family);
 
+    // When reading DB generated using old release, min_log_number_to_keep=0.
+    // All log files will be scanned for potential prepare entries.
+    MarkMinLogNumberToKeep2PC(min_log_number_to_keep);
     MarkFileNumberUsed(previous_log_number);
     MarkFileNumberUsed(log_number);
   }
@@ -3355,11 +3374,12 @@ Status VersionSet::Recover(
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu,"
-        "max_column_family is %u\n",
+        "max_column_family is %u,"
+        "min_log_number_to_keep is %lu\n",
         manifest_filename.c_str(), (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
         (unsigned long)log_number, (unsigned long)prev_log_number_,
-        column_family_set_->GetMaxColumnFamily());
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -3647,6 +3667,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         cfd->SetLogNumber(edit.log_number_);
       }
 
+
       if (edit.has_prev_log_number_) {
         previous_log_number = edit.prev_log_number_;
         have_prev_log_number = true;
@@ -3664,6 +3685,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
       if (edit.has_max_column_family_) {
         column_family_set_->UpdateMaxColumnFamily(edit.max_column_family_);
+      }
+
+      if (edit.has_min_log_number_to_keep_) {
+        MarkMinLogNumberToKeep2PC(edit.min_log_number_to_keep_);
       }
     }
   }
@@ -3723,10 +3748,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
     printf(
         "next_file_number %lu last_sequence "
-        "%lu  prev_log_number %lu max_column_family %u\n",
+        "%lu  prev_log_number %lu max_column_family %u min_log_number_to_keep "
+        "%" PRIu64 "\n",
         (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)previous_log_number,
-        column_family_set_->GetMaxColumnFamily());
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
   }
 
   return s;
@@ -3738,6 +3764,14 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   // works because there can't be concurrent calls
   if (next_file_number_.load(std::memory_order_relaxed) <= number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
+  }
+}
+
+// Called only either from ::LogAndApply which is protected by mutex or during
+// recovery which is single-threaded.
+void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
+  if (min_log_number_to_keep_2pc_.load(std::memory_order_relaxed) < number) {
+    min_log_number_to_keep_2pc_.store(number, std::memory_order_relaxed);
   }
 }
 
