@@ -900,6 +900,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     switch (txn_db_options.write_policy) {
       case WRITE_COMMITTED:
         // but now our memtable should be referencing the prep section
+        ASSERT_GE(log_containing_prep, db_impl->MinLogNumberToKeep());
         ASSERT_EQ(log_containing_prep,
                   db_impl->TEST_FindMinPrepLogReferencedByMemTable());
         break;
@@ -925,6 +926,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     }
 
     // after memtable flush we can now relese the log
+    ASSERT_GT(db_impl->MinLogNumberToKeep(), log_containing_prep);
     ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
     delete txn;
@@ -1279,6 +1281,8 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
       // but now our memtable should be referencing the prep section
       ASSERT_EQ(log_containing_prep,
                 db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      ASSERT_GE(log_containing_prep, db_impl->MinLogNumberToKeep());
+
       break;
     case WRITE_PREPARED:
     case WRITE_UNPREPARED:
@@ -1289,9 +1293,15 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
       assert(false);
   }
 
+  // Add a dummy record to memtable before a flush. Otherwise, the
+  // memtable will be empty and flush will be skipped.
+  s = db->Put(write_options, Slice("foo3"), Slice("bar3"));
+  ASSERT_OK(s);
+
   db_impl->TEST_FlushMemTable(true);
 
-  // after memtable flush we can now relese the log
+  // after memtable flush we can now release the log
+  ASSERT_GT(db_impl->MinLogNumberToKeep(), log_containing_prep);
   ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
   delete txn;
@@ -1805,14 +1815,14 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
       assert(false);
   }
 
-  ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
+  ASSERT_TRUE(!db_impl->TEST_UnableToReleaseOldestLog());
 
   // request a flush for all column families such that the earliest
   // alive log file can be killed
   db_impl->TEST_SwitchWAL();
   // log cannot be flushed because txn2 has not been commited
   ASSERT_TRUE(!db_impl->TEST_IsLogGettingFlushed());
-  ASSERT_TRUE(db_impl->TEST_UnableToFlushOldestLog());
+  ASSERT_TRUE(db_impl->TEST_UnableToReleaseOldestLog());
 
   // assert that cfa has a flush requested
   ASSERT_TRUE(cfh_a->cfd()->imm()->HasFlushRequested());
@@ -1836,7 +1846,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   ASSERT_OK(s);
 
   db_impl->TEST_SwitchWAL();
-  ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
+  ASSERT_TRUE(!db_impl->TEST_UnableToReleaseOldestLog());
 
   // we should see that cfb now has a flush requested
   ASSERT_TRUE(cfh_b->cfd()->imm()->HasFlushRequested());

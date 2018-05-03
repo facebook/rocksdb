@@ -72,19 +72,23 @@ TEST_F(DBFlushTest, SyncFail) {
   auto* cfd =
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd();
-  int refs_before = cfd->current()->TEST_refs();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
+  // Flush installs a new super-version. Get the ref count after that.
+  auto current_before = cfd->current();
+  int refs_before = cfd->current()->TEST_refs();
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
   fault_injection_env->SetFilesystemActive(true);
+  // Now the background job will do the flush; wait for it.
   dbfull()->TEST_WaitForFlushMemTable();
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Flush job should release ref count to current version.
+  // Backgroun flush job should release ref count to current version.
+  ASSERT_EQ(current_before, cfd->current());
   ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
