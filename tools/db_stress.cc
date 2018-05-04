@@ -888,8 +888,9 @@ class SharedState {
       }
     }
     if (values_ == nullptr) {
-      values_ =
-          static_cast<std::atomic<uint32_t>*>(malloc(expected_values_size));
+      values_allocation_.reset(
+          new std::atomic<uint32_t>[FLAGS_column_families * max_key_]);
+      values_ = &values_allocation_[0];
       values_init_needed = true;
     }
     assert(values_ != nullptr);
@@ -1116,6 +1117,7 @@ class SharedState {
   std::vector<std::unordered_set<size_t> > no_overwrite_ids_;
 
   std::atomic<uint32_t>* values_;
+  std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex> > > key_locks_;
