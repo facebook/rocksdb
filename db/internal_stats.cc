@@ -231,7 +231,7 @@ static const std::string current_version_number =
     "current-super-version-number";
 static const std::string estimate_live_data_size = "estimate-live-data-size";
 static const std::string min_log_number_to_keep_str = "min-log-number-to-keep";
-static const std::string base_level = "base-level";
+static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
 static const std::string estimate_pending_comp_bytes =
@@ -313,7 +313,7 @@ const std::string DB::Properties::kTotalSstFilesSize =
     rocksdb_prefix + total_sst_files_size;
 const std::string DB::Properties::kLiveSstFilesSize =
     rocksdb_prefix + live_sst_files_size;
-const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level;
+const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level_str;
 const std::string DB::Properties::kEstimatePendingCompactionBytes =
     rocksdb_prefix + estimate_pending_comp_bytes;
 const std::string DB::Properties::kAggregatedTableProperties =
