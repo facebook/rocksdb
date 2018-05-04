@@ -193,6 +193,7 @@ class TransactionDB : public StackableDB {
   }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
+  // If the return status is not ok, then dbptr is set to nullptr.
   static Status Open(const Options& options,
                      const TransactionDBOptions& txn_db_options,
                      const std::string& dbname, TransactionDB** dbptr);
@@ -203,27 +204,29 @@ class TransactionDB : public StackableDB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      TransactionDB** dbptr);
-  // The following functions are used to open a TransactionDB internally using
-  // an opened DB or StackableDB.
-  // 1. Call prepareWrap(), passing an empty std::vector<size_t> to
-  // compaction_enabled_cf_indices.
-  // 2. Open DB or Stackable DB with db_options and column_families passed to
-  // prepareWrap()
   // Note: PrepareWrap() may change parameters, make copies before the
   // invocation if needed.
-  // 3. Call Wrap*DB() with compaction_enabled_cf_indices in step 1 and handles
-  // of the opened DB/StackableDB in step 2
   static void PrepareWrap(DBOptions* db_options,
                           std::vector<ColumnFamilyDescriptor>* column_families,
                           std::vector<size_t>* compaction_enabled_cf_indices);
+  // If the return status is not ok, then dbptr will bet set to nullptr. The
+  // input db parameter might or might not be deleted as a result of the
+  // failure. If it is properly deleted it will be set to nullptr. If the return
+  // status is ok, the ownership of db is transferred to dbptr.
   static Status WrapDB(DB* db, const TransactionDBOptions& txn_db_options,
                        const std::vector<size_t>& compaction_enabled_cf_indices,
                        const std::vector<ColumnFamilyHandle*>& handles,
                        TransactionDB** dbptr);
+  // If the return status is not ok, then dbptr will bet set to nullptr. The
+  // input db parameter might or might not be deleted as a result of the
+  // failure. If it is properly deleted it will be set to nullptr. If the return
+  // status is ok, the ownership of db is transferred to dbptr.
   static Status WrapStackableDB(
       StackableDB* db, const TransactionDBOptions& txn_db_options,
       const std::vector<size_t>& compaction_enabled_cf_indices,
       const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr);
+  // Since the destructor in StackableDB is virtual, this destructor is virtual
+  // too. The root db will be deleted by the base's destructor.
   ~TransactionDB() override {}
 
   // Starts a new Transaction.
@@ -252,6 +255,7 @@ class TransactionDB : public StackableDB {
 
  protected:
   // To Create an TransactionDB, call Open()
+  // The ownership of db is transferred to the base StackableDB
   explicit TransactionDB(DB* db) : StackableDB(db) {}
 
  private:

@@ -155,7 +155,7 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
     // Test the simple case where the key is not tracked yet
     auto trakced_seq = kMaxSequenceNumber;
     auto s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
-                                   &trakced_seq);
+                                        &trakced_seq);
     ASSERT_TRUE(s.IsBusy());
     delete txn2;
   }

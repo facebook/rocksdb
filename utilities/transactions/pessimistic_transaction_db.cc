@@ -224,6 +224,7 @@ Status TransactionDB::Open(
                dbptr);
   }
   if (!s.ok()) {
+    // just in case it was not deleted (and not set to nullptr).
     delete db;
   }
   return s;
@@ -275,8 +276,8 @@ Status TransactionDB::WrapDB(
   }
   txn_db->UpdateCFComparatorMap(handles);
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
-  // In case of failure db is deleted along with the
-  // tx database
+  // In case of a failure at this point, db is deleted via the txn_db destructor
+  // and set to nullptr.
   if (s.ok()) {
     *dbptr = txn_db.release();
   }
@@ -308,8 +309,8 @@ Status TransactionDB::WrapStackableDB(
   }
   txn_db->UpdateCFComparatorMap(handles);
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
-  // In case of failure db is deleted along with the
-  // tx database
+  // In case of a failure at this point, db is deleted via the txn_db destructor
+  // and set to nullptr.
   if (s.ok()) {
     *dbptr = txn_db.release();
   }
