@@ -12,9 +12,11 @@ import argparse
 
 # params overwrite priority:
 #   for default:
-#       default_params < blackbox|whitebox_default_params < args
+#       default_params < {blackbox,whitebox}_default_params < args
 #   for simple:
-#       simple_default_params < blackbox|whitebox_simple_default_params < args
+#       default_params < {blackbox,whitebox}_default_params <
+#       simple_default_params <
+#       {blackbox,whitebox}_simple_default_params < args
 
 expected_values_file = tempfile.NamedTemporaryFile()
 
@@ -85,65 +87,30 @@ whitebox_default_params = {
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
     "test_batches_snapshots": lambda: random.randint(0, 1),
-    "write_buffer_size": 4 * 1024 * 1024,
-    "subcompactions": lambda: random.randint(1, 4),
     "random_kill_odd": 888887,
 }
 
 simple_default_params = {
-    "block_size": 16384,
-    "cache_size": 1048576,
-    "use_clock_cache": "false",
-    "clear_column_family_one_in": 0,
     "column_families": 1,
-    "compression_type": "snappy",
-    "delpercent": 5,
-    "destroy_db_initially": 0,
-    "disable_wal": 0,
-    "expected_values_path": expected_values_file.name,
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
-    "iterpercent": 10,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
-    "max_key": 100000000,
-    "max_write_buffer_number": 3,
     "memtablerep": "skip_list",
-    "mmap_read": lambda: random.randint(0, 1),
-    "nooverwritepercent": 1,
-    "options_file": "",
     "prefix_size": 0,
     "prefixpercent": 0,
-    "progress_reports": 0,
     "readpercent": 50,
-    "reopen": 20,
-    "sync": 0,
     "target_file_size_base": 16777216,
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
-    "threads": 32,
-    "verify_checksum": 1,
     "write_buffer_size": 32 * 1024 * 1024,
-    "writepercent": 35,
-    "subcompactions": lambda: random.randint(1, 4),
 }
 
 blackbox_simple_default_params = {
-    "duration": 6000,
-    "interval": 120,
     "open_files": -1,
-    "ops_per_thread": 100000000,
     "set_options_one_in": 0,
-    "test_batches_snapshots": 0,
 }
 
-whitebox_simple_default_params = {
-    "duration": 10000,
-    "log2_keys_per_lock": 10,
-    "open_files": 500000,
-    "ops_per_thread": 200000,
-    "write_buffer_size": 32 * 1024 * 1024,
-    "subcompactions": lambda: random.randint(1, 4),
-}
+whitebox_simple_default_params = {}
 
 
 def finalize_and_sanitize(src_params):
@@ -157,19 +124,17 @@ def finalize_and_sanitize(src_params):
 def gen_cmd_params(args):
     params = {}
 
+    params.update(default_params)
+    if args.test_type == 'blackbox':
+        params.update(blackbox_default_params)
+    if args.test_type == 'whitebox':
+        params.update(whitebox_default_params)
     if args.simple:
         params.update(simple_default_params)
         if args.test_type == 'blackbox':
             params.update(blackbox_simple_default_params)
         if args.test_type == 'whitebox':
             params.update(whitebox_simple_default_params)
-
-    if not args.simple:
-        params.update(default_params)
-        if args.test_type == 'blackbox':
-            params.update(blackbox_default_params)
-        if args.test_type == 'whitebox':
-            params.update(whitebox_default_params)
 
     for k, v in vars(args).items():
         if v is not None:
