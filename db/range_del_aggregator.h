@@ -6,6 +6,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -140,6 +141,7 @@ class RangeDelAggregator {
                     CompactionIterationStats* range_del_out_stats = nullptr,
                     bool bottommost_level = false);
   bool IsEmpty();
+  bool AddFile(uint64_t file_number);
 
  private:
   // Maps tombstone user start key -> tombstone object
@@ -166,6 +168,7 @@ class RangeDelAggregator {
   struct Rep {
     StripeMap stripe_map_;
     PinnedIteratorsManager pinned_iters_mgr_;
+    std::set<uint64_t> added_files_;
   };
   // Initializes rep_ lazily. This aggregator object is constructed for every
   // read, so expensive members should only be created when necessary, i.e.,
