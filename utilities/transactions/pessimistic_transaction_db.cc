@@ -223,6 +223,9 @@ Status TransactionDB::Open(
     s = WrapDB(db, txn_db_options, compaction_enabled_cf_indices, *handles,
                dbptr);
   }
+  if (!s.ok()) {
+    delete db;
+  }
   return s;
 }
 
@@ -257,19 +260,18 @@ Status TransactionDB::WrapDB(
   assert(db != nullptr);
   assert(dbptr != nullptr);
   *dbptr = nullptr;
-  std::unique_ptr<DB> root(db);
   std::unique_ptr<PessimisticTransactionDB> txn_db;
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
     case WRITE_PREPARED:
       txn_db.reset(new WritePreparedTxnDB(
-          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
       break;
     case WRITE_COMMITTED:
     default:
       txn_db.reset(new WriteCommittedTxnDB(
-          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
   }
   txn_db->UpdateCFComparatorMap(handles);
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
@@ -291,8 +293,6 @@ Status TransactionDB::WrapStackableDB(
   assert(db != nullptr);
   assert(dbptr != nullptr);
   *dbptr = nullptr;
-
-  std::unique_ptr<StackableDB> root(db);
   std::unique_ptr<PessimisticTransactionDB> txn_db;
 
   switch (txn_db_options.write_policy) {
@@ -300,12 +300,12 @@ Status TransactionDB::WrapStackableDB(
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
     case WRITE_PREPARED:
       txn_db.reset(new WritePreparedTxnDB(
-          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
       break;
     case WRITE_COMMITTED:
     default:
       txn_db.reset(new WriteCommittedTxnDB(
-          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
   }
   txn_db->UpdateCFComparatorMap(handles);
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
