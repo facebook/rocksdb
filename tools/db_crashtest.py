@@ -40,14 +40,14 @@ default_params = {
     "readpercent": 45,
     "reopen": 20,
     "snapshot_hold_ops": 100000,
+    "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "use_full_merge_v1": lambda: random.randint(0, 1),
+    "use_merge": lambda: random.randint(0, 1),
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
-    "subcompactions": lambda: random.randint(1, 4),
-    "use_merge": lambda: random.randint(0, 1),
-    "use_full_merge_v1": lambda: random.randint(0, 1),
 }
 
 
@@ -75,13 +75,13 @@ whitebox_default_params = {
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
-    "test_batches_snapshots": lambda: random.randint(0, 1),
     "random_kill_odd": 888887,
+    "test_batches_snapshots": lambda: random.randint(0, 1),
 }
 
 simple_default_params = {
-    "column_families": 1,
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
+    "column_families": 1,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
