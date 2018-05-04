@@ -359,6 +359,7 @@ class TransactionTestBase : public ::testing::Test {
           txn = db->BeginTransaction(write_options, txn_options);
           ASSERT_OK(txn->SetName("xid" + istr));
           committed_kvs[k] = v;
+          ASSERT_OK(txn->Put(k, v));
           committed_kvs[k] = v2;
           ASSERT_OK(txn->Put(k, v2));
 

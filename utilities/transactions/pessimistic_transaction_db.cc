@@ -285,8 +285,7 @@ Status TransactionDB::WrapDB(
 
 Status TransactionDB::WrapStackableDB(
     // make sure this stackable_db is already opened with memtable history
-    // enabled,
-    // auto compaction distabled and 2 phase commit enabled
+    // enabled, auto compaction distabled and 2 phase commit enabled
     StackableDB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
