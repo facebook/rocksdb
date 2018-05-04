@@ -2957,24 +2957,24 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       }
     } else {
       uint64_t max_log_number_in_batch  = 0;
-      uint64_t min_log_number_to_keep = 0;
+      uint64_t last_min_log_number_to_keep = 0;
       for (auto& e : batch_edits) {
         if (e->has_log_number_) {
           max_log_number_in_batch =
               std::max(max_log_number_in_batch, e->log_number_);
         }
         if (e->has_min_log_number_to_keep_) {
-          min_log_number_to_keep =
-              std::max(min_log_number_to_keep, e->min_log_number_to_keep_);
+          last_min_log_number_to_keep =
+              std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
         }
       }
       if (max_log_number_in_batch != 0) {
         assert(column_family_data->GetLogNumber() <= max_log_number_in_batch);
         column_family_data->SetLogNumber(max_log_number_in_batch);
       }
-      if (min_log_number_to_keep != 0) {
+      if (last_min_log_number_to_keep != 0) {
         // Should only be set in 2PC mode.
-        MarkMinLogNumberToKeep2PC(min_log_number_to_keep);
+        MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
       }
 
       AppendVersion(column_family_data, v);
