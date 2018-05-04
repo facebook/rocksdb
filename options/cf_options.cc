@@ -93,17 +93,17 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
 // is used, the base level is not always L1, so precomupted max_file_size can
 // no longer be used. Recompute file_size_for_level from base level.
 uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
-    int level, CompactionStyle compaction_style, int base_level,
+    int level, CompactionStyle compaction_style, int the_base_level,
     bool level_compaction_dynamic_level_bytes) {
-  if (!level_compaction_dynamic_level_bytes || level < base_level ||
+  if (!level_compaction_dynamic_level_bytes || level < the_base_level ||
       compaction_style != kCompactionStyleLevel) {
     assert(level >= 0);
     assert(level < (int)cf_options.max_file_size.size());
     return cf_options.max_file_size[level];
   } else {
-    assert(level >= 0 && base_level >= 0);
-    assert(level - base_level < (int)cf_options.max_file_size.size());
-    return cf_options.max_file_size[level - base_level];
+    assert(level >= 0 && the_base_level >= 0);
+    assert(level - the_base_level < (int)cf_options.max_file_size.size());
+    return cf_options.max_file_size[level - the_base_level];
   }
 }
 
