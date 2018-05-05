@@ -9,11 +9,14 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <vector>
 #include "rocksdb/status.h"
 
 namespace rocksdb {
 
 class DB;
+class ColumnFamilyHandle;
+struct LiveFileMetaData;
 
 class Checkpoint {
  public:
@@ -35,6 +38,17 @@ class Checkpoint {
   // Flush will always trigger if it is 2PC.
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
                                   uint64_t log_size_for_flush = 0);
+
+  // Gets the live set of SST files for a particular Column Family in
+  // export_tables_dir and metadata about the files in metadata_vec.
+  // The SST files will be created through hard links when the directory is in
+  // the same partition as the db, copied otherwise.
+  // The directory should not already exist and will be created by this API.
+  // The directory will be an absolute path. Triggers a flush.
+  virtual Status ExportColumnFamilyFiles(
+      ColumnFamilyHandle* column_family,
+      std::vector<LiveFileMetaData>* metadata_vec,
+      const std::string& export_files_dir);
 
   virtual ~Checkpoint() {}
 };

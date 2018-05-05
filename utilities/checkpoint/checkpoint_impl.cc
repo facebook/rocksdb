@@ -24,6 +24,7 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "util/file_util.h"
@@ -39,6 +40,13 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
 
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
                                     uint64_t /*log_size_for_flush*/) {
+  return Status::NotSupported("");
+}
+
+Status Checkpoint::ExportColumnFamilyFiles(
+    ColumnFamilyHandle* /*column_family*/,
+    std::vector<LiveFileMetaData>* /*metadata_vec*/,
+    const std::string& /*export_tables_dir*/) {
   return Status::NotSupported("");
 }
 
@@ -314,6 +322,169 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   return s;
 }
 
+// Gets the live set of SST files for a particular Column Family in
+// export_tables_dir and metadata about the files in metadata_vec.
+Status CheckpointImpl::ExportColumnFamilyFiles(
+    ColumnFamilyHandle* column_family,
+    std::vector<LiveFileMetaData>* metadata_vec,
+    const std::string& export_tables_dir) {
+  DBOptions db_options = db_->GetDBOptions();
+
+  Status s = db_->GetEnv()->FileExists(export_tables_dir);
+  if (s.ok()) {
+    return Status::InvalidArgument("Directory exists");
+  } else if (!s.IsNotFound()) {
+    assert(s.IsIOError());
+    return s;
+  }
+
+  ROCKS_LOG_INFO(
+      db_options.info_log,
+      "Started the export process -- creating tables in directory %s",
+      export_tables_dir.c_str());
+
+  size_t final_nonslash_idx = export_tables_dir.find_last_not_of('/');
+  if (final_nonslash_idx == std::string::npos) {
+    // npos means it's only slashes or empty. Non-empty means it's the root
+    // directory, but it shouldn't be because we verified above the directory
+    // doesn't exist.
+    assert(export_tables_dir.empty());
+    return Status::InvalidArgument("invalid export_tables directory name");
+  }
+
+  std::string full_private_path =
+      export_tables_dir.substr(0, final_nonslash_idx + 1) + ".tmp";
+  ROCKS_LOG_INFO(
+      db_options.info_log,
+      "Export process -- using temporary directory %s",
+      full_private_path.c_str());
+
+  // Create export_tables directory
+  s = db_->GetEnv()->CreateDir(full_private_path);
+  if (s.ok()) {
+    s = db_->Flush(rocksdb::FlushOptions(), column_family);
+  }
+
+  ColumnFamilyMetaData db_metadata;
+  if (s.ok()) {
+    db_->DisableFileDeletions();
+    db_->GetColumnFamilyMetaData(column_family, &db_metadata);
+    s = ExportFilesInMetaData(
+        db_options, &db_metadata,
+        [&](const std::string& src_dirname, const std::string& fname) {
+          ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s", fname.c_str());
+          return db_->GetEnv()->LinkFile(src_dirname + fname,
+                                         full_private_path + fname);
+        } /* link_file_cb */,
+        [&](const std::string& src_dirname, const std::string& fname) {
+          ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
+          return CopyFile(db_->GetEnv(), src_dirname + fname,
+                          full_private_path + fname, 0,
+                          db_options.use_fsync);
+        } /* copy_file_cb */);
+    // We exported all the files, now enable file deletions
+    db_->EnableFileDeletions(false /* force */);
+  }
+
+  if (s.ok()) {
+    // Move tmp private backup to real snapshot directory
+    s = db_->GetEnv()->RenameFile(full_private_path, export_tables_dir);
+  }
+  if (s.ok()) {
+    unique_ptr<Directory> export_tables_directory;
+    db_->GetEnv()->NewDirectory(export_tables_dir, &export_tables_directory);
+    if (export_tables_directory != nullptr) {
+      s = export_tables_directory->Fsync();
+    }
+  }
+
+  if (s.ok()) {
+    // Here we know that we succeeded and installed the table files
+    // Fill in the metadata information of all the files.
+    for (const auto& level_metadata : db_metadata.levels) {
+      for (const auto& file_metadata : level_metadata.files) {
+        LiveFileMetaData live_file_metadata;
+        live_file_metadata.level = level_metadata.level;
+        live_file_metadata.size = std::move(file_metadata.size),
+        live_file_metadata.name = std::move(file_metadata.name),
+        live_file_metadata.db_path = export_tables_dir;
+        live_file_metadata.smallest_seqno =
+            std::move(file_metadata.smallest_seqno),
+        live_file_metadata.largest_seqno =
+            std::move(file_metadata.largest_seqno),
+        live_file_metadata.smallestkey = std::move(file_metadata.smallestkey),
+        live_file_metadata.largestkey = std::move(file_metadata.largestkey),
+        metadata_vec->emplace_back(live_file_metadata);
+      }
+    }
+    ROCKS_LOG_INFO(db_options.info_log, "Export DONE. All is good");
+  } else {
+    // Clean all the files we might have created
+    ROCKS_LOG_INFO(db_options.info_log, "Export failed -- %s",
+                   s.ToString().c_str());
+    // We have to delete the dir and all its children
+    std::vector<std::string> subchildren;
+    db_->GetEnv()->GetChildren(full_private_path, &subchildren);
+    for (const auto& subchild : subchildren) {
+      const std::string subchild_path = full_private_path + "/" + subchild;
+      Status s1 = db_->GetEnv()->DeleteFile(subchild_path);
+      ROCKS_LOG_INFO(db_options.info_log, "Delete file %s -- %s",
+                     subchild_path.c_str(), s1.ToString().c_str());
+    }
+    // Finally delete the private dir
+    Status s1 = db_->GetEnv()->DeleteDir(full_private_path);
+    ROCKS_LOG_INFO(db_options.info_log, "Delete dir %s -- %s",
+                   full_private_path.c_str(), s1.ToString().c_str());
+  }
+  return s;
+}
+
+Status CheckpointImpl::ExportFilesInMetaData(
+    const DBOptions& db_options, const ColumnFamilyMetaData* metadata,
+    std::function<Status(const std::string& src_dirname,
+                         const std::string& src_fname)>
+        link_file_cb,
+    std::function<Status(const std::string& src_dirname,
+                         const std::string& src_fname)>
+        copy_file_cb) {
+  Status s;
+  bool same_fs = true;
+
+  // Copy/hard link live_files
+  size_t num_files = 0;
+  for (const auto& level_metadata : metadata->levels) {
+    for (const auto& file_metadata : level_metadata.files) {
+      uint64_t number;
+      FileType type;
+      bool ok = ParseFileName(file_metadata.name, &number, &type);
+      if (!ok) {
+        s = Status::Corruption("Can't parse file name. This is very bad");
+        break;
+      }
+      // We should only get sst files here
+      assert(type == kTableFile);
+      assert(file_metadata.size > 0 && file_metadata.name[0] == '/');
+      std::string src_fname = file_metadata.name;
+      ++num_files;
+
+      // Always copy if cross-device link
+      if (same_fs) {
+        s = link_file_cb(db_->GetName(), src_fname);
+        if (s.IsNotSupported()) {
+          same_fs = false;
+          s = Status::OK();
+        }
+      }
+      if (!same_fs) {
+        s = copy_file_cb(db_->GetName(), src_fname);
+      }
+    }
+  }
+  ROCKS_LOG_INFO(db_options.info_log, "Number of table files %" ROCKSDB_PRIszt,
+                 num_files);
+
+  return s;
+}
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
