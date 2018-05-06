@@ -114,6 +114,14 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  using DB::ImportExternalFile;
+  virtual Status ImportExternalFile(
+      ColumnFamilyHandle* /*column_family*/,
+      const std::vector<LiveFileMetaData>& /*external_file_metadata*/,
+      const ImportExternalFileOptions& /*import_options*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
  private:
   friend class DB;
 

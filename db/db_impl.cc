@@ -34,6 +34,7 @@
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/external_sst_file_import_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
 #include "db/job_context.h"
@@ -2949,6 +2950,125 @@ Status DBImpl::IngestExternalFile(
   return status;
 }
 
+// TODO: This is similar to ingest in certain aspects and can share the code
+// with some added abstraction. Keeping it a simple copy for the first version.
+Status DBImpl::ImportExternalFile(
+    ColumnFamilyHandle* column_family,
+    const std::vector<LiveFileMetaData>& external_file_metadata,
+    const ImportExternalFileOptions& import_options) {
+  Status status;
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+
+  ExternalSstFileImportJob import_job(
+      env_, versions_.get(), cfd, immutable_db_options_, env_options_,
+      &snapshots_, external_file_metadata, import_options);
+
+  std::list<uint64_t>::iterator pending_output_elem;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (!bg_error_.ok()) {
+      // Don't import files when there is a bg_error
+      return bg_error_;
+    }
+
+    // Make sure that bg cleanup wont delete the files that we are importing
+    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+  }
+
+  status = import_job.Prepare();
+  if (!status.ok()) {
+    return status;
+  }
+
+  SuperVersionContext sv_context(/* create_superversion */ true);
+  TEST_SYNC_POINT("DBImpl::ImportFile:Start");
+  {
+    // Lock db mutex
+    InstrumentedMutexLock l(&mutex_);
+    TEST_SYNC_POINT("DBImpl::ImporFile:MutexLock");
+
+    // Stop writes to the DB by entering both write threads
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+    WriteThread::Writer nonmem_w;
+    if (two_write_queues_) {
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    }
+
+    num_running_ingest_file_++;
+
+    // We cannot import a file into a dropped CF
+    if (cfd->IsDropped()) {
+      status = Status::InvalidArgument(
+          "Cannot import an external file into a dropped CF");
+    }
+
+    // Figure out if we need to flush the memtable first
+    if (status.ok()) {
+      bool need_flush = false;
+      status = import_job.NeedsFlush(&need_flush, cfd->GetSuperVersion());
+      TEST_SYNC_POINT_CALLBACK("DBImpl::ImportExternalFile:NeedFlush",
+                               &need_flush);
+      if (status.ok() && need_flush) {
+        mutex_.Unlock();
+        status = FlushMemTable(cfd, FlushOptions(),
+                               FlushReason::kExternalFileIngestion,
+                               true /* writes_stopped */);
+        mutex_.Lock();
+      }
+    }
+
+    // Run the import job
+    if (status.ok()) {
+      status = import_job.Run();
+    }
+
+    // Install job edit [Mutex will be unlocked here]
+    auto mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    if (status.ok()) {
+      status =
+          versions_->LogAndApply(cfd, *mutable_cf_options, import_job.edit(),
+                                 &mutex_, directories_.GetDbDir());
+    }
+    if (status.ok()) {
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context, *mutable_cf_options,
+                                         FlushReason::kExternalFileIngestion);
+    }
+
+    // Resume writes to the DB
+    if (two_write_queues_) {
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    }
+    write_thread_.ExitUnbatched(&w);
+
+    // Update stats
+    if (status.ok()) {
+      import_job.UpdateStats();
+    }
+
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+
+    num_running_ingest_file_--;
+    if (num_running_ingest_file_ == 0) {
+      bg_cv_.SignalAll();
+    }
+
+    TEST_SYNC_POINT("DBImpl::ImportFile:MutexUnlock");
+  }
+  // mutex_ is unlocked here
+
+  // Cleanup
+  sv_context.Clean();
+  import_job.Cleanup(status);
+
+  if (status.ok()) {
+    NotifyOnExternalFileImported(cfd, import_job);
+  }
+
+  return status;
+}
+
 Status DBImpl::VerifyChecksum() {
   Status s;
   Options options;
@@ -3014,6 +3134,32 @@ void DBImpl::NotifyOnExternalFileIngested(
     info.table_properties = f.table_properties;
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnExternalFileIngested(this, info);
+    }
+  }
+
+#endif
+}
+
+void DBImpl::NotifyOnExternalFileImported(
+    ColumnFamilyData* cfd, const ExternalSstFileImportJob& import_job) {
+#ifndef ROCKSDB_LITE
+  if (immutable_db_options_.listeners.empty()) {
+    return;
+  }
+
+  for (unsigned int i = 0; i < import_job.files_to_import().size(); ++i) {
+    const auto& f = import_job.files_to_import()[i];
+    const auto& import_metadata = import_job.external_file_metadata()[i];
+    ExternalFileImportedInfo info;
+    info.cf_name = cfd->GetName();
+    info.external_file_path = f.external_file_path;
+    info.internal_file_path = f.internal_file_path;
+    info.smallest_seqnum = import_metadata.smallest_seqno;
+    info.largest_seqnum = import_metadata.largest_seqno;
+    info.level = import_metadata.level;
+    info.table_properties = f.table_properties;
+    for (auto listener : immutable_db_options_.listeners) {
+      listener->OnExternalFileImported(this, info);
     }
   }
 
