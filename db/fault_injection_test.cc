@@ -34,19 +34,22 @@ static const int kValueSize = 1000;
 static const int kMaxNumValues = 2000;
 static const size_t kNumIterations = 3;
 
-class FaultInjectionTest : public testing::Test,
-                           public testing::WithParamInterface<bool> {
+enum FaultInjectionOptionConfig {
+  kDefault,
+  kDifferentDataDir,
+  kWalDir,
+  kSyncWal,
+  kWalDirSyncWal,
+  kMultiLevels,
+  kEnd,
+};
+class FaultInjectionTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::tuple<
+          bool, FaultInjectionOptionConfig, FaultInjectionOptionConfig>> {
  protected:
-  enum OptionConfig {
-    kDefault,
-    kDifferentDataDir,
-    kWalDir,
-    kSyncWal,
-    kWalDirSyncWal,
-    kMultiLevels,
-    kEnd,
-  };
   int option_config_;
+  int non_inclusive_end_range_;  // kEnd or equivalent to that
   // When need to make sure data is persistent, sync WAL
   bool sync_use_wal_;
   // When need to make sure data is persistent, call DB::CompactRange()
@@ -72,13 +75,13 @@ class FaultInjectionTest : public testing::Test,
   DB* db_;
 
   FaultInjectionTest()
-      : option_config_(kDefault),
+      : option_config_(std::get<1>(GetParam())),
+        non_inclusive_end_range_(std::get<2>(GetParam())),
         sync_use_wal_(false),
         sync_use_compact_(true),
         base_env_(nullptr),
         env_(nullptr),
-        db_(nullptr) {
-  }
+        db_(nullptr) {}
 
   ~FaultInjectionTest() {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -87,7 +90,7 @@ class FaultInjectionTest : public testing::Test,
 
   bool ChangeOptions() {
     option_config_++;
-    if (option_config_ >= kEnd) {
+    if (option_config_ >= non_inclusive_end_range_) {
       return false;
     } else {
       if (option_config_ == kMultiLevels) {
@@ -166,7 +169,7 @@ class FaultInjectionTest : public testing::Test,
   }
 
   void SetUp() override {
-    sequential_order_ = GetParam();
+    sequential_order_ = std::get<0>(GetParam());
     ASSERT_OK(NewDB());
   }
 
@@ -343,7 +346,9 @@ class FaultInjectionTest : public testing::Test,
   }
 };
 
-TEST_P(FaultInjectionTest, FaultTest) {
+class FaultInjectionTestSplitted : public FaultInjectionTest {};
+
+TEST_P(FaultInjectionTestSplitted, FaultTest) {
   do {
     Random rnd(301);
 
@@ -530,7 +535,17 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
 }
 
-INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(
+    FaultTest, FaultInjectionTest,
+    ::testing::Values(std::make_tuple(false, kDefault, kEnd),
+                      std::make_tuple(true, kDefault, kEnd)));
+
+INSTANTIATE_TEST_CASE_P(
+    FaultTest, FaultInjectionTestSplitted,
+    ::testing::Values(std::make_tuple(false, kDefault, kSyncWal),
+                      std::make_tuple(true, kDefault, kSyncWal),
+                      std::make_tuple(false, kSyncWal, kEnd),
+                      std::make_tuple(true, kSyncWal, kEnd)));
 
 }  // namespace rocksdb
 
