@@ -69,7 +69,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
         if (ucmp->Compare(sorted_files[i]->largest_user_key,
                           sorted_files[i + 1]->smallest_user_key) >= 0) {
-          return Status::NotSupported("Files have overlapping ranges");
+          return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
     }

@@ -26,6 +26,7 @@
 #include "util/fault_injection_test_env.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 class CheckpointTest : public testing::Test {
@@ -138,6 +139,12 @@ class CheckpointTest : public testing::Test {
 
   void Reopen(const Options& options) {
     ASSERT_OK(TryReopen(options));
+  }
+
+  void CompactAll() {
+    for (auto h : handles_) {
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), h, nullptr, nullptr));
+    }
   }
 
   void Close() {
@@ -287,6 +294,95 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     // Restore DB name
     dbname_ = test::PerThreadDBPath(env_, "db_test");
   }
+}
+
+TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
+    const auto export_path = test::TmpDir(env_) + "/export";
+    auto options = CurrentOptions();
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DestroyDB(export_path, options));
+    test::DestroyDir(env_, export_path);
+
+    // Create a database
+    Status s;
+    options.create_if_missing = true;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    const auto key = std::string("foo");
+    ASSERT_OK(Put(key, "v1"));
+
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+
+    // Export the Tables
+    std::vector<LiveFileMetaData> metadata;
+    // Verify there is one sst file in metadata and export directory.
+    auto verify_files_exported = [&](int num_files_expected) {
+      ASSERT_EQ(metadata.size(), num_files_expected);
+      std::vector<std::string> subchildren;
+      env_->GetChildren(export_path, &subchildren);
+      int num_children = 0;
+      for (const auto& child : subchildren) {
+        if (child != "." && child != "..") {
+          ++num_children;
+        }
+      }
+      ASSERT_EQ(num_children, num_files_expected);
+    };
+
+    ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             &metadata, export_path));
+    verify_files_exported(1);
+    test::DestroyDir(env_, export_path);
+
+    // Check after compaction
+    CompactAll();
+    ASSERT_OK(Put(key, "v2"));
+    metadata.clear();
+    ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             &metadata, export_path));
+    verify_files_exported(2);
+    test::DestroyDir(env_, export_path);
+}
+
+TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
+    auto export_path = test::TmpDir(env_) + "/export";
+    auto options = CurrentOptions();
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DestroyDB(export_path, options));
+    test::DestroyDir(env_, export_path);
+
+    // Create a database
+    Status s;
+    options.create_if_missing = true;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    const auto key = std::string("foo");
+    ASSERT_OK(Put(key, "v1"));
+
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+
+    // Export onto existing directory.
+    env_->CreateDirIfMissing(export_path);
+    std::vector<LiveFileMetaData> metadata;
+    ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             &metadata, export_path),
+              Status::InvalidArgument("Specified export_dir exists"));
+    test::DestroyDir(env_, export_path);
+
+    // Export with invalid directory specification.
+    export_path = + "../export";
+    ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             &metadata, export_path),
+              Status::InvalidArgument("Specified export_dir invalid"));
+
+    export_path = + "///";
+    ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
+                                             &metadata, export_path),
+              Status::InvalidArgument("Specified export_dir invalid"));
 }
 
 TEST_F(CheckpointTest, CheckpointCF) {
