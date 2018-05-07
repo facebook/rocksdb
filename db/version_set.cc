@@ -2655,11 +2655,13 @@ struct VersionSet::ManifestWriter {
   bool done;
   InstrumentedCondVar cv;
   ColumnFamilyData* cfd;
+  const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
 
   explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const autovector<VersionEdit*>& e)
-      : done(false), cv(mu), cfd(_cfd), edit_list(e) {}
+      const MutableCFOptions& cf_options, const autovector<VersionEdit*>& e)
+      : done(false), cv(mu), cfd(_cfd),
+        mutable_cf_options(cf_options), edit_list(e) {}
 };
 
 VersionSet::VersionSet(const std::string& dbname,
@@ -2734,6 +2736,307 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
   v->next_->prev_ = v;
 }
 
+Status VersionSet::ProcessManifestWrites(
+    std::vector<ManifestWriter>& writers, InstrumentedMutex* mu,
+    Directory* db_directory, bool new_descriptor_log,
+    const ColumnFamilyOptions* new_cf_options) {
+  ManifestWriter& first_writer = writers.front();
+  ManifestWriter* last_writer = &first_writer;
+
+  assert(!manifest_writers_.empty());
+  assert(manifest_writers_.front() == &first_writer);
+
+  autovector<VersionEdit*> batch_edits;
+  std::vector<Version*> versions;
+  std::vector<const MutableCFOptions*> mutable_cf_options_ptrs;
+  std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
+
+  if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+    // No group commits for column family add or drop
+    LogAndApplyCFHelper(first_writer.edit_list.front());
+    batch_edits.push_back(first_writer.edit_list.front());
+  } else {
+    ColumnFamilyData* cfd = nullptr;
+    Version* version = nullptr;
+    auto it = manifest_writers_.cbegin();
+    while (it != manifest_writers_.cend()) {
+      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
+        break;
+      }
+      if ((*it)->cfd != nullptr && (*it)->cfd->IsDropped()) {
+        it++;
+        continue;
+      }
+      last_writer = *(it++);
+      if (cfd == nullptr || last_writer->cfd->GetID() != cfd->GetID()) {
+        cfd = last_writer->cfd;
+        version = new Version(cfd, this, env_options_,
+            current_version_number_++);
+        versions.push_back(version);
+        mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
+        builder_guards.emplace_back(new BaseReferencedVersionBuilder(cfd));
+      }
+      auto* builder = builder_guards.back()->version_builder();
+      for (const auto& e : last_writer->edit_list) {
+        LogAndApplyHelper(cfd, builder, version, e, mu);
+        batch_edits.push_back(e);
+      }
+    }
+    for (int i = 0; i < (int) versions.size(); ++i) {
+      auto* builder = builder_guards[i]->version_builder();
+      builder->SaveTo(versions[i]->storage_info());
+    }
+  }
+
+  uint64_t new_manifest_file_size = 0;
+  Status s;
+
+  assert(pending_manifest_file_number_ == 0);
+  if (!descriptor_log_ ||
+      manifest_file_size_ > db_options_->max_manifest_file_size) {
+    pending_manifest_file_number_ = NewFileNumber();
+    batch_edits.back()->SetNextFile(next_file_number_.load());
+    new_descriptor_log = true;
+  } else {
+    pending_manifest_file_number_ = manifest_file_number_;
+  }
+
+  if (new_descriptor_log) {
+    // if we are writing out new snapshot make sure to persist max column
+    // family.
+    if (column_family_set_->GetMaxColumnFamily() > 0) {
+      first_writer.edit_list.front()->SetMaxColumnFamily(
+          column_family_set_->GetMaxColumnFamily());
+    }
+  }
+
+  {
+    EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
+    mu->Unlock();
+
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
+        column_family_set_->get_table_cache()->GetCapacity() ==
+        TableCache::kInfiniteCapacity) {
+      for (int i = 0; i < (int) versions.size(); ++i) {
+        ColumnFamilyData* cfd = versions[i]->cfd_;
+        builder_guards[i]->version_builder()->LoadTableHandlers(
+            cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
+            true /* prefetch_index_and_filter_in_cache */);
+      }
+    }
+
+    if (new_descriptor_log) {
+      // create new manifest file
+      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
+          pending_manifest_file_number_);
+      unique_ptr<WritableFile> descriptor_file;
+      s = NewWritableFile(
+          env_, DescriptorFileName(dbname_, pending_manifest_file_number_),
+          &descriptor_file, opt_env_opts);
+      if (s.ok()) {
+        descriptor_file->SetPreallocationBlockSize(
+            db_options_->manifest_preallocation_size);
+
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(descriptor_file), opt_env_opts));
+        descriptor_log_.reset(
+            new log::Writer(std::move(file_writer), 0, false));
+        s = WriteSnapshot(descriptor_log_.get());
+      }
+    }
+
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+      for (int i = 0; i < (int) versions.size(); ++i) {
+        versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
+      }
+    }
+
+    // Write new records to MANIFEST log
+    if (s.ok()) {
+      for (auto& e : batch_edits) {
+        std::string record;
+        if (!e->EncodeTo(&record)) {
+          s = Status::Corruption(
+              "Unable to encode VersionEdit:" + e->DebugString(true));
+          break;
+        }
+        TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
+            rocksdb_kill_odds * REDUCE_ODDS2);
+        s = descriptor_log_->AddRecord(record);
+        if (!s.ok()) {
+          break;
+        }
+      }
+      if (s.ok()) {
+        s = SyncManifest(env_, db_options_, descriptor_log_->file());
+      }
+      if (!s.ok()) {
+        ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write %s\n",
+            s.ToString().c_str());
+      }
+    }
+
+    // If we just created a new descriptor file, install it by writing a
+    // new CURRENT file that points to it.
+    if (s.ok() && new_descriptor_log) {
+      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
+          db_directory);
+    }
+
+    if (s.ok()) {
+      // find offset in manifest file where this version is stored.
+      new_manifest_file_size = descriptor_log_->file()->GetFileSize();
+    }
+
+    if (first_writer.edit_list.front()->is_column_family_drop_) {
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
+    }
+
+    LogFlush(db_options_->info_log);
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
+    mu->Lock();
+  }
+
+  // Append the old manifest file to the obsolete_manifest_ list to be deleted
+  // by PurgeObsoleteFiles later.
+  if (s.ok() && new_descriptor_log) {
+    obsolete_manifests_.emplace_back(
+        DescriptorFileName("", manifest_file_number_));
+  }
+
+  // Install the new versions
+  if (s.ok()) {
+    if (first_writer.edit_list.front()->is_column_family_add_) {
+      assert(batch_edits.size() == 1);
+      assert(new_cf_options != nullptr);
+      CreateColumnFamily(*new_cf_options, first_writer.edit_list.front());
+    } else if (first_writer.edit_list.front()->is_column_family_drop_) {
+      assert(batch_edits.size() == 1);
+      first_writer.cfd->SetDropped();
+      if (first_writer.cfd->Unref()) {
+        delete first_writer.cfd;
+      }
+    } else {
+      uint64_t max_log_number_in_batch = 0;
+      for (auto& e : batch_edits) {
+        if (e->has_log_number_) {
+          max_log_number_in_batch =
+            std::max(max_log_number_in_batch, e->log_number_);
+        }
+      }
+      if (max_log_number_in_batch != 0) {
+        for (int i = 0; i < (int) versions.size(); ++i) {
+          ColumnFamilyData* cfd = versions[i]->cfd_;
+          assert(cfd->GetLogNumber() <= max_log_number_in_batch);
+          cfd->SetLogNumber(max_log_number_in_batch);
+        }
+      }
+      for (int i = 0; i < (int) versions.size(); ++i) {
+        ColumnFamilyData* cfd = versions[i]->cfd_;
+        AppendVersion(cfd, versions[i]);
+      }
+    }
+    manifest_file_number_ = pending_manifest_file_number_;
+    manifest_file_size_ = new_manifest_file_size;
+    prev_log_number_ = first_writer.edit_list.front()->prev_log_number_;
+  } else {
+    std::string version_edits;
+    for (auto& e : batch_edits) {
+      version_edits += ("\n" + e->DebugString(true));
+    }
+    ROCKS_LOG_ERROR(db_options_->info_log,
+        "Error in committing version edit to MANIFEST: %s",
+        version_edits.c_str());
+    for (auto v : versions) {
+      delete v;
+    }
+    if (new_descriptor_log) {
+      ROCKS_LOG_INFO(db_options_->info_log, "Deleting manifest %" PRIu64
+          " current manifest %" PRIu64 "\n",
+          manifest_file_number_, pending_manifest_file_number_);
+      descriptor_log_.reset();
+      env_->DeleteFile(
+          DescriptorFileName(dbname_, pending_manifest_file_number_));
+    }
+  }
+
+  pending_manifest_file_number_ = 0;
+
+  // wake up all the waiting writers
+  while (true) {
+    ManifestWriter* ready = manifest_writers_.front();
+    manifest_writers_.pop_front();
+    bool need_signal = true;
+    for (const auto& w : writers) {
+      if (&w == ready) {
+        need_signal = false;
+        break;
+      }
+    }
+    ready->status = s;
+    ready->done = true;
+    if (need_signal) {
+      ready->cv.Signal();
+    }
+    if (ready == last_writer) {
+      break;
+    }
+  }
+  if (!manifest_writers_.empty()) {
+    manifest_writers_.front()->cv.Signal();
+  }
+  return s;
+}
+
+Status VersionSet::LogAndApply(
+    std::vector<ColumnFamilyData*>& column_family_data,
+    const std::vector<MutableCFOptions>& mutable_cf_options,
+    std::vector<autovector<VersionEdit*>>& edit_lists, InstrumentedMutex* mu,
+    Directory* db_directory, bool new_descriptor_log,
+    const ColumnFamilyOptions* new_cf_options) {
+  mu->AssertHeld();
+  int num_edits = 0;
+  for (const auto& elist : edit_lists) {
+    num_edits += elist.size();
+  }
+  if (num_edits == 0) {
+    return Status::OK();
+  } else if (num_edits > 1) {
+#ifndef NDEBUG
+    for (const auto& edit_list : edit_lists) {
+      for (const auto& edit : edit_list) {
+        assert(!edit->IsColumnFamilyManipulation());
+      }
+    }
+#endif /* ! NDEBUG */
+  }
+
+  int n = (int) column_family_data.size();
+  if (n == 1 && column_family_data[0] == nullptr) {
+    assert(edit_lists.size() == 1 && edit_lists[0].size() == 1);
+    assert(edit_lists[0][0]->is_column_family_add_);
+    assert(new_cf_options != nullptr);
+  }
+  std::vector<ManifestWriter> writers;
+  for (int i = 0; i < n; ++i) {
+    writers.push_back(ManifestWriter(mu, column_family_data[i],
+          mutable_cf_options[i], edit_lists[i]));
+    manifest_writers_.push_back(&writers[i]);
+  }
+  ManifestWriter& first_writer = writers[0];
+  while (!first_writer.done && &first_writer != manifest_writers_.front()) {
+    first_writer.cv.Wait();
+  }
+  if (first_writer.done) {
+    return first_writer.status;
+  }
+  return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
+      new_cf_options);
+}
+
 Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                                const MutableCFOptions& mutable_cf_options,
                                const autovector<VersionEdit*>& edit_list,
@@ -2763,7 +3066,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
 
   // queue our request
-  ManifestWriter w(mu, column_family_data, edit_list);
+  ManifestWriter w(mu, column_family_data, mutable_cf_options, edit_list);
   manifest_writers_.push_back(&w);
   while (!w.done && &w != manifest_writers_.front()) {
     w.cv.Wait();
@@ -2782,235 +3085,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // we steal this code to also inform about cf-drop
     return Status::ShutdownInProgress();
   }
-
-  autovector<VersionEdit*> batch_edits;
-  Version* v = nullptr;
-  std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(nullptr);
-
-  // process all requests in the queue
-  ManifestWriter* last_writer = &w;
-  assert(!manifest_writers_.empty());
-  assert(manifest_writers_.front() == &w);
-  if (w.edit_list.front()->IsColumnFamilyManipulation()) {
-    // no group commits for column family add or drop
-    LogAndApplyCFHelper(w.edit_list.front());
-    batch_edits.push_back(w.edit_list.front());
-  } else {
-    v = new Version(column_family_data, this, env_options_,
-                    current_version_number_++);
-    builder_guard.reset(new BaseReferencedVersionBuilder(column_family_data));
-    auto* builder = builder_guard->version_builder();
-    for (const auto& writer : manifest_writers_) {
-      if (writer->edit_list.front()->IsColumnFamilyManipulation() ||
-          writer->cfd->GetID() != column_family_data->GetID()) {
-        // no group commits for column family add or drop
-        // also, group commits across column families are not supported
-        break;
-      }
-      last_writer = writer;
-      for (const auto& edit : writer->edit_list) {
-        LogAndApplyHelper(column_family_data, builder, v, edit, mu);
-        batch_edits.push_back(edit);
-      }
-    }
-    builder->SaveTo(v->storage_info());
-  }
-
-  // Initialize new descriptor log file if necessary by creating
-  // a temporary file that contains a snapshot of the current version.
-  uint64_t new_manifest_file_size = 0;
-  Status s;
-
-  assert(pending_manifest_file_number_ == 0);
-  if (!descriptor_log_ ||
-      manifest_file_size_ > db_options_->max_manifest_file_size) {
-    pending_manifest_file_number_ = NewFileNumber();
-    batch_edits.back()->SetNextFile(next_file_number_.load());
-    new_descriptor_log = true;
-  } else {
-    pending_manifest_file_number_ = manifest_file_number_;
-  }
-
-  if (new_descriptor_log) {
-    // if we're writing out new snapshot make sure to persist max column family
-    if (column_family_set_->GetMaxColumnFamily() > 0) {
-      w.edit_list.front()->SetMaxColumnFamily(
-          column_family_set_->GetMaxColumnFamily());
-    }
-  }
-
-  // Unlock during expensive operations. New writes cannot get here
-  // because &w is ensuring that all new writes get queued.
-  {
-    EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
-    // Before releasing mutex, make a copy of mutable_cf_options and pass to
-    // `PrepareApply` to avoided a potential data race with backgroundflush
-    MutableCFOptions mutable_cf_options_copy(mutable_cf_options);
-    mu->Unlock();
-
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
-    if (!w.edit_list.front()->IsColumnFamilyManipulation() &&
-        this->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-            TableCache::kInfiniteCapacity) {
-      // unlimited table cache. Pre-load table handle now.
-      // Need to do it out of the mutex.
-      builder_guard->version_builder()->LoadTableHandlers(
-          column_family_data->internal_stats(),
-          column_family_data->ioptions()->optimize_filters_for_hits,
-          true /* prefetch_index_and_filter_in_cache */);
-    }
-
-    // This is fine because everything inside of this block is serialized --
-    // only one thread can be here at the same time
-    if (new_descriptor_log) {
-      // create manifest file
-      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
-                     pending_manifest_file_number_);
-      unique_ptr<WritableFile> descriptor_file;
-      s = NewWritableFile(
-          env_, DescriptorFileName(dbname_, pending_manifest_file_number_),
-          &descriptor_file, opt_env_opts);
-      if (s.ok()) {
-        descriptor_file->SetPreallocationBlockSize(
-            db_options_->manifest_preallocation_size);
-
-        unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(descriptor_file), opt_env_opts));
-        descriptor_log_.reset(
-            new log::Writer(std::move(file_writer), 0, false));
-        s = WriteSnapshot(descriptor_log_.get());
-      }
-    }
-
-    if (!w.edit_list.front()->IsColumnFamilyManipulation()) {
-      // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply(mutable_cf_options_copy, true);
-    }
-
-    // Write new record to MANIFEST log
-    if (s.ok()) {
-      for (auto& e : batch_edits) {
-        std::string record;
-        if (!e->EncodeTo(&record)) {
-          s = Status::Corruption(
-              "Unable to Encode VersionEdit:" + e->DebugString(true));
-          break;
-        }
-        TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
-                         rocksdb_kill_odds * REDUCE_ODDS2);
-        s = descriptor_log_->AddRecord(record);
-        if (!s.ok()) {
-          break;
-        }
-      }
-      if (s.ok()) {
-        s = SyncManifest(env_, db_options_, descriptor_log_->file());
-      }
-      if (!s.ok()) {
-        ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write: %s\n",
-                        s.ToString().c_str());
-      }
-    }
-
-    // If we just created a new descriptor file, install it by writing a
-    // new CURRENT file that points to it.
-    if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
-                         db_directory);
-    }
-
-    if (s.ok()) {
-      // find offset in manifest file where this version is stored.
-      new_manifest_file_size = descriptor_log_->file()->GetFileSize();
-    }
-
-    if (w.edit_list.front()->is_column_family_drop_) {
-      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
-      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
-      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
-    }
-
-    LogFlush(db_options_->info_log);
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
-    mu->Lock();
-  }
-
-  // Append the old mainfest file to the obsolete_manifests_ list to be deleted
-  // by PurgeObsoleteFiles later.
-  if (s.ok() && new_descriptor_log) {
-    obsolete_manifests_.emplace_back(
-        DescriptorFileName("", manifest_file_number_));
-  }
-
-  // Install the new version
-  if (s.ok()) {
-    if (w.edit_list.front()->is_column_family_add_) {
-      // no group commit on column family add
-      assert(batch_edits.size() == 1);
-      assert(new_cf_options != nullptr);
-      CreateColumnFamily(*new_cf_options, w.edit_list.front());
-    } else if (w.edit_list.front()->is_column_family_drop_) {
-      assert(batch_edits.size() == 1);
-      column_family_data->SetDropped();
-      if (column_family_data->Unref()) {
-        delete column_family_data;
-      }
-    } else {
-      uint64_t max_log_number_in_batch  = 0;
-      for (auto& e : batch_edits) {
-        if (e->has_log_number_) {
-          max_log_number_in_batch =
-              std::max(max_log_number_in_batch, e->log_number_);
-        }
-      }
-      if (max_log_number_in_batch != 0) {
-        assert(column_family_data->GetLogNumber() <= max_log_number_in_batch);
-        column_family_data->SetLogNumber(max_log_number_in_batch);
-      }
-      AppendVersion(column_family_data, v);
-    }
-
-    manifest_file_number_ = pending_manifest_file_number_;
-    manifest_file_size_ = new_manifest_file_size;
-    prev_log_number_ = w.edit_list.front()->prev_log_number_;
-  } else {
-    std::string version_edits;
-    for (auto& e : batch_edits) {
-      version_edits = version_edits + "\n" + e->DebugString(true);
-    }
-    ROCKS_LOG_ERROR(
-        db_options_->info_log,
-        "[%s] Error in committing version edit to MANIFEST: %s",
-        column_family_data ? column_family_data->GetName().c_str() : "<null>",
-        version_edits.c_str());
-    delete v;
-    if (new_descriptor_log) {
-      ROCKS_LOG_INFO(db_options_->info_log, "Deleting manifest %" PRIu64
-                                            " current manifest %" PRIu64 "\n",
-                     manifest_file_number_, pending_manifest_file_number_);
-      descriptor_log_.reset();
-      env_->DeleteFile(
-          DescriptorFileName(dbname_, pending_manifest_file_number_));
-    }
-  }
-  pending_manifest_file_number_ = 0;
-
-  // wake up all the waiting writers
-  while (true) {
-    ManifestWriter* ready = manifest_writers_.front();
-    manifest_writers_.pop_front();
-    if (ready != &w) {
-      ready->status = s;
-      ready->done = true;
-      ready->cv.Signal();
-    }
-    if (ready == last_writer) break;
-  }
-  // Notify new head of write queue
-  if (!manifest_writers_.empty()) {
-    manifest_writers_.front()->cv.Signal();
-  }
-  return s;
+  std::vector<ManifestWriter> writers(1, w);
+  return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
+      new_cf_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
