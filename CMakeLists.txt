@@ -64,6 +64,7 @@ else()
       find_package(JeMalloc REQUIRED)
       add_definitions(-DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE)
       include_directories(${JEMALLOC_INCLUDE_DIR})
+      list(APPEND THIRDPARTY_LIBS ${JEMALLOC_LIBRARIES})
     endif()
   endif()
 
