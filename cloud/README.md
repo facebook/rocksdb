@@ -27,6 +27,8 @@ AWS_SECRET_ACCESS_KEY : your secret key
 
 AWS_BUCKET_NAME       : the name of your S3 test bucket
 
+AWS_DEFAULT_REGION : the AWS region of your client (e.g. us-west-2)
+
 ### Run Unit Tests
 
 make check J=1
