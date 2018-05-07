@@ -50,6 +50,10 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   std::atomic<int> leader_count{0};
   std::vector<port::Thread> threads;
   mock_env->SetFilesystemActive(false);
+
+  WriteOptions write_options;
+  write_options.sync = true; // handle the situation where manual_wal_flush is true
+
   // Wait until all threads linked to write threads, to make sure
   // all threads join the same batch group.
   SyncPoint::GetInstance()->SetCallBack(
@@ -68,7 +72,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads.push_back(port::Thread(
         [&](int index) {
           // All threads should fail.
-          ASSERT_FALSE(Put("key" + ToString(index), "value").ok());
+          ASSERT_FALSE(Put("key" + ToString(index), "value", write_options).ok());
         },
         i));
   }
