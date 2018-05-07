@@ -16,7 +16,12 @@
 // Helper macros that include information about file name and line number
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
+#ifdef __FILENAME__
+#define PREPEND_FILE_LINE(FMT) \
+  ("[" __FILENAME__ ":" TOSTRING(__LINE__) "] " FMT)
+#else
 #define PREPEND_FILE_LINE(FMT) ("[" __FILE__ ":" TOSTRING(__LINE__) "] " FMT)
+#endif
 
 // Don't inclide file/line info in HEADER level
 #define ROCKS_LOG_HEADER(LGR, FMT, ...) \

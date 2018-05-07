@@ -194,6 +194,10 @@ ARFLAGS = -X64 rs
 STRIPFLAGS = -X64 -x
 endif
 
+# This helps shorter file names in logged lines. $< is the name of the first
+# prerequisite which should normally be the source file name.
+CXXFLAGS+=-D__FILENAME__='"$(notdir $<)"'
+
 ifeq ($(PLATFORM), OS_SOLARIS)
 	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
 endif
