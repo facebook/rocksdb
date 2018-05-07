@@ -51,9 +51,6 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   std::vector<port::Thread> threads;
   mock_env->SetFilesystemActive(false);
 
-  WriteOptions write_options;
-  write_options.sync = true; // handle the situation where manual_wal_flush is true
-
   // Wait until all threads linked to write threads, to make sure
   // all threads join the same batch group.
   SyncPoint::GetInstance()->SetCallBack(
@@ -72,7 +69,14 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads.push_back(port::Thread(
         [&](int index) {
           // All threads should fail.
-          ASSERT_FALSE(Put("key" + ToString(index), "value", write_options).ok());
+          auto res = Put("key" + ToString(index), "value");
+          if (!options.manual_wal_flush) {
+            ASSERT_FALSE(res.ok());
+          } else {
+            // else we should see fs error when we do the flush
+            res = dbfull()->FlushWAL(false);
+            ASSERT_FALSE(res.ok());
+          }
         },
         i));
   }
@@ -94,7 +98,16 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
     // Forcibly fail WAL write for the first Put only. Subsequent Puts should
     // fail due to read-only mode
     mock_env->SetFilesystemActive(i != 0);
-    ASSERT_FALSE(Put("key" + ToString(i), "value").ok());
+    auto res = Put("key" + ToString(i), "value");
+    if (!options.manual_wal_flush || i != 0) {
+      // even with manual_wal_flush the 2nd Put should return error because of
+      // the read-only mode
+      ASSERT_FALSE(res.ok());
+    } else {
+      // else we should see fs error when we do the flush
+      res = dbfull()->FlushWAL(false);
+      ASSERT_FALSE(res.ok());
+    }
   }
   // Close before mock_env destruct.
   Close();

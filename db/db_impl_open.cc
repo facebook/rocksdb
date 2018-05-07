@@ -1218,6 +1218,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "DB pointer %p", impl);
     LogFlush(impl->immutable_db_options_.info_log);
+    impl->FlushWAL(false /*sync*/);
     if (!persist_options_status.ok()) {
       s = Status::IOError(
           "DB::Open() failed --- Unable to persist Options file",
