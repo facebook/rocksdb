@@ -224,6 +224,9 @@ ifdef COMPILE_WITH_TSAN
 	PROFILING_FLAGS =
 	# LUA is not supported under TSAN
 	LUA_PATH =
+	# Limit keys for crash test under TSAN to avoid error:
+	# "ThreadSanitizer: DenseSlabAllocator overflow. Dying."
+	CRASH_TEST_EXT_ARGS += --max_key=1000000
 endif
 
 # AIX doesn't work with -pg

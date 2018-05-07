@@ -12,6 +12,7 @@
 #include <inttypes.h>
 #include <limits>
 #include <string>
+#include "db/db_impl.h"
 #include "db/memtable.h"
 #include "db/version_set.h"
 #include "monitoring/thread_status_util.h"
@@ -322,9 +323,10 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    const autovector<MemTable*>& mems, VersionSet* vset, InstrumentedMutex* mu,
-    uint64_t file_number, autovector<MemTable*>* to_delete,
-    Directory* db_directory, LogBuffer* log_buffer) {
+    const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
+    VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -361,6 +363,7 @@ Status MemTableList::InstallMemtableFlushResults(
     uint64_t batch_file_number = 0;
     size_t batch_count = 0;
     autovector<VersionEdit*> edit_list;
+    autovector<MemTable*> memtables_to_flush;
     // enumerate from the last (earliest) element to see how many batch finished
     for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
       MemTable* m = *it;
@@ -373,11 +376,20 @@ Status MemTableList::InstallMemtableFlushResults(
                          "[%s] Level-0 commit table #%" PRIu64 " started",
                          cfd->GetName().c_str(), m->file_number_);
         edit_list.push_back(&m->edit_);
+        memtables_to_flush.push_back(m);
       }
       batch_count++;
     }
 
     if (batch_count > 0) {
+      if (vset->db_options()->allow_2pc) {
+        assert(edit_list.size() > 0);
+        // We piggyback the information of  earliest log file to keep in the
+        // manifest entry for the last file flushed.
+        edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
+            vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
+      }
+
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);
@@ -468,13 +480,21 @@ void MemTableList::InstallNewVersion() {
   }
 }
 
-uint64_t MemTableList::GetMinLogContainingPrepSection() {
+uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
+    const autovector<MemTable*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
   for (auto& m : current_->memlist_) {
-    // this mem has been flushed it no longer
-    // needs to hold on the its prep section
-    if (m->flush_completed_) {
+    // Assume the list is very short, we can live with O(m*n). We can optimize
+    // if the performance has some problem.
+    bool should_skip = false;
+    for (MemTable* m_to_flush : memtables_to_flush) {
+      if (m == m_to_flush) {
+        should_skip = true;
+        break;
+      }
+    }
+    if (should_skip) {
       continue;
     }
 

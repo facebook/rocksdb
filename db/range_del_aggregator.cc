@@ -536,4 +536,11 @@ bool RangeDelAggregator::IsEmpty() {
   return true;
 }
 
+bool RangeDelAggregator::AddFile(uint64_t file_number) {
+  if (rep_ == nullptr) {
+    return true;
+  }
+  return rep_->added_files_.emplace(file_number).second;
+}
+
 }  // namespace rocksdb

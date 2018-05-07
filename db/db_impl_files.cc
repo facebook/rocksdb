@@ -14,124 +14,17 @@
 #include <inttypes.h>
 #include <unordered_set>
 #include "db/event_helpers.h"
+#include "db/memtable_list.h"
 #include "util/file_util.h"
 #include "util/sst_file_manager_impl.h"
 
-
 namespace rocksdb {
-uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
-  if (!allow_2pc()) {
-    return 0;
-  }
-
-  uint64_t min_log = 0;
-
-  // we must look through the memtables for two phase transactions
-  // that have been committed but not yet flushed
-  for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped()) {
-      continue;
-    }
-
-    auto log = loop_cfd->imm()->GetMinLogContainingPrepSection();
-
-    if (log > 0 && (min_log == 0 || log < min_log)) {
-      min_log = log;
-    }
-
-    log = loop_cfd->mem()->GetMinLogContainingPrepSection();
-
-    if (log > 0 && (min_log == 0 || log < min_log)) {
-      min_log = log;
-    }
-  }
-
-  return min_log;
-}
-
-void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
-  assert(log != 0);
-  std::lock_guard<std::mutex> lock(prepared_section_completed_mutex_);
-  auto it = prepared_section_completed_.find(log);
-  if (UNLIKELY(it == prepared_section_completed_.end())) {
-    prepared_section_completed_[log] = 1;
-  } else {
-    it->second += 1;
-  }
-}
-
-void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
-  assert(log != 0);
-  std::lock_guard<std::mutex> lock(logs_with_prep_mutex_);
-
-  auto rit = logs_with_prep_.rbegin();
-  bool updated = false;
-  // Most probably the last log is the one that is being marked for
-  // having a prepare section; so search from the end.
-  for (; rit != logs_with_prep_.rend() && rit->log >= log; ++rit) {
-    if (rit->log == log) {
-      rit->cnt++;
-      updated = true;
-      break;
-    }
-  }
-  if (!updated) {
-    // We are either at the start, or at a position with rit->log < log
-    logs_with_prep_.insert(rit.base(), {log, 1});
-  }
-}
-
-uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
-  std::lock_guard<std::mutex> lock(logs_with_prep_mutex_);
-  auto it = logs_with_prep_.begin();
-  // start with the smallest log
-  for (; it != logs_with_prep_.end();) {
-    auto min_log = it->log;
-    {
-      std::lock_guard<std::mutex> lock2(prepared_section_completed_mutex_);
-      auto completed_it = prepared_section_completed_.find(min_log);
-      if (completed_it == prepared_section_completed_.end() ||
-          completed_it->second < it->cnt) {
-        return min_log;
-      }
-      assert(completed_it != prepared_section_completed_.end() &&
-             completed_it->second == it->cnt);
-      prepared_section_completed_.erase(completed_it);
-    }
-    // erase from beginning in vector is not efficient but this function is not
-    // on the fast path.
-    it = logs_with_prep_.erase(it);
-  }
-  // no such log found
-  return 0;
-}
-
 uint64_t DBImpl::MinLogNumberToKeep() {
-  uint64_t log_number = versions_->MinLogNumber();
-
   if (allow_2pc()) {
-    // if are 2pc we must consider logs containing prepared
-    // sections of outstanding transactions.
-    //
-    // We must check min logs with outstanding prep before we check
-    // logs references by memtables because a log referenced by the
-    // first data structure could transition to the second under us.
-    //
-    // TODO(horuff): iterating over all column families under db mutex.
-    // should find more optimal solution
-    auto min_log_in_prep_heap = FindMinLogContainingOutstandingPrep();
-
-    if (min_log_in_prep_heap != 0 && min_log_in_prep_heap < log_number) {
-      log_number = min_log_in_prep_heap;
-    }
-
-    auto min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable();
-
-    if (min_log_refed_by_mem != 0 && min_log_refed_by_mem < log_number) {
-      log_number = min_log_refed_by_mem;
-    }
+    return versions_->min_log_number_to_keep_2pc();
+  } else {
+    return versions_->MinLogNumberWithUnflushedData();
   }
-  return log_number;
 }
 
 // * Returns the list of live files in 'sst_live'
@@ -200,7 +93,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->pending_manifest_file_number =
       versions_->pending_manifest_file_number();
   job_context->log_number = MinLogNumberToKeep();
-
   job_context->prev_log_number = versions_->prev_log_number();
 
   versions_->AddLiveFiles(&job_context->sst_live);
@@ -619,6 +511,96 @@ void DBImpl::DeleteObsoleteFiles() {
   }
   job_context.Clean();
   mutex_.Lock();
+}
+
+uint64_t FindMinPrepLogReferencedByMemTable(
+    VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
+    const autovector<MemTable*>& memtables_to_flush) {
+  uint64_t min_log = 0;
+
+  // we must look through the memtables for two phase transactions
+  // that have been committed but not yet flushed
+  for (auto loop_cfd : *vset->GetColumnFamilySet()) {
+    if (loop_cfd->IsDropped() || loop_cfd == cfd_to_flush) {
+      continue;
+    }
+
+    auto log = loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(
+        memtables_to_flush);
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+
+    log = loop_cfd->mem()->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
+}
+
+uint64_t PrecomputeMinLogNumberToKeep(
+    VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
+    autovector<VersionEdit*> edit_list,
+    const autovector<MemTable*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker) {
+  assert(vset != nullptr);
+  assert(prep_tracker != nullptr);
+  // Calculate updated min_log_number_to_keep
+  // Since the function should only be called in 2pc mode, log number in
+  // the version edit should be sufficient.
+
+  // Precompute the min log number containing unflushed data for the column
+  // family being flushed (`cfd_to_flush`).
+  uint64_t cf_min_log_number_to_keep = 0;
+  for (auto& e : edit_list) {
+    if (e->has_log_number()) {
+      cf_min_log_number_to_keep =
+          std::max(cf_min_log_number_to_keep, e->log_number());
+    }
+  }
+  if (cf_min_log_number_to_keep == 0) {
+    // No version edit contains information on log number. The log number
+    // for this column family should stay the same as it is.
+    cf_min_log_number_to_keep = cfd_to_flush.GetLogNumber();
+  }
+
+  // Get min log number containing unflushed data for other column families.
+  uint64_t min_log_number_to_keep =
+      vset->PreComputeMinLogNumberWithUnflushedData(&cfd_to_flush);
+  if (cf_min_log_number_to_keep != 0) {
+    min_log_number_to_keep =
+        std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
+  }
+
+  // if are 2pc we must consider logs containing prepared
+  // sections of outstanding transactions.
+  //
+  // We must check min logs with outstanding prep before we check
+  // logs references by memtables because a log referenced by the
+  // first data structure could transition to the second under us.
+  //
+  // TODO: iterating over all column families under db mutex.
+  // should find more optimal solution
+  auto min_log_in_prep_heap =
+      prep_tracker->FindMinLogContainingOutstandingPrep();
+
+  if (min_log_in_prep_heap != 0 &&
+      min_log_in_prep_heap < min_log_number_to_keep) {
+    min_log_number_to_keep = min_log_in_prep_heap;
+  }
+
+  uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
+      vset, &cfd_to_flush, memtables_to_flush);
+
+  if (min_log_refed_by_mem != 0 &&
+      min_log_refed_by_mem < min_log_number_to_keep) {
+    min_log_number_to_keep = min_log_refed_by_mem;
+  }
+  return min_log_number_to_keep;
 }
 
 }  // namespace rocksdb

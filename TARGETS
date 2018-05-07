@@ -103,6 +103,7 @@ cpp_library(
         "db/internal_stats.cc",
         "db/log_reader.cc",
         "db/log_writer.cc",
+        "db/logs_with_prep_tracker.cc",
         "db/malloc_stats.cc",
         "db/managed_iterator.cc",
         "db/memtable.cc",
@@ -660,11 +661,6 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "obsolete_files_test",
-        "db/obsolete_files_test.cc",
-        "serial",
-    ],
-    [
         "dynamic_bloom_test",
         "util/dynamic_bloom_test.cc",
         "serial",
@@ -832,6 +828,11 @@ ROCKS_TESTS = [
     [
         "object_registry_test",
         "utilities/object_registry_test.cc",
+        "serial",
+    ],
+    [
+        "obsolete_files_test",
+        "db/obsolete_files_test.cc",
         "serial",
     ],
     [

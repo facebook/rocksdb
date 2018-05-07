@@ -473,4 +473,8 @@ uint64_t Compaction::MaxInputFileCreationTime() const {
   return max_creation_time;
 }
 
+int Compaction::GetInputBaseLevel() const {
+  return input_vstorage_->base_level();
+}
+
 }  // namespace rocksdb

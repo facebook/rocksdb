@@ -16,7 +16,7 @@
 #    See thirdparty.inc for more information.
 #        sample command: cmake -G "Visual Studio 15 Win64" -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
-#                                          or simply /m ot use all avail cores)
+#                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
 #
 #        rocksdb.sln build features exclusions of test only code in Release. If you build ALL_BUILD then everything
@@ -64,6 +64,7 @@ else()
       find_package(JeMalloc REQUIRED)
       add_definitions(-DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE)
       include_directories(${JEMALLOC_INCLUDE_DIR})
+      list(APPEND THIRDPARTY_LIBS ${JEMALLOC_LIBRARIES})
     endif()
   endif()
 
@@ -309,6 +310,22 @@ else()
    set(OPTIMIZE_DEBUG ${OPTIMIZE_DEBUG_DEFAULT})
 endif()
 
+if(DEFINED USE_RTTI)
+  if(USE_RTTI)
+    message(STATUS "Enabling RTTI")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
+  else()
+    message(STATUS "Disabling RTTI")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+  endif()
+else()
+  message(STATUS "Enabling RTTI in Debug builds only (default)")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+endif()
+
 if(MSVC)
   if((${OPTIMIZE_DEBUG} EQUAL 1))
     message(STATUS "Debug optimization is enabled")
@@ -456,6 +473,7 @@ set(SOURCES
         db/flush_scheduler.cc
         db/forward_iterator.cc
         db/internal_stats.cc
+        db/logs_with_prep_tracker.cc
         db/log_reader.cc
         db/log_writer.cc
         db/malloc_stats.cc

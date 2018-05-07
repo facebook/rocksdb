@@ -33,6 +33,7 @@ LIB_SOURCES =                                                   \
   db/flush_scheduler.cc                                         \
   db/forward_iterator.cc                                        \
   db/internal_stats.cc                                          \
+  db/logs_with_prep_tracker.cc                                  \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
   db/malloc_stats.cc                                            \

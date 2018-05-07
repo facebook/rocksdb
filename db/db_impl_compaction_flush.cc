@@ -160,7 +160,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
-    s = flush_job.Run(&file_meta);
+    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
   } else {
     flush_job.Cancel();
   }
