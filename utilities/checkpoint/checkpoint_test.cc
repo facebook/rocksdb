@@ -278,6 +278,48 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
   }
 }
 
+TEST_F(CheckpointTest, ExportColumnFamilyFilesWithLinks) {
+    Options options;
+    const std::string export_path = test::TmpDir(env_) + "/export";
+    ReadOptions roptions;
+    std::string result;
+    Checkpoint* checkpoint;
+    std::vector<LiveFileMetaData> metadata_vec;
+
+    options = CurrentOptions();
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DestroyDB(export_path, options));
+    env_->DeleteDir(export_path);
+
+    // Create a database
+    Status s;
+    options.create_if_missing = true;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    std::string key = std::string("foo");
+    ASSERT_OK(Put(key, "v1"));
+    // Export the Tables
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(checkpoint->ExportColumnFamilyFiles(db_->DefaultColumnFamily(),
+                                                  &metadata_vec, export_path));
+
+    // Verify there is one sst file in metadata and export directory.
+    ASSERT_EQ(metadata_vec.size(), 1);
+    std::vector<std::string> subchildren;
+    db_->GetEnv()->GetChildren(export_path, &subchildren);
+    auto iter = subchildren.begin();
+    do {
+      if (*iter == "." || *iter == "..") {
+        iter = subchildren.erase(iter);
+      } else {
+        ++iter;
+      }
+    } while (iter != subchildren.end());
+    ASSERT_EQ(subchildren.size(), 1);
+    env_->DeleteDir(export_path);
+}
+
 TEST_F(CheckpointTest, CheckpointCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
