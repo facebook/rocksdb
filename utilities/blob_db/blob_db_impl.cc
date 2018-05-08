@@ -1068,7 +1068,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
                     "Failed to read blob from blob file %" PRIu64
                     ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
                     ", key_size: " PRIu64 ", read " PRIu64
-                    "bytes, status: '%s'",
+                    " bytes, status: '%s'",
                     bfile->BlobFileNumber(), blob_index.offset(),
                     blob_index.size(), key.size(), s.ToString().c_str());
     return s;
@@ -1078,7 +1078,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
                     "Failed to read blob from blob file %" PRIu64
                     ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
                     ", key_size: " PRIu64 ", read " PRIu64
-                    "bytes, status: '%s'",
+                    " bytes, status: '%s'",
                     bfile->BlobFileNumber(), blob_index.offset(),
                     blob_index.size(), key.size(), s.ToString().c_str());
 
