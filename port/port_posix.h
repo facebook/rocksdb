@@ -153,12 +153,18 @@ class RWMutex {
 class CondVar {
  public:
   explicit CondVar(Mutex* mu);
+  explicit CondVar(CondVar&& other);
   ~CondVar();
   void Wait();
   // Timed condition wait.  Returns true if timeout occurred.
   bool TimedWait(uint64_t abs_time_us);
   void Signal();
   void SignalAll();
+  CondVar(const CondVar&) = delete;
+  CondVar& operator=(const CondVar&) = delete;
+
+  CondVar& operator=(CondVar&&) = delete;
+
  private:
   pthread_cond_t cv_;
   Mutex* mu_;

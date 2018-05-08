@@ -196,8 +196,8 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu) : mu_(mu) {
-  }
+  explicit CondVar(Mutex* mu) : mu_(mu) {}
+  CondVar(CondVar&& other): cv_(other.cv_), mu_(other.mu_) {}
 
   ~CondVar();
   void Wait();
@@ -205,11 +205,10 @@ class CondVar {
   void Signal();
   void SignalAll();
 
-  // Condition var is not copy/move constructible
+  // Condition var is not copy constructible
   CondVar(const CondVar&) = delete;
   CondVar& operator=(const CondVar&) = delete;
 
-  CondVar(CondVar&&) = delete;
   CondVar& operator=(CondVar&&) = delete;
 
  private:

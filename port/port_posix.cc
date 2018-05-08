@@ -82,6 +82,9 @@ CondVar::CondVar(Mutex* mu)
     PthreadCall("init cv", pthread_cond_init(&cv_, nullptr));
 }
 
+CondVar::CondVar(CondVar&& other)
+  : cv_(other.cv_), mu_(other.mu_) {}
+
 CondVar::~CondVar() { PthreadCall("destroy cv", pthread_cond_destroy(&cv_)); }
 
 void CondVar::Wait() {

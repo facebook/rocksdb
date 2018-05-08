@@ -3010,7 +3010,7 @@ Status VersionSet::LogAndApply(
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
-    num_edits += elist.size();
+    num_edits += (int) elist.size();
   }
   if (num_edits == 0) {
     return Status::OK();
@@ -3036,7 +3036,7 @@ Status VersionSet::LogAndApply(
         edit_lists[i]);
     manifest_writers_.push_back(&writers[i]);
   }
-  ManifestWriter& first_writer = writers[0];
+  ManifestWriter& first_writer = writers.front();
   while (!first_writer.done && &first_writer != manifest_writers_.front()) {
     first_writer.cv.Wait();
   }
