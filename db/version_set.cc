@@ -2763,11 +2763,10 @@ Status VersionSet::ProcessManifestWrites(
       if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
         break;
       }
-      if ((*it)->cfd != nullptr && (*it)->cfd->IsDropped()) {
-        it++;
+      last_writer = *(it++);
+      if (last_writer->cfd != nullptr && last_writer->cfd->IsDropped()) {
         continue;
       }
-      last_writer = *(it++);
       if (cfd == nullptr || last_writer->cfd->GetID() != cfd->GetID()) {
         cfd = last_writer->cfd;
         version = new Version(cfd, this, env_options_,
@@ -3033,8 +3032,8 @@ Status VersionSet::LogAndApply(
   }
   std::vector<ManifestWriter> writers;
   for (int i = 0; i < n; ++i) {
-    writers.push_back(ManifestWriter(mu, column_family_data[i],
-          mutable_cf_options[i], edit_lists[i]));
+    writers.emplace_back(mu, column_family_data[i], mutable_cf_options[i],
+        edit_lists[i]);
     manifest_writers_.push_back(&writers[i]);
   }
   ManifestWriter& first_writer = writers[0];
@@ -3077,7 +3076,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
 
   // queue our request
-  ManifestWriter w(mu, column_family_data, mutable_cf_options, edit_list);
+  std::vector<ManifestWriter> writers;
+  writers.emplace_back(mu, column_family_data, mutable_cf_options, edit_list);
+  ManifestWriter& w = writers.front();
   manifest_writers_.push_back(&w);
   while (!w.done && &w != manifest_writers_.front()) {
     w.cv.Wait();
@@ -3096,7 +3097,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // we steal this code to also inform about cf-drop
     return Status::ShutdownInProgress();
   }
-  std::vector<ManifestWriter> writers(1, w);
   return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
       new_cf_options);
 }
