@@ -1441,7 +1441,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
   // Cannot open non-existing file.
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 #endif
-  
+
   // Create the file using WriteableFile
   {
     std::unique_ptr<WritableFile> wf;
@@ -1570,7 +1570,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   // Cannot open non-existing file.
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 #endif
-  
+
   // Create the file using WriteableFile
   {
     std::unique_ptr<WritableFile> wf;
