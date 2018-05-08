@@ -604,13 +604,13 @@ struct DBOptions {
   // buffered. The hardware buffer of the devices may however still
   // be used. Memory mapped files are not impacted by these parameters.
 
-  // Use O_DIRECT for user reads
+  // Use O_DIRECT for user and compaction reads.
+  // When true, we also force new_table_reader_for_compaction_inputs to true.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for both reads and writes in background flush and compactions
-  // When true, we also force new_table_reader_for_compaction_inputs to true.
+  // Use O_DIRECT for writes in background flush and compactions.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;

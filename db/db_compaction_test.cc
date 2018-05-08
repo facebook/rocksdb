@@ -3679,7 +3679,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
       "TableCache::NewIterator:for_compaction", [&](void* arg) {
         bool* use_direct_reads = static_cast<bool*>(arg);
         ASSERT_EQ(*use_direct_reads,
-                  options.use_direct_io_for_flush_and_compaction);
+                  options.use_direct_reads);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::OpenCompactionOutputFile", [&](void* arg) {
@@ -3698,7 +3698,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   MakeTables(3, "p", "q", 1);
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
   Compact(1, "p1", "p9");
-  ASSERT_FALSE(readahead ^ options.use_direct_io_for_flush_and_compaction);
+  ASSERT_EQ(readahead, options.use_direct_reads);
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
   Destroy(options);
   delete options.env;

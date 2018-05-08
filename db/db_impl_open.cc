@@ -106,14 +106,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
-  if (result.use_direct_io_for_flush_and_compaction &&
+  if (result.use_direct_reads &&
       result.compaction_readahead_size == 0) {
     TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
   if (result.compaction_readahead_size > 0 ||
-      result.use_direct_io_for_flush_and_compaction) {
+      result.use_direct_reads) {
     result.new_table_reader_for_compaction_inputs = true;
   }
 
@@ -355,8 +355,6 @@ Status DBImpl::Recover(
     {
       unique_ptr<RandomAccessFile> idfile;
       EnvOptions customized_env(env_options_);
-      customized_env.use_direct_reads |=
-          immutable_db_options_.use_direct_io_for_flush_and_compaction;
       s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
                                     customized_env);
       if (!s.ok()) {

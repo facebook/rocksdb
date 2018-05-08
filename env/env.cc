@@ -404,8 +404,7 @@ EnvOptions Env::OptimizeForCompactionTableWrite(
 EnvOptions Env::OptimizeForCompactionTableRead(
     const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);
-  optimized_env_options.use_direct_reads =
-      db_options.use_direct_io_for_flush_and_compaction;
+  optimized_env_options.use_direct_reads = db_options.use_direct_reads;
   return optimized_env_options;
 }
 
