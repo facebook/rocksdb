@@ -147,6 +147,10 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   // Compaction related options
   cf_opts.disable_auto_compactions =
       mutable_cf_options.disable_auto_compactions;
+  cf_opts.soft_pending_compaction_bytes_limit =
+      mutable_cf_options.soft_pending_compaction_bytes_limit;
+  cf_opts.hard_pending_compaction_bytes_limit =
+      mutable_cf_options.hard_pending_compaction_bytes_limit;
   cf_opts.level0_file_num_compaction_trigger =
       mutable_cf_options.level0_file_num_compaction_trigger;
   cf_opts.level0_slowdown_writes_trigger =
