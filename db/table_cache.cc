@@ -98,7 +98,11 @@ Status TableCache::GetTableReader(
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
-    if (readahead > 0) {
+    if (readahead > 0 && !env_options.use_mmap_reads) {
+      // Not compatible with mmap files since ReadaheadRandomAccessFile requires
+      // its wrapped file's Read() to copy data into the provided scratch
+      // buffer, which mmap files don't use.
+      // TODO(ajkr): try madvise for mmap files in place of buffered readahead.
       file = NewReadaheadRandomAccessFile(std::move(file), readahead);
     }
     if (!sequential_mode && ioptions_.advise_random_on_open) {

@@ -622,6 +622,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (s.ok()) {
       buffer_offset_ = offset;
       buffer_len_ = result.size();
+      assert(buffer_.BufferStart() == result.data());
     }
     return s;
   }
