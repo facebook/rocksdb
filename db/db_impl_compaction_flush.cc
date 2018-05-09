@@ -1189,6 +1189,7 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
         SchedulePendingFlush(cfd, flush_reason);
       }
       schedule_flush = true;
+      MarkEndOfFlushGroup();
     }
 
     if (!writes_stopped) {
@@ -1430,6 +1431,10 @@ void DBImpl::SchedulePendingFlush(ColumnFamilyData* cfd,
   }
 }
 
+void DBImpl::MarkEndOfFlushGroup() {
+  flush_queue_.push_back(nullptr);
+}
+
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
     AddToCompactionQueue(cfd);
@@ -1512,6 +1517,9 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     auto first_cfd = PopFirstFromFlushQueue();
+    if (atomic_flush_ && first_cfd == nullptr) {
+      break;
+    }
 
     if (first_cfd->IsDropped() || !first_cfd->imm()->IsFlushPending()) {
       // can't flush this CF, try next one

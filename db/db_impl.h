@@ -924,6 +924,7 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
   void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
+  void MarkEndOfFlushGroup();
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
