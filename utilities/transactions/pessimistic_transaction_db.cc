@@ -207,7 +207,7 @@ Status TransactionDB::Open(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, TransactionDB** dbptr) {
   Status s;
-  DB* db;
+  DB* db = nullptr;
 
   ROCKS_LOG_WARN(db_options.info_log, "Transaction write_policy is %" PRId32,
                  static_cast<int>(txn_db_options.write_policy));
@@ -254,22 +254,30 @@ Status TransactionDB::WrapDB(
     DB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
-  PessimisticTransactionDB* txn_db;
+  assert(db != nullptr);
+  assert(dbptr != nullptr);
+  *dbptr = nullptr;
+  std::unique_ptr<DB> root(db);
+  std::unique_ptr<PessimisticTransactionDB> txn_db;
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
     case WRITE_PREPARED:
-      txn_db = new WritePreparedTxnDB(
-          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db.reset(new WritePreparedTxnDB(
+          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
       break;
     case WRITE_COMMITTED:
     default:
-      txn_db = new WriteCommittedTxnDB(
-          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db.reset(new WriteCommittedTxnDB(
+          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
   }
   txn_db->UpdateCFComparatorMap(handles);
-  *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
+  // In case of failure db is deleted along with the
+  // tx database
+  if (s.ok()) {
+    *dbptr = txn_db.release();
+  }
   return s;
 }
 
@@ -280,22 +288,32 @@ Status TransactionDB::WrapStackableDB(
     StackableDB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
-  PessimisticTransactionDB* txn_db;
+  assert(db != nullptr);
+  assert(dbptr != nullptr);
+  *dbptr = nullptr;
+
+  std::unique_ptr<StackableDB> root(db);
+  std::unique_ptr<PessimisticTransactionDB> txn_db;
+
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
     case WRITE_PREPARED:
-      txn_db = new WritePreparedTxnDB(
-          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db.reset(new WritePreparedTxnDB(
+          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
       break;
     case WRITE_COMMITTED:
     default:
-      txn_db = new WriteCommittedTxnDB(
-          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db.reset(new WriteCommittedTxnDB(
+          root.release(), PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
   }
   txn_db->UpdateCFComparatorMap(handles);
-  *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
+  // In case of failure db is deleted along with the
+  // tx database
+  if (s.ok()) {
+    *dbptr = txn_db.release();
+  }
   return s;
 }
 
