@@ -969,7 +969,7 @@ class VersionSet {
                                        VersionEdit* edit);
 
   Status ProcessManifestWrites(
-      std::vector<ManifestWriter>& writers,
+      std::deque<ManifestWriter>& writers,
       InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
       const ColumnFamilyOptions* new_cf_options);
 

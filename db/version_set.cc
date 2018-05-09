@@ -2737,7 +2737,7 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 }
 
 Status VersionSet::ProcessManifestWrites(
-    std::vector<ManifestWriter>& writers, InstrumentedMutex* mu,
+    std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     Directory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
   ManifestWriter& first_writer = writers.front();
@@ -3030,7 +3030,7 @@ Status VersionSet::LogAndApply(
     assert(edit_lists[0][0]->is_column_family_add_);
     assert(new_cf_options != nullptr);
   }
-  std::vector<ManifestWriter> writers;
+  std::deque<ManifestWriter> writers;
   for (int i = 0; i < n; ++i) {
     writers.emplace_back(mu, column_family_data[i], mutable_cf_options[i],
         edit_lists[i]);
@@ -3076,7 +3076,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
 
   // queue our request
-  std::vector<ManifestWriter> writers;
+  std::deque<ManifestWriter> writers;
   writers.emplace_back(mu, column_family_data, mutable_cf_options, edit_list);
   ManifestWriter& w = writers.front();
   manifest_writers_.push_back(&w);
