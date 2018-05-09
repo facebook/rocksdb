@@ -5,6 +5,7 @@
 * The background thread naming convention changed (on supporting platforms) to "rocksdb:<thread pool priority><thread number>", e.g., "rocksdb:low0".
 * Add a new ticker stat rocksdb.number.multiget.keys.found to count number of keys successfully read in MultiGet calls
 * Touch-up to write-related counters in PerfContext. New counters added: write_scheduling_flushes_compactions_time, write_thread_wait_nanos. Counters whose behavior was fixed or modified: write_memtable_time, write_pre_and_post_process_time, write_delay_time.
+* Posix Env's NewRandomRWFile() will fail if the file doesn't exist.
 
 ### New Features
 * Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
