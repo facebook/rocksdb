@@ -195,7 +195,7 @@ class Block {
   void operator=(const Block&) = delete;
 };
 
-class BlockIter : public InternalIterator {
+class BlockIter final : public InternalIterator {
  public:
   // Object created using this constructor will behave like an iterator
   // against an empty block. The state after the creation: Valid()=false
