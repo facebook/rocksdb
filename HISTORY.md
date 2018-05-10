@@ -6,6 +6,7 @@
 * Add a new ticker stat rocksdb.number.multiget.keys.found to count number of keys successfully read in MultiGet calls
 * Touch-up to write-related counters in PerfContext. New counters added: write_scheduling_flushes_compactions_time, write_thread_wait_nanos. Counters whose behavior was fixed or modified: write_memtable_time, write_pre_and_post_process_time, write_delay_time.
 * Posix Env's NewRandomRWFile() will fail if the file doesn't exist.
+* Now, `DBOptions::use_direct_io_for_flush_and_compaction` only applies to background writes, and `DBOptions::use_direct_reads` applies to both user reads and background reads. This conforms with Linux's `open(2)` manpage, which advises against simultaneously reading a file in buffered and direct modes, due to possibly undefined behavior and degraded performance.
 
 ### New Features
 * Introduce TTL for level compaction so that all files older than ttl go through the compaction process to get rid of old data.
