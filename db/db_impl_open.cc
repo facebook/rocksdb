@@ -355,6 +355,8 @@ Status DBImpl::Recover(
     {
       unique_ptr<RandomAccessFile> idfile;
       EnvOptions customized_env(env_options_);
+      customized_env.use_direct_reads |=
+          immutable_db_options_.use_direct_io_for_flush_and_compaction;
       s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
                                     customized_env);
       if (!s.ok()) {
