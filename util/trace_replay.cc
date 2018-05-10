@@ -77,13 +77,15 @@ Status TraceReader::ReadFooter() { return Status::OK(); }
 Status TraceReader::ReadRecord(Trace& trace) {
   // Read Timestamp
   Status s;
-  assert(file_reader_.get() != nullptr);
+  assert(file_reader_ != nullptr);
   s = file_reader_->Read(offset_, 8, &result_, buffer_);
   if (!s.ok()) {
     return s;
   }
   if (result_.size() == 0) {
     // No more data to read
+    // Todo: Come up with a better way to indicate end of data. May be this
+    // could be avoided once footer is introduced.
     return Status::Incomplete();
   }
   if (result_.size() < 8) {
@@ -211,6 +213,7 @@ Status Replayer::Replay() {
   // fprintf(stderr, "Ops Written: %ld\n", ops);
 
   if (s.IsIncomplete()) {
+    // Fix it: Reaching eof returns Incomplete status at the moment.
     return Status::OK();
   }
   return s;

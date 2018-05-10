@@ -1171,6 +1171,7 @@ class DB {
     return Status::NotSupported("PromoteL0() is not implemented.");
   }
 
+  // Trace DB operations to a file. Use EndTrace() to stop tracing.
   virtual Status StartTrace(const TraceOptions& /*options*/,
                             const std::string& /*trace_filename*/) {
     return Status::NotSupported("StartTrace() is not implemented.");
@@ -1180,6 +1181,7 @@ class DB {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
 
+  // Replay operations from a trace file. Use EndReplay() to stop replaying.
   virtual Status StartReplay(const ReplayOptions& /*options*/,
                              const std::string& /*trace_filename*/) {
     return Status::NotSupported("StartReplay() is not implmented.");

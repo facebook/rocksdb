@@ -2510,7 +2510,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   DestroyAndReopen(options);
   Random rnd(301);
 
-  ASSERT_OK(db_->StartTrace(trace_opt, "/dev/shm/rocksdb.trace"));
+  ASSERT_OK(db_->StartTrace(trace_opt, dbname_+ "/rocksdb.trace"));
 
   ASSERT_OK(Put("a", "1"));
   ASSERT_OK(Merge("b", "2"));
@@ -2545,7 +2545,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_TRUE(db2->Get(ro, "a", &value).IsNotFound());
   ASSERT_TRUE(db2->Get(ro, "g", &value).IsNotFound());
 
-  ASSERT_OK(db2->StartReplay(replay_opt, "/dev/shm/rocksdb.trace"));
+  ASSERT_OK(db2->StartReplay(replay_opt, dbname_ + "/rocksdb.trace"));
   ASSERT_OK(db2->EndReplay(replay_opt));
 
   ASSERT_OK(db2->Get(ro, "a", &value));
