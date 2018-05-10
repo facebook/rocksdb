@@ -88,7 +88,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       buf.AllocateNewBuffer(read_size);
       while (buf.CurrentSize() < read_size) {
         size_t allowed;
-        if (rate_limiter_ != nullptr) {
+        if (for_compaction_ && rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
               buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
               Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
