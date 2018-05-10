@@ -70,8 +70,10 @@ class Replayer {
 
 class TraceReader {
  public:
-  TraceReader(std::unique_ptr<RandomAccessFileReader>&& reader) :
-      file_reader_(std::move(reader)), offset_(0), buffer_(new char[kBufferSize]) {}
+  TraceReader(std::unique_ptr<RandomAccessFileReader>&& reader)
+      : file_reader_(std::move(reader)),
+        offset_(0),
+        buffer_(new char[kBufferSize]) {}
   ~TraceReader();
 
   Status ReadHeader();
@@ -89,8 +91,8 @@ class TraceReader {
 
 class TraceWriter {
  public:
-  TraceWriter(Env* env, std::unique_ptr<WritableFileWriter>&& file_writer) :
-      env_(env), file_writer_(std::move(file_writer)) {}
+  TraceWriter(Env* env, std::unique_ptr<WritableFileWriter>&& file_writer)
+      : env_(env), file_writer_(std::move(file_writer)) {}
   ~TraceWriter();
 
   Status WriteHeader();

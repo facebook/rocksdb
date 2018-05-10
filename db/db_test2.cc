@@ -2534,7 +2534,6 @@ TEST_F(DBTest2, TraceAndReplay) {
   Put("hello", "world");
   Merge("foo", "bar");
 
-
   // Open another db, replay, and verify the data
   std::string value;
   std::string dbname2 = test::TmpDir(env_) + "/db_replay";

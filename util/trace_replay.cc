@@ -14,9 +14,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-TraceWriter::~TraceWriter() {
-  file_writer_.reset();
-}
+TraceWriter::~TraceWriter() { file_writer_.reset(); }
 
 Status TraceWriter::WriteHeader() {
   std::ostringstream s;
@@ -34,9 +32,7 @@ Status TraceWriter::WriteHeader() {
   return WriteRecord(trace);
 }
 
-Status TraceWriter::WriteFooter() {
-  return Status::OK();
-}
+Status TraceWriter::WriteFooter() { return Status::OK(); }
 
 Status TraceWriter::WriteRecord(Trace& trace) {
   Status s;
@@ -60,9 +56,7 @@ Status TraceWriter::WriteRecord(Trace& trace) {
   return s;
 }
 
-TraceReader::~TraceReader() {
-  file_reader_.reset();
-}
+TraceReader::~TraceReader() { file_reader_.reset(); }
 
 Status TraceReader::ReadHeader() {
   Status s;
@@ -78,9 +72,7 @@ Status TraceReader::ReadHeader() {
   return s;
 }
 
-Status TraceReader::ReadFooter() {
-  return Status::OK();
-}
+Status TraceReader::ReadFooter() { return Status::OK(); }
 
 Status TraceReader::ReadRecord(Trace& trace) {
   // Read Timestamp
@@ -127,7 +119,8 @@ Status TraceReader::ReadRecord(Trace& trace) {
 
   // Read Payload
   unsigned int bytes_to_read = payload_len;
-  unsigned int to_read = bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
+  unsigned int to_read =
+      bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
   while (to_read > 0) {
     s = file_reader_->Read(offset_, to_read, &result_, buffer_);
     if (!s.ok()) {
@@ -146,14 +139,12 @@ Status TraceReader::ReadRecord(Trace& trace) {
   return s;
 }
 
-Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer) :
-    env_(env), trace_writer_(std::move(trace_writer)) {
+Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer)
+    : env_(env), trace_writer_(std::move(trace_writer)) {
   trace_writer_->WriteHeader();
 }
 
-Tracer::~Tracer() {
-  trace_writer_.reset();
-}
+Tracer::~Tracer() { trace_writer_.reset(); }
 
 Status Tracer::TraceWrite(WriteBatch* write_batch) {
   Trace trace;
@@ -177,14 +168,12 @@ Status Tracer::Close() {
   return s;
 }
 
-Replayer::Replayer(DBImpl* db, unique_ptr<TraceReader>&& reader) :
-    db_(db), trace_reader_(std::move(reader)) {
+Replayer::Replayer(DBImpl* db, unique_ptr<TraceReader>&& reader)
+    : db_(db), trace_reader_(std::move(reader)) {
   Replay();
 }
 
-Replayer::~Replayer() {
-  trace_reader_.reset();
-}
+Replayer::~Replayer() { trace_reader_.reset(); }
 
 Status Replayer::Replay() {
   Status s;

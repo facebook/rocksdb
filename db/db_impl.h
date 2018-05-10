@@ -331,17 +331,17 @@ class DBImpl : public DB {
 
   using DB::StartTrace;
   virtual Status StartTrace(const TraceOptions& options,
-      const std::string& trace_filename) override;
+                            const std::string& trace_filename) override;
 
   using DB::EndTrace;
   virtual Status EndTrace(const TraceOptions& options) override;
 
   using DB::StartReplay;
   virtual Status StartReplay(const ReplayOptions& options,
-      const std::string& trace_filename) override;
+                             const std::string& trace_filename) override;
 
   using DB::EndReplay;
-  virtual Status EndReplay(const ReplayOptions &options) override;
+  virtual Status EndReplay(const ReplayOptions& options) override;
 
 #endif  // ROCKSDB_LITE
 

@@ -3058,13 +3058,15 @@ void DBImpl::WaitForIngestFile() {
   }
 }
 
-Status DBImpl::StartTrace(const TraceOptions& /* options */, const std::string& trace_filename) {
+Status DBImpl::StartTrace(const TraceOptions& /* options */,
+                          const std::string& trace_filename) {
   EnvOptions env_options;
   unique_ptr<WritableFile> trace_file;
   Status s = env_->NewWritableFile(trace_filename, &trace_file, env_options);
   if (s.ok()) {
     unique_ptr<WritableFileWriter> file_writer;
-    file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
+    file_writer.reset(
+        new WritableFileWriter(std::move(trace_file), env_options));
     unique_ptr<TraceWriter> trace_writer;
     trace_writer.reset(new TraceWriter(env_, std::move(file_writer)));
 
@@ -3080,13 +3082,16 @@ Status DBImpl::EndTrace(const TraceOptions& /* options */) {
   return s;
 }
 
-Status DBImpl::StartReplay(const ReplayOptions& /* options */, const std::string& trace_filename) {
+Status DBImpl::StartReplay(const ReplayOptions& /* options */,
+                           const std::string& trace_filename) {
   EnvOptions env_options;
   unique_ptr<RandomAccessFile> trace_file;
-  Status s = env_->NewRandomAccessFile(trace_filename, &trace_file, env_options);
+  Status s =
+      env_->NewRandomAccessFile(trace_filename, &trace_file, env_options);
   if (s.ok()) {
     unique_ptr<RandomAccessFileReader> trace_file_reader;
-    trace_file_reader.reset(new RandomAccessFileReader(std::move(trace_file), trace_filename));
+    trace_file_reader.reset(
+        new RandomAccessFileReader(std::move(trace_file), trace_filename));
     unique_ptr<TraceReader> trace_reader;
     trace_reader.reset(new TraceReader(std::move(trace_file_reader)));
     replayer_.reset(new Replayer(this, std::move(trace_reader)));
