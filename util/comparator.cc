@@ -112,8 +112,8 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     return -a.compare(b);
   }
 
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override {
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {
     // Find length of common prefix
     size_t min_length = std::min(start->size(), limit.size());
     size_t diff_index = 0;
@@ -152,6 +152,10 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     }
   }
 };
+
+void FindShortSuccessor(std::string* key) const override {
+  // Don't do anything for simplicity.
+}
 
 }// namespace
 
