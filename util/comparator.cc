@@ -151,12 +151,11 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
       }
     }
   }
+
+  void FindShortSuccessor(std::string* /*key*/) const override {
+    // Don't do anything for simplicity.
+  }
 };
-
-void FindShortSuccessor(std::string* key) const override {
-  // Don't do anything for simplicity.
-}
-
 }// namespace
 
 const Comparator* BytewiseComparator() {
