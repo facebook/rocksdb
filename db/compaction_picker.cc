@@ -477,7 +477,7 @@ bool CompactionPicker::SetupOtherInputs(
       ROCKS_LOG_INFO(ioptions_.info_log,
                      "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
                      "(%" PRIu64 "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt
-                     "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 "bytes)\n",
+                     "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 " bytes)\n",
                      cf_name.c_str(), input_level, inputs->size(),
                      output_level_inputs->size(), inputs_size,
                      output_level_inputs_size, expanded_inputs.size(),
