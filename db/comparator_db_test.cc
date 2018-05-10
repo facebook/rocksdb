@@ -433,6 +433,40 @@ TEST_F(ComparatorDBTest, TwoStrComparator) {
   }
 }
 
+TEST_F(ComparatorDBTest, FindShortestSeparator) {
+  std::string s1 = "abc1xyz";
+  std::string s2 = "abc3xy";
+
+  BytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc2", s1);
+
+  s1 = "abc5xyztt";
+
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc5", s1);
+
+  s1 = "abc3";
+  s2 = "abc2xy";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc3", s1);
+
+  s1 = "abc3xyz";
+  s2 = "abc2xy";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc3", s1);
+
+  s1 = "abc3xyz";
+  s2 = "abc2";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc3", s1);
+
+  std::string old_s1 = s1 = "abc2xy";
+  s2 = "abc2";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_TRUE(old_s1 >= s1);
+  ASSERT_TRUE(s1 > s2);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
