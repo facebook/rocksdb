@@ -1171,6 +1171,24 @@ class DB {
     return Status::NotSupported("PromoteL0() is not implemented.");
   }
 
+  virtual Status StartTrace(const TraceOptions& /*options*/,
+                            const std::string& /*trace_filename*/) {
+    return Status::NotSupported("StartTrace() is not implemented.");
+  }
+
+  virtual Status EndTrace(const TraceOptions& /*options*/) {
+    return Status::NotSupported("EndTrace() is not implemented.");
+  }
+
+  virtual Status StartReplay(const ReplayOptions& /*options*/,
+                             const std::string& /*trace_filename*/) {
+    return Status::NotSupported("StartReplay() is not implmented.");
+  }
+
+  virtual Status EndReplay(const ReplayOptions& /*options*/) {
+    return Status::NotSupported("EndReplay() is not implemented.");
+  }
+
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

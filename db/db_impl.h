@@ -52,6 +52,7 @@
 #include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/trace_replay.h"
 
 namespace rocksdb {
 
@@ -327,6 +328,20 @@ class DBImpl : public DB {
       const IngestExternalFileOptions& ingestion_options) override;
 
   virtual Status VerifyChecksum() override;
+
+  using DB::StartTrace;
+  virtual Status StartTrace(const TraceOptions& options,
+      const std::string& trace_filename) override;
+
+  using DB::EndTrace;
+  virtual Status EndTrace(const TraceOptions& options) override;
+
+  using DB::StartReplay;
+  virtual Status StartReplay(const ReplayOptions& options,
+      const std::string& trace_filename) override;
+
+  using DB::EndReplay;
+  virtual Status EndReplay(const ReplayOptions &options) override;
 
 #endif  // ROCKSDB_LITE
 
@@ -654,6 +669,8 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
+  std::unique_ptr<Tracer> tracer_;
+  std::unique_ptr<Replayer> replayer_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.

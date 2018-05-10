@@ -1029,6 +1029,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
+  if (tracer_) {
+    tracer_->TraceGet(key);
+  }
+
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
@@ -3052,6 +3056,48 @@ void DBImpl::WaitForIngestFile() {
   while (num_running_ingest_file_ > 0) {
     bg_cv_.Wait();
   }
+}
+
+Status DBImpl::StartTrace(const TraceOptions& /* options */, const std::string& trace_filename) {
+  EnvOptions env_options;
+  unique_ptr<WritableFile> trace_file;
+  Status s = env_->NewWritableFile(trace_filename, &trace_file, env_options);
+  if (s.ok()) {
+    unique_ptr<WritableFileWriter> file_writer;
+    file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
+    unique_ptr<TraceWriter> trace_writer;
+    trace_writer.reset(new TraceWriter(env_, std::move(file_writer)));
+
+    tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+    return Status::OK();
+  }
+  return s;
+}
+
+Status DBImpl::EndTrace(const TraceOptions& /* options */) {
+  Status s = tracer_->Close();
+  tracer_.reset();
+  return s;
+}
+
+Status DBImpl::StartReplay(const ReplayOptions& /* options */, const std::string& trace_filename) {
+  EnvOptions env_options;
+  unique_ptr<RandomAccessFile> trace_file;
+  Status s = env_->NewRandomAccessFile(trace_filename, &trace_file, env_options);
+  if (s.ok()) {
+    unique_ptr<RandomAccessFileReader> trace_file_reader;
+    trace_file_reader.reset(new RandomAccessFileReader(std::move(trace_file), trace_filename));
+    unique_ptr<TraceReader> trace_reader;
+    trace_reader.reset(new TraceReader(std::move(trace_file_reader)));
+    replayer_.reset(new Replayer(this, std::move(trace_reader)));
+    return Status::OK();
+  }
+  return s;
+}
+
+Status DBImpl::EndReplay(const ReplayOptions& /* options */) {
+  replayer_.reset();
+  return Status::OK();
 }
 
 #endif  // ROCKSDB_LITE

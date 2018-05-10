@@ -35,6 +35,9 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  if (tracer_) {
+    tracer_->TraceGet(key);
+  }
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
