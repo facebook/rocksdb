@@ -26,9 +26,9 @@ void DBImpl::TEST_SwitchWAL() {
 }
 
 bool DBImpl::TEST_WALBufferIsEmpty() {
-    InstrumentedMutexLock wl(&log_write_mutex_);
-    log::Writer* cur_log_writer = logs_.back().writer;
-    return cur_log_writer->TEST_BufferIsEmpty();
+  InstrumentedMutexLock wl(&log_write_mutex_);
+  log::Writer* cur_log_writer = logs_.back().writer;
+  return cur_log_writer->TEST_BufferIsEmpty();
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(

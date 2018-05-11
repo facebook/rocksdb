@@ -87,6 +87,22 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   Close();
 }
 
+TEST_P(DBWriteTest, ManualWalFlushInEffect) {
+  Options options = GetOptions();
+  Reopen(options);
+  // try the 1st WAL created during open
+  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  // try the 2nd wal created during SwitchWAL
+  dbfull()->TEST_SwitchWAL();
+  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+}
+
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
       new FaultInjectionTestEnv(Env::Default()));

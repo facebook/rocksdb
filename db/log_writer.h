@@ -86,6 +86,7 @@ class Writer {
   Status WriteBuffer();
 
   bool TEST_BufferIsEmpty();
+
  private:
   unique_ptr<WritableFileWriter> dest_;
   size_t block_offset_;       // Current offset in block
