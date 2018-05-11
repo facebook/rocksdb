@@ -225,10 +225,12 @@ Status DBImpl::FlushMemTableToOutputFile(std::vector<ColumnFamilyData*>& cfds,
     std::vector<MutableCFOptions>& mutable_cf_options,
     bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
+#ifndef NDEBUG
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
     assert(cfd->imm()->IsFlushPending());
   }
+#endif /* !NDEBUG */
 
   SequenceNumber earliest_write_conflict_snapshot;
   std::vector<SequenceNumber> snapshot_seqs =
