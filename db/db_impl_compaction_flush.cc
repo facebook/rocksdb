@@ -240,13 +240,13 @@ Status DBImpl::FlushMemTableToOutputFile(std::vector<ColumnFamilyData*>& cfds,
   }
   std::vector<Directory*> output_file_directories;
   std::vector<CompressionType> output_compression;
-  std::vector<bool> report_bg_io_stats;
   size_t num_cfs = cfds.size();
+  std::vector<bool> report_bg_io_stats(num_cfs);
   for (size_t i = 0; i < num_cfs; ++i) {
     output_file_directories.emplace_back(GetDataDir(cfds[i], 0U));
     output_compression.emplace_back(
         GetCompressionFlush(*cfds[i]->ioptions(), mutable_cf_options[i]));
-    report_bg_io_stats.emplace_back(mutable_cf_options[i].report_bg_io_stats);
+    report_bg_io_stats[i] = mutable_cf_options[i].report_bg_io_stats;
   }
   BatchFlushJob flush_job(dbname_, cfds, immutable_db_options_,
       mutable_cf_options, env_options_for_compaction_, versions_.get(),
@@ -394,14 +394,15 @@ void DBImpl::NotifyOnFlushBegin(std::vector<ColumnFamilyData*>& cfds,
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
-  std::vector<bool> triggered_writes_slowdown;
-  std::vector<bool> triggered_writes_stop;
+  size_t num_cfs = cfds.size();
+  std::vector<bool> triggered_writes_slowdown(num_cfs);
+  std::vector<bool> triggered_writes_stop(num_cfs);
   for (size_t i = 0; i < cfds.size(); ++i) {
     int num_files = cfds[i]->current()->storage_info()->NumLevelFiles(0);
-    triggered_writes_slowdown.emplace_back(
-        num_files >= mutable_cf_options[i].level0_slowdown_writes_trigger);
-    triggered_writes_stop.emplace_back(
-        num_files >= mutable_cf_options[i].level0_stop_writes_trigger);
+    triggered_writes_slowdown[i] =
+        num_files >= mutable_cf_options[i].level0_slowdown_writes_trigger;
+    triggered_writes_stop[i] =
+        num_files >= mutable_cf_options[i].level0_stop_writes_trigger;
   }
   mutex_.Unlock();
   {
@@ -496,14 +497,15 @@ void DBImpl::NotifyOnFlushCompleted(std::vector<ColumnFamilyData*>& cfds,
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
-  std::vector<bool> triggered_writes_slowdown;
-  std::vector<bool> triggered_writes_stop;
+  size_t num_cfs = cfds.size();
+  std::vector<bool> triggered_writes_slowdown(num_cfs);
+  std::vector<bool> triggered_writes_stop(num_cfs);
   for (size_t i = 0; i < cfds.size(); ++i) {
     int num_files = cfds[i]->current()->storage_info()->NumLevelFiles(0);
-    triggered_writes_slowdown.emplace_back(
-        num_files >= mutable_cf_options[i].level0_slowdown_writes_trigger);
-    triggered_writes_stop.emplace_back(
-        num_files >= mutable_cf_options[i].level0_stop_writes_trigger);
+    triggered_writes_slowdown[i] =
+        num_files >= mutable_cf_options[i].level0_slowdown_writes_trigger;
+    triggered_writes_stop[i] =
+        num_files >= mutable_cf_options[i].level0_stop_writes_trigger;
   }
   mutex_.Unlock();
   {

@@ -286,23 +286,95 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
     LogBuffer* log_buffer) {
   mu->AssertHeld();
 
+  // Currently unused.
+  (void) prep_tracker;
   // flush was successful
+  std::vector<autovector<VersionEdit*>> edit_lists;
+  typedef std::list<MemTable*>::reverse_iterator memlist_iterator;
+  typedef std::pair<memlist_iterator, memlist_iterator> iterator_pair;
+  autovector<iterator_pair> memtable_ranges;
   for (size_t k = 0; k != mems.size(); ++k) {
+    autovector<VersionEdit*> edit_list;
     for (size_t i = mems[k].size(); i != mems[k].size(); ++i) {
       assert(i == 0 || mems[k][i]->GetEdits()->NumEntries() == 0);
+      if (i == 0) {
+        edit_list.push_back(mems[k][i]->GetEdits());
+      }
       mems[k][i]->flush_completed_ = true;
       mems[k][i]->file_number_ = file_meta[k].fd.GetNumber();
     }
-  }
-  (void) cfds;
-  (void) mutable_cf_options;
-  (void) prep_tracker;
-  (void) vset;
-  (void) to_delete;
-  (void) db_directory;
-  (void) log_buffer;
 
-  Status s;
+    auto& memlist = cfds[k]->imm()->current_->memlist_;
+    auto start = memlist.rend();
+    auto end = memlist.rend();
+
+    if (!mems[k].empty()) {
+      auto it = memlist.rbegin();
+      while (it != memlist.rend()) {
+        if (*it == mems[k].back()) {
+          start = it;
+        }
+        if (*it == mems[k].front()) {
+          end = it;
+          break;
+        }
+        it++;
+      }
+    }
+    memtable_ranges.emplace_back(start, end);
+    edit_lists.emplace_back(edit_list);
+  }
+
+  // Since we already group commit multiple column families, maybe we don't
+  // need to group commit the memtables of the same column family.
+  // TODO (yanqin) further investigate.
+
+  // This can release and re-acquire the mutex.
+  Status s = vset->LogAndApply(cfds, mutable_cf_options, edit_lists, mu,
+      db_directory);
+
+  for (auto cfd : cfds) {
+    cfd->imm()->InstallNewVersion();
+  }
+
+  uint64_t mem_id = 1;
+  if (s.ok()) {
+    for (size_t k = 0; k != mems.size(); ++k) {
+      auto start = memtable_ranges[k].first;
+      auto end = memtable_ranges[k].second;
+      ++end;
+      auto it = start;
+      while (it != end) {
+        MemTable* m = *it;
+        ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
+                                     ": memtable #%" PRIu64 " done",
+                         cfds[k]->GetName().c_str(), m->file_number_, mem_id);
+        assert(m->file_number_ > 0);
+        cfds[k]->imm()->current_->Remove(m, to_delete);
+        it++;
+        ++mem_id;
+      }
+    }
+  } else {
+    for (size_t k = 0; k != mems.size(); ++k) {
+      for (size_t i = 0; i != mems[k].size(); ++i) {
+        MemTable* m = mems[k][i];
+        // commit failed, and we have to restore the state so that future flush
+        // can retry.
+        ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
+                                     ": memtable #%" PRIu64 " failed",
+                         m->file_number_, mem_id);
+        m->flush_completed_ = false;
+        m->flush_in_progress_ = false;
+        m->edit_.Clear();
+        cfds[k]->imm()->num_flush_not_started_++;
+        cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
+        m->file_number_ = 0;
+        ++mem_id;
+      }
+    }
+  }
+
   return s;
 }
 
