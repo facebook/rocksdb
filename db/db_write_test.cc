@@ -50,6 +50,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   std::atomic<int> leader_count{0};
   std::vector<port::Thread> threads;
   mock_env->SetFilesystemActive(false);
+
   // Wait until all threads linked to write threads, to make sure
   // all threads join the same batch group.
   SyncPoint::GetInstance()->SetCallBack(
@@ -68,7 +69,13 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads.push_back(port::Thread(
         [&](int index) {
           // All threads should fail.
-          ASSERT_FALSE(Put("key" + ToString(index), "value").ok());
+          auto res = Put("key" + ToString(index), "value");
+          if (options.manual_wal_flush) {
+            ASSERT_TRUE(res.ok());
+            // we should see fs error when we do the flush
+            res = dbfull()->FlushWAL(false);
+          }
+          ASSERT_FALSE(res.ok());
         },
         i));
   }
@@ -78,6 +85,22 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   ASSERT_EQ(1, leader_count);
   // Close before mock_env destruct.
   Close();
+}
+
+TEST_P(DBWriteTest, ManualWalFlushInEffect) {
+  Options options = GetOptions();
+  Reopen(options);
+  // try the 1st WAL created during open
+  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  // try the 2nd wal created during SwitchWAL
+  dbfull()->TEST_SwitchWAL();
+  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
 }
 
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
@@ -90,7 +113,15 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
     // Forcibly fail WAL write for the first Put only. Subsequent Puts should
     // fail due to read-only mode
     mock_env->SetFilesystemActive(i != 0);
-    ASSERT_FALSE(Put("key" + ToString(i), "value").ok());
+    auto res = Put("key" + ToString(i), "value");
+    if (options.manual_wal_flush && i == 0) {
+      // even with manual_wal_flush the 2nd Put should return error because of
+      // the read-only mode
+      ASSERT_TRUE(res.ok());
+      // we should see fs error when we do the flush
+      res = dbfull()->FlushWAL(false);
+    }
+    ASSERT_FALSE(res.ok());
   }
   // Close before mock_env destruct.
   Close();

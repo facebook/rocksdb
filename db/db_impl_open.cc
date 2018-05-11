@@ -1090,7 +1090,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             new_log_number,
             new log::Writer(
                 std::move(file_writer), new_log_number,
-                impl->immutable_db_options_.recycle_log_file_num > 0));
+                impl->immutable_db_options_.recycle_log_file_num > 0,
+                impl->immutable_db_options_.manual_wal_flush));
       }
 
       // set column family handles
@@ -1217,6 +1218,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "DB pointer %p", impl);
     LogFlush(impl->immutable_db_options_.info_log);
+    assert(impl->TEST_WALBufferIsEmpty());
+    // If the assert above fails then we need to FlushWAL before returning
+    // control back to the user.
     if (!persist_options_status.ok()) {
       s = Status::IOError(
           "DB::Open() failed --- Unable to persist Options file",
