@@ -1383,7 +1383,7 @@ class DBImpl : public DB {
       FlushReason flush_reason = FlushReason::kOthers);
   void InstallSuperVersionAndScheduleWork(
       const std::vector<ColumnFamilyData*>& cfds,
-      autovector<SuperVersionContext>& sv_contexts,
+      std::vector<SuperVersionContext>& sv_contexts,
       const std::vector<MutableCFOptions>& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE

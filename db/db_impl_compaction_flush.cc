@@ -1748,7 +1748,8 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     if (atomic_flush_) {
       cfds.push_back(cfd);
       all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
-      job_context->superversion_contexts.emplace_back();
+      job_context->superversion_contexts.emplace_back(
+          SuperVersionContext(true));
     } else {
       break;
     }
@@ -2498,7 +2499,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     const std::vector<ColumnFamilyData*>& cfds,
-    autovector<SuperVersionContext>& sv_contexts,
+    std::vector<SuperVersionContext>& sv_contexts,
     const std::vector<MutableCFOptions>& mutable_cf_options) {
   mutex_.AssertHeld();
   assert(atomic_flush_);
