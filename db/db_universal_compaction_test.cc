@@ -1680,50 +1680,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   Destroy(options);
 }
 
-TEST_P(DBTestUniversalCompaction, FullCompactionInBottomPriThreadPool) {
-  const int kNumFilesTrigger = 3;
-  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
-  for (bool allow_ingest_behind : {false, true}) {
-    Options options = CurrentOptions();
-    options.allow_ingest_behind = allow_ingest_behind;
-    options.compaction_style = kCompactionStyleUniversal;
-    options.num_levels = num_levels_;
-    options.write_buffer_size = 100 << 10;     // 100KB
-    options.target_file_size_base = 32 << 10;  // 32KB
-    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-    // Trigger compaction if size amplification exceeds 110%
-    options.compaction_options_universal.max_size_amplification_percent = 110;
-    DestroyAndReopen(options);
-
-    int num_bottom_pri_compactions = 0;
-    SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::BGWorkBottomCompaction",
-        [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
-    SyncPoint::GetInstance()->EnableProcessing();
-
-    Random rnd(301);
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      ASSERT_EQ(NumSortedRuns(), num);
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx);
-    }
-    dbfull()->TEST_WaitForCompact();
-
-    if (allow_ingest_behind || num_levels_ > 1) {
-      // allow_ingest_behind increases number of levels while sanitizing.
-      ASSERT_EQ(1, num_bottom_pri_compactions);
-    } else {
-      // for single-level universal, everything's bottom level so nothing should
-      // be executed in bottom-pri thread pool.
-      ASSERT_EQ(0, num_bottom_pri_compactions);
-    }
-    // Verify that size amplification did occur
-    ASSERT_EQ(NumSortedRuns(), 1);
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  }
-  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
-}
-
 TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   if (num_levels_ == 1) {
     // for single-level universal, everything's bottom level so nothing should
