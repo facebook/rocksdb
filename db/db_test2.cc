@@ -2510,7 +2510,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   DestroyAndReopen(options);
   Random rnd(301);
 
-  ASSERT_OK(db_->StartTrace(trace_opt, dbname_+ "/rocksdb.trace"));
+  ASSERT_OK(db_->StartTrace(trace_opt, dbname_ + "/rocksdb.trace"));
 
   ASSERT_OK(Put("a", "1"));
   ASSERT_OK(Merge("b", "2"));

@@ -5,7 +5,9 @@
 
 #include "util/trace_replay.h"
 
+#include <chrono>
 #include <sstream>
+#include <thread>
 #include "db/db_impl.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
@@ -47,7 +49,7 @@ Status TraceWriter::WriteRecord(Trace& trace) {
 
   // Payload
   std::string payload_length;
-  PutFixed32(&payload_length, trace.payload.size());
+  PutFixed32(&payload_length, static_cast<uint32_t>(trace.payload.size()));
   s = file_writer_->Append(payload_length);
   if (!s.ok()) {
     return s;
@@ -58,9 +60,8 @@ Status TraceWriter::WriteRecord(Trace& trace) {
 
 TraceReader::~TraceReader() { file_reader_.reset(); }
 
-Status TraceReader::ReadHeader() {
+Status TraceReader::ReadHeader(Trace& header) {
   Status s;
-  Trace header;
   s = ReadRecord(header);
   if (header.type != kTraceBegin) {
     return Status::Corruption("Corrupted trace file. Incorrect header.");
@@ -72,7 +73,7 @@ Status TraceReader::ReadHeader() {
   return s;
 }
 
-Status TraceReader::ReadFooter() { return Status::OK(); }
+Status TraceReader::ReadFooter(Trace& /*footer*/) { return Status::OK(); }
 
 Status TraceReader::ReadRecord(Trace& trace) {
   // Read Timestamp
@@ -179,16 +180,20 @@ Replayer::~Replayer() { trace_reader_.reset(); }
 
 Status Replayer::Replay() {
   Status s;
-  s = trace_reader_->ReadHeader();
+  Trace header;
+  s = trace_reader_->ReadHeader(header);
   if (!s.ok()) {
     return s;
   }
 
-  s = trace_reader_->ReadFooter();
+  Trace footer;
+  s = trace_reader_->ReadFooter(footer);
   if (!s.ok()) {
     return s;
   }
 
+  std::chrono::system_clock::time_point replay_epoch =
+      std::chrono::system_clock::now();
   WriteOptions woptions;
   ReadOptions roptions;
   Trace trace;
@@ -200,6 +205,8 @@ Status Replayer::Replay() {
       break;
     }
 
+    std::this_thread::sleep_until(
+        replay_epoch + std::chrono::microseconds(trace.ts - header.ts));
     if (trace.type == kTraceWrite) {
       WriteBatch batch(trace.payload);
       db_->Write(woptions, &batch);

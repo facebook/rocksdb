@@ -76,8 +76,8 @@ class TraceReader {
         buffer_(new char[kBufferSize]) {}
   ~TraceReader();
 
-  Status ReadHeader();
-  Status ReadFooter();
+  Status ReadHeader(Trace& header);
+  Status ReadFooter(Trace& footer);
   Status ReadRecord(Trace& trace);
 
  private:
