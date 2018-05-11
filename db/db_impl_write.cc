@@ -1139,6 +1139,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
         cfd->imm()->FlushRequested();
         SchedulePendingFlush(cfd, FlushReason::kWriteBufferFull);
       }
+      MarkEndOfFlushGroup();
       MaybeScheduleFlushOrCompaction();
     }
   } else if (!atomic_flush_ && cfd_picked != nullptr) {
@@ -1265,6 +1266,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
         cfd->imm()->FlushRequested();
         SchedulePendingFlush(cfd, FlushReason::kWriteBufferFull);
       }
+      MarkEndOfFlushGroup();
       ColumnFamilyData* cfd;
       while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
         if (cfd->Unref()) {
