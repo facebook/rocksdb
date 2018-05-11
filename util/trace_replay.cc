@@ -58,6 +58,13 @@ Status TraceWriter::WriteRecord(Trace& trace) {
   return s;
 }
 
+const unsigned int TraceReader::kBufferSize = 1024;  // 1KB
+
+TraceReader::TraceReader(std::unique_ptr<RandomAccessFileReader>&& reader)
+    : file_reader_(std::move(reader)),
+      offset_(0),
+      buffer_(new char[kBufferSize]) {}
+
 TraceReader::~TraceReader() { file_reader_.reset(); }
 
 Status TraceReader::ReadHeader(Trace& header) {

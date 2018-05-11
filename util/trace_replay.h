@@ -70,10 +70,7 @@ class Replayer {
 
 class TraceReader {
  public:
-  TraceReader(std::unique_ptr<RandomAccessFileReader>&& reader)
-      : file_reader_(std::move(reader)),
-        offset_(0),
-        buffer_(new char[kBufferSize]) {}
+  TraceReader(std::unique_ptr<RandomAccessFileReader>&& reader);
   ~TraceReader();
 
   Status ReadHeader(Trace& header);
@@ -86,7 +83,7 @@ class TraceReader {
   size_t offset_;
   char* const buffer_;
 
-  const unsigned int kBufferSize = 1024;
+  static const unsigned int kBufferSize;
 };
 
 class TraceWriter {
