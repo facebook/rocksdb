@@ -163,6 +163,16 @@ class MemTableListVersion {
 // write thread.)
 class MemTableList {
  public:
+  static void RollbackMemtableFlush(std::vector<ColumnFamilyData*>& cfds,
+      std::vector<autovector<MemTable*>>& mems,
+      const std::vector<FileMetaData>& file_meta);
+  static Status InstallMemtableFlushResults(std::vector<ColumnFamilyData*>& cfds,
+      const std::vector<MutableCFOptions>& mutable_cf_options,
+      const std::vector<autovector<MemTable*>>& mems,
+      LogsWithPrepTracker* prep_tracker, VersionSet* vset,
+      InstrumentedMutex* mu, std::vector<FileMetaData>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
                         int max_write_buffer_number_to_maintain)

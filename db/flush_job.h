@@ -112,4 +112,66 @@ class FlushJob {
   bool pick_memtable_called;
 };
 
+class BatchFlushJob {
+ public:
+  BatchFlushJob(const std::string& dbname,
+      const std::vector<ColumnFamilyData*>& cfds,
+      const ImmutableDBOptions& db_options,
+      const std::vector<MutableCFOptions>& mutable_cf_options,
+      const EnvOptions& env_options, VersionSet* versions,
+      InstrumentedMutex* db_mutex,
+      std::atomic<bool>* shutting_down,
+      std::vector<SequenceNumber>& existing_snapshots,
+      SequenceNumber earliest_write_conflict_snapshot,
+      SnapshotChecker* snapshot_checker,
+      JobContext* job_context,
+      LogBuffer* log_buffer, Directory* db_directory,
+      const std::vector<Directory*>& output_file_directories,
+      const std::vector<CompressionType>& output_compression, Statistics* stats,
+      EventLogger* event_logger, const std::vector<bool>& measure_io_stats);
+  ~BatchFlushJob();
+
+  void PickMemTable();
+  Status Run(LogsWithPrepTracker* prep_tracker,
+      std::vector<FileMetaData>* file_meta);
+  void Cancel();
+  const std::vector<TableProperties>& GetTableProperties() const {
+    return table_properties_;
+  };
+
+ private:
+  Status WriteOneLevel0Table(ColumnFamilyData* cfd,
+      const MutableCFOptions& mutable_cf_options, autovector<MemTable*>& mems,
+      FileMetaData& file_meta, CompressionType output_compression,
+      TableProperties& table_properties);
+  Status WriteLevel0Tables();
+
+  const std::string& dbname_;
+  std::vector<ColumnFamilyData*> cfds_;
+  const ImmutableDBOptions& db_options_;
+  const std::vector<MutableCFOptions>& mutable_cf_options_;
+  const EnvOptions env_options_;
+  VersionSet* versions_;
+  InstrumentedMutex* db_mutex_;
+  std::atomic<bool>* shutting_down_;
+  std::vector<SequenceNumber> existing_snapshots_;
+  SequenceNumber earliest_write_conflict_snapshot_;
+  SnapshotChecker* snapshot_checker_;
+  JobContext* job_context_;
+  LogBuffer* log_buffer_;
+  Directory* db_directory_;
+  std::vector<Directory*> output_file_directories_;
+  std::vector<CompressionType> output_compression_;
+  Statistics* stats_;
+  EventLogger* event_logger_;
+  std::vector<TableProperties> table_properties_;
+  const std::vector<bool>& measure_io_stats_;
+
+  std::vector<FileMetaData> meta_;
+  std::vector<autovector<MemTable*>> mems_;
+  std::vector<VersionEdit*> edits_;
+  std::vector<Version*> base_versions_;
+  bool pick_memtable_called_;
+};
+
 }  // namespace rocksdb

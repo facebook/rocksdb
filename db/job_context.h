@@ -144,6 +144,8 @@ struct JobContext {
 
   SuperVersionContext superversion_context;
 
+  autovector<SuperVersionContext> superversion_contexts;
+
   autovector<log::Writer*> logs_to_free;
 
   // the current manifest_file_number, log_number and prev_log_number

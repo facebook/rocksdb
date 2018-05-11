@@ -670,10 +670,19 @@ class DBImpl : public DB {
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
                           int job_id, TableProperties prop);
+  void NotifyOnFlushBegin(std::vector<ColumnFamilyData*>& cfds,
+      std::vector<FileMetaData>& file_meta,
+      std::vector<MutableCFOptions>& mutable_cf_options,
+      int job_id, const std::vector<TableProperties>& props);
+
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
+  void NotifyOnFlushCompleted(std::vector<ColumnFamilyData*>& cfds,
+      std::vector<FileMetaData>& file_meta,
+      std::vector<MutableCFOptions>& mutable_cf_options,
+      int job_id, const std::vector<TableProperties>& props);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,
@@ -829,6 +838,9 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
+  Status FlushMemTableToOutputFile(std::vector<ColumnFamilyData*>& cfds,
+    std::vector<MutableCFOptions>& mutable_cf_options,
+    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -1369,6 +1381,10 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
       const MutableCFOptions& mutable_cf_options,
       FlushReason flush_reason = FlushReason::kOthers);
+  void InstallSuperVersionAndScheduleWork(
+      const std::vector<ColumnFamilyData*>& cfds,
+      autovector<SuperVersionContext>& sv_contexts,
+      const std::vector<MutableCFOptions>& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;

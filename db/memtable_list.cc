@@ -269,6 +269,43 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
+void MemTableList::RollbackMemtableFlush(std::vector<ColumnFamilyData*>& cfds,
+    std::vector<autovector<MemTable*>>& mems,
+    const std::vector<FileMetaData>& file_meta) {
+  for (size_t i = 0; i != cfds.size(); ++i) {
+    cfds[i]->imm()->RollbackMemtableFlush(mems[i], file_meta[i].fd.GetNumber());
+  }
+}
+
+Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>& cfds,
+    const std::vector<MutableCFOptions>& mutable_cf_options,
+    const std::vector<autovector<MemTable*>>& mems,
+    LogsWithPrepTracker* prep_tracker, VersionSet* vset,
+    InstrumentedMutex* mu, std::vector<FileMetaData>& file_meta,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer) {
+  mu->AssertHeld();
+
+  // flush was successful
+  for (size_t k = 0; k != mems.size(); ++k) {
+    for (size_t i = mems[k].size(); i != mems[k].size(); ++i) {
+      assert(i == 0 || mems[k][i]->GetEdits()->NumEntries() == 0);
+      mems[k][i]->flush_completed_ = true;
+      mems[k][i]->file_number_ = file_meta[k].fd.GetNumber();
+    }
+  }
+  (void) cfds;
+  (void) mutable_cf_options;
+  (void) prep_tracker;
+  (void) vset;
+  (void) to_delete;
+  (void) db_directory;
+  (void) log_buffer;
+
+  Status s;
+  return s;
+}
+
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
 bool MemTableList::IsFlushPending() const {
