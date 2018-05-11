@@ -4294,23 +4294,7 @@ class JniUtil {
      * @return the Java byte[] or nullptr if an exception occurs
      */
     static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
-      const jsize jlen = static_cast<jsize>(bytes.size());
-
-      jbyteArray jbytes = env->NewByteArray(jlen);
-      if(jbytes == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      env->SetByteArrayRegion(jbytes, 0, jlen,
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes.c_str())));
-      if(env->ExceptionCheck()) {
-        // exception thrown: ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jbytes);
-        return nullptr;
-      }
-
-      return jbytes;
+      return createJavaByteArrayWithSizeCheck(env, bytes.c_str(), bytes.size());
     }
 
     /**
@@ -4474,6 +4458,30 @@ class JniUtil {
       return jbyte_strings;
     }
 
+    static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env, const char* bytes, const size_t size) {
+      // Limitation for array size is vm specific
+      // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
+      // Integer.MAX_VALUE - 8 should be safe enough
+      static const size_t MAX_JARRAY_SIZE = ((static_cast<size_t>(1)) << 31) - 9;
+      if (size > MAX_JARRAY_SIZE) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
+        return nullptr;
+      }
+      
+      const jsize jlen = static_cast<jsize>(size);
+      jbyteArray jbytes = env->NewByteArray(jlen);
+      
+      env->SetByteArrayRegion(jbytes, 0, jlen,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
+      if(env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jbytes);
+        return nullptr;
+      }
+
+      return jbytes;
+    }
+
     /**
      * Copies bytes from a rocksdb::Slice to a jByteArray
      *
@@ -4483,23 +4491,7 @@ class JniUtil {
      * @return the Java byte[] or nullptr if an exception occurs
      */
     static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
-      const jsize jlen = static_cast<jsize>(bytes.size());
-
-      jbyteArray jbytes = env->NewByteArray(jlen);
-      if(jbytes == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      env->SetByteArrayRegion(jbytes, 0, jlen,
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes.data())));
-      if(env->ExceptionCheck()) {
-        // exception thrown: ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jbytes);
-        return nullptr;
-      }
-
-      return jbytes;
+      return createJavaByteArrayWithSizeCheck(env, bytes.data(), bytes.size());
     }
 
     /*

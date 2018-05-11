@@ -7,6 +7,7 @@ package org.rocksdb;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 import java.util.*;
@@ -140,6 +141,29 @@ public class RocksDBTest {
       getResult = db.get(rOpt, "key2".getBytes(), outValue);
       assertThat(getResult).isNotEqualTo(RocksDB.NOT_FOUND);
       assertThat(outValue).isEqualTo("12345".getBytes());
+    }
+  }
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
+
+  @Test
+  public void getOutOfArrayMaxSizeValue() throws RocksDBException {
+    thrown.expect(RocksDBException.class);
+    thrown.expectMessage("Requested array size exceeds VM limit");
+
+    final byte[] maxSizedByteArrayValue = new byte[Integer.MAX_VALUE - 5];
+    final byte[] maxArraySizeExcessValue = new byte[10];
+    final byte[] key = "key".getBytes();
+
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options opt = new Options()
+                 .setCreateIfMissing(true)
+                 .setMergeOperator(stringAppendOperator);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      db.put(key, maxSizedByteArrayValue);
+      db.merge(key, maxArraySizeExcessValue);
+      db.get(key);
     }
   }
 
