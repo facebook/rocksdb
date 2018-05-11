@@ -70,13 +70,12 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
         [&](int index) {
           // All threads should fail.
           auto res = Put("key" + ToString(index), "value");
-          if (!options.manual_wal_flush) {
-            ASSERT_FALSE(res.ok());
-          } else {
-            // else we should see fs error when we do the flush
+          if (options.manual_wal_flush) {
+            ASSERT_TRUE(res.ok());
+            // we should see fs error when we do the flush
             res = dbfull()->FlushWAL(false);
-            ASSERT_FALSE(res.ok());
           }
+          ASSERT_FALSE(res.ok());
         },
         i));
   }
@@ -99,15 +98,14 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
     // fail due to read-only mode
     mock_env->SetFilesystemActive(i != 0);
     auto res = Put("key" + ToString(i), "value");
-    if (!options.manual_wal_flush || i != 0) {
+    if (options.manual_wal_flush && i == 0) {
       // even with manual_wal_flush the 2nd Put should return error because of
       // the read-only mode
-      ASSERT_FALSE(res.ok());
-    } else {
-      // else we should see fs error when we do the flush
+      ASSERT_TRUE(res.ok());
+      // we should see fs error when we do the flush
       res = dbfull()->FlushWAL(false);
-      ASSERT_FALSE(res.ok());
     }
+    ASSERT_FALSE(res.ok());
   }
   // Close before mock_env destruct.
   Close();

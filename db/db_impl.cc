@@ -721,6 +721,8 @@ Status DBImpl::FlushWAL(bool sync) {
       // In case there is a fs error we should set it globally to prevent the
       // future writes
       WriteStatusCheck(s);
+      // whether sync or not, we should abort the rest of function upon error
+      return s;
     }
     if (!sync) {
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
