@@ -1514,7 +1514,6 @@ TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
     auto* reader = c.GetTableReader();
     ReadOptions ro;
     ro.total_order_seek = true;
-    // TODO(Zhongyi): use prefix_extractor or nullptr?
     std::unique_ptr<InternalIterator> iter(
         reader->NewIterator(ro, moptions.prefix_extractor.get()));
 
@@ -1574,7 +1573,6 @@ TEST_F(BlockBasedTableTest, NoopTransformSeek) {
   for (int i = 0; i < 2; ++i) {
     ReadOptions ro;
     ro.total_order_seek = (i == 0);
-    // TODO(Zhongyi): use prefix_extractor here?
     std::unique_ptr<InternalIterator> iter(
         reader->NewIterator(ro, moptions.prefix_extractor.get()));
 
@@ -1679,7 +1677,7 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   auto props = reader->GetTableProperties();
   ASSERT_EQ(5u, props->num_data_blocks);
 
-  // TODO(Zhongyi): update test?
+  // TODO(Zhongyi): update test to use MutableCFOptions
   std::unique_ptr<InternalIterator> index_iter(
       reader->NewIterator(ReadOptions(), moptions.prefix_extractor.get()));
 
@@ -2489,7 +2487,7 @@ TEST_F(BlockBasedTableTest, NewIndexIteratorLeak) {
 
   std::function<void()> func1 = [&]() {
     TEST_SYNC_POINT("BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker");
-    // TODO(Zhongyi): update test?
+    // TODO(Zhongyi): update test to use MutableCFOptions
     std::unique_ptr<InternalIterator> iter(
         reader->NewIterator(ro, moptions.prefix_extractor.get()));
     iter->Seek(InternalKey("a1", 0, kTypeValue).Encode());

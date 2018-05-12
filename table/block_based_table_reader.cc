@@ -173,23 +173,29 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
   return cache_handle;
 }
 
+// For hash based index, return true if prefix_extractor and
+// prefix_extractor_block mismatch, false otherwise. This flag will be used
+// as total_order_seek via NewIndexIterator
 bool PrefixExtractorChanged(std::string prefix_extractor_block,
                             const SliceTransform* prefix_extractor,
                             BlockBasedTableOptions::IndexType index_type) {
-  bool prefix_extractor_changed = false;
-  // only needed for hash based index
-  if (index_type != BlockBasedTableOptions::kHashSearch &&
-      prefix_extractor != nullptr) {
-    return prefix_extractor_changed;
+  // BlockBasedTableOptions::kHashSearch requires prefix_extractor to be set.
+  // Turn off hash index in prefix_extractor is not set; if  prefix_extractor
+  // is set but prefix_extractor_block is not set, also disable hash index
+  if (prefix_extractor == nullptr || prefix_extractor_block.empty()) {
+    return true;
   }
-  if (prefix_extractor_block.compare("nullptr") != 0 && prefix_extractor != nullptr &&
-      prefix_extractor_block.compare(prefix_extractor->Name()) != 0) {
-    prefix_extractor_changed = true;
+  // this check is not needed for other types of index
+  if (index_type != BlockBasedTableOptions::kHashSearch) {
+    return false;
   }
-  else if (prefix_extractor_block.compare("nullptr") != 0 || prefix_extractor != nullptr) {
-    prefix_extractor_changed = true;
+  // prefix_extractor and prefix_extractor_block are both non-empty
+  if (prefix_extractor_block.compare(prefix_extractor->Name()) != 0) {
+    return true;
   }
-  return prefix_extractor_changed;
+  else {
+    return false;
+  }
 }
 
 }  // namespace
@@ -1756,9 +1762,9 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
       no_io_read_options.read_tier = kBlockCacheTier;
 
       // Then, try find it within each block
-      bool prefix_extractor_changed =
-          PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
-                                 prefix_extractor, rep_->index_type);
+      // we already know prefix_extractor and prefix_extractor_name must match
+      // from above
+      bool prefix_extractor_changed = false;
       unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options,
                                          prefix_extractor_changed));
       iiter->Seek(internal_prefix);
@@ -2217,7 +2223,6 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   }
 
   BlockIter iiter_on_stack;
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   auto iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIterator> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
@@ -2275,7 +2280,6 @@ Status BlockBasedTable::VerifyChecksum() {
   }
   // Check Data blocks
   BlockIter iiter_on_stack;
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   InternalIterator* iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIterator> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
@@ -2319,7 +2323,6 @@ Status BlockBasedTable::VerifyChecksumInBlocks(InternalIterator* index_iter) {
 
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> iiter(NewIndexIterator(options));
   iiter->Seek(key);
   assert(iiter->Valid());
@@ -2376,16 +2379,12 @@ Status BlockBasedTable::CreateIndexReader(
   auto file = rep_->file.get();
   const InternalKeyComparator* icomparator = &rep_->internal_comparator;
   const Footer& footer = rep_->footer;
-  // TODO(Zhongyi): need to figure out a way to bypass checking prefix_extractor here
-  // possibly by adding prefix_extractor_changed in BlockBasedTable::NewIndexIterator
-  // if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
-  //     rep_->moptions.prefix_extractor == nullptr) {
-  //   ROCKS_LOG_WARN(rep_->ioptions.info_log,
-  //                  "BlockBasedTableOptions::kHashSearch requires "
-  //                  "options.prefix_extractor to be set."
-  //                  " Fall back to binary search index.");
-  //   index_type_on_file = BlockBasedTableOptions::kBinarySearch;
-  // }
+
+  // kHashSearch requires non-empty prefix_extractor but bypass checking
+  // prefix_extractor here since we have no access to MutableCFOptions.
+  // Add prefix_extractor_changed flag in  BlockBasedTable::NewIndexIterator.
+  // If prefix_extractor does not match prefix_extractor_name from table
+  // properties, turn off Hash Index by setting total_order_seek to true
 
   switch (index_type_on_file) {
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
@@ -2435,7 +2434,6 @@ Status BlockBasedTable::CreateIndexReader(
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   unique_ptr<InternalIterator> index_iter(NewIndexIterator(ReadOptions()));
 
   index_iter->Seek(key);
@@ -2478,7 +2476,6 @@ bool BlockBasedTable::TEST_index_reader_preloaded() const {
 
 Status BlockBasedTable::GetKVPairsFromDataBlocks(
     std::vector<KVPairBlock>* kv_pair_blocks) {
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> blockhandles_iter(
       NewIndexIterator(ReadOptions()));
 
@@ -2694,7 +2691,6 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
   out_file->Append(
       "Index Details:\n"
       "--------------------------------------\n");
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> blockhandles_iter(
       NewIndexIterator(ReadOptions()));
   Status s = blockhandles_iter->status();
@@ -2737,7 +2733,6 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
 }
 
 Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
-  // TODO(Zhongyi): decide whether need to introduce prefix_extractor here
   std::unique_ptr<InternalIterator> blockhandles_iter(
       NewIndexIterator(ReadOptions()));
   Status s = blockhandles_iter->status();

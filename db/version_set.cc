@@ -3356,8 +3356,6 @@ Status VersionSet::Recover(
       builder->SaveTo(v->storage_info());
 
       // Install recovered version
-      // TODO(Zhongyi): confirm it's safe to call
-      // GetLatestMutableCFOptions() here
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
           !(db_options_->skip_stats_update_on_db_open));
       AppendVersion(cfd, v);

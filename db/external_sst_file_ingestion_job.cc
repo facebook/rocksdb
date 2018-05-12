@@ -306,7 +306,6 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
                                                    external_file));
 
-  // TODO(Zhongyi): is this table_reader blockbased?
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(),
@@ -367,7 +366,6 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // We need to disable fill_cache so that we read from the file without
   // updating the block cache.
   ro.fill_cache = false;
-  // TODO(Zhongyi): is table_reader block based?
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get()));
 

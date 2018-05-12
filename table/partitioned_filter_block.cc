@@ -245,7 +245,6 @@ PartitionedFilterBlockReader::GetFilterPartition(
                              is_a_filter_partition, no_io,
                              /* get_context */ nullptr, prefix_extractor);
   } else {
-    // TODO(Zhongyi): find out how to pass prefix_extractor to ReadFilter
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
                                      is_a_filter_partition, prefix_extractor);
     return {filter, nullptr};

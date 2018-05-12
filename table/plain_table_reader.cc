@@ -211,7 +211,6 @@ Status PlainTableReader::PopulateIndexRecordList(
 
   bool is_first_record = true;
   Slice key_prefix_slice;
-  // TODO(Zhongyi): decide whether to pass it in
   PlainTableKeyDecoder decoder(&file_info_, encoding_type_, user_key_len_,
                                prefix_extractor_);
   while (pos < file_info_.data_end_offset) {
