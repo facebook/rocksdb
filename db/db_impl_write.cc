@@ -1266,7 +1266,9 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
         cfd->imm()->FlushRequested();
         SchedulePendingFlush(cfd, FlushReason::kWriteBufferFull);
       }
-      MarkEndOfFlushGroup();
+      if (!cfds.empty()) {
+        MarkEndOfFlushGroup();
+      }
       ColumnFamilyData* cfd;
       while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
         if (cfd->Unref()) {

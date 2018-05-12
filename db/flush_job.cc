@@ -464,6 +464,8 @@ void BatchFlushJob::PickMemTable() {
     base_versions_[i] = cfds_[i]->current();
     base_versions_[i]->Ref();
   }
+  // Silence a warning temporarily.
+  (void) measure_io_stats_.size();
 }
 
 Status BatchFlushJob::Run(LogsWithPrepTracker* prep_tracker,

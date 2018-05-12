@@ -295,7 +295,7 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
   autovector<iterator_pair> memtable_ranges;
   for (size_t k = 0; k != mems.size(); ++k) {
     autovector<VersionEdit*> edit_list;
-    for (size_t i = mems[k].size(); i != mems[k].size(); ++i) {
+    for (size_t i = 0; i != mems[k].size(); ++i) {
       assert(i == 0 || mems[k][i]->GetEdits()->NumEntries() == 0);
       if (i == 0) {
         edit_list.push_back(mems[k][i]->GetEdits());

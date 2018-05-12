@@ -1405,8 +1405,10 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
         // cfd will be refcounted.
         SchedulePendingFlush(cfd, flush_reason);
       }
-      schedule_flush = true;
-      MarkEndOfFlushGroup();
+      schedule_flush = !cfds.empty();
+      if (schedule_flush) {
+        MarkEndOfFlushGroup();
+      }
     }
 
     if (!writes_stopped) {
@@ -1634,9 +1636,11 @@ ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   auto cfd = *flush_queue_.begin();
   flush_queue_.pop_front();
-  assert(cfd->queued_for_flush());
-  cfd->set_queued_for_flush(false);
-  // TODO: need to unset flush reason?
+  if (cfd != nullptr) {
+    assert(cfd->queued_for_flush());
+    cfd->set_queued_for_flush(false);
+    // TODO: need to unset flush reason?
+  }
   return cfd;
 }
 
