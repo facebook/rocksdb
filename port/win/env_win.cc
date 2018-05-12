@@ -344,7 +344,7 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   // Random access is to disable read-ahead as the system reads too much data
   DWORD desired_access = GENERIC_READ | GENERIC_WRITE;
   DWORD shared_mode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-  DWORD creation_disposition = OPEN_ALWAYS; // Create if necessary or open existing
+  DWORD creation_disposition = OPEN_EXISTING; // Fail if file does not exist
   DWORD file_flags = FILE_FLAG_RANDOM_ACCESS;
 
   if (options.use_direct_reads && options.use_direct_writes) {
