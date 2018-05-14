@@ -89,6 +89,8 @@ public:
 
   virtual Status DeleteFile(const std::string& fname);
 
+  Status Truncate(const std::string& fname, size_t size);
+
   virtual Status GetCurrentTime(int64_t* unix_time);
 
   virtual Status NewSequentialFile(const std::string& fname,
@@ -196,6 +198,8 @@ public:
   ~WinEnv();
 
   Status DeleteFile(const std::string& fname) override;
+
+  Status Truncate(const std::string& fname, size_t size) override;
 
   Status GetCurrentTime(int64_t* unix_time) override;
 

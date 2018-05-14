@@ -112,6 +112,15 @@ Status WinEnvIO::DeleteFile(const std::string& fname) {
   return result;
 }
 
+Status WinEnvIO::Truncate(const std::string& fname, size_t size) {
+  Status s;
+  int result = truncate(fname.c_str(), size);
+  if (result != 0) {
+    s = IOError("Failed to truncate: " + fname, errno);
+  }
+  return s;
+}
+
 Status WinEnvIO::GetCurrentTime(int64_t* unix_time) {
   time_t time = std::time(nullptr);
   if (time == (time_t)(-1)) {
@@ -1143,6 +1152,10 @@ Status WinEnv::GetThreadList(
 
 Status WinEnv::DeleteFile(const std::string& fname) {
   return winenv_io_.DeleteFile(fname);
+}
+
+Status WinEnv::Truncate(const std::string& fname, size_t size) {
+  return winenv_io_.Truncate(fname, size);
 }
 
 Status WinEnv::GetCurrentTime(int64_t* unix_time) {
