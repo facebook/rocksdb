@@ -185,6 +185,9 @@ struct JobContext {
   void Clean() {
     // free superversions
     superversion_context.Clean();
+    for (auto& sv_context : superversion_contexts) {
+      sv_context.Clean();
+    }
     // free pending memtables
     for (auto m : memtables_to_free) {
       delete m;
