@@ -290,9 +290,6 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
   (void) prep_tracker;
   // flush was successful
   std::vector<autovector<VersionEdit*>> edit_lists;
-  typedef std::list<MemTable*>::reverse_iterator memlist_iterator;
-  typedef std::pair<memlist_iterator, memlist_iterator> iterator_pair;
-  autovector<iterator_pair> memtable_ranges;
   for (size_t k = 0; k != mems.size(); ++k) {
     autovector<VersionEdit*> edit_list;
     for (size_t i = 0; i != mems[k].size(); ++i) {
@@ -303,25 +300,6 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
       mems[k][i]->flush_completed_ = true;
       mems[k][i]->file_number_ = file_meta[k].fd.GetNumber();
     }
-
-    auto& memlist = cfds[k]->imm()->current_->memlist_;
-    auto start = memlist.rend();
-    auto end = memlist.rend();
-
-    if (!mems[k].empty()) {
-      auto it = memlist.rbegin();
-      while (it != memlist.rend()) {
-        if (*it == mems[k].back()) {
-          start = it;
-        }
-        if (*it == mems[k].front()) {
-          end = it;
-          break;
-        }
-        it++;
-      }
-    }
-    memtable_ranges.emplace_back(start, end);
     edit_lists.emplace_back(edit_list);
   }
 
@@ -340,18 +318,12 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
   uint64_t mem_id = 1;
   if (s.ok()) {
     for (size_t k = 0; k != mems.size(); ++k) {
-      auto start = memtable_ranges[k].first;
-      auto end = memtable_ranges[k].second;
-      ++end;
-      auto it = start;
-      while (it != end) {
-        MemTable* m = *it;
+      for (auto m : mems[k]) {
         ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
                                      ": memtable #%" PRIu64 " done",
                          cfds[k]->GetName().c_str(), m->file_number_, mem_id);
         assert(m->file_number_ > 0);
         cfds[k]->imm()->current_->Remove(m, to_delete);
-        it++;
         ++mem_id;
       }
     }
