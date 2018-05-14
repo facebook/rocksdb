@@ -937,27 +937,33 @@ std::string WinEnvIO::TimeToString(uint64_t secondsSince1970) {
 
 EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   const DBOptions& db_options) const {
-  EnvOptions optimized = env_options;
+  EnvOptions optimized(env_options);
+  // These two the same as default optimizations
   optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
-  optimized.use_mmap_writes = false;
-  // This is because we flush only whole pages on unbuffered io and
-  // the last records are not guaranteed to be flushed.
-  optimized.use_direct_writes = false;
-  // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
-  // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
-  // test and make this false
-  optimized.fallocate_with_keep_size = true;
   optimized.writable_file_max_buffer_size =
       db_options.writable_file_max_buffer_size;
+
+  // This adversely affects %999 on windows
+  optimized.use_mmap_writes = false;
+  // Direct writes will produce a huge perf impact on
+  // Windows. Pre-allocate space for WAL.
+  optimized.use_direct_writes = false;
   return optimized;
 }
 
 EnvOptions WinEnvIO::OptimizeForManifestWrite(
   const EnvOptions& env_options) const {
-  EnvOptions optimized = env_options;
+  EnvOptions optimized(env_options);
   optimized.use_mmap_writes = false;
-  optimized.use_direct_writes = false;
-  optimized.fallocate_with_keep_size = true;
+  optimized.use_direct_reads = false;
+  return optimized;
+}
+
+EnvOptions WinEnvIO::OptimizeForManifestRead(
+  const EnvOptions& env_options) const {
+  EnvOptions optimized(env_options);
+  optimized.use_mmap_writes = false;
+  optimized.use_direct_reads = false;
   return optimized;
 }
 
@@ -1321,6 +1327,11 @@ int WinEnv::GetBackgroundThreads(Env::Priority pri) {
 
 void  WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   return winenv_threads_.IncBackgroundThreadsIfNeeded(num, pri);
+}
+
+EnvOptions WinEnv::OptimizeForManifestRead(
+  const EnvOptions& env_options) const {
+  return winenv_io_.OptimizeForManifestRead(env_options);
 }
 
 EnvOptions WinEnv::OptimizeForLogWrite(const EnvOptions& env_options,

@@ -170,6 +170,9 @@ public:
   virtual EnvOptions OptimizeForManifestWrite(
     const EnvOptions& env_options) const;
 
+  virtual EnvOptions OptimizeForManifestRead(
+    const EnvOptions& env_options) const;
+
   size_t GetPageSize() const { return page_size_; }
 
   size_t GetAllocationGranularity() const { return allocation_granularity_; }
@@ -306,11 +309,15 @@ public:
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
 
+  EnvOptions OptimizeForManifestRead(
+    const EnvOptions& env_options) const override;
+
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
     const DBOptions& db_options) const override;
 
   EnvOptions OptimizeForManifestWrite(
     const EnvOptions& env_options) const override;
+
 
 private:
 
