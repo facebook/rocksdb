@@ -51,7 +51,7 @@ class TransactionTestBase : public ::testing::Test {
 
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
                       TxnDBWritePolicy write_policy)
-      : use_stackable_db_(use_stackable_db) {
+      : db(nullptr), env(nullptr), use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
@@ -78,6 +78,7 @@ class TransactionTestBase : public ::testing::Test {
 
   ~TransactionTestBase() {
     delete db;
+    db = nullptr;
     // This is to skip the assert statement in FaultInjectionTestEnv. There
     // seems to be a bug in btrfs that the makes readdir return recently
     // unlink-ed files. By using the default fs we simply ignore errors resulted
@@ -125,6 +126,7 @@ class TransactionTestBase : public ::testing::Test {
 
   Status ReOpen() {
     delete db;
+    db = nullptr;
     DestroyDB(dbname, options);
     Status s;
     if (use_stackable_db_ == false) {
@@ -139,16 +141,23 @@ class TransactionTestBase : public ::testing::Test {
                              std::vector<ColumnFamilyHandle*>* handles) {
     std::vector<size_t> compaction_enabled_cf_indices;
     TransactionDB::PrepareWrap(&options, &cfs, &compaction_enabled_cf_indices);
-    DB* root_db;
+    DB* root_db = nullptr;
     Options options_copy(options);
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
                             use_seq_per_batch);
+    StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
-      s = TransactionDB::WrapStackableDB(
-          new StackableDB(root_db), txn_db_options,
-          compaction_enabled_cf_indices, *handles, &db);
+      assert(root_db != nullptr);
+      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+                                         compaction_enabled_cf_indices,
+                                         *handles, &db);
+    }
+    if (!s.ok()) {
+      delete stackable_db;
+      // just in case it was not deleted (and not set to nullptr).
+      delete root_db;
     }
     return s;
   }
@@ -161,18 +170,25 @@ class TransactionTestBase : public ::testing::Test {
     TransactionDB::PrepareWrap(&options, &column_families,
                                &compaction_enabled_cf_indices);
     std::vector<ColumnFamilyHandle*> handles;
-    DB* root_db;
+    DB* root_db = nullptr;
     Options options_copy(options);
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
                             &root_db, use_seq_per_batch);
+    StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
+      assert(root_db != nullptr);
       assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(
-          new StackableDB(root_db), txn_db_options,
-          compaction_enabled_cf_indices, handles, &db);
+      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+                                         compaction_enabled_cf_indices, handles,
+                                         &db);
       delete handles[0];
+    }
+    if (!s.ok()) {
+      delete stackable_db;
+      // just in case it was not deleted (and not set to nullptr).
+      delete root_db;
     }
     return s;
   }
@@ -207,9 +223,9 @@ class TransactionTestBase : public ::testing::Test {
     // equivalent to commit without prepare.
     WriteBatch wb;
     auto istr = std::to_string(index);
-    wb.Put("k1" + istr, "v1");
-    wb.Put("k2" + istr, "v2");
-    wb.Put("k3" + istr, "v3");
+    ASSERT_OK(wb.Put("k1" + istr, "v1"));
+    ASSERT_OK(wb.Put("k2" + istr, "v2"));
+    ASSERT_OK(wb.Put("k3" + istr, "v3"));
     WriteOptions wopts;
     auto s = db->Write(wopts, &wb);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
@@ -231,15 +247,12 @@ class TransactionTestBase : public ::testing::Test {
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     auto istr = std::to_string(index);
-    auto s = txn->SetName("xid" + istr);
-    ASSERT_OK(s);
-    s = txn->Put(Slice("foo" + istr), Slice("bar"));
-    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
-    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
-    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
-    ASSERT_OK(s);
-    s = txn->Commit();
-    ASSERT_OK(s);
+    ASSERT_OK(txn->SetName("xid" + istr));
+    ASSERT_OK(txn->Put(Slice("foo" + istr), Slice("bar")));
+    ASSERT_OK(txn->Put(Slice("foo2" + istr), Slice("bar2")));
+    ASSERT_OK(txn->Put(Slice("foo3" + istr), Slice("bar3")));
+    ASSERT_OK(txn->Put(Slice("foo4" + istr), Slice("bar4")));
+    ASSERT_OK(txn->Commit());
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq += 4;
@@ -261,20 +274,16 @@ class TransactionTestBase : public ::testing::Test {
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     auto istr = std::to_string(index);
-    auto s = txn->SetName("xid" + istr);
-    ASSERT_OK(s);
-    s = txn->Put(Slice("foo" + istr), Slice("bar"));
-    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
-    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
-    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
-    s = txn->Put(Slice("foo5" + istr), Slice("bar5"));
-    ASSERT_OK(s);
+    ASSERT_OK(txn->SetName("xid" + istr));
+    ASSERT_OK(txn->Put(Slice("foo" + istr), Slice("bar")));
+    ASSERT_OK(txn->Put(Slice("foo2" + istr), Slice("bar2")));
+    ASSERT_OK(txn->Put(Slice("foo3" + istr), Slice("bar3")));
+    ASSERT_OK(txn->Put(Slice("foo4" + istr), Slice("bar4")));
+    ASSERT_OK(txn->Put(Slice("foo5" + istr), Slice("bar5")));
     expected_commits++;
-    s = txn->Prepare();
-    ASSERT_OK(s);
+    ASSERT_OK(txn->Prepare());
     commit_writes++;
-    s = txn->Commit();
-    ASSERT_OK(s);
+    ASSERT_OK(txn->Commit());
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq += 5;
@@ -292,20 +301,16 @@ class TransactionTestBase : public ::testing::Test {
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     auto istr = std::to_string(index);
-    auto s = txn->SetName("xid" + istr);
-    ASSERT_OK(s);
-    s = txn->Put(Slice("foo" + istr), Slice("bar"));
-    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
-    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
-    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
-    s = txn->Put(Slice("foo5" + istr), Slice("bar5"));
-    ASSERT_OK(s);
+    ASSERT_OK(txn->SetName("xid" + istr));
+    ASSERT_OK(txn->Put(Slice("foo" + istr), Slice("bar")));
+    ASSERT_OK(txn->Put(Slice("foo2" + istr), Slice("bar2")));
+    ASSERT_OK(txn->Put(Slice("foo3" + istr), Slice("bar3")));
+    ASSERT_OK(txn->Put(Slice("foo4" + istr), Slice("bar4")));
+    ASSERT_OK(txn->Put(Slice("foo5" + istr), Slice("bar5")));
     expected_commits++;
-    s = txn->Prepare();
-    ASSERT_OK(s);
+    ASSERT_OK(txn->Prepare());
     commit_writes++;
-    s = txn->Rollback();
-    ASSERT_OK(s);
+    ASSERT_OK(txn->Rollback());
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // No seq is consumed for deleting the txn buffer
       exp_seq += 0;
@@ -345,15 +350,12 @@ class TransactionTestBase : public ::testing::Test {
       // For test the duplicate keys
       auto v2 = Slice("bar2-" + istr).ToString();
       auto type = rnd.Uniform(4);
-      Status s;
       switch (type) {
         case 0:
           committed_kvs[k] = v;
-          s = db->Put(write_options, k, v);
-          ASSERT_OK(s);
+          ASSERT_OK(db->Put(write_options, k, v));
           committed_kvs[k] = v2;
-          s = db->Put(write_options, k, v2);
-          ASSERT_OK(s);
+          ASSERT_OK(db->Put(write_options, k, v2));
           break;
         case 1: {
           WriteBatch wb;
@@ -361,26 +363,22 @@ class TransactionTestBase : public ::testing::Test {
           wb.Put(k, v);
           committed_kvs[k] = v2;
           wb.Put(k, v2);
-          s = db->Write(write_options, &wb);
-          ASSERT_OK(s);
+          ASSERT_OK(db->Write(write_options, &wb));
+
         } break;
         case 2:
         case 3:
           txn = db->BeginTransaction(write_options, txn_options);
-          s = txn->SetName("xid" + istr);
-          ASSERT_OK(s);
+          ASSERT_OK(txn->SetName("xid" + istr));
           committed_kvs[k] = v;
-          s = txn->Put(k, v);
-          ASSERT_OK(s);
+          ASSERT_OK(txn->Put(k, v));
           committed_kvs[k] = v2;
-          s = txn->Put(k, v2);
-          ASSERT_OK(s);
+          ASSERT_OK(txn->Put(k, v2));
+
           if (type == 3) {
-            s = txn->Prepare();
-            ASSERT_OK(s);
+            ASSERT_OK(txn->Prepare());
           }
-          s = txn->Commit();
-          ASSERT_OK(s);
+          ASSERT_OK(txn->Commit());
           if (type == 2) {
             auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
             // TODO(myabandeh): this is counter-intuitive. The destructor should

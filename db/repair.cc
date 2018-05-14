@@ -205,7 +205,7 @@ class Repairer {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "**** Repaired rocksdb %s; "
                      "recovered %" ROCKSDB_PRIszt " files; %" PRIu64
-                     "bytes. "
+                     " bytes. "
                      "Some data may have been lost. "
                      "****",
                      dbname_.c_str(), tables_.size(), bytes);
