@@ -168,7 +168,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
   // Set percentage of capacity reserved for high-pri cache entries.
-  void SetHighPriorityPoolRatio(double high_pri_pool_ratio);
+  void SetHighPriPoolRatio(double high_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
@@ -198,12 +198,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 
-  //  Retrieves number of elements in LRU, for unit test purpose only
-  //  not threadsafe
+  // Retrieves number of elements in LRU, for unit test purpose only
+  // not threadsafe
   size_t TEST_GetLRUSize();
 
-  //  Retrives high pri pool ratio
-  double GetHighPriPoolRatio();
+  // Retrieve pool capacities/usages/ratio.  Protected with mutex_.
+  virtual size_t GetHighPriPoolCapacity() const;
+  virtual size_t GetHighPriPoolUsage() const;
+  virtual double GetHighPriPoolRatio() const;
 
   // Overloading to aligned it to cache line size
   void* operator new(size_t);
@@ -232,6 +234,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   // holding the mutex_
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
+  // Reset the high-pri pool capacity based on the capacity and ratio.
+  void ResetHighPriPoolCapacity();
+
   // Initialized before use.
   size_t capacity_;
 
@@ -246,7 +251,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 
   // High-pri pool size, equals to capacity * high_pri_pool_ratio.
   // Remember the value to avoid recomputing each time.
-  double high_pri_pool_capacity_;
+  size_t high_pri_pool_capacity_;
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
@@ -293,11 +298,12 @@ class LRUCache : public ShardedCache {
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual void DisownData() override;
-
-  //  Retrieves number of elements in LRU, for unit test purpose only
+  virtual size_t GetHighPriPoolCapacity() const override;
+  virtual size_t GetHighPriPoolUsage() const override;
+  virtual double GetHighPriPoolRatio() const override;
+  virtual void SetHighPriPoolRatio(double high_pri_pool_ratio) override;
+  // Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
-  //  Retrives high pri pool ratio
-  double GetHighPriPoolRatio();
 
  private:
   LRUCacheShard* shards_;
