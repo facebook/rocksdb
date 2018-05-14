@@ -1866,9 +1866,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
-  } else if (c->column_family_data()->ioptions()->compaction_style ==
-                 kCompactionStyleUniversal &&
-             !is_prepicked && c->output_level() > 0 &&
+  } else if (!is_prepicked && c->output_level() > 0 &&
              c->output_level() ==
                  c->column_family_data()
                      ->current()
@@ -1876,9 +1874,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      ->MaxOutputLevel(
                          immutable_db_options_.allow_ingest_behind) &&
              env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
-    // Forward universal compactions involving last level to the bottom pool
-    // if it exists, such that long-running compactions can't block short-
-    // lived ones, like L0->L0s.
+    // Forward compactions involving last level to the bottom pool if it exists,
+    // such that compactions unlikely to contribute to write stalls can be
+    // delayed or deprioritized.
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:ForwardToBottomPriPool");
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
