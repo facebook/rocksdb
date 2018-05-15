@@ -152,17 +152,20 @@ public class RocksDBTest {
     thrown.expect(RocksDBException.class);
     thrown.expectMessage("Requested array size exceeds VM limit");
 
-    final byte[] maxSizedByteArrayValue = new byte[Integer.MAX_VALUE - 5];
-    final byte[] maxArraySizeExcessValue = new byte[10];
+    final int numberOfValueSplits = 10;
+    final byte[] valueSplit = new byte[Integer.MAX_VALUE / numberOfValueSplits];
     final byte[] key = "key".getBytes();
 
+    // merge (numberOfValueSplits + 1) valueSplit's to get value size exceeding Integer.MAX_VALUE
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final Options opt = new Options()
                  .setCreateIfMissing(true)
                  .setMergeOperator(stringAppendOperator);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      db.put(key, maxSizedByteArrayValue);
-      db.merge(key, maxArraySizeExcessValue);
+      db.put(key, valueSplit);
+      for (int i = 0; i < numberOfValueSplits; i++) {
+        db.merge(key, valueSplit);
+      }
       db.get(key);
     }
   }
