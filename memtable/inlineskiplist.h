@@ -184,10 +184,9 @@ class InlineSkipList {
   const uint16_t kBranching_;
   const uint32_t kScaledInverseBranching_;
 
+  Allocator* const allocator_;  // Allocator used for allocations of nodes
   // Immutable after construction
   Comparator const compare_;
-  Allocator* const allocator_;  // Allocator used for allocations of nodes
-
   Node* const head_;
 
   // Modified only by Insert().  Read racily by readers, but stale
@@ -587,8 +586,8 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
     : kMaxHeight_(static_cast<uint16_t>(max_height)),
       kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
-      compare_(cmp),
       allocator_(allocator),
+      compare_(cmp),
       head_(AllocateNode(0, max_height)),
       max_height_(1),
       seq_splice_(AllocateSplice()) {
