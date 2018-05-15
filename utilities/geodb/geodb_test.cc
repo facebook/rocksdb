@@ -132,7 +132,7 @@ TEST_F(GeoDBTest, Search) {
 }
 
 TEST_F(GeoDBTest, DifferentPosInSameQuadkey) {
-  // insert first object into database
+  // insert obj1 into database
   GeoPosition pos1(40.00001, 116.00001);
   std::string id1("12");
   std::string value1("value1");
@@ -141,7 +141,7 @@ TEST_F(GeoDBTest, DifferentPosInSameQuadkey) {
   Status status = getdb()->Insert(obj1);
   ASSERT_TRUE(status.ok());
 
-  // insert second object into database
+  // insert obj2 into database
   GeoPosition pos2(40.00002, 116.00002);
   std::string id2("123");
   std::string value2 = "value2";
@@ -150,7 +150,21 @@ TEST_F(GeoDBTest, DifferentPosInSameQuadkey) {
   status = getdb()->Insert(obj2);
   ASSERT_TRUE(status.ok());
 
-  // get first object by id
+  // get obj1's quadkey
+  ReadOptions opt;
+  PinnableSlice quadkey1;
+  status = getdb()->Get(opt, getdb()->DefaultColumnFamily(), "k:" + id1, &quadkey1);
+  ASSERT_TRUE(status.ok());
+
+  // get obj2's quadkey
+  PinnableSlice quadkey2;
+  status = getdb()->Get(opt, getdb()->DefaultColumnFamily(), "k:" + id2, &quadkey2);
+  ASSERT_TRUE(status.ok());
+
+  // obj1 and obj2 have the same quadkey
+  ASSERT_EQ(quadkey1, quadkey2);
+
+  // get obj1 by id, and check value
   GeoObject obj;
   status = getdb()->GetById(Slice(id1), &obj);
   ASSERT_TRUE(status.ok());
@@ -158,6 +172,14 @@ TEST_F(GeoDBTest, DifferentPosInSameQuadkey) {
   ASSERT_EQ(obj.position.longitude, pos1.longitude);
   ASSERT_EQ(obj.id.compare(id1), 0);
   ASSERT_EQ(obj.value, value1);
+
+  // get obj2 by id, and check value
+  status = getdb()->GetById(Slice(id2), &obj);
+  ASSERT_TRUE(status.ok());
+  ASSERT_EQ(obj.position.latitude, pos2.latitude);
+  ASSERT_EQ(obj.position.longitude, pos2.longitude);
+  ASSERT_EQ(obj.id.compare(id2), 0);
+  ASSERT_EQ(obj.value, value2);
 }
 
 }  // namespace rocksdb
