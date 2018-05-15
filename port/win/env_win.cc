@@ -389,6 +389,84 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   return s;
 }
 
+Status WinEnvIO::NewMemoryMappedFileBuffer(const std::string & fname,
+  std::unique_ptr<MemoryMappedFileBuffer>* result) {
+  Status s;
+  result->reset();
+
+  DWORD fileFlags = FILE_ATTRIBUTE_READONLY;
+
+  HANDLE hFile = INVALID_HANDLE_VALUE;
+  {
+    IOSTATS_TIMER_GUARD(open_nanos);
+    hFile = CreateFileA(
+      fname.c_str(), GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      NULL,
+      OPEN_EXISTING,  // Open only if it exists
+      fileFlags,
+      NULL);
+  }
+
+  if (INVALID_HANDLE_VALUE == hFile) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError("Failed to open NewMemoryMappedFileBuffer: " + fname,
+      lastError);
+    return s;
+  }
+  UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
+
+  uint64_t fileSize = 0;
+  s = GetFileSize(fname, &fileSize);
+  if (!s.ok()) {
+    return s;
+  }
+  // Will not map empty files
+  if (fileSize == 0) {
+    return Status::NotSupported("NewMemoryMappedFileBuffer can not map zero length files: " + fname);
+  }
+
+  // size_t is 32-bit with 32-bit builds
+  if (fileSize > std::numeric_limits<size_t>::max()) {
+    return Status::NotSupported(
+      "The specified file size does not fit into 32-bit memory addressing: " + fname);
+  }
+
+  HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READWRITE,
+      0,  // Whole file at its present length
+      0,
+      NULL);  // Mapping name
+
+  if (!hMap) {
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError(
+      "Failed to create file mapping for NewMemoryMappedFileBuffer: " + fname,
+      lastError);
+  }
+  UniqueCloseHandlePtr mapGuard(hMap, CloseHandleFunc);
+
+  void* base = MapViewOfFileEx(hMap, FILE_MAP_WRITE,
+    0,  // High DWORD of access start
+    0,  // Low DWORD
+    fileSize,
+    NULL);  // Let the OS choose the mapping
+
+  if (!base) {
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError(
+      "Failed to MapViewOfFile for NewMemoryMappedFileBuffer: " + fname,
+      lastError);
+  }
+
+  result->reset(new WinMemoryMappedBuffer(hFile, hMap, 
+    base, static_cast<size_t>(fileSize)));
+
+  mapGuard.release();
+  fileGuard.release();
+
+  return s;
+}
+
 Status WinEnvIO::NewDirectory(const std::string& name,
   std::unique_ptr<Directory>* result) {
   Status s;
@@ -1192,8 +1270,13 @@ Status WinEnv::ReopenWritableFile(const std::string& fname,
 }
 
 Status WinEnv::NewRandomRWFile(const std::string & fname,
-  unique_ptr<RandomRWFile>* result, const EnvOptions & options) {
+  std::unique_ptr<RandomRWFile>* result, const EnvOptions & options) {
   return winenv_io_.NewRandomRWFile(fname, result, options);
+}
+
+Status WinEnv::NewMemoryMappedFileBuffer(const std::string& fname,
+  std::unique_ptr<MemoryMappedFileBuffer>* result) {
+  return winenv_io_.NewMemoryMappedFileBuffer(fname, result);
 }
 
 Status WinEnv::NewDirectory(const std::string& name,

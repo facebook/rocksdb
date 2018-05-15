@@ -1062,6 +1062,27 @@ Status WinRandomRWFile::Close() {
 }
 
 //////////////////////////////////////////////////////////////////////////
+/// WinMemoryMappedBufer
+WinMemoryMappedBuffer::~WinMemoryMappedBuffer() {
+  BOOL ret = FALSE;
+  if (base_ != nullptr) {
+    ret = ::UnmapViewOfFile(base_);
+    assert(ret);
+    base_ = nullptr;
+  }
+  if (map_handle_ != NULL && map_handle_ != INVALID_HANDLE_VALUE) {
+    ret = ::CloseHandle(map_handle_);
+    assert(ret);
+    map_handle_ = NULL;
+  }
+  if (file_handle_ != NULL && file_handle_ != INVALID_HANDLE_VALUE) {
+    ret = ::CloseHandle(file_handle_);
+    assert(ret);
+    file_handle_ = NULL;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
 /// WinDirectory
 
 Status WinDirectory::Fsync() { return Status::OK(); }

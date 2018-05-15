@@ -112,6 +112,10 @@ public:
     unique_ptr<RandomRWFile>* result,
     const EnvOptions& options);
 
+  virtual Status NewMemoryMappedFileBuffer(
+    const std::string& fname,
+    std::unique_ptr<MemoryMappedFileBuffer>* result);
+
   virtual Status NewDirectory(const std::string& name,
     std::unique_ptr<Directory>* result);
 
@@ -231,8 +235,12 @@ public:
 
   // The returned file will only be accessed by one thread at a time.
   Status NewRandomRWFile(const std::string& fname,
-    unique_ptr<RandomRWFile>* result,
+    std::unique_ptr<RandomRWFile>* result,
     const EnvOptions& options) override;
+
+  Status NewMemoryMappedFileBuffer(
+    const std::string& fname,
+    std::unique_ptr<MemoryMappedFileBuffer>* result) override;
 
   Status NewDirectory(const std::string& name,
     std::unique_ptr<Directory>* result) override;

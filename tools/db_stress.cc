@@ -879,9 +879,9 @@ class SharedState {
             FLAGS_expected_values_path, &expected_mmap_buffer_);
       }
       if (status.ok()) {
-        assert(expected_mmap_buffer_->length == expected_values_size);
+        assert(expected_mmap_buffer_->GetLen() == expected_values_size);
         values_ =
-            static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->base);
+            static_cast<std::atomic<uint32_t>*>(expected_mmap_buffer_->GetBase());
         assert(values_ != nullptr);
       } else {
         fprintf(stderr, "Failed opening shared file '%s' with error: %s\n",
