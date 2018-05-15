@@ -4463,13 +4463,17 @@ class JniUtil {
       // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
       // Integer.MAX_VALUE - 8 should be safe enough
       static const size_t MAX_JARRAY_SIZE = ((static_cast<size_t>(1)) << 31) - 9;
-      if (size > MAX_JARRAY_SIZE) {
+      if(size > MAX_JARRAY_SIZE) {
         rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
         return nullptr;
       }
       
       const jsize jlen = static_cast<jsize>(size);
       jbyteArray jbytes = env->NewByteArray(jlen);
+      if(jbytes == nullptr) {
+        // exception thrown: OutOfMemoryError	
+        return nullptr;
+      }
       
       env->SetByteArrayRegion(jbytes, 0, jlen,
         const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
