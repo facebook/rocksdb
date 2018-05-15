@@ -25,6 +25,12 @@ void DBImpl::TEST_SwitchWAL() {
   SwitchWAL(&write_context);
 }
 
+bool DBImpl::TEST_WALBufferIsEmpty() {
+  InstrumentedMutexLock wl(&log_write_mutex_);
+  log::Writer* cur_log_writer = logs_.back().writer;
+  return cur_log_writer->TEST_BufferIsEmpty();
+}
+
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;

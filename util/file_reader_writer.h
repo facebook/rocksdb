@@ -189,6 +189,8 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
+  bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+
  private:
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
