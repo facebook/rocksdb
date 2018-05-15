@@ -121,7 +121,7 @@ class BatchFlushJob {
       const EnvOptions& env_options, VersionSet* versions,
       InstrumentedMutex* db_mutex,
       std::atomic<bool>* shutting_down,
-      std::vector<SequenceNumber>& existing_snapshots,
+      std::vector<SequenceNumber> existing_snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
       SnapshotChecker* snapshot_checker,
       JobContext* job_context,

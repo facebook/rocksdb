@@ -3263,7 +3263,8 @@ Status VersionSet::Recover(
       if (edit.is_column_family_add_) {
         if (cf_in_builders || cf_in_not_found) {
           s = Status::Corruption(
-              "Manifest adding the same column family twice");
+              "Manifest adding the same column family twice: " +
+              edit.column_family_name_);
           break;
         }
         auto cf_options = cf_name_to_options.find(edit.column_family_name_);
