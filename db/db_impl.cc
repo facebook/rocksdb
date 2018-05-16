@@ -2091,9 +2091,30 @@ DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
   return pending_outputs_inserted_elem;
 }
 
+std::pair<std::list<uint64_t>::iterator, std::list<uint64_t>::iterator>
+DBImpl::CaptureCurrentFileNumberInPendingOutputs(int num_of_pending_outputs) {
+  for (int i = 0; i != num_of_pending_outputs; ++i) {
+    pending_outputs_.push_back(versions_->current_next_file_number() + i);
+  }
+  auto first = pending_outputs_.end();
+  auto last = pending_outputs_.end();
+  for (int i = 0; i != num_of_pending_outputs; ++i) {
+    if (i == 0) {
+      --last;
+    }
+    --first;
+  }
+  return {first, last};
+}
+
 void DBImpl::ReleaseFileNumberFromPendingOutputs(
     std::list<uint64_t>::iterator v) {
   pending_outputs_.erase(v);
+}
+
+void DBImpl::ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator first,
+    std::list<uint64_t>::iterator last) {
+  pending_outputs_.erase(first, ++last);
 }
 
 #ifndef ROCKSDB_LITE

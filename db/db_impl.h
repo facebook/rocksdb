@@ -824,12 +824,18 @@ class DBImpl : public DB {
   // pending_outputs_. This will prevent any background process to delete any
   // file created after this point.
   std::list<uint64_t>::iterator CaptureCurrentFileNumberInPendingOutputs();
+  std::pair<std::list<uint64_t>::iterator, std::list<uint64_t>::iterator>
+      CaptureCurrentFileNumberInPendingOutputs(int num_of_pending_outputs);
+
   // This function should be called with the result of
   // CaptureCurrentFileNumberInPendingOutputs(). It then marks that any file
   // created between the calls CaptureCurrentFileNumberInPendingOutputs() and
   // ReleaseFileNumberFromPendingOutputs() can now be deleted (if it's not live
   // and blocked by any other pending_outputs_ calls)
   void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
+  void ReleaseFileNumberFromPendingOutputs(
+      std::list<uint64_t>::iterator first /* inclusive */,
+      std::list<uint64_t>::iterator last /* inclusive */);
 
   Status SyncClosedLogs(JobContext* job_context);
 
@@ -956,6 +962,7 @@ class DBImpl : public DB {
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                                 Env::Priority bg_thread_pri);
   void BackgroundCallFlush();
+  void BackgroundCallGroupFlush();
   void BackgroundCallPurge();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
@@ -987,6 +994,7 @@ class DBImpl : public DB {
   void AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason);
   ColumnFamilyData* PopFirstFromFlushQueue();
   GroupFlushRequest PopFirstFromGroupFlushQueue();
+  const GroupFlushRequest* PeekFirstFromGroupFlushQueue() const;
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);

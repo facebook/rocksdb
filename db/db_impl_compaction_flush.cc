@@ -1647,9 +1647,17 @@ ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
 
 DBImpl::GroupFlushRequest DBImpl::PopFirstFromGroupFlushQueue() {
   assert(!group_flush_queue_.empty());
-  auto& cfds = *group_flush_queue_.begin();
+  auto& flush_req = *group_flush_queue_.begin();
   group_flush_queue_.pop_front();
-  return cfds;
+  return flush_req;
+}
+
+const DBImpl::GroupFlushRequest* DBImpl::PeekFirstFromGroupFlushQueue() const {
+  if (group_flush_queue_.empty()) {
+    return nullptr;
+  }
+  const auto& flush_req = *group_flush_queue_.begin();
+  return &flush_req;
 }
 
 void DBImpl::SchedulePendingFlush(ColumnFamilyData* cfd,
@@ -1688,7 +1696,12 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
 void DBImpl::BGWorkFlush(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
+  if (dbi->atomic_flush_) {
+    dbi->BackgroundCallGroupFlush();
+  } else {
+    dbi->BackgroundCallFlush();
+  }
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -1891,6 +1904,86 @@ void DBImpl::BackgroundCallFlush() {
     // signal the DB destructor that it's OK to proceed with destruction. In
     // that case, all DB variables will be dealloacated and referencing them
     // will cause trouble.
+  }
+}
+
+void DBImpl::BackgroundCallGroupFlush() {
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
+      immutable_db_options_.info_log.get());
+  {
+    InstrumentedMutexLock l(&mutex_);
+    assert(bg_flush_scheduled_ > 0);
+    num_running_flushes_++;
+
+    bool made_progress = false;
+    do {
+      made_progress = false;
+
+      int num_pending_outputs = 0;
+      const auto flush_req_ptr = PeekFirstFromGroupFlushQueue();
+      if (flush_req_ptr != nullptr) {
+        for (const auto& iter : *flush_req_ptr) {
+          auto cfd = iter.first;
+          if (!cfd->IsDropped() && cfd->imm()->IsFlushPending()) {
+            ++num_pending_outputs;
+          }
+        }
+      }
+      auto pending_outputs_range =
+        CaptureCurrentFileNumberInPendingOutputs(num_pending_outputs);
+      auto pending_outputs_first_inserted_elem = pending_outputs_range.first;
+      auto pending_outputs_last_inserted_elem = pending_outputs_range.second;
+
+      JobContext job_context(next_job_id_.fetch_add(1), true);
+      Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer);
+      if (!s.ok() && !s.IsShutdownInProgress()) {
+        // Wait a little bit before retrying background flush in
+        // case this is an environmental problem and we do not want to
+        // chew up resources for failed flushes for the duration of
+        // the problem.
+        uint64_t error_cnt =
+          default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
+        bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
+        mutex_.Unlock();
+        ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+            "Waiting after background flush error: %s"
+            "Accumulated background error counts: %" PRIu64,
+            s.ToString().c_str(), error_cnt);
+        log_buffer.FlushBufferToLog();
+        LogFlush(immutable_db_options_.info_log);
+        env_->SleepForMicroseconds(1000000);
+        mutex_.Lock();
+      }
+
+      if (num_pending_outputs > 0) {
+        ReleaseFileNumberFromPendingOutputs(pending_outputs_first_inserted_elem,
+            pending_outputs_last_inserted_elem);
+      }
+
+      FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
+
+      if (job_context.HaveSomethingToClean() ||
+          job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+        mutex_.Unlock();
+        // Have to flush the info logs before bg_flush_scheduled_--
+        // because if bg_flush_scheduled_ becomes 0 and the lock is
+        // released, the deconstructor of DB can kick in and destroy all the
+        // states of DB so info_log might not be available after that point.
+        // It also applies to access other states that DB owns.
+        log_buffer.FlushBufferToLog();
+        if (job_context.HaveSomethingToDelete()) {
+          PurgeObsoleteFiles(job_context);
+        }
+        job_context.Clean();
+        mutex_.Lock();
+      }
+    } while (atomic_flush_ && made_progress);
+
+    assert(num_running_flushes_ > 0);
+    num_running_flushes_--;
+    bg_flush_scheduled_--;
+    MaybeScheduleFlushOrCompaction();
+    bg_cv_.SignalAll();
   }
 }
 

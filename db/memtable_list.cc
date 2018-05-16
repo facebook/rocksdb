@@ -303,10 +303,6 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
     edit_lists.emplace_back(edit_list);
   }
 
-  // Since we already group commit multiple column families, maybe we don't
-  // need to group commit the memtables of the same column family.
-  // TODO (yanqin) further investigate.
-
   // This can release and re-acquire the mutex.
   Status s = vset->LogAndApply(cfds, mutable_cf_options, edit_lists, mu,
       db_directory);
