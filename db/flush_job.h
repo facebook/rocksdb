@@ -118,6 +118,7 @@ class BatchFlushJob {
       const std::vector<ColumnFamilyData*>& cfds,
       const ImmutableDBOptions& db_options,
       const std::vector<MutableCFOptions>& mutable_cf_options,
+      const std::vector<uint64_t>& flush_memtable_ids,
       const EnvOptions& env_options, VersionSet* versions,
       InstrumentedMutex* db_mutex,
       std::atomic<bool>* shutting_down,
@@ -150,6 +151,7 @@ class BatchFlushJob {
   std::vector<ColumnFamilyData*> cfds_;
   const ImmutableDBOptions& db_options_;
   const std::vector<MutableCFOptions>& mutable_cf_options_;
+  const std::vector<uint64_t>& flush_memtable_ids_;
   const EnvOptions env_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;

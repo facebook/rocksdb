@@ -353,7 +353,7 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
 bool MemTableList::IsFlushPending() const {
-  if ((flush_requested_ && num_flush_not_started_ >= 1) ||
+  if ((flush_requested_ && num_flush_not_started_ > 0) ||
       (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
     assert(imm_flush_needed.load(std::memory_order_relaxed));
     return true;
@@ -379,6 +379,28 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
     }
   }
   flush_requested_ = false;  // start-flush request is complete
+}
+
+void MemTableList::PickMemtablesToFlush(uint64_t memtable_id,
+    autovector<MemTable*>* ret) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
+  const auto& memlist = current_->memlist_;
+  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+    MemTable *m = *it;
+    if (m->GetID() > memtable_id) {
+      continue;
+    }
+    if (!m->flush_in_progress_) {
+      assert(!m->flush_completed_);
+      num_flush_not_started_--;
+      if (num_flush_not_started_ == 0) {
+        imm_flush_needed.store(false, std::memory_order_release);
+      }
+      m->flush_in_progress_ = true;  // flushing will start very soon
+      ret->push_back(m);
+    }
+  }
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,

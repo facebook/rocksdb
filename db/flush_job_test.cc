@@ -335,6 +335,7 @@ class BatchFlushJobTest : public testing::Test {
 TEST_F(BatchFlushJobTest, MultiColumnFamiliesVersionEdits) {
   std::vector<ColumnFamilyData*> cfds;
   std::vector<MutableCFOptions> mutable_cf_options_list;
+  std::vector<uint64_t> memtable_ids;
   autovector<stl_wrappers::KVMap> mock_files;
   autovector<std::pair<SequenceNumber, SequenceNumber>> seq_pairs;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -363,6 +364,7 @@ TEST_F(BatchFlushJobTest, MultiColumnFamiliesVersionEdits) {
 
     autovector<MemTable*> to_delete;
     cfd->imm()->Add(new_mem, &to_delete);
+    memtable_ids.emplace_back(cfd->imm()->GetLatestMemTableID());
     for (auto m : to_delete) {
       delete m;
     }
@@ -374,7 +376,7 @@ TEST_F(BatchFlushJobTest, MultiColumnFamiliesVersionEdits) {
   EventLogger event_logger(db_options_->info_log.get());
   JobContext job_context(0);
   BatchFlushJob flush_job(dbname_, cfds, *db_options_, mutable_cf_options_list,
-      env_options_, versions_.get(), &mutex_, &shutting_down_,
+      memtable_ids, env_options_, versions_.get(), &mutex_, &shutting_down_,
       {} /* existing_snapshots */,
       kMaxSequenceNumber /* earliest_write_conflict_snapshot */,
       nullptr /* snapshot_checker */, &job_context,

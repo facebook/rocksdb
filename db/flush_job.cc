@@ -408,6 +408,7 @@ BatchFlushJob::BatchFlushJob(const std::string& dbname,
       const std::vector<ColumnFamilyData*>& cfds,
       const ImmutableDBOptions& db_options,
       const std::vector<MutableCFOptions>& mutable_cf_options,
+      const std::vector<uint64_t>& flush_memtable_ids,
       const EnvOptions& env_options, VersionSet* versions,
       InstrumentedMutex* db_mutex,
       std::atomic<bool>* shutting_down,
@@ -419,7 +420,9 @@ BatchFlushJob::BatchFlushJob(const std::string& dbname,
       const std::vector<CompressionType>& output_compression, Statistics* stats,
       EventLogger* event_logger, const std::vector<bool>& measure_io_stats)
   : dbname_(dbname), cfds_(cfds), db_options_(db_options),
-    mutable_cf_options_(mutable_cf_options), env_options_(env_options),
+    mutable_cf_options_(mutable_cf_options),
+    flush_memtable_ids_(flush_memtable_ids),
+    env_options_(env_options),
     versions_(versions), db_mutex_(db_mutex), shutting_down_(shutting_down),
     existing_snapshots_(existing_snapshots),
     earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
@@ -445,7 +448,7 @@ void BatchFlushJob::PickMemTable() {
   pick_memtable_called_ = true;
   bool nothing_to_flush = true;
   for (size_t i = 0; i != cfds_.size(); ++i) {
-    cfds_[i]->imm()->PickMemtablesToFlush(&mems_[i]);
+    cfds_[i]->imm()->PickMemtablesToFlush(flush_memtable_ids_[i], &mems_[i]);
     if (!mems_[i].empty()) {
       nothing_to_flush = false;
     }

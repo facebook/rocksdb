@@ -841,6 +841,7 @@ class DBImpl : public DB {
                                    LogBuffer* log_buffer);
   Status FlushMemTableToOutputFile(std::vector<ColumnFamilyData*>& cfds,
     std::vector<MutableCFOptions>& mutable_cf_options,
+    const std::vector<uint64_t>& flush_memtable_ids,
     bool* made_progress, JobContext* job_context, LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
@@ -937,7 +938,11 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
   void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
-  void MarkEndOfFlushGroup();
+
+  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> GroupFlushRequest;
+  void SchedulePendingGroupFlush(const GroupFlushRequest& req,
+      FlushReason flush_reason);
+
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
@@ -981,6 +986,7 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   void AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason);
   ColumnFamilyData* PopFirstFromFlushQueue();
+  GroupFlushRequest PopFirstFromGroupFlushQueue();
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
@@ -1217,6 +1223,10 @@ class DBImpl : public DB {
   // invariant(column family present in compaction_queue_ <==>
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
+
+  // atomic_flush_queue_ stores batches of column families that should be
+  // flushed.
+  std::deque<GroupFlushRequest> group_flush_queue_;
 
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;
