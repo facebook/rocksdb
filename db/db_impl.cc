@@ -810,6 +810,8 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
     assert(log.getting_synced);
     if (status.ok() && logs_.size() > 1) {
       logs_to_free_.push_back(log.ReleaseWriter());
+      // To modify logs_ both mutex_ and log_write_mutex_ must be held
+      InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
       log.getting_synced = false;
