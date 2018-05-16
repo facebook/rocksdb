@@ -28,8 +28,10 @@ public class ColumnFamilyHandle extends RocksObject {
    * Gets the name of the Column Family.
    *
    * @return The name of the Column Family.
+   *
+   * @throws RocksDBException if an error occurs whilst retrieving the name.
    */
-  public byte[] getName() {
+  public byte[] getName() throws RocksDBException {
     return getName(nativeHandle_);
   }
 
@@ -71,14 +73,22 @@ public class ColumnFamilyHandle extends RocksObject {
     }
 
     final ColumnFamilyHandle that = (ColumnFamilyHandle) o;
-    return rocksDB_.nativeHandle_ == that.rocksDB_.nativeHandle_ &&
-        getID() == that.getID() &&
-        Arrays.equals(getName(), that.getName());
+    try {
+      return rocksDB_.nativeHandle_ == that.rocksDB_.nativeHandle_ &&
+          getID() == that.getID() &&
+          Arrays.equals(getName(), that.getName());
+    } catch (RocksDBException e) {
+      throw new RuntimeException("Cannot compare column family handles", e);
+    }
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(getName(), getID(), rocksDB_.nativeHandle_);
+    try {
+      return Objects.hash(getName(), getID(), rocksDB_.nativeHandle_);
+    } catch (RocksDBException e) {
+      throw new RuntimeException("Cannot calculate hash code of column family handle", e);
+    }
   }
 
   /**
@@ -96,7 +106,7 @@ public class ColumnFamilyHandle extends RocksObject {
     }
   }
 
-  private native byte[] getName(final long handle);
+  private native byte[] getName(final long handle) throws RocksDBException;
   private native int getID(final long handle);
   private native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
   @Override protected final native void disposeInternal(final long handle);

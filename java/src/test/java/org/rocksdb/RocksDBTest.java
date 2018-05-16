@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
+import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -149,12 +150,19 @@ public class RocksDBTest {
 
   @Test
   public void getOutOfArrayMaxSizeValue() throws RocksDBException {
+    final int numberOfValueSplits = 10;
+    final int splitSize = Integer.MAX_VALUE / numberOfValueSplits;
+
+    Runtime runtime = Runtime.getRuntime();
+    long neededMemory = ((long)(splitSize)) * (((long)numberOfValueSplits) + 3);
+    boolean isEnoughMemory = runtime.maxMemory() - runtime.totalMemory() > neededMemory;
+    Assume.assumeTrue(isEnoughMemory);
+
+    final byte[] valueSplit = new byte[splitSize];
+    final byte[] key = "key".getBytes();
+
     thrown.expect(RocksDBException.class);
     thrown.expectMessage("Requested array size exceeds VM limit");
-
-    final int numberOfValueSplits = 10;
-    final byte[] valueSplit = new byte[Integer.MAX_VALUE / numberOfValueSplits];
-    final byte[] key = "key".getBytes();
 
     // merge (numberOfValueSplits + 1) valueSplit's to get value size exceeding Integer.MAX_VALUE
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
