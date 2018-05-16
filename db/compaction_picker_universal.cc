@@ -324,6 +324,16 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       }
     }
   }
+
+  if (c == nullptr) {
+    if ((c = PickDeleteTriggeredCompaction(cf_name, mutable_cf_options, vstorage,
+            score, sorted_runs, log_buffer)) != nullptr) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Universal: delete triggered compaction\n",
+                       cf_name.c_str());
+    }
+  }
+
   if (c == nullptr) {
     TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
                              nullptr);
@@ -752,6 +762,107 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);
+}
+
+// Pick files marked for compaction. Typically, files are marked by
+// CompactOnDeleteCollector due to the presence of tombstones.
+Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, double score,
+    const std::vector<SortedRun>& /*sorted_runs*/, LogBuffer* /*log_buffer*/) {
+  CompactionInputFiles start_level_inputs;
+  int start_level;
+  int output_level;
+  std::vector<CompactionInputFiles> inputs;
+
+  if (vstorage->num_levels() == 1) {
+    // This is single level universal. Since we're basically trying to reclaim space by
+    // processing files marked for compaction due to high tombstone density, let's do the
+    // same thing as compaction to reduce size amp which has the same goals.
+    bool compact = false;
+
+    start_level_inputs.level = 0;
+    start_level_inputs.files.clear();
+    output_level = 0;
+    for (FileMetaData* f : vstorage->LevelFiles(0)) {
+      if (f->marked_for_compaction) {
+        compact = true;
+      }
+      if (compact) {
+        start_level_inputs.files.push_back(f);
+      }
+    }
+    if (start_level_inputs.size() <= 1) {
+      // If only the last file in L0 is marked for compaction, ignore it
+      return nullptr;
+    }
+    inputs.push_back(start_level_inputs);
+  } else {
+    // For multi-level universal, the strategy is to make this look more like leveled.
+    // We pick one of the files marked for compaction and compact with overlapping
+    // files in the adjacent level.
+    PickFilesMarkedForCompaction(cf_name, vstorage, start_level, output_level,
+        start_level_inputs);
+    if (start_level_inputs.empty()) {
+      return nullptr;
+    }
+    inputs.push_back(start_level_inputs);
+
+    // Pick the first non-mepty level after the start_level
+    for (output_level = start_level + 1; output_level < vstorage->num_levels(); output_level++) {
+      if (vstorage->NumLevelFiles(output_level) != 0) {
+        break;
+      }
+    }
+
+    // If all higher levels are empty, pick the highest level as output level
+    if (output_level == vstorage->num_levels()) {
+      output_level = vstorage->num_levels() - 1;
+    }
+    if (ioptions_.allow_ingest_behind && output_level == vstorage->num_levels() - 1) {
+      assert(output_level > 1);
+      output_level--;
+    }
+
+    if (output_level != 0) {
+      if (start_level == 0) {
+        if (!GetOverlappingL0Files(vstorage, start_level_inputs, output_level, nullptr)) {
+          return nullptr;
+        }
+      }
+
+      CompactionInputFiles output_level_inputs;
+      int parent_index = -1;
+
+      output_level_inputs.level = output_level;
+      if (!SetupOtherInputs(cf_name, mutable_cf_options, vstorage,
+            &start_level_inputs, &output_level_inputs, &parent_index, -1)) {
+        return nullptr;
+      }
+      if (!output_level_inputs.empty()) {
+        inputs.push_back(output_level_inputs);
+      }
+      if (FilesRangeOverlapWithCompaction(inputs, output_level)) {
+        return nullptr;
+      }
+    }
+  }
+
+  uint64_t estimated_total_size = 0;
+  // Use size of the output level as estimated file size
+  for (FileMetaData* f : vstorage->LevelFiles(output_level)) {
+    estimated_total_size += f->fd.GetFileSize();
+  }
+  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
+  return new Compaction(
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs),
+      output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
+      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                         output_level, 1),
+      /* grandparents */ {}, /* is manual */ true, score,
+      false /* deletion_compaction */,
+      CompactionReason::kFilesMarkedForCompaction);
 }
 }  // namespace rocksdb
 
