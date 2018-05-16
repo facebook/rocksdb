@@ -2834,17 +2834,8 @@ int main(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 #if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
   !defined(OS_SOLARIS) && !defined(OS_AIX)
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "NewWritableFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing(
+      rocksdb::SyncPoint::Mode::kKillPoints);
 #endif
 
   if (FLAGS_statistics) {

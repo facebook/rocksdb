@@ -60,6 +60,12 @@ namespace rocksdb {
 
 class SyncPoint {
  public:
+  enum class Mode {
+    kDisabled,
+    kKillPoints,
+    kAll,
+  };
+
   static SyncPoint* GetInstance();
 
   SyncPoint(const SyncPoint&) = delete;
@@ -95,7 +101,7 @@ class SyncPoint {
   void ClearAllCallBacks();
 
   // enable sync point processing (disabled on startup)
-  void EnableProcessing();
+  void EnableProcessing(Mode mode);
 
   // disable sync point processing
   void DisableProcessing();

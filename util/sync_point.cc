@@ -17,9 +17,7 @@ SyncPoint* SyncPoint::GetInstance() {
   return &sync_point;
 }
 
-SyncPoint::SyncPoint() : 
-  impl_(new Data) {
-}
+SyncPoint::SyncPoint() : impl_(new Data) {}
 
 SyncPoint:: ~SyncPoint() {
   delete impl_;
@@ -48,8 +46,8 @@ void SyncPoint::ClearAllCallBacks() {
   impl_->ClearAllCallBacks();
 }
 
-void SyncPoint::EnableProcessing() {
-  impl_->EnableProcessing();
+void SyncPoint::EnableProcessing(SyncPoint::Mode mode) {
+  impl_->EnableProcessing(mode);
 }
 
 void SyncPoint::DisableProcessing() {
