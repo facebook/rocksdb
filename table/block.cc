@@ -429,12 +429,13 @@ BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
     ret_iter = new BlockIter;
   }
   if (size_ < 2*sizeof(uint32_t)) {
-    ret_iter->SetStatus(Status::Corruption("bad block contents"));
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
   const uint32_t num_restarts = NumRestarts();
   if (num_restarts == 0) {
-    ret_iter->SetStatus(Status::OK());
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
     BlockPrefixIndex* prefix_index_ptr =

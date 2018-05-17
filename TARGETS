@@ -561,6 +561,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "db_iter_stress_test",
+        "db/db_iter_stress_test.cc",
+        "serial",
+    ],
+    [
         "db_iterator_test",
         "db/db_iterator_test.cc",
         "serial",

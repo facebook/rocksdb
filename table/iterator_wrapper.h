@@ -87,6 +87,7 @@ class IteratorWrapper {
     valid_ = iter_->Valid();
     if (valid_) {
       key_ = iter_->key();
+      assert(iter_->status().ok());
     }
   }
 

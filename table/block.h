@@ -241,8 +241,21 @@ class BlockIter final : public InternalIterator {
     last_bitmap_offset_ = current_ + 1;
   }
 
-  void SetStatus(Status s) {
+  // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
+  // nothing.
+  void Invalidate(Status s) {
+    // Assert that the BlockIter is never deleted while Pinning is Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+
+    data_ = nullptr;
+    current_ = restarts_;
     status_ = s;
+
+    // Clear prev entries cache.
+    prev_entries_keys_buff_.clear();
+    prev_entries_.clear();
+    prev_entries_idx_ = -1;
   }
 
   virtual bool Valid() const override { return current_ < restarts_; }
