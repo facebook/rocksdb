@@ -271,7 +271,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // later in the vector.
   // Note that, if a path is supplied to multiple column
   // families, it would have files and total size from all
-  // the column families combined. User should privision for the
+  // the column families combined. User should provision for the
   // total size(from all the column families) in such cases.
   //
   // If left empty, db_paths will be used.
