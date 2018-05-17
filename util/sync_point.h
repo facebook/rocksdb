@@ -101,7 +101,7 @@ class SyncPoint {
   void ClearAllCallBacks();
 
   // enable sync point processing (disabled on startup)
-  void EnableProcessing(Mode mode);
+  void EnableProcessing(Mode mode = Mode::kAll);
 
   // disable sync point processing
   void DisableProcessing();

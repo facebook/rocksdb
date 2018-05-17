@@ -53,9 +53,7 @@ struct SyncPoint::Data {
 
   void ClearCallBack(const std::string& point);
   void ClearAllCallBacks();
-  void EnableProcessing(SyncPoint::Mode mode = SyncPoint::Mode::kAll) {
-    mode_ = mode;
-  }
+  void EnableProcessing(SyncPoint::Mode mode) { mode_ = mode; }
   void DisableProcessing() { mode_ = SyncPoint::Mode::kDisabled; }
   void ClearTrace() {
     std::lock_guard<std::mutex> lock(mutex_);

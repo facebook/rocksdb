@@ -46,7 +46,8 @@ void SyncPoint::ClearAllCallBacks() {
   impl_->ClearAllCallBacks();
 }
 
-void SyncPoint::EnableProcessing(SyncPoint::Mode mode) {
+void SyncPoint::EnableProcessing(
+    SyncPoint::Mode mode /* = SyncPoint::Mode::kAll */) {
   impl_->EnableProcessing(mode);
 }
 
