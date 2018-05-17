@@ -498,7 +498,6 @@ TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
       } else {
         // Use one byte in char_list
         char c = static_cast<char>(char_list[rnd.Uniform(sizeof(char_list))]);
-        fprintf(stderr, "%d\n", int(c));
         s1 += c;
       }
     }
