@@ -27,7 +27,7 @@ namespace rocksdb {
 // Usage:
 //     ForwardLevelIterator iter;
 //     iter.SetFileIndex(file_index);
-//     iter.Seek(target);
+//     iter.Seek(target); // or iter.SeekToFirst();
 //     iter.Next()
 class ForwardLevelIterator : public InternalIterator {
  public:
@@ -53,11 +53,11 @@ class ForwardLevelIterator : public InternalIterator {
 
   void SetFileIndex(uint32_t file_index) {
     assert(file_index < files_.size());
+    status_ = Status::OK();
     if (file_index != file_index_) {
       file_index_ = file_index;
       Reset();
     }
-    valid_ = false;
   }
   void Reset() {
     assert(file_index_ < files_.size());
@@ -77,10 +77,10 @@ class ForwardLevelIterator : public InternalIterator {
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
+    valid_ = false;
     if (!range_del_agg.IsEmpty()) {
       status_ = Status::NotSupported(
           "Range tombstones unsupported with ForwardIterator");
-      valid_ = false;
     }
   }
   void SeekToLast() override {
@@ -95,12 +95,27 @@ class ForwardLevelIterator : public InternalIterator {
     return valid_;
   }
   void SeekToFirst() override {
-    SetFileIndex(0);
+    assert(file_iter_ != nullptr);
+    if (!status_.ok()) {
+      assert(!valid_);
+      return;
+    }
     file_iter_->SeekToFirst();
     valid_ = file_iter_->Valid();
   }
   void Seek(const Slice& internal_key) override {
     assert(file_iter_ != nullptr);
+
+    // This deviates from the usual convention for InternalIterator::Seek() in
+    // that it doesn't discard pre-existing error status. That's because this
+    // Seek() is only supposed to be called immediately after SetFileIndex()
+    // (which discards pre-existing error status), and SetFileIndex() may set
+    // an error status, which we shouldn't discard.
+    if (!status_.ok()) {
+      assert(!valid_);
+      return;
+    }
+
     file_iter_->Seek(internal_key);
     valid_ = file_iter_->Valid();
   }
@@ -112,8 +127,12 @@ class ForwardLevelIterator : public InternalIterator {
     assert(valid_);
     file_iter_->Next();
     for (;;) {
-      if (file_iter_->status().IsIncomplete() || file_iter_->Valid()) {
-        valid_ = !file_iter_->status().IsIncomplete();
+      valid_ = file_iter_->Valid();
+      if (!file_iter_->status().ok()) {
+        assert(!valid_);
+        return;
+      }
+      if (valid_) {
         return;
       }
       if (file_index_ + 1 >= files_.size()) {
@@ -121,6 +140,10 @@ class ForwardLevelIterator : public InternalIterator {
         return;
       }
       SetFileIndex(file_index_ + 1);
+      if (!status_.ok()) {
+        assert(!valid_);
+        return;
+      }
       file_iter_->SeekToFirst();
     }
   }
@@ -135,7 +158,7 @@ class ForwardLevelIterator : public InternalIterator {
   Status status() const override {
     if (!status_.ok()) {
       return status_;
-    } else if (file_iter_ && !file_iter_->status().ok()) {
+    } else if (file_iter_) {
       return file_iter_->status();
     }
     return Status::OK();
@@ -299,9 +322,6 @@ bool ForwardIterator::IsOverUpperBound(const Slice& internal_key) const {
 }
 
 void ForwardIterator::Seek(const Slice& internal_key) {
-  if (IsOverUpperBound(internal_key)) {
-    valid_ = false;
-  }
   if (sv_ == nullptr) {
     RebuildIterators(true);
   } else if (sv_->version_number != cfd_->GetSuperVersionNumber()) {
@@ -605,7 +625,9 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
     if ((read_options_.iterate_upper_bound != nullptr) &&
         cfd_->internal_comparator().user_comparator()->Compare(
             l0->smallest.user_key(), *read_options_.iterate_upper_bound) > 0) {
-      has_iter_trimmed_for_upper_bound_ = true;
+      // No need to set has_iter_trimmed_for_upper_bound_: this ForwardIterator
+      // will never be interested in files with smallest key above
+      // iterate_upper_bound, since iterate_upper_bound can't be changed.
       l0_iters_.push_back(nullptr);
       continue;
     }
@@ -773,7 +795,7 @@ void ForwardIterator::UpdateCurrent() {
       current_ = mutable_iter_;
     }
   }
-  valid_ = (current_ != nullptr);
+  valid_ = current_ != nullptr && immutable_status_.ok();
   if (!status_.ok()) {
     status_ = Status::OK();
   }

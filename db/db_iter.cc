@@ -52,8 +52,13 @@ class DBIter final: public Iterator {
  public:
   // The following is grossly complicated. TODO: clean it up
   // Which direction is the iterator currently moving?
-  // (1) When moving forward, the internal iterator is positioned at
-  //     the exact entry that yields this->key(), this->value()
+  // (1) When moving forward:
+  //   (1a) if current_entry_is_merged_ = false, the internal iterator is
+  //        positioned at the exact entry that yields this->key(), this->value()
+  //   (1b) if current_entry_is_merged_ = true, the internal iterator is
+  //        positioned immediately after the last entry that contributed to the
+  //        current this->value(). That entry may or may not have key equal to
+  //        this->key().
   // (2) When moving backwards, the internal iterator is positioned
   //     just before all entries whose user key == this->key().
   enum Direction {
@@ -194,6 +199,7 @@ class DBIter final: public Iterator {
     if (status_.ok()) {
       return iter_->status();
     } else {
+      assert(!valid_);
       return status_;
     }
   }
@@ -235,18 +241,21 @@ class DBIter final: public Iterator {
   void set_valid(bool v) { valid_ = v; }
 
  private:
-  void ReverseToForward();
-  void ReverseToBackward();
-  void PrevInternal();
-  void FindParseableKey(ParsedInternalKey* ikey, Direction direction);
+  // For all methods in this block:
+  // PRE: iter_->Valid() && status_.ok()
+  // Return false if there was an error, and status() is non-ok, valid_ = false;
+  // in this case callers would usually stop what they were doing and return.
+  bool ReverseToForward();
+  bool ReverseToBackward();
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
-  void FindPrevUserKey();
-  void FindNextUserKey();
-  inline void FindNextUserEntry(bool skipping, bool prefix_check);
-  void FindNextUserEntryInternal(bool skipping, bool prefix_check);
+  bool FindUserKeyBeforeSavedKey();
+  inline bool FindNextUserEntry(bool skipping, bool prefix_check);
+  bool FindNextUserEntryInternal(bool skipping, bool prefix_check);
   bool ParseKey(ParsedInternalKey* key);
-  void MergeValuesNewToOld();
+  bool MergeValuesNewToOld();
+
+  void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence);
 
@@ -336,6 +345,7 @@ class DBIter final: public Iterator {
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   if (!ParseInternalKey(iter_->key(), ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
+    valid_ = false;
     ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
                     iter_->key().ToString(true).c_str());
     return false;
@@ -346,12 +356,16 @@ inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
 
 void DBIter::Next() {
   assert(valid_);
+  assert(status_.ok());
 
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
+  bool ok = true;
   if (direction_ == kReverse) {
-    ReverseToForward();
+    if (!ReverseToForward()) {
+      ok = false;
+    }
   } else if (iter_->Valid() && !current_entry_is_merged_) {
     // If the current value is not a merge, the iter position is the
     // current key, which is already returned. We can safely issue a
@@ -365,13 +379,12 @@ void DBIter::Next() {
   if (statistics_ != nullptr) {
     local_stats_.next_count_++;
   }
-  // Now we point to the next internal position, for both of merge and
-  // not merge cases.
-  if (!iter_->Valid()) {
+  if (ok && iter_->Valid()) {
+    FindNextUserEntry(true /* skipping the current user key */,
+                      prefix_same_as_start_);
+  } else {
     valid_ = false;
-    return;
   }
-  FindNextUserEntry(true /* skipping the current user key */, prefix_same_as_start_);
   if (statistics_ != nullptr && valid_) {
     local_stats_.next_found_count_++;
     local_stats_.bytes_read_ += (key().size() + value().size());
@@ -392,15 +405,16 @@ void DBIter::Next() {
 // keys against the prefix of the seeked key. Set to false when
 // performing a seek without a key (e.g. SeekToFirst). Set to
 // prefix_same_as_start_ for other iterations.
-inline void DBIter::FindNextUserEntry(bool skipping, bool prefix_check) {
+inline bool DBIter::FindNextUserEntry(bool skipping, bool prefix_check) {
   PERF_TIMER_GUARD(find_next_user_entry_time);
-  FindNextUserEntryInternal(skipping, prefix_check);
+  return FindNextUserEntryInternal(skipping, prefix_check);
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
-void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
+bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_->Valid());
+  assert(status_.ok());
   assert(direction_ == kForward);
   current_entry_is_merged_ = false;
 
@@ -420,9 +434,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
   do {
     if (!ParseKey(&ikey_)) {
-      // Skip corrupted keys.
-      iter_->Next();
-      continue;
+      return false;
     }
 
     if (iterate_upper_bound_ != nullptr &&
@@ -437,7 +449,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
     }
 
     if (TooManyInternalKeysSkipped()) {
-      return;
+      return false;
     }
 
     if (IsVisible(ikey_.sequence)) {
@@ -455,18 +467,18 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
             // if iterartor specified start_seqnum we
             // 1) return internal key, including the type
             // 2) return ikey only if ikey.seqnum >= start_seqnum_
-            // not that if deletion seqnum is < start_seqnum_ we
+            // note that if deletion seqnum is < start_seqnum_ we
             // just skip it like in normal iterator.
             if (start_seqnum_ > 0 && ikey_.sequence >= start_seqnum_)  {
               saved_key_.SetInternalKey(ikey_);
-              valid_=true;
-              return;
+              valid_ = true;
+              return true;
             } else {
               saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
-                skipping = true;
-                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              skipping = true;
+              PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             }
             break;
           case kTypeValue:
@@ -480,7 +492,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               if (ikey_.sequence >= start_seqnum_) {
                 saved_key_.SetInternalKey(ikey_);
                 valid_ = true;
-                return;
+                return true;
               } else {
                 // this key and all previous versions shouldn't be included,
                 // skipping
@@ -507,14 +519,15 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                       "Encounter unexpected blob index. Please open DB with "
                       "rocksdb::blob_db::BlobDB instead.");
                   valid_ = false;
-                } else {
-                  is_blob_ = true;
-                  valid_ = true;
+                  return false;
                 }
-                return;
+
+                is_blob_ = true;
+                valid_ = true;
+                return true;
               } else {
                 valid_ = true;
-                return;
+                return true;
               }
             }
             break;
@@ -535,8 +548,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               // value
               current_entry_is_merged_ = true;
               valid_ = true;
-              MergeValuesNewToOld();  // Go to a different state machine
-              return;
+              return MergeValuesNewToOld();  // Go to a different state machine
             }
             break;
           default:
@@ -545,13 +557,14 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
         }
       }
     } else {
-      // This key was inserted after our snapshot was taken.
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
 
-      // Here saved_key_ may contain some old key, or the default empty key, or
-      // key assigned by some random other method. We don't care.
-      if (user_comparator_->Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
-          0) {
+      // This key was inserted after our snapshot was taken.
+      // If this happens too many times in a row for the same user key, we want
+      // to seek to the target sequence number.
+      int cmp =
+          user_comparator_->Compare(ikey_.user_key, saved_key_.GetUserKey());
+      if (cmp == 0 || (skipping && cmp <= 0)) {
         num_skipped++;
       } else {
         saved_key_.SetUserKey(
@@ -591,7 +604,9 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       iter_->Next();
     }
   } while (iter_->Valid());
+
   valid_ = false;
+  return iter_->status().ok();
 }
 
 // Merge values of the same user key starting from the current iter_ position
@@ -600,12 +615,12 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 //      saved_key_ stores the user key
 // POST: saved_value_ has the merged value for the user key
 //       iter_ points to the next entry (or invalid)
-void DBIter::MergeValuesNewToOld() {
+bool DBIter::MergeValuesNewToOld() {
   if (!merge_operator_) {
     ROCKS_LOG_ERROR(logger_, "Options::merge_operator is null.");
     status_ = Status::InvalidArgument("merge_operator_ must be set.");
     valid_ = false;
-    return;
+    return false;
   }
 
   // Temporarily pin the blocks that hold merge operands
@@ -621,8 +636,7 @@ void DBIter::MergeValuesNewToOld() {
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
     TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
-      // skip corrupted key
-      continue;
+      return false;
     }
 
     if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
@@ -639,7 +653,6 @@ void DBIter::MergeValuesNewToOld() {
     } else if (kTypeValue == ikey.type) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
-      // ignore corruption if there is any.
       const Slice val = iter_->value();
       s = MergeHelper::TimedFullMerge(
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
@@ -647,10 +660,15 @@ void DBIter::MergeValuesNewToOld() {
       if (!s.ok()) {
         valid_ = false;
         status_ = s;
+        return false;
       }
       // iter_ is positioned after put
       iter_->Next();
-      return;
+      if (!iter_->status().ok()) {
+        valid_ = false;
+        return false;
+      }
+      return true;
     } else if (kTypeMerge == ikey.type) {
       // hit a merge, add the value as an operand and run associative merge.
       // when complete, add result to operands and continue.
@@ -668,10 +686,15 @@ void DBIter::MergeValuesNewToOld() {
             Status::NotSupported("Blob DB does not support merge operator.");
       }
       valid_ = false;
-      return;
+      return false;
     } else {
       assert(false);
     }
+  }
+
+  if (!iter_->status().ok()) {
+    valid_ = false;
+    return false;
   }
 
   // we either exhausted all internal keys under this user key, or hit
@@ -685,17 +708,27 @@ void DBIter::MergeValuesNewToOld() {
   if (!s.ok()) {
     valid_ = false;
     status_ = s;
+    return false;
   }
+
+  assert(status_.ok());
+  return true;
 }
 
 void DBIter::Prev() {
   assert(valid_);
+  assert(status_.ok());
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
+  bool ok = true;
   if (direction_ == kForward) {
-    ReverseToBackward();
+    if (!ReverseToBackward()) {
+      ok = false;
+    }
   }
-  PrevInternal();
+  if (ok) {
+    PrevInternal();
+  }
   if (statistics_ != nullptr) {
     local_stats_.prev_count_++;
     if (valid_) {
@@ -705,71 +738,76 @@ void DBIter::Prev() {
   }
 }
 
-void DBIter::ReverseToForward() {
-  if (prefix_extractor_ != nullptr && !total_order_seek_) {
+bool DBIter::ReverseToForward() {
+  assert(iter_->status().ok());
+
+  // When moving backwards, iter_ is positioned on _previous_ key, which may
+  // not exist or may have different prefix than the current key().
+  // If that's the case, seek iter_ to current key.
+  if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_->Valid()) {
     IterKey last_key;
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
     iter_->Seek(last_key.GetInternalKey());
   }
-  FindNextUserKey();
+
   direction_ = kForward;
-  if (!iter_->Valid()) {
-    iter_->SeekToFirst();
-    range_del_agg_.InvalidateTombstoneMapPositions();
+  // Skip keys less than the current key() (a.k.a. saved_key_).
+  while (iter_->Valid()) {
+    ParsedInternalKey ikey;
+    if (!ParseKey(&ikey)) {
+      return false;
+    }
+    if (user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >=
+        0) {
+      return true;
+    }
+    iter_->Next();
   }
+
+  if (!iter_->status().ok()) {
+    valid_ = false;
+    return false;
+  }
+
+  return true;
 }
 
-void DBIter::ReverseToBackward() {
-  if (prefix_extractor_ != nullptr && !total_order_seek_) {
-    IterKey last_key;
-    last_key.SetInternalKey(ParsedInternalKey(saved_key_.GetUserKey(), 0,
-                                              kValueTypeForSeekForPrev));
-    iter_->SeekForPrev(last_key.GetInternalKey());
-  }
-  if (current_entry_is_merged_) {
-    // Not placed in the same key. Need to call Prev() until finding the
-    // previous key.
-    if (!iter_->Valid()) {
-      iter_->SeekToLast();
-      range_del_agg_.InvalidateTombstoneMapPositions();
-    }
-    ParsedInternalKey ikey;
-    FindParseableKey(&ikey, kReverse);
-    while (iter_->Valid() &&
-           user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >
-               0) {
-      assert(ikey.sequence != kMaxSequenceNumber);
-      if (!IsVisible(ikey.sequence)) {
-        PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
-      } else {
-        PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-      }
-      iter_->Prev();
-      FindParseableKey(&ikey, kReverse);
-    }
-  }
-#ifndef NDEBUG
-  if (iter_->Valid()) {
-    ParsedInternalKey ikey;
-    assert(ParseKey(&ikey));
-    assert(user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) <=
-           0);
-  }
-#endif
+// Move iter_ to the key before saved_key_.
+bool DBIter::ReverseToBackward() {
+  assert(iter_->status().ok());
 
-  FindPrevUserKey();
+  // When current_entry_is_merged_ is true, iter_ may be positioned on the next
+  // key, which may not exist or may have prefix different from current.
+  // If that's the case, seek to saved_key_.
+  if (current_entry_is_merged_ &&
+      ((prefix_extractor_ != nullptr && !total_order_seek_) ||
+       !iter_->Valid())) {
+    IterKey last_key;
+    // Using kMaxSequenceNumber and kValueTypeForSeek
+    // (not kValueTypeForSeekForPrev) to seek to a key strictly smaller
+    // than saved_key_.
+    last_key.SetInternalKey(ParsedInternalKey(
+        saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
+    if (prefix_extractor_ != nullptr && !total_order_seek_) {
+      iter_->SeekForPrev(last_key.GetInternalKey());
+    } else {
+      // Some iterators may not support SeekForPrev(), so we avoid using it
+      // when prefix seek mode is disabled. This is somewhat expensive
+      // (an extra Prev(), as well as an extra change of direction of iter_),
+      // so we may need to reconsider it later.
+      iter_->Seek(last_key.GetInternalKey());
+      if (!iter_->Valid() && iter_->status().ok()) {
+        iter_->SeekToLast();
+      }
+    }
+  }
+
   direction_ = kReverse;
+  return FindUserKeyBeforeSavedKey();
 }
 
 void DBIter::PrevInternal() {
-  if (!iter_->Valid()) {
-    valid_ = false;
-    return;
-  }
-
-  ParsedInternalKey ikey;
-
   while (iter_->Valid()) {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_->key()),
@@ -791,38 +829,41 @@ void DBIter::PrevInternal() {
       return;
     }
 
-    if (FindValueForCurrentKey()) {
-      if (!iter_->Valid()) {
-        return;
-      }
-      FindParseableKey(&ikey, kReverse);
-      if (user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
-        FindPrevUserKey();
-      }
+    if (!FindValueForCurrentKey()) {  // assigns valid_
+      return;
+    }
+
+    // Whether or not we found a value for current key, we need iter_ to end up
+    // on a smaller key.
+    if (!FindUserKeyBeforeSavedKey()) {
+      return;
+    }
+
+    if (valid_) {
+      // Found the value.
       return;
     }
 
     if (TooManyInternalKeysSkipped(false)) {
       return;
     }
-
-    if (!iter_->Valid()) {
-      break;
-    }
-    FindParseableKey(&ikey, kReverse);
-    if (user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
-      FindPrevUserKey();
-    }
   }
+
   // We haven't found any key - iterator is not valid
-  // Or the prefix is different than start prefix
-  assert(!iter_->Valid());
   valid_ = false;
 }
 
-// This function checks, if the entry with biggest sequence_number <= sequence_
-// is non kTypeDeletion or kTypeSingleDeletion. If it's not, we save value in
-// saved_value_
+// Used for backwards iteration.
+// Looks at the entries with user key saved_key_ and finds the most up-to-date
+// value for it, or executes a merge, or determines that the value was deleted.
+// Sets valid_ to true if the value is found and is ready to be presented to
+// the user through value().
+// Sets valid_ to false if the value was deleted, and we should try another key.
+// Returns false if an error occurred, and !status().ok() and !valid_.
+//
+// PRE: iter_ is positioned on the last entry with user key equal to saved_key_.
+// POST: iter_ is positioned on one of the entries equal to saved_key_, or on
+//       the entry just before them, or on the entry just after them.
 bool DBIter::FindValueForCurrentKey() {
   assert(iter_->Valid());
   merge_context_.Clear();
@@ -832,20 +873,27 @@ bool DBIter::FindValueForCurrentKey() {
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
-  ParsedInternalKey ikey;
-  FindParseableKey(&ikey, kReverse);
-
   // Temporarily pin blocks that hold (merge operands / the value)
   ReleaseTempPinnedData();
   TempPinData();
   size_t num_skipped = 0;
-  while (iter_->Valid() && IsVisible(ikey.sequence) &&
-         user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+  while (iter_->Valid()) {
+    ParsedInternalKey ikey;
+    if (!ParseKey(&ikey)) {
+      return false;
+    }
+
+    if (!IsVisible(ikey.sequence) ||
+        !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+      break;
+    }
     if (TooManyInternalKeysSkipped()) {
       return false;
     }
 
-    // We iterate too much: let's use Seek() to avoid too much key comparisons
+    // This user key has lots of entries.
+    // We're going from old to new, and it's taking too long. Let's do a Seek()
+    // and go from new to old. This helps when a key was overwritten many times.
     if (num_skipped >= max_skip_) {
       return FindValueForCurrentKeyUsingSeek();
     }
@@ -892,10 +940,13 @@ bool DBIter::FindValueForCurrentKey() {
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-    assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
     iter_->Prev();
     ++num_skipped;
-    FindParseableKey(&ikey, kReverse);
+  }
+
+  if (!iter_->status().ok()) {
+    valid_ = false;
+    return false;
   }
 
   Status s;
@@ -905,7 +956,7 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeSingleDeletion:
     case kTypeRangeDeletion:
       valid_ = false;
-      return false;
+      return true;
     case kTypeMerge:
       current_entry_is_merged_ = true;
       if (last_not_merge_type == kTypeDeletion ||
@@ -926,7 +977,7 @@ bool DBIter::FindValueForCurrentKey() {
               Status::NotSupported("Blob DB does not support merge operator.");
         }
         valid_ = false;
-        return true;
+        return false;
       } else {
         assert(last_not_merge_type == kTypeValue);
         s = MergeHelper::TimedFullMerge(
@@ -936,7 +987,7 @@ bool DBIter::FindValueForCurrentKey() {
       }
       break;
     case kTypeValue:
-      // do nothing - we've already has value in saved_value_
+      // do nothing - we've already has value in pinned_value_
       break;
     case kTypeBlobIndex:
       if (!allow_blob_) {
@@ -945,7 +996,7 @@ bool DBIter::FindValueForCurrentKey() {
             "Encounter unexpected blob index. Please open DB with "
             "rocksdb::blob_db::BlobDB instead.");
         valid_ = false;
-        return true;
+        return false;
       }
       is_blob_ = true;
       break;
@@ -953,17 +1004,19 @@ bool DBIter::FindValueForCurrentKey() {
       assert(false);
       break;
   }
-  if (s.ok()) {
-    valid_ = true;
-  } else {
+  if (!s.ok()) {
     valid_ = false;
     status_ = s;
+    return false;
   }
+  valid_ = true;
   return true;
 }
 
 // This function is used in FindValueForCurrentKey.
 // We use Seek() function instead of Prev() to find necessary value
+// TODO: This is very similar to FindNextUserEntry() and MergeValuesNewToOld().
+//       Would be nice to reuse some code.
 bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // FindValueForCurrentKey will enable pinning before calling
   // FindValueForCurrentKeyUsingSeek()
@@ -974,26 +1027,38 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   iter_->Seek(last_key);
   RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
 
-  // assume there is at least one parseable key for this user key
-  ParsedInternalKey ikey;
-  FindParseableKey(&ikey, kForward);
-  assert(iter_->Valid());
-  assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
-
   // In case read_callback presents, the value we seek to may not be visible.
-  // Seek for the next value that's visible.
-  while (!IsVisible(ikey.sequence)) {
+  // Find the next value that's visible.
+  ParsedInternalKey ikey;
+  while (true) {
+    if (!iter_->Valid()) {
+      valid_ = false;
+      return iter_->status().ok();
+    }
+
+    if (!ParseKey(&ikey)) {
+      return false;
+    }
+    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+      // No visible values for this key, even though FindValueForCurrentKey()
+      // has seen some. This is possible if we're using a tailing iterator, and
+      // the entries were discarded in a compaction.
+      valid_ = false;
+      return true;
+    }
+
+    if (IsVisible(ikey.sequence)) {
+      break;
+    }
+
     iter_->Next();
-    FindParseableKey(&ikey, kForward);
-    assert(iter_->Valid());
-    assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
   }
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(
           ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
     valid_ = false;
-    return false;
+    return true;
   }
   if (ikey.type == kTypeBlobIndex && !allow_blob_) {
     ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
@@ -1001,7 +1066,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         "Encounter unexpected blob index. Please open DB with "
         "rocksdb::blob_db::BlobDB instead.");
     valid_ = false;
-    return true;
+    return false;
   }
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_->IsValuePinned());
@@ -1012,115 +1077,147 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   // kTypeMerge. We need to collect all kTypeMerge values and save them
   // in operands
+  assert(ikey.type == kTypeMerge);
   current_entry_is_merged_ = true;
   merge_context_.Clear();
-  while (
-      iter_->Valid() &&
-      user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()) &&
-      ikey.type == kTypeMerge &&
-      !range_del_agg_.ShouldDelete(
-          ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
-    merge_context_.PushOperand(iter_->value(),
-                               iter_->IsValuePinned() /* operand_pinned */);
-    PERF_COUNTER_ADD(internal_merge_count, 1);
+  merge_context_.PushOperand(iter_->value(),
+                             iter_->IsValuePinned() /* operand_pinned */);
+  while (true) {
     iter_->Next();
-    FindParseableKey(&ikey, kForward);
-  }
 
-  Status s;
-  if (!iter_->Valid() ||
-      !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()) ||
-      ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
-      range_del_agg_.ShouldDelete(
-          ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
-    s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
-                                    nullptr, merge_context_.GetOperands(),
-                                    &saved_value_, logger_, statistics_, env_,
-                                    &pinned_value_, true);
-    // Make iter_ valid and point to saved_key_
-    if (!iter_->Valid() ||
-        !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
-      iter_->Seek(last_key);
-      RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+    if (!iter_->Valid()) {
+      if (!iter_->status().ok()) {
+        valid_ = false;
+        return false;
+      }
+      break;
     }
-    if (s.ok()) {
+    if (!ParseKey(&ikey)) {
+      return false;
+    }
+    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+      break;
+    }
+
+    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
+        range_del_agg_.ShouldDelete(
+            ikey,
+            RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+      break;
+    } else if (ikey.type == kTypeValue) {
+      const Slice val = iter_->value();
+      Status s = MergeHelper::TimedFullMerge(
+          merge_operator_, saved_key_.GetUserKey(), &val,
+          merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
+          env_, &pinned_value_, true);
+      if (!s.ok()) {
+        valid_ = false;
+        status_ = s;
+        return false;
+      }
       valid_ = true;
-    } else {
+      return true;
+    } else if (ikey.type == kTypeMerge) {
+      merge_context_.PushOperand(iter_->value(),
+                                 iter_->IsValuePinned() /* operand_pinned */);
+      PERF_COUNTER_ADD(internal_merge_count, 1);
+    } else if (ikey.type == kTypeBlobIndex) {
+      if (!allow_blob_) {
+        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
+        status_ = Status::NotSupported(
+            "Encounter unexpected blob index. Please open DB with "
+            "rocksdb::blob_db::BlobDB instead.");
+      } else {
+        status_ =
+            Status::NotSupported("Blob DB does not support merge operator.");
+      }
       valid_ = false;
-      status_ = s;
+      return false;
+    } else {
+      assert(false);
     }
-    return true;
   }
 
-  const Slice& val = iter_->value();
-  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
-                                  &val, merge_context_.GetOperands(),
-                                  &saved_value_, logger_, statistics_, env_,
-                                  &pinned_value_, true);
-  if (s.ok()) {
-    valid_ = true;
-  } else {
+  Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, saved_key_.GetUserKey(), nullptr,
+      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, env_,
+      &pinned_value_, true);
+  if (!s.ok()) {
     valid_ = false;
     status_ = s;
+    return false;
   }
+
+  // Make sure we leave iter_ in a good state. If it's valid and we don't care
+  // about prefixes, that's already good enough. Otherwise it needs to be
+  // seeked to the current key.
+  if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_->Valid()) {
+    if (prefix_extractor_ != nullptr && !total_order_seek_) {
+      iter_->SeekForPrev(last_key);
+    } else {
+      iter_->Seek(last_key);
+      if (!iter_->Valid() && iter_->status().ok()) {
+        iter_->SeekToLast();
+      }
+    }
+    RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+  }
+
+  valid_ = true;
   return true;
 }
 
-// Used in Next to change directions
-// Go to next user key
-// Don't use Seek(),
-// because next user key will be very close
-void DBIter::FindNextUserKey() {
-  if (!iter_->Valid()) {
-    return;
-  }
-  ParsedInternalKey ikey;
-  FindParseableKey(&ikey, kForward);
-  while (iter_->Valid() &&
-         !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
-    iter_->Next();
-    FindParseableKey(&ikey, kForward);
-  }
-}
-
-// Go to previous user_key
-void DBIter::FindPrevUserKey() {
-  if (!iter_->Valid()) {
-    return;
-  }
+// Move backwards until the key smaller than saved_key_.
+// Changes valid_ only if return value is false.
+bool DBIter::FindUserKeyBeforeSavedKey() {
+  assert(status_.ok());
   size_t num_skipped = 0;
-  ParsedInternalKey ikey;
-  FindParseableKey(&ikey, kReverse);
-  int cmp;
-  while (iter_->Valid() &&
-         ((cmp = user_comparator_->Compare(ikey.user_key,
-                                           saved_key_.GetUserKey())) == 0 ||
-          (cmp > 0 && !IsVisible(ikey.sequence)))) {
-    if (TooManyInternalKeysSkipped()) {
-      return;
+  while (iter_->Valid()) {
+    ParsedInternalKey ikey;
+    if (!ParseKey(&ikey)) {
+      return false;
     }
 
-    if (cmp == 0) {
-      if (num_skipped >= max_skip_) {
-        num_skipped = 0;
-        IterKey last_key;
-        last_key.SetInternalKey(ParsedInternalKey(
-            saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
-        iter_->Seek(last_key.GetInternalKey());
-        RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
-      } else {
-        ++num_skipped;
-      }
+    if (user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) < 0) {
+      return true;
     }
+
+    if (TooManyInternalKeysSkipped()) {
+      return false;
+    }
+
     assert(ikey.sequence != kMaxSequenceNumber);
     if (!IsVisible(ikey.sequence)) {
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
     } else {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
     }
+
+    if (num_skipped >= max_skip_) {
+      num_skipped = 0;
+      IterKey last_key;
+      last_key.SetInternalKey(ParsedInternalKey(
+          saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
+      // It would be more efficient to use SeekForPrev() here, but some
+      // iterators may not support it.
+      iter_->Seek(last_key.GetInternalKey());
+      RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+      if (!iter_->Valid()) {
+        break;
+      }
+    } else {
+      ++num_skipped;
+    }
+
     iter_->Prev();
-    FindParseableKey(&ikey, kReverse);
   }
+
+  if (!iter_->status().ok()) {
+    valid_ = false;
+    return false;
+  }
+
+  return true;
 }
 
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
@@ -1140,19 +1237,9 @@ bool DBIter::IsVisible(SequenceNumber sequence) {
          (read_callback_ == nullptr || read_callback_->IsCommitted(sequence));
 }
 
-// Skip all unparseable keys
-void DBIter::FindParseableKey(ParsedInternalKey* ikey, Direction direction) {
-  while (iter_->Valid() && !ParseKey(ikey)) {
-    if (direction == kReverse) {
-      iter_->Prev();
-    } else {
-      iter_->Next();
-    }
-  }
-}
-
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
+  status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   saved_key_.Clear();
@@ -1201,6 +1288,7 @@ void DBIter::Seek(const Slice& target) {
 
 void DBIter::SeekForPrev(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
+  status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   saved_key_.Clear();
@@ -1249,15 +1337,16 @@ void DBIter::SeekForPrev(const Slice& target) {
 }
 
 void DBIter::SeekToFirst() {
-  // Don't use iter_::Seek() if we set a prefix extractor
-  // because prefix seek will be used.
-  if (prefix_extractor_ != nullptr) {
-    max_skip_ = std::numeric_limits<uint64_t>::max();
-  }
   if (iterate_lower_bound_ != nullptr) {
     Seek(*iterate_lower_bound_);
     return;
   }
+  // Don't use iter_::Seek() if we set a prefix extractor
+  // because prefix seek will be used.
+  if (prefix_extractor_ != nullptr && !total_order_seek_) {
+    max_skip_ = std::numeric_limits<uint64_t>::max();
+  }
+  status_ = Status::OK();
   direction_ = kForward;
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -1293,11 +1382,22 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
+  if (iterate_upper_bound_ != nullptr) {
+    // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
+    SeekForPrev(*iterate_upper_bound_);
+    if (Valid() && user_comparator_->Equal(*iterate_upper_bound_, key())) {
+      ReleaseTempPinnedData();
+      PrevInternal();
+    }
+    return;
+  }
+
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
-  if (prefix_extractor_ != nullptr) {
+  if (prefix_extractor_ != nullptr && !total_order_seek_) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
+  status_ = Status::OK();
   direction_ = kReverse;
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -1308,21 +1408,7 @@ void DBIter::SeekToLast() {
     iter_->SeekToLast();
     range_del_agg_.InvalidateTombstoneMapPositions();
   }
-  // When the iterate_upper_bound is set to a value,
-  // it will seek to the last key before the
-  // ReadOptions.iterate_upper_bound
-  if (iter_->Valid() && iterate_upper_bound_ != nullptr) {
-    SeekForPrev(*iterate_upper_bound_);
-    range_del_agg_.InvalidateTombstoneMapPositions();
-    if (!Valid()) {
-      return;
-    } else if (user_comparator_->Equal(*iterate_upper_bound_, key())) {
-      ReleaseTempPinnedData();
-      PrevInternal();
-    }
-  } else {
-    PrevInternal();
-  }
+  PrevInternal();
   if (statistics_ != nullptr) {
     RecordTick(statistics_, NUMBER_DB_SEEK);
     if (valid_) {

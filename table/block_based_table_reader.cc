@@ -1391,7 +1391,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 
   if (cache_handle == nullptr && no_io) {
     if (input_iter != nullptr) {
-      input_iter->SetStatus(Status::Incomplete("no blocking io"));
+      input_iter->Invalidate(Status::Incomplete("no blocking io"));
       return input_iter;
     } else {
       return NewErrorInternalIterator(Status::Incomplete("no blocking io"));
@@ -1438,7 +1438,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       // make sure if something goes wrong, index_reader shall remain intact.
       if (input_iter != nullptr) {
-        input_iter->SetStatus(s);
+        input_iter->Invalidate(s);
         return input_iter;
       } else {
         return NewErrorInternalIterator(s);
@@ -1506,7 +1506,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
   if (s.ok() && block.value == nullptr) {
     if (no_io) {
       // Could not read from block_cache and can't do IO
-      iter->SetStatus(Status::Incomplete("no blocking io"));
+      iter->Invalidate(Status::Incomplete("no blocking io"));
       return iter;
     }
     std::unique_ptr<Block> block_value;
@@ -1566,7 +1566,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
     }
   } else {
     assert(block.value == nullptr);
-    iter->SetStatus(s);
+    iter->Invalidate(s);
   }
   return iter;
 }
@@ -1876,7 +1876,9 @@ void BlockBasedTableIterator::InitDataBlock() {
   BlockHandle data_block_handle;
   Slice handle_slice = index_iter_->value();
   if (!block_iter_points_to_real_block_ ||
-      handle_slice.compare(prev_index_value_) != 0) {
+      handle_slice.compare(prev_index_value_) != 0 ||
+      // if previous attempt of reading the block missed cache, try again
+      data_block_iter_.status().IsIncomplete()) {
     if (block_iter_points_to_real_block_) {
       ResetDataIter();
     }
