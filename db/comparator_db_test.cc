@@ -469,7 +469,7 @@ TEST_F(ComparatorDBTest, FindShortestSeparator) {
 
 TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
   // Char list for boundary cases.
-  char char_list[] = {'\0', '\1', '\2', '\253', '\254', '\255'};
+  unsigned char char_list[] = {0, 1, 2, 253, 254, 255};
   Random rnd(301);
 
   for (int attempts = 0; attempts < 1000; attempts++) {
@@ -497,7 +497,9 @@ TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
         s1 += static_cast<char>(rnd.Uniform(256));
       } else {
         // Use one byte in char_list
-        s1 += char_list[rnd.Uniform(sizeof(char_list))];
+        char c = static_cast<char>(char_list[rnd.Uniform(sizeof(char_list))]);
+        fprintf(stderr, "%d\n", int(c));
+        s1 += c;
       }
     }
 
@@ -532,24 +534,32 @@ TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
     }
 
     // Test separators
-    std::string separator = s1;
-    BytewiseComparator()->FindShortestSeparator(&separator, s2);
-    std::string rev_separator = s1;
-    ReverseBytewiseComparator()->FindShortestSeparator(&rev_separator, s2);
+    for (int rev = 0; rev < 2; rev++) {
+      if (rev == 1) {
+        // switch s1 and s2
+        std::string t = s1;
+        s1 = s2;
+        s2 = t;
+      }
+      std::string separator = s1;
+      BytewiseComparator()->FindShortestSeparator(&separator, s2);
+      std::string rev_separator = s1;
+      ReverseBytewiseComparator()->FindShortestSeparator(&rev_separator, s2);
 
-    if (s1 == s2) {
-      ASSERT_EQ(s1, separator);
-      ASSERT_EQ(s2, rev_separator);
-    } else if (s1 < s2) {
-      ASSERT_TRUE(s1 <= separator);
-      ASSERT_TRUE(s2 > separator);
-      ASSERT_LE(separator.size(), std::max(s1.size(), s2.size()));
-      ASSERT_EQ(s1, rev_separator);
-    } else {
-      ASSERT_TRUE(s1 >= rev_separator);
-      ASSERT_TRUE(s2 < rev_separator);
-      ASSERT_LE(rev_separator.size(), std::max(s1.size(), s2.size()));
-      ASSERT_EQ(s1, separator);
+      if (s1 == s2) {
+        ASSERT_EQ(s1, separator);
+        ASSERT_EQ(s2, rev_separator);
+      } else if (s1 < s2) {
+        ASSERT_TRUE(s1 <= separator);
+        ASSERT_TRUE(s2 > separator);
+        ASSERT_LE(separator.size(), std::max(s1.size(), s2.size()));
+        ASSERT_EQ(s1, rev_separator);
+      } else {
+        ASSERT_TRUE(s1 >= rev_separator);
+        ASSERT_TRUE(s2 < rev_separator);
+        ASSERT_LE(rev_separator.size(), std::max(s1.size(), s2.size()));
+        ASSERT_EQ(s1, separator);
+      }
     }
 
     // Test successors
