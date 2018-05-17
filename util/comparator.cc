@@ -123,7 +123,7 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     }
 
     assert(diff_index <= min_length);
-    if (diff_index >= min_length) {
+    if (diff_index == min_length) {
       // Do not shorten if one string is a prefix of the other
       //
       // We could handle cases like:
@@ -131,7 +131,7 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
       // A A 2 X Y
       // A A 2
       // in a similar way as BytewiseComparator::FindShortestSeparator().
-      // We keep it simple but not implementing it. We can come back to it
+      // We keep it simple by not implementing it. We can come back to it
       // later when needed.
     } else {
       uint8_t start_byte = static_cast<uint8_t>((*start)[diff_index]);
@@ -147,7 +147,14 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
         // A A 2 A A
         // A A 1 B B
         // In this case "AA2" will be good.
+#ifndef NDEBUG
+        std::string old_start = *start;
+#endif
         start->resize(diff_index + 1);
+#ifndef NDEBUG
+        assert(old_start >= *start);
+#endif
+        assert(Slice(*start).compare(limit) > 0);
       }
     }
   }

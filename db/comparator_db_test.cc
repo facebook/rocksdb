@@ -467,6 +467,102 @@ TEST_F(ComparatorDBTest, FindShortestSeparator) {
   ASSERT_TRUE(s1 > s2);
 }
 
+TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
+  // Char list for boundary cases.
+  char char_list[] = {'\0', '\1', '\2', '\253', '\254', '\255'};
+  Random rnd(301);
+
+  for (int attempts = 0; attempts < 1000; attempts++) {
+    uint32_t size1 = rnd.Skewed(4);
+    uint32_t size2;
+
+    if (rnd.OneIn(2)) {
+      // size2 to be random size
+      size2 = rnd.Skewed(4);
+    } else {
+      // size1 is within [-2, +2] of size1
+      int diff = static_cast<int>(rnd.Uniform(5)) - 2;
+      int tmp_size2 = static_cast<int>(size1) + diff;
+      if (tmp_size2 < 0) {
+        tmp_size2 = 0;
+      }
+      size2 = static_cast<uint32_t>(tmp_size2);
+    }
+
+    std::string s1;
+    std::string s2;
+    for (uint32_t i = 0; i < size1; i++) {
+      if (rnd.OneIn(2)) {
+        // Use random byte
+        s1 += static_cast<char>(rnd.Uniform(256));
+      } else {
+        // Use one byte in char_list
+        s1 += char_list[rnd.Uniform(sizeof(char_list))];
+      }
+    }
+
+    // First set s2 to be the same as s1, and then modify s2.
+    s2 = s1;
+    s2.resize(size2);
+    // We start from the back of the string
+    if (size2 > 0) {
+      uint32_t pos = size2 - 1;
+      do {
+        if (pos >= size1 || rnd.OneIn(4)) {
+          // For 1/4 chance, use random byte
+          s2[pos] = static_cast<char>(rnd.Uniform(256));
+        } else if (rnd.OneIn(4)) {
+          // In 1/4 chance, stop here.
+          break;
+        } else {
+          // Create a char within [-2, +2] of the matching char of s1.
+          int diff = static_cast<int>(rnd.Uniform(5)) - 2;
+          // char may be signed or unsigned based on platform.
+          int s1_char = (static_cast<int>(s1[pos]) + 256) % 256;
+          int s2_char = s1_char + diff;
+          if (s2_char < 0) {
+            s2_char = 0;
+          }
+          if (s2_char > 255) {
+            s2_char = 255;
+          }
+          s2[pos] = static_cast<char>(s2_char);
+        }
+      } while (pos-- != 0);
+    }
+
+    // Test separators
+    std::string separator = s1;
+    BytewiseComparator()->FindShortestSeparator(&separator, s2);
+    std::string rev_separator = s1;
+    ReverseBytewiseComparator()->FindShortestSeparator(&rev_separator, s2);
+
+    if (s1 == s2) {
+      ASSERT_EQ(s1, separator);
+      ASSERT_EQ(s2, rev_separator);
+    } else if (s1 < s2) {
+      ASSERT_TRUE(s1 <= separator);
+      ASSERT_TRUE(s2 > separator);
+      ASSERT_LE(separator.size(), std::max(s1.size(), s2.size()));
+      ASSERT_EQ(s1, rev_separator);
+    } else {
+      ASSERT_TRUE(s1 >= rev_separator);
+      ASSERT_TRUE(s2 < rev_separator);
+      ASSERT_LE(rev_separator.size(), std::max(s1.size(), s2.size()));
+      ASSERT_EQ(s1, separator);
+    }
+
+    // Test successors
+    std::string succ = s1;
+    BytewiseComparator()->FindShortSuccessor(&succ);
+    ASSERT_TRUE(succ >= s1);
+
+    succ = s1;
+    ReverseBytewiseComparator()->FindShortSuccessor(&succ);
+    ASSERT_TRUE(succ <= s1);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
