@@ -99,6 +99,8 @@ class IndexBuilder {
   // Get the estimated size for index block.
   virtual size_t EstimatedSize() const = 0;
 
+  virtual bool seperator_is_key_plus_seq() { return true; }
+
  protected:
   const InternalKeyComparator* comparator_;
 };
@@ -117,7 +119,9 @@ class ShortenedIndexBuilder : public IndexBuilder {
   explicit ShortenedIndexBuilder(const InternalKeyComparator* comparator,
                                  int index_block_restart_interval)
       : IndexBuilder(comparator),
-        index_block_builder_(index_block_restart_interval) {}
+        index_block_builder_(index_block_restart_interval),
+        index_block_builder_without_seq_(index_block_restart_interval),
+        seperator_is_key_plus_seq_(false) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
@@ -125,20 +129,35 @@ class ShortenedIndexBuilder : public IndexBuilder {
     if (first_key_in_next_block != nullptr) {
       comparator_->FindShortestSeparator(last_key_in_current_block,
                                          *first_key_in_next_block);
+      if (comparator_->user_comparator()->Compare(
+              ExtractUserKey(*last_key_in_current_block),
+              ExtractUserKey(*first_key_in_next_block)) == 0) {
+        seperator_is_key_plus_seq_ = true;
+      }
     } else {
       comparator_->FindShortSuccessor(last_key_in_current_block);
     }
+    auto sep = Slice(*last_key_in_current_block);
 
     std::string handle_encoding;
     block_handle.EncodeTo(&handle_encoding);
-    index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
+    index_block_builder_.Add(sep, handle_encoding);
+    if (!seperator_is_key_plus_seq_) {
+      index_block_builder_without_seq_.Add(ExtractUserKey(sep),
+                                           handle_encoding);
+    }
   }
 
   using IndexBuilder::Finish;
   virtual Status Finish(
       IndexBlocks* index_blocks,
       const BlockHandle& /*last_partition_block_handle*/) override {
-    index_blocks->index_block_contents = index_block_builder_.Finish();
+    if (seperator_is_key_plus_seq_) {
+      index_blocks->index_block_contents = index_block_builder_.Finish();
+    } else {
+      index_blocks->index_block_contents =
+          index_block_builder_without_seq_.Finish();
+    }
     return Status::OK();
   }
 
@@ -146,10 +165,16 @@ class ShortenedIndexBuilder : public IndexBuilder {
     return index_block_builder_.CurrentSizeEstimate();
   }
 
+  bool seperator_is_key_plus_seq() override {
+    return seperator_is_key_plus_seq_;
+  }
+
   friend class PartitionedIndexBuilder;
 
  private:
   BlockBuilder index_block_builder_;
+  BlockBuilder index_block_builder_without_seq_;
+  bool seperator_is_key_plus_seq_;
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -240,6 +265,10 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
+  virtual bool seperator_is_key_plus_seq() {
+    return primary_index_builder_.seperator_is_key_plus_seq();
+  }
+
  private:
   void FlushPendingPrefix() {
     prefix_block_.append(pending_entry_prefix_.data(),
@@ -316,6 +345,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // cutting the next partition
   void RequestPartitionCut();
 
+  bool seperator_is_key_plus_seq() override {
+    return seperator_is_key_plus_seq_;
+  }
+
  private:
   void MakeNewSubIndexBuilder();
 
@@ -333,6 +366,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if Finish is called once but not complete yet.
   bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;
+  bool seperator_is_key_plus_seq_;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition
   bool partition_cut_requested_ = true;

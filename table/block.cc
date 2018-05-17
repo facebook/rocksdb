@@ -87,7 +87,11 @@ void BlockIter::Prev() {
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
-    key_.SetInternalKey(current_key, false /* copy */);
+    if (key_includes_seq_) {
+      key_.SetInternalKey(current_key, false /* copy */);
+    } else {
+      key_.SetUserKey(current_key, false /* copy */);
+    }
     value_ = current_prev_entry.value;
 
     return;
@@ -136,6 +140,10 @@ void BlockIter::Prev() {
 }
 
 void BlockIter::Seek(const Slice& target) {
+  Slice seek_key = target;
+  if (!key_includes_seq_) {
+    seek_key.remove_suffix(8);
+  }
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
@@ -145,7 +153,7 @@ void BlockIter::Seek(const Slice& target) {
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
   } else {
-    ok = BinarySeek(target, 0, num_restarts_ - 1, &index);
+    ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index);
   }
 
   if (!ok) {
@@ -155,7 +163,9 @@ void BlockIter::Seek(const Slice& target) {
   // Linear search (within restart block) for first key >= target
 
   while (true) {
-    if (!ParseNextKey() || Compare(key_.GetInternalKey(), target) >= 0) {
+    if (!ParseNextKey() ||
+        Compare(key_includes_seq_ ? key_.GetInternalKey() : key_.GetUserKey(),
+                seek_key) >= 0) {
       return;
     }
   }
@@ -163,24 +173,32 @@ void BlockIter::Seek(const Slice& target) {
 
 void BlockIter::SeekForPrev(const Slice& target) {
   PERF_TIMER_GUARD(block_seek_nanos);
+  Slice seek_key = target;
+  if (!key_includes_seq_) {
+    seek_key.remove_suffix(8);
+  }
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   uint32_t index = 0;
-  bool ok = BinarySeek(target, 0, num_restarts_ - 1, &index);
+  bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index);
 
   if (!ok) {
     return;
   }
   SeekToRestartPoint(index);
-  // Linear search (within restart block) for first key >= target
+  // Linear search (within restart block) for first key >= seek_key
 
-  while (ParseNextKey() && Compare(key_.GetInternalKey(), target) < 0) {
+  while (ParseNextKey() &&
+         Compare(key_includes_seq_ ? key_.GetInternalKey() : key_.GetUserKey(),
+                 seek_key) < 0) {
   }
   if (!Valid()) {
     SeekToLast();
   } else {
-    while (Valid() && Compare(key_.GetInternalKey(), target) > 0) {
+    while (Valid() && Compare(key_includes_seq_ ? key_.GetInternalKey()
+                                                : key_.GetUserKey(),
+                              seek_key) > 0) {
       Prev();
     }
   }
@@ -233,7 +251,11 @@ bool BlockIter::ParseNextKey() {
     if (shared == 0) {
       // If this key dont share any bytes with prev key then we dont need
       // to decode it and can use it's address in the block directly.
-      key_.SetInternalKey(Slice(p, non_shared), false /* copy */);
+      if (key_includes_seq_) {
+        key_.SetInternalKey(Slice(p, non_shared), false /* copy */);
+      } else {
+        key_.SetUserKey(Slice(p, non_shared), false /* copy */);
+      }
       key_pinned_ = true;
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
@@ -380,6 +402,10 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
 
 bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   assert(prefix_index_);
+  Slice seek_key = target;
+  if (!key_includes_seq_) {
+    seek_key.remove_suffix(8);
+  }
   uint32_t* block_ids = nullptr;
   uint32_t num_blocks = prefix_index_->GetBlocks(target, &block_ids);
 
@@ -387,7 +413,7 @@ bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
     current_ = restarts_;
     return false;
   } else  {
-    return BinaryBlockIndexSeek(target, block_ids, 0, num_blocks - 1, index);
+    return BinaryBlockIndexSeek(seek_key, block_ids, 0, num_blocks - 1, index);
   }
 }
 
@@ -423,13 +449,15 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
 }
 
 BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
-                              bool total_order_seek, Statistics* stats) {
+                              bool total_order_seek, Statistics* stats,
+                              bool key_includes_seq) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
   } else {
     ret_iter = new BlockIter;
   }
+  ret_iter->key_includes_seq_ = key_includes_seq;
   if (size_ < 2*sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;

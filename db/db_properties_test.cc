@@ -177,17 +177,17 @@ void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
   std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
   std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
   ResetTableProperties(tp);
-
+  int dont_care_int;
   sscanf(tp_string.c_str(),
          "# data blocks %" SCNu64 " # entries %" SCNu64 " raw key size %" SCNu64
          " raw average key size %lf "
          " raw value size %" SCNu64
          " raw average value size %lf "
-         " data block size %" SCNu64 " index block size %" SCNu64
-         " filter block size %" SCNu64,
+         " data block size %" SCNu64 " index block size (with-seq# %" SCNd32
+         ") %" SCNu64 " filter block size %" SCNu64,
          &tp->num_data_blocks, &tp->num_entries, &tp->raw_key_size,
          &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-         &tp->index_size, &tp->filter_size);
+         &dont_care_int, &tp->index_size, &tp->filter_size);
 }
 
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {

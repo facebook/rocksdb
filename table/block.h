@@ -171,7 +171,8 @@ class Block {
   BlockIter* NewIterator(const Comparator* comparator,
                          BlockIter* iter = nullptr,
                          bool total_order_seek = true,
-                         Statistics* stats = nullptr);
+                         Statistics* stats = nullptr,
+                         bool key_includes_seq = true);
   void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 
   // Report an approximation of how much memory has been used.
@@ -212,6 +213,7 @@ class BlockIter final : public InternalIterator {
         prefix_index_(nullptr),
         key_pinned_(false),
         global_seqno_(kDisableGlobalSequenceNumber),
+        key_includes_seq_(true),
         read_amp_bitmap_(nullptr),
         last_bitmap_offset_(0) {}
 
@@ -263,7 +265,7 @@ class BlockIter final : public InternalIterator {
   virtual Status status() const override { return status_; }
   virtual Slice key() const override {
     assert(Valid());
-    return key_.GetInternalKey();
+    return key_includes_seq_ ? key_.GetInternalKey() : key_.GetUserKey();
   }
   virtual Slice value() const override {
     assert(Valid());
@@ -326,6 +328,9 @@ class BlockIter final : public InternalIterator {
   BlockPrefixIndex* prefix_index_;
   bool key_pinned_;
   SequenceNumber global_seqno_;
+
+ public:
+  bool key_includes_seq_;
 
   // read-amp bitmap
   BlockReadAmpBitmap* read_amp_bitmap_;
