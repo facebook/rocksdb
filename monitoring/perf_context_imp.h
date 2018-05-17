@@ -45,7 +45,7 @@ extern __thread PerfContext perf_context;
                                                ticker_type)                   \
   PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true, stats, \
                                          ticker_type);                        \
-  if ((condition)) {                                                          \
+  if (condition) {                                                            \
     perf_step_timer_##metric.Start();                                         \
   }
 
