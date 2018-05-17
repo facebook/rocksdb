@@ -393,6 +393,7 @@ TEST_F(BatchFlushJobTest, MultiColumnFamiliesVersionEdits) {
     ASSERT_EQ(ToString(9999), file_meta[i].largest.user_key().ToString());
     ASSERT_EQ(seq_pairs[i].first, file_meta[i].smallest_seqno);
     ASSERT_EQ(seq_pairs[i].second, file_meta[i].largest_seqno);
+    mock_table_factory_->AssertOneFile(mock_files[i]);
   }
   job_context.Clean();
 }

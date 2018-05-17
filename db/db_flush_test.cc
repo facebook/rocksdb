@@ -212,6 +212,121 @@ TEST_F(DBFlushTest, FlushError) {
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
+TEST_F(DBFlushTest, AtomicFlushEmpty) {
+  std::vector<Options> options_list(2);
+  for (size_t i = 0; i != options_list.size(); ++i) {
+    options_list[i].atomic_flush = true;
+    options_list[i].disable_auto_compactions = true;
+    options_list[i].env = env_;
+  }
+
+  // Create non-default column families.
+  CreateColumnFamilies({"cf1", "cf2"}, options_list);
+  // Reopen with all column families.
+  Options default_cf_options;
+  default_cf_options = options_list[0];
+  options_list.insert(options_list.begin(), default_cf_options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"}, options_list);
+
+  // All column families are empty.
+  // If we flush now, we should see no sst file generated.
+  FlushOptions flush_options;
+  flush_options.wait = true;
+  ASSERT_OK(dbfull()->Flush(flush_options));
+
+  for (int cf = 0; cf != 3; ++cf) {
+    ASSERT_EQ(0, NumTableFilesAtLevel(0, cf));
+  }
+}
+
+TEST_F(DBFlushTest, AtomicFlushAllDirtyColumnFamilies) {
+  std::vector<Options> options_list(2);
+  for (size_t i = 0; i != options_list.size(); ++i) {
+    options_list[i].atomic_flush = true;
+    options_list[i].disable_auto_compactions = true;
+    options_list[i].env = env_;
+  }
+
+  // Create non-default column families.
+  CreateColumnFamilies({"cf1", "cf2"}, options_list);
+  // Reopen with all column families.
+  Options default_cf_options;
+  default_cf_options = options_list[0];
+  options_list.insert(options_list.begin(), default_cf_options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"}, options_list);
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(Put(0 /* cf */, "key0", "value0", write_options));
+  ASSERT_OK(Put(1 /* cf */, "key1", "value1", write_options));
+
+  // If we flush one cf, we should see all dirty cfs are flushed to L0.
+  FlushOptions flush_options;
+  flush_options.wait = true;
+  ASSERT_OK(dbfull()->Flush(flush_options));
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0 /* level */, 0 /* cf */));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0 /* level */, 1 /* cf */));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0 /* level */, 2 /* cf */));
+}
+
+TEST_F(DBFlushTest, AtomicFlushPointInTimeConsistentView) {
+  std::vector<Options> options_list(2);
+  for (size_t i = 0; i != options_list.size(); ++i) {
+    options_list[i].atomic_flush = true;
+    options_list[i].disable_auto_compactions = true;
+    options_list[i].env = env_;
+  }
+
+  // Create non-default column families.
+  CreateColumnFamilies({"cf1", "cf2"}, options_list);
+  // Reopen with all column families.
+  Options default_cf_options;
+  default_cf_options = options_list[0];
+  options_list.insert(options_list.begin(), default_cf_options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"}, options_list);
+
+  SequenceNumber latest_seqno;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BatchFlushJob::Run:CollectLargestSeqs", [&](void* arg) {
+        std::map<std::string, uint64_t>* largest_seqs =
+            reinterpret_cast<std::map<std::string, uint64_t>*>(arg);
+        ASSERT_EQ(2, largest_seqs->size());
+        for (const auto& iter : *largest_seqs) {
+          ASSERT_TRUE(iter.second <= latest_seqno);
+        }
+      });
+  typedef std::pair<std::string, std::string> KeyPair;
+  std::map<std::string, KeyPair> saved_key_pairs;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BatchFlushJob::Run:CollectKeyPairs", [&](void* arg) {
+        auto key_pairs =
+            reinterpret_cast<std::map<std::string, KeyPair>*>(arg);
+        ASSERT_EQ(2, key_pairs->size());
+        for (const auto& iter : *key_pairs) {
+          const std::string& cf_name = iter.first;
+          const std::pair<std::string, std::string>& key_pair = iter.second;
+          auto it = saved_key_pairs.find(cf_name);
+          ASSERT_NE(saved_key_pairs.end(), it);
+          ASSERT_EQ(it->second, key_pair);
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put(0 /* cf */, Key(i), "value0", write_options));
+    ASSERT_OK(Put(1 /* cf */, Key(i), "value1", write_options));
+  }
+  saved_key_pairs.insert({"default", {Key(0), Key(99)}});
+  saved_key_pairs.insert({"cf1", {Key(0), Key(99)}});
+
+  latest_seqno = dbfull()->GetLatestSequenceNumber();
+
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

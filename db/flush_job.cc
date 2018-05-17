@@ -500,9 +500,25 @@ Status BatchFlushJob::Run(LogsWithPrepTracker* prep_tracker,
   }
 
   if (s.ok() && file_meta != nullptr) {
+#ifndef NDEBUG
+    std::map<std::string, uint64_t> largest_seqs;
+    std::map<std::string, std::pair<std::string, std::string>>
+        key_pairs;
+#endif /* !NDEBUG */
     for (size_t i = 0; i != file_meta->size(); ++i) {
       (*file_meta)[i] = meta_[i];
+#ifndef NDEBUG
+      largest_seqs.insert({cfds_[i]->GetName(), meta_[i].largest_seqno});
+      std::string smallest_key = meta_[i].smallest.user_key().ToString();
+      std::string largest_key = meta_[i].largest.user_key().ToString();
+      key_pairs.insert({cfds_[i]->GetName(), {smallest_key, largest_key}});
+#endif /* !NDEBUG */
     }
+#ifndef NDEBUG
+    TEST_SYNC_POINT_CALLBACK("BatchFlushJob::Run:CollectLargestSeqs",
+        &largest_seqs);
+    TEST_SYNC_POINT_CALLBACK("BatchFlushJob::Run:CollectKeyPairs", &key_pairs);
+#endif /* !NDEBUG */
   }
 
   return s;
