@@ -4706,8 +4706,8 @@ TEST_F(DBTest, DynamicBloomFilterNewColumnFamily) {
   ReadOptions read_options;
   read_options.prefix_same_as_start = true;
   // create a new CF and set prefix_extractor dynamically
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
   CreateColumnFamilies({"ramen_dojo"}, options);
-  ASSERT_OK(dbfull()->SetOptions(handles_[2], {{"prefix_extractor", "capped:3"}}));
   ASSERT_EQ(0, strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
                       "rocksdb.CappedPrefix.3"));
   ASSERT_OK(Put(2, "foo3", "bar3"));
