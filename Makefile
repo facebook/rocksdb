@@ -402,6 +402,7 @@ TESTS = \
 	db_blob_index_test \
 	db_bloom_filter_test \
 	db_iter_test \
+	db_iter_stress_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
@@ -1193,6 +1194,9 @@ db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) 
 	$(AM_LINK)
 
 db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_iter_stress_test: db/db_iter_stress_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
