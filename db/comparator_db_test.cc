@@ -2,6 +2,7 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+#include <array>
 #include <map>
 #include <string>
 
@@ -469,7 +470,7 @@ TEST_F(ComparatorDBTest, FindShortestSeparator) {
 
 TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
   // Char list for boundary cases.
-  unsigned char char_list[] = {0, 1, 2, 253, 254, 255};
+  std::array<unsigned char, 6> char_list{{0, 1, 2, 253, 254, 255}};
   Random rnd(301);
 
   for (int attempts = 0; attempts < 1000; attempts++) {
@@ -519,7 +520,7 @@ TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
           // Create a char within [-2, +2] of the matching char of s1.
           int diff = static_cast<int>(rnd.Uniform(5)) - 2;
           // char may be signed or unsigned based on platform.
-          int s1_char = (static_cast<int>(s1[pos]) + 256) % 256;
+          int s1_char = static_cast<int>(static_cast<unsigned char>(s1[pos]));
           int s2_char = s1_char + diff;
           if (s2_char < 0) {
             s2_char = 0;
