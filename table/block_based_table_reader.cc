@@ -177,17 +177,12 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 // prefix_extractor_block mismatch, false otherwise. This flag will be used
 // as total_order_seek via NewIndexIterator
 bool PrefixExtractorChanged(std::string prefix_extractor_block,
-                            const SliceTransform* prefix_extractor,
-                            BlockBasedTableOptions::IndexType index_type) {
+                            const SliceTransform* prefix_extractor) {
   // BlockBasedTableOptions::kHashSearch requires prefix_extractor to be set.
   // Turn off hash index in prefix_extractor is not set; if  prefix_extractor
   // is set but prefix_extractor_block is not set, also disable hash index
   if (prefix_extractor == nullptr || prefix_extractor_block.empty()) {
     return true;
-  }
-  // this check is not needed for other types of index
-  if (index_type != BlockBasedTableOptions::kHashSearch) {
-    return false;
   }
   // prefix_extractor and prefix_extractor_block are both non-empty
   if (prefix_extractor_block.compare(prefix_extractor->Name()) != 0) {
@@ -893,9 +888,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       CachableEntry<IndexReader> index_entry;
       bool prefix_extractor_changed =
           PrefixExtractorChanged(rep->table_properties->prefix_extractor_name,
-                                 prefix_extractor, rep->index_type);
+                                 prefix_extractor);
       unique_ptr<InternalIterator> iter(
-          new_table->NewIndexIterator(ReadOptions(), prefix_extractor_changed,
+          new_table->NewIndexIterator(ReadOptions(), prefix_extractor_changed &&
+            rep->index_type == BlockBasedTableOptions::kHashSearch,
                                       nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
@@ -1732,9 +1728,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
 
   assert(prefix_extractor != nullptr);
   auto user_key = ExtractUserKey(internal_key);
-  if (!prefix_extractor->InDomain(user_key) ||
-      rep_->table_properties->prefix_extractor_name.compare(
-          prefix_extractor->Name()) != 0) {
+  if (!prefix_extractor->InDomain(user_key)) {
     return true;
   }
   auto prefix = prefix_extractor->Transform(user_key);
@@ -2030,13 +2024,14 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
                                                bool skip_filters) {
   bool prefix_extractor_changed =
       PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
-                             prefix_extractor, rep_->index_type);
+                             prefix_extractor);
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options, prefix_extractor_changed),
+        NewIndexIterator(read_options, prefix_extractor_changed &&
+            rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr,
+            prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
@@ -2044,7 +2039,7 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr,
+            prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor);
   }
 }
@@ -2133,8 +2128,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
     bool prefix_extractor_changed =
         PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
-                               prefix_extractor, rep_->index_type);
-    auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
+                               prefix_extractor);
+    auto iiter = NewIndexIterator(read_options, prefix_extractor_changed &&
+                                  rep_->index_type != BlockBasedTableOptions::kHashSearch,
                                   &iiter_on_stack, /* index_entry */ nullptr,
                                   get_context);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
