@@ -884,13 +884,14 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // block_cache
 
       CachableEntry<IndexReader> index_entry;
-      bool prefix_extractor_changed = PrefixExtractorChanged(
-          rep->table_properties->prefix_extractor_name, prefix_extractor);
-      unique_ptr<InternalIterator> iter
-          (new_table->NewIndexIterator(ReadOptions(),
-              prefix_extractor_changed &&
-              rep->index_type == BlockBasedTableOptions::kHashSearch,
-              nullptr, &index_entry));
+      bool prefix_extractor_changed = false;
+      // check prefix_extractor match only if hash based index is used
+      if (rep->index_type == BlockBasedTableOptions::kHashSearch) {
+        prefix_extractor_changed = PrefixExtractorChanged(
+            rep->table_properties->prefix_extractor_name, prefix_extractor);
+      }
+      unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
+          ReadOptions(), prefix_extractor_changed, nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
@@ -1726,6 +1727,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   if (!prefix_extractor->InDomain(user_key)) {
     return true;
   }
+  assert(rep_->table_properties->prefix_extractor_name.compare(
+             prefix_extractor->Name()) == 0);
   auto prefix = prefix_extractor->Transform(user_key);
 
   bool may_match = true;
@@ -2119,13 +2122,14 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     BlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
-    bool prefix_extractor_changed = PrefixExtractorChanged(
-        rep_->table_properties->prefix_extractor_name, prefix_extractor);
-    auto iiter = NewIndexIterator(
-        read_options,
-        prefix_extractor_changed &&
-            rep_->index_type != BlockBasedTableOptions::kHashSearch,
-        &iiter_on_stack, /* index_entry */ nullptr, get_context);
+    bool prefix_extractor_changed = false;
+    if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
+      prefix_extractor_changed = PrefixExtractorChanged(
+          rep_->table_properties->prefix_extractor_name, prefix_extractor);
+    }
+    auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
+                                  &iiter_on_stack, /* index_entry */ nullptr,
+                                  get_context);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
@@ -2364,6 +2368,8 @@ Status BlockBasedTable::CreateIndexReader(
     if (pos != props.end()) {
       index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
           DecodeFixed32(pos->second.c_str()));
+      // update index_type with the true type
+      rep_->index_type = index_type_on_file;
     }
   }
 
