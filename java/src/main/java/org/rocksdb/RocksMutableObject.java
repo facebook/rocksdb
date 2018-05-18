@@ -65,7 +65,7 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
    *
    * @return the pointer value for the native object
    */
-  protected synchronized long getNativeHandle() {
+  public synchronized long getNativeHandle() {
     assert (this.nativeHandle_ != 0);
     return this.nativeHandle_;
   }

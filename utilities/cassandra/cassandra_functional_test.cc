@@ -95,20 +95,23 @@ class CassandraStore {
 class TestCompactionFilterFactory : public CompactionFilterFactory {
 public:
  explicit TestCompactionFilterFactory(bool purge_ttl_on_expiration,
+                                      bool ignore_range_delete_on_read,
                                       int32_t gc_grace_period_in_seconds)
      : purge_ttl_on_expiration_(purge_ttl_on_expiration),
+       ignore_range_delete_on_read_(ignore_range_delete_on_read),
        gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
 
  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
      const CompactionFilter::Context& /*context*/) override {
    return std::unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
-       purge_ttl_on_expiration_, gc_grace_period_in_seconds_));
- }
+     purge_ttl_on_expiration_, ignore_range_delete_on_read_, gc_grace_period_in_seconds_));
+  }
 
  const char* Name() const override { return "TestCompactionFilterFactory"; }
 
 private:
   bool purge_ttl_on_expiration_;
+  bool ignore_range_delete_on_read_ = false;
   int32_t gc_grace_period_in_seconds_;
 };
 
@@ -126,13 +129,14 @@ public:
     options.create_if_missing = true;
     options.merge_operator.reset(new CassandraValueMergeOperator(gc_grace_period_in_seconds_));
     auto* cf_factory = new TestCompactionFilterFactory(
-        purge_ttl_on_expiration_, gc_grace_period_in_seconds_);
+      purge_ttl_on_expiration_, ignore_range_delete_on_read_, gc_grace_period_in_seconds_);
     options.compaction_filter_factory.reset(cf_factory);
     EXPECT_OK(DB::Open(options, kDbName, &db));
     return std::shared_ptr<DB>(db);
   }
 
   bool purge_ttl_on_expiration_ = false;
+  bool ignore_range_delete_on_read_ = false;
   int32_t gc_grace_period_in_seconds_ = 100;
 };
 
@@ -142,23 +146,29 @@ TEST_F(CassandraFunctionalTest, SimpleMergeTest) {
   CassandraStore store(OpenDb());
   int64_t now = time(nullptr);
 
-  store.Append("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now + 5)),
-    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now + 8)),
-    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now + 5)),
-  }));
-  store.Append("k1",CreateTestRowValue({
-    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now + 2)),
-    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now + 5)),
-    CreateTestColumnSpec(kTombstone, 2, ToMicroSeconds(now + 7)),
-    CreateTestColumnSpec(kExpiringColumn, 7, ToMicroSeconds(now + 17)),
-  }));
-  store.Append("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now + 6)),
-    CreateTestColumnSpec(kTombstone, 1, ToMicroSeconds(now + 5)),
-    CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now + 4)),
-    CreateTestColumnSpec(kTombstone, 11, ToMicroSeconds(now + 11)),
-  }));
+  store.Append(
+      "k1",
+      CreateTestRowValue({
+          CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now + 5)),
+          CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now + 8)),
+          CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now + 5)),
+      }));
+  store.Append(
+      "k1",
+      CreateTestRowValue({
+          CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now + 2)),
+          CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now + 5)),
+          CreateTestColumnSpec(kTombstone, 2, ToMicroSeconds(now + 7)),
+          CreateTestColumnSpec(kExpiringColumn, 7, ToMicroSeconds(now + 17)),
+      }));
+  store.Append(
+      "k1",
+      CreateTestRowValue({
+          CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now + 6)),
+          CreateTestColumnSpec(kTombstone, 1, ToMicroSeconds(now + 5)),
+          CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now + 4)),
+          CreateTestColumnSpec(kTombstone, 11, ToMicroSeconds(now + 11)),
+      }));
 
   auto ret = store.Get("k1");
 
@@ -177,18 +187,24 @@ TEST_F(CassandraFunctionalTest,
   CassandraStore store(OpenDb());
   int64_t now= time(nullptr);
 
-  store.Append("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)), //expired
-    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl + 10)), // not expired
-    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
-  }));
+  store.Append(
+      "k1",
+      CreateTestRowValue(
+          {CreateTestColumnSpec(kExpiringColumn, 0,
+                                ToMicroSeconds(now - kTtl - 20)),  // expired
+           CreateTestColumnSpec(
+               kExpiringColumn, 1,
+               ToMicroSeconds(now - kTtl + 10)),  // not expired
+           CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))}));
 
   store.Flush();
 
-  store.Append("k1",CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)), //expired
-    CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now))
-  }));
+  store.Append(
+      "k1",
+      CreateTestRowValue(
+          {CreateTestColumnSpec(kExpiringColumn, 0,
+                                ToMicroSeconds(now - kTtl - 10)),  // expired
+           CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now))}));
 
   store.Flush();
   store.Compact();
@@ -210,18 +226,23 @@ TEST_F(CassandraFunctionalTest,
   CassandraStore store(OpenDb());
   int64_t now = time(nullptr);
 
-  store.Append("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)), //expired
-    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now)), // not expired
-    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
-  }));
+  store.Append(
+      "k1",
+      CreateTestRowValue(
+          {CreateTestColumnSpec(kExpiringColumn, 0,
+                                ToMicroSeconds(now - kTtl - 20)),  // expired
+           CreateTestColumnSpec(kExpiringColumn, 1,
+                                ToMicroSeconds(now)),  // not expired
+           CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))}));
 
   store.Flush();
 
-  store.Append("k1",CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)), //expired
-    CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now))
-  }));
+  store.Append(
+      "k1",
+      CreateTestRowValue(
+          {CreateTestColumnSpec(kExpiringColumn, 0,
+                                ToMicroSeconds(now - kTtl - 10)),  // expired
+           CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now))}));
 
   store.Flush();
   store.Compact();
@@ -242,15 +263,18 @@ TEST_F(CassandraFunctionalTest,
   int64_t now = time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)),
-    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 20)),
-  }));
+                         CreateTestColumnSpec(kExpiringColumn, 0,
+                                              ToMicroSeconds(now - kTtl - 20)),
+                         CreateTestColumnSpec(kExpiringColumn, 1,
+                                              ToMicroSeconds(now - kTtl - 20)),
+                     }));
 
   store.Flush();
 
-  store.Append("k1",CreateTestRowValue({
-    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)),
-  }));
+  store.Append("k1", CreateTestRowValue({
+                         CreateTestColumnSpec(kExpiringColumn, 0,
+                                              ToMicroSeconds(now - kTtl - 10)),
+                     }));
 
   store.Flush();
   store.Compact();
@@ -263,20 +287,21 @@ TEST_F(CassandraFunctionalTest,
   CassandraStore store(OpenDb());
   int64_t now = time(nullptr);
 
-  store.Append("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
-    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now))
-  }));
+  store.Append("k1",
+               CreateTestRowValue(
+                   {CreateTestColumnSpec(
+                        kTombstone, 0,
+                        ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
+                    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now))}));
 
-  store.Append("k2", CreateTestRowValue({
-    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now))
-  }));
+  store.Append("k2", CreateTestRowValue({CreateTestColumnSpec(
+                         kColumn, 0, ToMicroSeconds(now))}));
 
   store.Flush();
 
-  store.Append("k1",CreateTestRowValue({
-    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now)),
-  }));
+  store.Append("k1", CreateTestRowValue({
+                         CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now)),
+                     }));
 
   store.Flush();
   store.Compact();
@@ -293,9 +318,12 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
   CassandraStore store(OpenDb());
   int64_t now = time(nullptr);
 
-  store.Put("k1", CreateTestRowValue({
-    CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
-  }));
+  store.Put("k1",
+            CreateTestRowValue({
+                CreateTestColumnSpec(
+                    kTombstone, 0,
+                    ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
+            }));
 
   store.Flush();
   store.Compact();

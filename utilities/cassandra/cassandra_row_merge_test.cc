@@ -13,31 +13,25 @@ namespace cassandra {
 
 TEST(RowValueMergeTest, Merge) {
   std::vector<RowValue> row_values;
-  row_values.push_back(
-    CreateTestRowValue({
+  row_values.push_back(CreateTestRowValue({
       CreateTestColumnSpec(kTombstone, 0, 5),
       CreateTestColumnSpec(kColumn, 1, 8),
       CreateTestColumnSpec(kExpiringColumn, 2, 5),
-    })
-  );
+  }));
 
-  row_values.push_back(
-    CreateTestRowValue({
+  row_values.push_back(CreateTestRowValue({
       CreateTestColumnSpec(kColumn, 0, 2),
       CreateTestColumnSpec(kExpiringColumn, 1, 5),
       CreateTestColumnSpec(kTombstone, 2, 7),
       CreateTestColumnSpec(kExpiringColumn, 7, 17),
-    })
-  );
+  }));
 
-  row_values.push_back(
-    CreateTestRowValue({
+  row_values.push_back(CreateTestRowValue({
       CreateTestColumnSpec(kExpiringColumn, 0, 6),
       CreateTestColumnSpec(kTombstone, 1, 5),
       CreateTestColumnSpec(kColumn, 2, 4),
       CreateTestColumnSpec(kTombstone, 11, 11),
-    })
-  );
+  }));
 
   RowValue merged = RowValue::Merge(std::move(row_values));
   EXPECT_FALSE(merged.IsTombstone());
@@ -58,28 +52,21 @@ TEST(RowValueMergeTest, MergeWithRowTombstone) {
   );
 
   // This row's timestamp is smaller than tombstone.
-  row_values.push_back(
-    CreateTestRowValue({
-      CreateTestColumnSpec(kColumn, 0, 5),
-      CreateTestColumnSpec(kColumn, 1, 6),
-    })
-  );
+  row_values.push_back(CreateTestRowValue({
+      CreateTestColumnSpec(kColumn, 0, 5), CreateTestColumnSpec(kColumn, 1, 6),
+  }));
 
   // Some of the column's row is smaller, some is larger.
-  row_values.push_back(
-    CreateTestRowValue({
+  row_values.push_back(CreateTestRowValue({
       CreateTestColumnSpec(kColumn, 2, 10),
       CreateTestColumnSpec(kColumn, 3, 12),
-    })
-  );
+  }));
 
   // All of the column's rows are larger than tombstone.
-  row_values.push_back(
-    CreateTestRowValue({
+  row_values.push_back(CreateTestRowValue({
       CreateTestColumnSpec(kColumn, 4, 13),
       CreateTestColumnSpec(kColumn, 5, 14),
-    })
-  );
+  }));
 
   RowValue merged = RowValue::Merge(std::move(row_values));
   EXPECT_FALSE(merged.IsTombstone());
