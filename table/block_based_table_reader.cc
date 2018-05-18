@@ -886,11 +886,11 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       CachableEntry<IndexReader> index_entry;
       bool prefix_extractor_changed = PrefixExtractorChanged(
           rep->table_properties->prefix_extractor_name, prefix_extractor);
-      unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
-          ReadOptions(),
-          prefix_extractor_changed &&
+      unique_ptr<InternalIterator> iter
+          (new_table->NewIndexIterator(ReadOptions(),
+              prefix_extractor_changed &&
               rep->index_type == BlockBasedTableOptions::kHashSearch,
-          nullptr, &index_entry));
+              nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
@@ -1390,22 +1390,22 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   return { filter, cache_handle };
 }
 
+// disable_prefix_seek should be set to true when prefix_extractor found in SST
+// differs from the one in mutable_cf_options and index type is HashBasedIndex
 InternalIterator* BlockBasedTable::NewIndexIterator(
-    const ReadOptions& read_options, bool prefix_extractor_changed,
+    const ReadOptions& read_options, bool disable_prefix_seek,
     BlockIter* input_iter, CachableEntry<IndexReader>* index_entry,
     GetContext* get_context) {
   // index reader has already been pre-populated.
-  // TODO: caller needs to check if prefix_extractor has been changed
-  // to set prefix_extractor_changed
   if (rep_->index_reader) {
     return rep_->index_reader->NewIterator(
-        input_iter, read_options.total_order_seek || prefix_extractor_changed,
+        input_iter, read_options.total_order_seek || disable_prefix_seek,
         read_options.fill_cache);
   }
   // we have a pinned index block
   if (rep_->index_entry.IsSet()) {
     return rep_->index_entry.value->NewIterator(
-        input_iter, read_options.total_order_seek || prefix_extractor_changed,
+        input_iter, read_options.total_order_seek || disable_prefix_seek,
         read_options.fill_cache);
   }
 
@@ -1482,7 +1482,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 
   assert(cache_handle);
   auto* iter = index_reader->NewIterator(
-      input_iter, read_options.total_order_seek || prefix_extractor_changed);
+      input_iter, read_options.total_order_seek || disable_prefix_seek);
 
   // the caller would like to take ownership of the index block
   // don't call RegisterCleanup() in this case, the caller will take care of it
@@ -1751,7 +1751,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
 
       // Then, try find it within each block
       // we already know prefix_extractor and prefix_extractor_name must match
-      // from above
+      // because `CheckPrefixMayMatch` first checks `check_filter_ == true`
       bool prefix_extractor_changed = false;
       unique_ptr<InternalIterator> iiter(
           NewIndexIterator(no_io_read_options, prefix_extractor_changed));
@@ -2023,9 +2023,9 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(
             read_options,
             prefix_extractor_changed &&
-                rep_->index_type == BlockBasedTableOptions::kHashSearch),
+            rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr && !prefix_extractor_changed,
+        prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
@@ -2033,7 +2033,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr && !prefix_extractor_changed,
+        prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor);
   }
 }

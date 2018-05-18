@@ -4606,6 +4606,7 @@ TEST_F(DBTest, FileCreationRandomFailure) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 int CountIter(Iterator* iter, const Slice& key) {
   int count = 0;
   for (iter->Seek(key); iter->Valid() && iter->status() == Status::OK();
@@ -4781,7 +4782,6 @@ TEST_F(DBTest, DynamicBloomFilterOptions) {
   delete iter_old;
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMiscOptions) {
   // Test max_sequential_skip_in_iterations
   Options options;

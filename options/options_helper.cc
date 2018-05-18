@@ -384,8 +384,7 @@ bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform) {
-  const SliceTransform* no_op_transform = NewNoopTransform();
-  const char* no_op_name = no_op_transform->Name();
+  const char* no_op_name = "rocksdb.Noop";
   size_t no_op_length = strlen(no_op_name);
   auto& pe_value = value;
   if (pe_value.size() > kFixedPrefixName.size() &&
@@ -400,6 +399,7 @@ bool ParseSliceTransformHelper(
     slice_transform->reset(NewCappedPrefixTransform(prefix_length));
   } else if (pe_value.size() == no_op_length &&
              pe_value.compare(0, no_op_length, no_op_name) == 0) {
+    const SliceTransform* no_op_transform = NewNoopTransform();
     slice_transform->reset(no_op_transform);
   } else if (value == kNullptrString) {
     slice_transform->reset();
