@@ -39,6 +39,7 @@
 * Fix memory leak when pin_l0_filter_and_index_blocks_in_cache is used with partitioned filters
 * Disable rollback of merge operands in WritePrepared transactions to work around an issue in MyRocks. It can be enabled back by setting TransactionDBOptions::rollback_merge_operands to true.
 * Fix bug with prefix search in partition filters where a shared prefix would be ignored from the later partitions. The bug could report an eixstent key as missing. The bug could be triggered if prefix_extractor is set and partition filters is enabled.
+* Fix wrong results by ReverseBytewiseComparator::FindShortSuccessor()
 
 ### Java API Changes
 * Add `BlockBasedTableConfig.setBlockCache` to allow sharing a block cache across DB instances.
