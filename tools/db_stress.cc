@@ -522,6 +522,8 @@ DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
+DEFINE_uint64(max_manifest_file_size, 16384, "Maximum size of a MANIFEST file");
+
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
 enum RepFactory {
@@ -2601,7 +2603,7 @@ class StressTest {
           FLAGS_level0_file_num_compaction_trigger;
       options_.compression = FLAGS_compression_type_e;
       options_.create_if_missing = true;
-      options_.max_manifest_file_size = 10 * 1024;
+      options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
       options_.inplace_update_support = FLAGS_in_place_update;
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =

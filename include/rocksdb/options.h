@@ -558,8 +558,9 @@ struct DBOptions {
 
   // manifest file is rolled over on reaching this limit.
   // The older manifest file be deleted.
-  // The default value is MAX_INT so that roll-over does not take place.
-  uint64_t max_manifest_file_size = std::numeric_limits<uint64_t>::max();
+  // The default value is 1GB so that the manifest file can grow, but not
+  // reach the limit of storage capacity.
+  uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
