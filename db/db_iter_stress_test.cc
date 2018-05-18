@@ -404,13 +404,14 @@ TEST_F(DBIteratorStressTest, StressTest) {
   Random64 rnd(826909345792864532ll);
 
   auto gen_key = [&](int max_key) {
+    assert(max_key > 0);
     int len = 0;
     int a = max_key;
     while (a) {
       a /= 10;
       ++len;
     }
-    std::string s = ToString(rnd.Next() % (uint64_t)max_key);
+    std::string s = ToString(rnd.Next() % static_cast<uint64_t>(max_key));
     s.insert(0, len - (int)s.size(), '0');
     return s;
   };
