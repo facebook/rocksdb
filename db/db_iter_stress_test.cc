@@ -410,7 +410,7 @@ TEST_F(DBIteratorStressTest, StressTest) {
       a /= 10;
       ++len;
     }
-    std::string s = ToString(rnd.Next() % (uint64_t)max_key);
+    std::string s = ToString(rnd.Next() % ((uint64_t)max_key + 1));
     s.insert(0, len - (int)s.size(), '0');
     return s;
   };
@@ -453,7 +453,7 @@ TEST_F(DBIteratorStressTest, StressTest) {
 
               // Generate data.
               Data data;
-              int max_key = (int)(num_entries * key_space) + 1;
+              int max_key = (int)(num_entries * key_space);
               for (int i = 0; i < num_entries; ++i) {
                 Entry e;
                 e.key = gen_key(max_key);
