@@ -410,7 +410,8 @@ TEST_F(DBIteratorStressTest, StressTest) {
       a /= 10;
       ++len;
     }
-    std::string s = ToString(rnd.Next() % (uint64_t)max_key);
+    std::string s =
+        max_key == 0 ? "" : ToString(rnd.Next() % uint64_t{max_key});
     s.insert(0, len - (int)s.size(), '0');
     return s;
   };
