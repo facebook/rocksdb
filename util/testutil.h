@@ -179,6 +179,9 @@ class VectorIterator : public InternalIterator {
 
   virtual Status status() const override { return Status::OK(); }
 
+  virtual bool IsKeyPinned() const override { return true; }
+  virtual bool IsValuePinned() const override { return true; }
+
  private:
   std::vector<std::string> keys_;
   std::vector<std::string> values_;
