@@ -402,12 +402,14 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       data_(contents_.data.data()),
       size_(contents_.data.size()),
       restart_offset_(0),
+      num_restarts_(0),
       global_seqno_(_global_seqno) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
+    num_restarts_ = NumRestarts();
     restart_offset_ =
-        static_cast<uint32_t>(size_) - (1 + NumRestarts()) * sizeof(uint32_t);
+        static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
     if (restart_offset_ > size_ - sizeof(uint32_t)) {
       // The size is too small for NumRestarts() and therefore
       // restart_offset_ wrapped around.
@@ -432,7 +434,7 @@ BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
-  const uint32_t num_restarts = NumRestarts();
+  const uint32_t num_restarts = num_restarts_;
   if (num_restarts == 0) {
     // Empty block.
     ret_iter->Invalidate(Status::OK());
