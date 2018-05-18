@@ -434,15 +434,14 @@ BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
-  const uint32_t num_restarts = num_restarts_;
-  if (num_restarts == 0) {
+  if (num_restarts_ == 0) {
     // Empty block.
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index_.get();
-    ret_iter->Initialize(cmp, data_, restart_offset_, num_restarts,
+    ret_iter->Initialize(cmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
                          read_amp_bitmap_.get());
 
