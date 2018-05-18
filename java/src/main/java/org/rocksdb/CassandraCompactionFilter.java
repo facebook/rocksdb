@@ -10,10 +10,19 @@ package org.rocksdb;
  */
 public class CassandraCompactionFilter
     extends AbstractCompactionFilter<Slice> {
-  public CassandraCompactionFilter(boolean purgeTtlOnExpiration, int gcGracePeriodInSeconds) {
-    super(createNewCassandraCompactionFilter0(purgeTtlOnExpiration, gcGracePeriodInSeconds));
+  public CassandraCompactionFilter(
+      boolean purgeTtlOnExpiration, boolean ignoreRangeDeleteOnRead, int gcGracePeriodInSeconds) {
+    super(createNewCassandraCompactionFilter0(
+        purgeTtlOnExpiration, ignoreRangeDeleteOnRead, gcGracePeriodInSeconds));
+  }
+
+  public void setMetaCfHandle(RocksDB rocksdb, ColumnFamilyHandle metaCfHandle) {
+    setMetaCfHandle(getNativeHandle(), rocksdb.getNativeHandle(), metaCfHandle.getNativeHandle());
   }
 
   private native static long createNewCassandraCompactionFilter0(
-      boolean purgeTtlOnExpiration, int gcGracePeriodInSeconds);
+      boolean purgeTtlOnExpiration, boolean ignoreRangeDeleteOnRead, int gcGracePeriodInSeconds);
+
+  private native static void setMetaCfHandle(
+      long compactionFilter, long rocksdb, long metaCfHandle);
 }
