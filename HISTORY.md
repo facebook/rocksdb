@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * For users of `Statistics` objects created via `CreateDBStatistics()`, the format of the string returned by its `ToString()` method has changed.
+* With LRUCache, when high_pri_pool_ratio > 0, midpoint insertion strategy will be enabled to put low-pri items to the tail of low-pri list (the midpoint) when they first inserted into the cache. This is to make cache entries never get hit age out faster, improving cache efficiency when large background scan presents.
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change

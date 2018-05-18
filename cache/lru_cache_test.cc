@@ -104,6 +104,29 @@ TEST_F(LRUCacheTest, BasicLRU) {
   ValidateLRUList({"e", "z", "d", "u", "v"});
 }
 
+TEST_F(LRUCacheTest, MidpointInsertion) {
+  // Allocate 2 cache entries to high-pri pool.
+  NewCache(5, 0.45);
+
+  Insert("a", Cache::Priority::LOW);
+  Insert("b", Cache::Priority::LOW);
+  Insert("c", Cache::Priority::LOW);
+  Insert("x", Cache::Priority::HIGH);
+  Insert("y", Cache::Priority::HIGH);
+  ValidateLRUList({"a", "b", "c", "x", "y"}, 2);
+
+  // Low-pri entries inserted to the tail of low-pri list (the midpoint).
+  // After lookup, it will move to the tail of the full list.
+  Insert("d", Cache::Priority::LOW);
+  ValidateLRUList({"b", "c", "d", "x", "y"}, 2);
+  ASSERT_TRUE(Lookup("d"));
+  ValidateLRUList({"b", "c", "x", "y", "d"}, 2);
+
+  // High-pri entries will be inserted to the tail of full list.
+  Insert("z", Cache::Priority::HIGH);
+  ValidateLRUList({"c", "x", "y", "d", "z"}, 2);
+}
+
 TEST_F(LRUCacheTest, EntriesWithPriority) {
   // Allocate 2 cache entries to high-pri pool.
   NewCache(5, 0.45);
@@ -130,15 +153,15 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   Insert("a", Cache::Priority::LOW);
   ValidateLRUList({"v", "X", "a", "Y", "Z"}, 2);
 
-  // Low-pri entries will be inserted to head of low-pri pool after lookup.
+  // Low-pri entries will be inserted to head of high-pri pool after lookup.
   ASSERT_TRUE(Lookup("v"));
-  ValidateLRUList({"X", "a", "v", "Y", "Z"}, 2);
+  ValidateLRUList({"X", "a", "Y", "Z", "v"}, 2);
 
   // High-pri entries will be inserted to the head of the list after lookup.
   ASSERT_TRUE(Lookup("X"));
-  ValidateLRUList({"a", "v", "Y", "Z", "X"}, 2);
+  ValidateLRUList({"a", "Y", "Z", "v", "X"}, 2);
   ASSERT_TRUE(Lookup("Z"));
-  ValidateLRUList({"a", "v", "Y", "X", "Z"}, 2);
+  ValidateLRUList({"a", "Y", "v", "X", "Z"}, 2);
 
   Erase("Y");
   ValidateLRUList({"a", "v", "X", "Z"}, 2);
@@ -151,7 +174,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   Insert("g", Cache::Priority::LOW);
   ValidateLRUList({"d", "e", "f", "g", "Z"}, 1);
   ASSERT_TRUE(Lookup("d"));
-  ValidateLRUList({"e", "f", "g", "d", "Z"}, 1);
+  ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
 }  // namespace rocksdb
