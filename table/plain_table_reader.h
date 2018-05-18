@@ -79,16 +79,15 @@ class PlainTableReader: public TableReader {
                      bool full_scan_mode,
                      const SliceTransform* prefix_extractor = nullptr);
 
-  InternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor,
-      Arena* arena = nullptr,
-      bool skip_filters = false) override;
+  InternalIterator* NewIterator(const ReadOptions&,
+                                const SliceTransform* prefix_extractor,
+                                Arena* arena = nullptr,
+                                bool skip_filters = false) override;
 
   void Prepare(const Slice& target) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
-             GetContext* get_context,
-             const SliceTransform* prefix_extractor,
+             GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key) override;

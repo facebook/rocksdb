@@ -115,16 +115,13 @@ PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
 PlainTableReader::~PlainTableReader() {
 }
 
-Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
-                              const EnvOptions& env_options,
-                              const InternalKeyComparator& internal_comparator,
-                              unique_ptr<RandomAccessFileReader>&& file,
-                              uint64_t file_size,
-                              unique_ptr<TableReader>* table_reader,
-                              const int bloom_bits_per_key,
-                              double hash_table_ratio, size_t index_sparseness,
-                              size_t huge_page_tlb_size, bool full_scan_mode,
-                              const SliceTransform* prefix_extractor) {
+Status PlainTableReader::Open(
+    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator,
+    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
+    double hash_table_ratio, size_t index_sparseness, size_t huge_page_tlb_size,
+    bool full_scan_mode, const SliceTransform* prefix_extractor) {
   if (file_size > PlainTableIndex::kMaxFileSize) {
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
@@ -147,8 +144,8 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
           "using a prefix extractor");
-    } else if (prefix_extractor_in_file.compare(
-                   prefix_extractor->Name()) != 0) {
+    } else if (prefix_extractor_in_file.compare(prefix_extractor->Name()) !=
+               0) {
       return Status::InvalidArgument(
           "Prefix extractor given doesn't match the one used to build "
           "PlainTable");
@@ -379,8 +376,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   }
 
   PlainTableIndexBuilder index_builder(&arena_, ioptions_, prefix_extractor_,
-                                       index_sparseness,
-                                       hash_table_ratio, huge_page_tlb_size);
+                                       index_sparseness, hash_table_ratio,
+                                       huge_page_tlb_size);
 
   std::vector<uint32_t> prefix_hashes;
   if (!index_in_file) {

@@ -549,9 +549,9 @@ class LevelIterator final : public InternalIterator {
 
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, file_meta.fd, range_del_agg_,
-        prefix_extractor_,
-        nullptr /* don't need reference to table */, file_read_hist_,
-        for_compaction_, nullptr /* arena */, skip_filters_, level_);
+        prefix_extractor_, nullptr /* don't need reference to table */,
+        file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
+        level_);
   }
 
   TableCache* table_cache_;
@@ -726,9 +726,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   auto table_cache = cfd_->table_cache();
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
-      env_options_, cfd_->internal_comparator(), file_meta->fd,
-      tp, mutable_cf_options_.prefix_extractor.get(),
-      true /* no io */);
+      env_options_, cfd_->internal_comparator(), file_meta->fd, tp,
+      mutable_cf_options_.prefix_extractor.get(), true /* no io */);
   if (s.ok()) {
     return s;
   }
@@ -862,8 +861,7 @@ size_t Version::GetMemoryUsageByTableReaders() {
   for (auto& file_level : storage_info_.level_files_brief_) {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
-          env_options_, cfd_->internal_comparator(),
-          file_level.files[i].fd,
+          env_options_, cfd_->internal_comparator(), file_level.files[i].fd,
           mutable_cf_options_.prefix_extractor.get());
     }
   }
@@ -1002,10 +1000,9 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(), file.fd,
-          range_del_agg,
-          mutable_cf_options_.prefix_extractor.get(),
-          nullptr, cfd_->internal_stats()->GetFileReadHist(0),
-          false, arena, false /* skip_filters */, 0 /* level */));
+          range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
+          cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+          false /* skip_filters */, 0 /* level */));
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
@@ -1024,8 +1021,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     merge_iter_builder->AddIterator(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(),
-        should_sample_file_read(),
+        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         false /* for_compaction */, IsFilterSkipped(level), level,
         range_del_agg));
@@ -1057,10 +1053,9 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
       }
       ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
           read_options, env_options, cfd_->internal_comparator(), file->fd,
-          &range_del_agg,
-          mutable_cf_options_.prefix_extractor.get(), nullptr,
-          cfd_->internal_stats()->GetFileReadHist(0),
-          false, &arena, false /* skip_filters */, 0 /* level */));
+          &range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
+          cfd_->internal_stats()->GetFileReadHist(0), false, &arena,
+          false /* skip_filters */, 0 /* level */));
       status = OverlapWithIterator(
           ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
       if (!status.ok() || *overlap) {
@@ -1072,8 +1067,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
     ScopedArenaIterator iter(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, env_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(),
-        should_sample_file_read(),
+        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         false /* for_compaction */, IsFilterSkipped(level), level,
         &range_del_agg));
@@ -2791,8 +2785,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     LogAndApplyCFHelper(w.edit_list.front());
     batch_edits.push_back(w.edit_list.front());
   } else {
-    v = new Version(column_family_data, this, env_options_,
-                    mutable_cf_options,
+    v = new Version(column_family_data, this, env_options_, mutable_cf_options,
                     current_version_number_++);
     builder_guard.reset(new BaseReferencedVersionBuilder(column_family_data));
     auto* builder = builder_guard->version_builder();
@@ -3349,10 +3342,9 @@ Status VersionSet::Recover(
             cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
       }
 
-      Version* v =
-          new Version(cfd, this, env_options_,
-                      *cfd->GetLatestMutableCFOptions(),
-                      current_version_number_++);
+      Version* v = new Version(cfd, this, env_options_,
+                               *cfd->GetLatestMutableCFOptions(),
+                               current_version_number_++);
       builder->SaveTo(v->storage_info());
 
       // Install recovered version
@@ -3717,10 +3709,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       assert(builders_iter != builders.end());
       auto builder = builders_iter->second->version_builder();
 
-      Version* v =
-          new Version(cfd, this, env_options_,
-                      *cfd->GetLatestMutableCFOptions(),
-                      current_version_number_++);
+      Version* v = new Version(cfd, this, env_options_,
+                               *cfd->GetLatestMutableCFOptions(),
+                               current_version_number_++);
       builder->SaveTo(v->storage_info());
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
 
@@ -3944,8 +3935,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
         ReadOptions(), v->env_options_, v->cfd_->internal_comparator(), f.fd,
         nullptr /* range_del_agg */,
-        v->GetMutableCFOptions().prefix_extractor.get(),
-        &table_reader_ptr);
+        v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
       result = table_reader_ptr->ApproximateOffsetOf(key);
     }
@@ -4177,8 +4167,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   assert(edit->is_column_family_add_);
 
   MutableCFOptions dummy_cf_options;
-  Version* dummy_versions = new Version(nullptr, this, env_options_,
-                                        dummy_cf_options);
+  Version* dummy_versions =
+      new Version(nullptr, this, env_options_, dummy_cf_options);
   // Ref() dummy version once so that later we can call Unref() to delete it
   // by avoiding calling "delete" explicitly (~Version is private)
   dummy_versions->Ref();
@@ -4186,9 +4176,9 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions,
       cf_options);
 
-  Version* v =
-      new Version(new_cfd, this, env_options_,
-        *new_cfd->GetLatestMutableCFOptions(), current_version_number_++);
+  Version* v = new Version(new_cfd, this, env_options_,
+                           *new_cfd->GetLatestMutableCFOptions(),
+                           current_version_number_++);
 
   // Fill level target base information.
   v->storage_info()->CalculateBaseBytes(*new_cfd->ioptions(),

@@ -3145,8 +3145,7 @@ TEST_F(DBIteratorTest, ReverseToForwardWithDisappearingKeys) {
   std::unique_ptr<Iterator> db_iter(NewDBIterator(
       env_, ReadOptions(), ImmutableCFOptions(options),
       MutableCFOptions(options), BytewiseComparator(), internal_iter, 10,
-      options.max_sequential_skip_in_iterations,
-      nullptr /*read_callback*/));
+      options.max_sequential_skip_in_iterations, nullptr /*read_callback*/));
 
   db_iter->SeekForPrev("a");
   ASSERT_TRUE(db_iter->Valid());

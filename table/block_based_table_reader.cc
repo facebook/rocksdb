@@ -187,8 +187,7 @@ bool PrefixExtractorChanged(std::string prefix_extractor_block,
   // prefix_extractor and prefix_extractor_block are both non-empty
   if (prefix_extractor_block.compare(prefix_extractor->Name()) != 0) {
     return true;
-  }
-  else {
+  } else {
     return false;
   }
 }
@@ -710,9 +709,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
-  Rep* rep =
-      new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                               internal_comparator, skip_filters);
+  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
+                                      internal_comparator, skip_filters);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
@@ -886,13 +884,13 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // block_cache
 
       CachableEntry<IndexReader> index_entry;
-      bool prefix_extractor_changed =
-          PrefixExtractorChanged(rep->table_properties->prefix_extractor_name,
-                                 prefix_extractor);
-      unique_ptr<InternalIterator> iter(
-          new_table->NewIndexIterator(ReadOptions(), prefix_extractor_changed &&
-            rep->index_type == BlockBasedTableOptions::kHashSearch,
-                                      nullptr, &index_entry));
+      bool prefix_extractor_changed = PrefixExtractorChanged(
+          rep->table_properties->prefix_extractor_name, prefix_extractor);
+      unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
+          ReadOptions(),
+          prefix_extractor_changed &&
+              rep->index_type == BlockBasedTableOptions::kHashSearch,
+          nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
@@ -941,9 +939,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // Set filter block
       if (rep->filter_policy) {
         const bool is_a_filter_partition = true;
-        auto filter = new_table->ReadFilter(
-            prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition,
-            prefix_extractor);
+        auto filter =
+            new_table->ReadFilter(prefetch_buffer.get(), rep->filter_handle,
+                                  !is_a_filter_partition, prefix_extractor);
         rep->filter.reset(filter);
         // Refer to the comment above about paritioned indexes always being
         // cached
@@ -1278,16 +1276,14 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   switch (filter_type) {
     case Rep::FilterType::kPartitionedFilter: {
       return new PartitionedFilterBlockReader(
-          rep->prefix_filtering ? prefix_extractor
-                                : nullptr,
+          rep->prefix_filtering ? prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), nullptr,
           rep->ioptions.statistics, rep->internal_comparator, this);
     }
 
     case Rep::FilterType::kBlockFilter:
       return new BlockBasedFilterBlockReader(
-          rep->prefix_filtering ? prefix_extractor
-                                : nullptr,
+          rep->prefix_filtering ? prefix_extractor : nullptr,
           rep->table_options, rep->whole_key_filtering, std::move(block),
           rep->ioptions.statistics);
 
@@ -1296,8 +1292,7 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
           rep->filter_policy->GetFilterBitsReader(block.data);
       assert(filter_bits_reader != nullptr);
       return new FullFilterBlockReader(
-          rep->prefix_filtering ? prefix_extractor
-                                : nullptr,
+          rep->prefix_filtering ? prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), filter_bits_reader,
           rep->ioptions.statistics);
     }
@@ -1311,9 +1306,8 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
-    const SliceTransform* prefix_extractor,
-    FilePrefetchBuffer* prefetch_buffer, bool no_io,
-    GetContext* get_context) const {
+    const SliceTransform* prefix_extractor, FilePrefetchBuffer* prefetch_buffer,
+    bool no_io, GetContext* get_context) const {
   const BlockHandle& filter_blk_handle = rep_->filter_handle;
   const bool is_a_filter_partition = true;
   return GetFilter(prefetch_buffer, filter_blk_handle, !is_a_filter_partition,
@@ -1322,8 +1316,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
-    const bool is_a_filter_partition, bool no_io,
-    GetContext* get_context, const SliceTransform* prefix_extractor) const {
+    const bool is_a_filter_partition, bool no_io, GetContext* get_context,
+    const SliceTransform* prefix_extractor) const {
   // If cache_index_and_filter_blocks is false, filter should be pre-populated.
   // We will return rep_->filter anyway. rep_->filter can be nullptr if filter
   // read fails at Open() time. We don't want to reload again since it will
@@ -1363,9 +1357,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     // Do not invoke any io.
     return CachableEntry<FilterBlockReader>();
   } else {
-    filter =
-        ReadFilter(prefetch_buffer, filter_blk_handle, is_a_filter_partition,
-                   prefix_extractor);
+    filter = ReadFilter(prefetch_buffer, filter_blk_handle,
+                        is_a_filter_partition, prefix_extractor);
     if (filter != nullptr) {
       Status s = block_cache->Insert(
           key, filter, filter->size(), &DeleteCachedFilterEntry, &cache_handle,
@@ -1399,19 +1392,21 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
 InternalIterator* BlockBasedTable::NewIndexIterator(
     const ReadOptions& read_options, bool prefix_extractor_changed,
-    BlockIter* input_iter,
-    CachableEntry<IndexReader>* index_entry, GetContext* get_context) {
+    BlockIter* input_iter, CachableEntry<IndexReader>* index_entry,
+    GetContext* get_context) {
   // index reader has already been pre-populated.
   // TODO: caller needs to check if prefix_extractor has been changed
   // to set prefix_extractor_changed
   if (rep_->index_reader) {
     return rep_->index_reader->NewIterator(
-        input_iter, read_options.total_order_seek || prefix_extractor_changed, read_options.fill_cache);
+        input_iter, read_options.total_order_seek || prefix_extractor_changed,
+        read_options.fill_cache);
   }
   // we have a pinned index block
   if (rep_->index_entry.IsSet()) {
     return rep_->index_entry.value->NewIterator(
-        input_iter, read_options.total_order_seek || prefix_extractor_changed, read_options.fill_cache);
+        input_iter, read_options.total_order_seek || prefix_extractor_changed,
+        read_options.fill_cache);
   }
 
   PERF_TIMER_GUARD(read_index_block_nanos);
@@ -1742,9 +1737,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   if (filter != nullptr) {
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
-      may_match =
-          filter->PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
-                                 const_ikey_ptr);
+      may_match = filter->PrefixMayMatch(prefix, prefix_extractor, kNotValid,
+                                         false, const_ikey_ptr);
     } else {
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
@@ -1759,8 +1753,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
       // we already know prefix_extractor and prefix_extractor_name must match
       // from above
       bool prefix_extractor_changed = false;
-      unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options,
-                                         prefix_extractor_changed));
+      unique_ptr<InternalIterator> iiter(
+          NewIndexIterator(no_io_read_options, prefix_extractor_changed));
       iiter->Seek(internal_prefix);
 
       if (!iiter->Valid()) {
@@ -1792,8 +1786,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         BlockHandle handle;
         s = handle.DecodeFrom(&handle_value);
         assert(s.ok());
-        may_match = filter->PrefixMayMatch(prefix, prefix_extractor,
-                                           handle.offset());
+        may_match =
+            filter->PrefixMayMatch(prefix, prefix_extractor, handle.offset());
       }
     }
   }
@@ -2018,18 +2012,18 @@ void BlockBasedTableIterator::FindKeyBackward() {
   // code simplicity.
 }
 
-InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
-                                               const SliceTransform* prefix_extractor,
-                                               Arena* arena,
-                                               bool skip_filters) {
-  bool prefix_extractor_changed =
-      PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
-                             prefix_extractor);
+InternalIterator* BlockBasedTable::NewIterator(
+    const ReadOptions& read_options, const SliceTransform* prefix_extractor,
+    Arena* arena, bool skip_filters) {
+  bool prefix_extractor_changed = PrefixExtractorChanged(
+      rep_->table_properties->prefix_extractor_name, prefix_extractor);
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options, prefix_extractor_changed &&
-            rep_->index_type == BlockBasedTableOptions::kHashSearch),
+        NewIndexIterator(
+            read_options,
+            prefix_extractor_changed &&
+                rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor);
@@ -2074,11 +2068,10 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
   return NewDataBlockIterator(rep_, read_options, Slice(str));
 }
 
-bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
-                                            FilterBlockReader* filter,
-                                            const Slice& internal_key,
-                                            const bool no_io,
-                                            const SliceTransform* prefix_extractor) const {
+bool BlockBasedTable::FullFilterKeyMayMatch(
+    const ReadOptions& read_options, FilterBlockReader* filter,
+    const Slice& internal_key, const bool no_io,
+    const SliceTransform* prefix_extractor) const {
   if (filter == nullptr || filter->IsBlockBased()) {
     return true;
   }
@@ -2092,9 +2085,9 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0 &&
              prefix_extractor->InDomain(user_key) &&
-             !filter->PrefixMayMatch(
-                 prefix_extractor->Transform(user_key), prefix_extractor,
-                 kNotValid, false, const_ikey_ptr)) {
+             !filter->PrefixMayMatch(prefix_extractor->Transform(user_key),
+                                     prefix_extractor, kNotValid, false,
+                                     const_ikey_ptr)) {
     may_match = false;
   }
   if (may_match) {
@@ -2126,13 +2119,13 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     BlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
-    bool prefix_extractor_changed =
-        PrefixExtractorChanged(rep_->table_properties->prefix_extractor_name,
-                               prefix_extractor);
-    auto iiter = NewIndexIterator(read_options, prefix_extractor_changed &&
-                                  rep_->index_type != BlockBasedTableOptions::kHashSearch,
-                                  &iiter_on_stack, /* index_entry */ nullptr,
-                                  get_context);
+    bool prefix_extractor_changed = PrefixExtractorChanged(
+        rep_->table_properties->prefix_extractor_name, prefix_extractor);
+    auto iiter = NewIndexIterator(
+        read_options,
+        prefix_extractor_changed &&
+            rep_->index_type != BlockBasedTableOptions::kHashSearch,
+        &iiter_on_stack, /* index_entry */ nullptr, get_context);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
@@ -2147,7 +2140,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       bool not_exist_in_filter =
           filter != nullptr && filter->IsBlockBased() == true &&
           handle.DecodeFrom(&handle_value).ok() &&
-          !filter->KeyMayMatch(ExtractUserKey(key), prefix_extractor, handle.offset(), no_io);
+          !filter->KeyMayMatch(ExtractUserKey(key), prefix_extractor,
+                               handle.offset(), no_io);
 
       if (not_exist_in_filter) {
         // Not found
@@ -2276,7 +2270,8 @@ Status BlockBasedTable::VerifyChecksum() {
   }
   // Check Data blocks
   BlockIter iiter_on_stack;
-  InternalIterator* iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
+  InternalIterator* iiter =
+      NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIterator> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
     iiter_unique_ptr = std::unique_ptr<InternalIterator>(iiter);

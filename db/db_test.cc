@@ -4608,7 +4608,8 @@ TEST_F(DBTest, FileCreationRandomFailure) {
 
 int CountIter(Iterator* iter, const Slice& key) {
   int count = 0;
-  for (iter->Seek(key); iter->Valid() && iter->status() == Status::OK(); iter->Next()) {
+  for (iter->Seek(key); iter->Valid() && iter->status() == Status::OK();
+       iter->Next()) {
     count++;
   }
   return count;
@@ -4708,8 +4709,9 @@ TEST_F(DBTest, DynamicBloomFilterNewColumnFamily) {
   // create a new CF and set prefix_extractor dynamically
   options.prefix_extractor.reset(NewCappedPrefixTransform(3));
   CreateColumnFamilies({"ramen_dojo"}, options);
-  ASSERT_EQ(0, strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
-                      "rocksdb.CappedPrefix.3"));
+  ASSERT_EQ(0,
+            strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
+                   "rocksdb.CappedPrefix.3"));
   ASSERT_OK(Put(2, "foo3", "bar3"));
   ASSERT_OK(Put(2, "foo4", "bar4"));
   ASSERT_OK(Put(2, "foo5", "bar5"));
@@ -4719,9 +4721,11 @@ TEST_F(DBTest, DynamicBloomFilterNewColumnFamily) {
   Iterator* iter = db_->NewIterator(read_options, handles_[2]);
   ASSERT_EQ(CountIter(iter, "foo"), 3);
   delete iter;
-  ASSERT_OK(dbfull()->SetOptions(handles_[2], {{"prefix_extractor", "fixed:2"}}));
-  ASSERT_EQ(0, strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
-                      "rocksdb.FixedPrefix.2"));
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[2], {{"prefix_extractor", "fixed:2"}}));
+  ASSERT_EQ(0,
+            strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
+                   "rocksdb.FixedPrefix.2"));
   iter = db_->NewIterator(read_options, handles_[2]);
   ASSERT_EQ(CountIter(iter, "foo"), 4);
   delete iter;
@@ -4755,7 +4759,6 @@ TEST_F(DBTest, DynamicBloomFilterOptions) {
   ASSERT_OK(Put("foo8", "bar8"));
   ASSERT_OK(Put("fpc", "2"));
   dbfull()->Flush(FlushOptions());
-
 
   ReadOptions read_options;
   read_options.prefix_same_as_start = true;
@@ -5617,18 +5620,17 @@ TEST_F(DBTest, HardLimit) {
 #if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 class WriteStallListener : public EventListener {
  public:
-  WriteStallListener() : cond_(&mutex_),
-    condition_(WriteStallCondition::kNormal),
-    expected_(WriteStallCondition::kNormal),
-    expected_set_(false)
-  {}
+  WriteStallListener()
+      : cond_(&mutex_),
+        condition_(WriteStallCondition::kNormal),
+        expected_(WriteStallCondition::kNormal),
+        expected_set_(false) {}
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
     MutexLock l(&mutex_);
     condition_ = info.condition.cur;
-    if (expected_set_ &&
-      condition_ == expected_) {
-        cond_.Signal();
-        expected_set_ = false;
+    if (expected_set_ && condition_ == expected_) {
+      cond_.Signal();
+      expected_set_ = false;
     }
   }
   bool CheckCondition(WriteStallCondition expected) {

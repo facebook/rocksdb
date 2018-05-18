@@ -23,13 +23,11 @@ Status PlainTableFactory::NewTableReader(
     unique_ptr<TableReader>* table,
     bool /*prefetch_index_and_filter_in_cache*/) const {
   return PlainTableReader::Open(
-      table_reader_options.ioptions,
-      table_reader_options.env_options,
+      table_reader_options.ioptions, table_reader_options.env_options,
       table_reader_options.internal_comparator, std::move(file), file_size,
       table, table_options_.bloom_bits_per_key, table_options_.hash_table_ratio,
       table_options_.index_sparseness, table_options_.huge_page_tlb_size,
-      table_options_.full_scan_mode,
-      table_reader_options.prefix_extractor);
+      table_options_.full_scan_mode, table_reader_options.prefix_extractor);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(

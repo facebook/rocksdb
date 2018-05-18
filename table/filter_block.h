@@ -93,20 +93,20 @@ class FilterBlockReader {
    * built upon InternalKey and must be provided via const_ikey_ptr when running
    * queries.
    */
-  virtual bool KeyMayMatch(
-     const Slice& key, const SliceTransform* prefix_extractor,
-     uint64_t block_offset = kNotValid,
-     const bool no_io = false,
-     const Slice* const const_ikey_ptr = nullptr) = 0;
+  virtual bool KeyMayMatch(const Slice& key,
+                           const SliceTransform* prefix_extractor,
+                           uint64_t block_offset = kNotValid,
+                           const bool no_io = false,
+                           const Slice* const const_ikey_ptr = nullptr) = 0;
 
   /**
    * no_io and const_ikey_ptr here means the same as in KeyMayMatch
    */
-  virtual bool PrefixMayMatch(
-      const Slice& prefix, const SliceTransform* prefix_extractor,
-      uint64_t block_offset = kNotValid,
-      const bool no_io = false,
-      const Slice* const const_ikey_ptr = nullptr) = 0;
+  virtual bool PrefixMayMatch(const Slice& prefix,
+                              const SliceTransform* prefix_extractor,
+                              uint64_t block_offset = kNotValid,
+                              const bool no_io = false,
+                              const Slice* const const_ikey_ptr = nullptr) = 0;
 
   virtual size_t ApproximateMemoryUsage() const = 0;
   virtual size_t size() const { return size_; }
@@ -122,6 +122,7 @@ class FilterBlockReader {
 
   virtual void CacheDependencies(bool /*pin*/,
                                  const SliceTransform* /*prefix_extractor*/) {}
+
  protected:
   bool whole_key_filtering_;
 

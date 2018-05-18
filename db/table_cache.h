@@ -79,8 +79,8 @@ class TableCache {
              const FileDescriptor& file_fd, const Slice& k,
              GetContext* get_context,
              const SliceTransform* prefix_extractor = nullptr,
-             HistogramImpl* file_read_hist = nullptr,
-             bool skip_filters = false, int level = -1);
+             HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
+             int level = -1);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);

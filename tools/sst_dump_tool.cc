@@ -131,15 +131,16 @@ Status SstFileReader::NewTableReader(
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
-                           internal_comparator_,
+        TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
+                           soptions_, internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_, internal_comparator_),
+      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
+                         internal_comparator_),
       std::move(file_), file_size, &table_reader_);
 }
 
@@ -172,7 +173,8 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
       tb_options,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
-  unique_ptr<InternalIterator> iter(table_reader_->NewIterator(ReadOptions(), moptions_.prefix_extractor.get()));
+  unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
+      ReadOptions(), moptions_.prefix_extractor.get()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
       fputs(iter->status().ToString().c_str(), stderr);
@@ -297,8 +299,8 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num,
     return init_result_;
   }
 
-  InternalIterator* iter =
-      table_reader_->NewIterator(ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get());
+  InternalIterator* iter = table_reader_->NewIterator(
+      ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get());
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;

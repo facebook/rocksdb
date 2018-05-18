@@ -101,18 +101,17 @@ class BlockBasedTable : public TableReader {
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
-  InternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor,
-      Arena* arena = nullptr,
-      bool skip_filters = false) override;
+  InternalIterator* NewIterator(const ReadOptions&,
+                                const SliceTransform* prefix_extractor,
+                                Arena* arena = nullptr,
+                                bool skip_filters = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
 
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
-             GetContext* get_context,
-             const SliceTransform* prefix_extractor,
+             GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
@@ -333,10 +332,10 @@ class BlockBasedTable : public TableReader {
       InternalIterator* preloaded_meta_index_iter = nullptr,
       const int level = -1);
 
-  bool FullFilterKeyMayMatch(const ReadOptions& read_options,
-                             FilterBlockReader* filter, const Slice& user_key,
-                             const bool no_io,
-                             const SliceTransform* prefix_extractor = nullptr) const;
+  bool FullFilterKeyMayMatch(
+      const ReadOptions& read_options, FilterBlockReader* filter,
+      const Slice& user_key, const bool no_io,
+      const SliceTransform* prefix_extractor = nullptr) const;
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
@@ -346,10 +345,10 @@ class BlockBasedTable : public TableReader {
   Status VerifyChecksumInBlocks(InternalIterator* index_iter);
 
   // Create the filter from the filter block.
-  FilterBlockReader* ReadFilter(FilePrefetchBuffer* prefetch_buffer,
-                                const BlockHandle& filter_handle,
-                                const bool is_a_filter_partition,
-                                const SliceTransform* prefix_extractor = nullptr) const;
+  FilterBlockReader* ReadFilter(
+      FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_handle,
+      const bool is_a_filter_partition,
+      const SliceTransform* prefix_extractor = nullptr) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
@@ -412,8 +411,8 @@ struct BlockBasedTable::CachableEntry {
 };
 
 struct BlockBasedTable::Rep {
-  Rep(const ImmutableCFOptions& _ioptions,
-      const EnvOptions& _env_options, const BlockBasedTableOptions& _table_opt,
+  Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
+      const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters)
       : ioptions(_ioptions),
         env_options(_env_options),
