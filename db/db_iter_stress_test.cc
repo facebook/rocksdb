@@ -173,7 +173,7 @@ struct StressTestIterator : public InternalIterator {
     }
   }
 
-  void SeekToFirst() {
+  void SeekToFirst() override {
     if (MaybeFail()) return;
     MaybeMutate();
 
@@ -181,7 +181,7 @@ struct StressTestIterator : public InternalIterator {
     iter = 0;
     SkipForward();
   }
-  void SeekToLast() {
+  void SeekToLast() override {
     if (MaybeFail()) return;
     MaybeMutate();
 
@@ -190,7 +190,7 @@ struct StressTestIterator : public InternalIterator {
     SkipBackward();
   }
 
-  void Seek(const Slice& target) {
+  void Seek(const Slice& target) override {
     if (MaybeFail()) return;
     MaybeMutate();
 
@@ -202,7 +202,7 @@ struct StressTestIterator : public InternalIterator {
     iter = (int)(it - data->entries.begin());
     SkipForward();
   }
-  void SeekForPrev(const Slice& target) {
+  void SeekForPrev(const Slice& target) override {
     if (MaybeFail()) return;
     MaybeMutate();
 
@@ -216,14 +216,14 @@ struct StressTestIterator : public InternalIterator {
     SkipBackward();
   }
 
-  void Next() {
+  void Next() override {
     assert(Valid());
     if (MaybeFail()) return;
     MaybeMutate();
     ++iter;
     SkipForward();
   }
-  void Prev() {
+  void Prev() override {
     assert(Valid());
     if (MaybeFail()) return;
     MaybeMutate();
@@ -231,11 +231,11 @@ struct StressTestIterator : public InternalIterator {
     SkipBackward();
   }
 
-  Slice key() const {
+  Slice key() const override {
     assert(Valid());
     return data->entries[iter].ikey;
   }
-  Slice value() const {
+  Slice value() const override {
     assert(Valid());
     return data->entries[iter].value;
   }

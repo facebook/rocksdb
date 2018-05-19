@@ -299,7 +299,7 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   void PutRandomData(int cf, int num, int key_value_size, bool save = false) {
-    if (cf >= (int) keys_.size()) {
+    if (cf >= static_cast<int>(keys_.size())) {
       keys_.resize(cf + 1);
     }
     for (int i = 0; i < num; ++i) {

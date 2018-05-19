@@ -184,6 +184,7 @@ class Block {
   const char* data_;            // contents_.data.data()
   size_t size_;                 // contents_.data.size()
   uint32_t restart_offset_;     // Offset in data_ of restart array
+  uint32_t num_restarts_;
   std::unique_ptr<BlockPrefixIndex> prefix_index_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   // All keys in the block will have seqno = global_seqno_, regardless of
