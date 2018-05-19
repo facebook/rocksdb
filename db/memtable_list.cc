@@ -271,9 +271,21 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
 
 void MemTableList::RollbackMemtableFlush(std::vector<ColumnFamilyData*>& cfds,
     std::vector<autovector<MemTable*>>& mems,
-    const std::vector<FileMetaData>& file_meta) {
-  for (size_t i = 0; i != cfds.size(); ++i) {
-    cfds[i]->imm()->RollbackMemtableFlush(mems[i], file_meta[i].fd.GetNumber());
+    const std::vector<FileMetaData>& /* file_meta */) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
+  for (size_t k = 0; k != cfds.size(); ++k) {
+    assert(!mems[k].empty());
+    for (MemTable* m : mems[k]) {
+      assert(m->flush_in_progress_);
+      assert(m->file_number_ == 0);
+
+      m->flush_in_progress_ = false;
+      m->flush_completed_ = false;
+      m->edit_.Clear();
+      cfds[k]->imm()->num_flush_not_started_++;
+    }
+    cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
   }
 }
 
@@ -336,10 +348,10 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
         m->flush_in_progress_ = false;
         m->edit_.Clear();
         cfds[k]->imm()->num_flush_not_started_++;
-        cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
         m->file_number_ = 0;
         ++mem_id;
       }
+      cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
     }
   }
 
