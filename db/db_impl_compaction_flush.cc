@@ -1647,7 +1647,7 @@ ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
 
 DBImpl::GroupFlushRequest DBImpl::PopFirstFromGroupFlushQueue() {
   assert(!group_flush_queue_.empty());
-  auto& flush_req = *group_flush_queue_.begin();
+  auto flush_req = *group_flush_queue_.begin();
   group_flush_queue_.pop_front();
   return flush_req;
 }
