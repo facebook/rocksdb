@@ -289,7 +289,6 @@ MAIN_SOURCES =                                                          \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
-  db/obsolete_files_test.cc						\
   db/env_timed_test.cc                                                  \
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
@@ -308,6 +307,7 @@ MAIN_SOURCES =                                                          \
   db/memtable_list_test.cc                                              \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
+  db/obsolete_files_test.cc						\
   db/options_settable_test.cc                                           \
   db/options_file_test.cc                                               \
   db/partitioned_filter_block_test.cc                                   \
