@@ -2923,7 +2923,9 @@ int main(int argc, char** argv) {
     exit(1);
   }
   if (FLAGS_use_merge && FLAGS_nooverwritepercent == 100) {
-    fprintf(stderr, "Error: nooverwritepercent must not be 100 when using merge operands");
+    fprintf(
+        stderr,
+        "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
 
