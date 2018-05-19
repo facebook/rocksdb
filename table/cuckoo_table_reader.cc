@@ -206,7 +206,7 @@ class CuckooTableIterator : public InternalIterator {
   void Prev() override;
   Slice key() const override;
   Slice value() const override;
-  Status status() const override { return status_; }
+  Status status() const override { return Status::OK(); }
   void InitIfNeeded();
 
  private:
@@ -241,7 +241,6 @@ class CuckooTableIterator : public InternalIterator {
   void PrepareKVAtCurrIdx();
   CuckooTableReader* reader_;
   bool initialized_;
-  Status status_;
   // Contains a map of keys to bucket_id sorted in key order.
   std::vector<uint32_t> sorted_bucket_ids_;
   // We assume that the number of items can be stored in uint32 (4 Billion).

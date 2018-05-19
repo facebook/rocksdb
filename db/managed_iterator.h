@@ -54,7 +54,7 @@ class ManagedIterator : public Iterator {
   }
 
  private:
-  void RebuildIterator();
+  void RebuildIterator(bool reseek = false);
   void UpdateCurrent();
   void SeekInternal(const Slice& user_key, bool seek_to_first);
   bool NeedToRebuild();

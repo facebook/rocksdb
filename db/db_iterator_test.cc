@@ -2232,6 +2232,46 @@ TEST_P(DBIteratorTest, SeekAfterHittingManyInternalKeys) {
   ASSERT_EQ(iter2->value().ToString(), "val_6");
 }
 
+// Reproduces a former bug where iterator would skip some records when DBIter
+// re-seeks subiterator with Incomplete status.
+TEST_P(DBIteratorTest, NonBlockingIterationBugRepro) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  // Make sure the sst file has more than one block.
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Two records in sst file, each in its own block.
+  Put("b", "");
+  Put("d", "");
+  Flush();
+
+  // Create a nonblocking iterator before writing to memtable.
+  ReadOptions ropt;
+  ropt.read_tier = kBlockCacheTier;
+  unique_ptr<Iterator> iter(NewIterator(ropt));
+
+  // Overwrite a key in memtable many times to hit
+  // max_sequential_skip_in_iterations (which is 8 by default).
+  for (int i = 0; i < 20; ++i) {
+    Put("c", "");
+  }
+
+  // Load the second block in sst file into the block cache.
+  {
+    unique_ptr<Iterator> iter2(NewIterator(ReadOptions()));
+    iter2->Seek("d");
+  }
+
+  // Finally seek the nonblocking iterator.
+  iter->Seek("a");
+  // With the bug, the status used to be OK, and the iterator used to point to
+  // "d".
+  EXPECT_TRUE(iter->status().IsIncomplete());
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 

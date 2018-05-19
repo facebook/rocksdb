@@ -625,6 +625,7 @@ bool PlainTableIterator::Valid() const {
 }
 
 void PlainTableIterator::SeekToFirst() {
+  status_ = Status::OK();
   next_offset_ = table_->data_start_offset_;
   if (next_offset_ >= table_->file_info_.data_end_offset) {
     next_offset_ = offset_ = table_->file_info_.data_end_offset;
@@ -636,6 +637,7 @@ void PlainTableIterator::SeekToFirst() {
 void PlainTableIterator::SeekToLast() {
   assert(false);
   status_ = Status::NotSupported("SeekToLast() is not supported in PlainTable");
+  next_offset_ = offset_ = table_->file_info_.data_end_offset;
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
@@ -676,6 +678,7 @@ void PlainTableIterator::Seek(const Slice& target) {
   if (!table_->IsTotalOrderMode()) {
     prefix_hash = GetSliceHash(prefix_slice);
     if (!table_->MatchBloom(prefix_hash)) {
+      status_ = Status::OK();
       offset_ = next_offset_ = table_->file_info_.data_end_offset;
       return;
     }
@@ -711,6 +714,7 @@ void PlainTableIterator::SeekForPrev(const Slice& /*target*/) {
   assert(false);
   status_ =
       Status::NotSupported("SeekForPrev() is not supported in PlainTable");
+  offset_ = next_offset_ = table_->file_info_.data_end_offset;
 }
 
 void PlainTableIterator::Next() {

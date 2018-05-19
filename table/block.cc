@@ -402,12 +402,14 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       data_(contents_.data.data()),
       size_(contents_.data.size()),
       restart_offset_(0),
+      num_restarts_(0),
       global_seqno_(_global_seqno) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
+    num_restarts_ = NumRestarts();
     restart_offset_ =
-        static_cast<uint32_t>(size_) - (1 + NumRestarts()) * sizeof(uint32_t);
+        static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
     if (restart_offset_ > size_ - sizeof(uint32_t)) {
       // The size is too small for NumRestarts() and therefore
       // restart_offset_ wrapped around.
@@ -429,17 +431,17 @@ BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
     ret_iter = new BlockIter;
   }
   if (size_ < 2*sizeof(uint32_t)) {
-    ret_iter->SetStatus(Status::Corruption("bad block contents"));
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
-  const uint32_t num_restarts = NumRestarts();
-  if (num_restarts == 0) {
-    ret_iter->SetStatus(Status::OK());
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index_.get();
-    ret_iter->Initialize(cmp, data_, restart_offset_, num_restarts,
+    ret_iter->Initialize(cmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
                          read_amp_bitmap_.get());
 

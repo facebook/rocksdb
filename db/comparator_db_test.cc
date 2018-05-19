@@ -2,6 +2,7 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+#include <array>
 #include <map>
 #include <string>
 
@@ -430,6 +431,145 @@ TEST_F(ComparatorDBTest, TwoStrComparator) {
     }
 
     DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);
+  }
+}
+
+TEST_F(ComparatorDBTest, FindShortestSeparator) {
+  std::string s1 = "abc1xyz";
+  std::string s2 = "abc3xy";
+
+  BytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc2", s1);
+
+  s1 = "abc5xyztt";
+
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc5", s1);
+
+  s1 = "abc3";
+  s2 = "abc2xy";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc3", s1);
+
+  s1 = "abc3xyz";
+  s2 = "abc2xy";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc3", s1);
+
+  s1 = "abc3xyz";
+  s2 = "abc2";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_EQ("abc3", s1);
+
+  std::string old_s1 = s1 = "abc2xy";
+  s2 = "abc2";
+  ReverseBytewiseComparator()->FindShortestSeparator(&s1, s2);
+  ASSERT_TRUE(old_s1 >= s1);
+  ASSERT_TRUE(s1 > s2);
+}
+
+TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
+  // Char list for boundary cases.
+  std::array<unsigned char, 6> char_list{{0, 1, 2, 253, 254, 255}};
+  Random rnd(301);
+
+  for (int attempts = 0; attempts < 1000; attempts++) {
+    uint32_t size1 = rnd.Skewed(4);
+    uint32_t size2;
+
+    if (rnd.OneIn(2)) {
+      // size2 to be random size
+      size2 = rnd.Skewed(4);
+    } else {
+      // size1 is within [-2, +2] of size1
+      int diff = static_cast<int>(rnd.Uniform(5)) - 2;
+      int tmp_size2 = static_cast<int>(size1) + diff;
+      if (tmp_size2 < 0) {
+        tmp_size2 = 0;
+      }
+      size2 = static_cast<uint32_t>(tmp_size2);
+    }
+
+    std::string s1;
+    std::string s2;
+    for (uint32_t i = 0; i < size1; i++) {
+      if (rnd.OneIn(2)) {
+        // Use random byte
+        s1 += static_cast<char>(rnd.Uniform(256));
+      } else {
+        // Use one byte in char_list
+        char c = static_cast<char>(char_list[rnd.Uniform(sizeof(char_list))]);
+        s1 += c;
+      }
+    }
+
+    // First set s2 to be the same as s1, and then modify s2.
+    s2 = s1;
+    s2.resize(size2);
+    // We start from the back of the string
+    if (size2 > 0) {
+      uint32_t pos = size2 - 1;
+      do {
+        if (pos >= size1 || rnd.OneIn(4)) {
+          // For 1/4 chance, use random byte
+          s2[pos] = static_cast<char>(rnd.Uniform(256));
+        } else if (rnd.OneIn(4)) {
+          // In 1/4 chance, stop here.
+          break;
+        } else {
+          // Create a char within [-2, +2] of the matching char of s1.
+          int diff = static_cast<int>(rnd.Uniform(5)) - 2;
+          // char may be signed or unsigned based on platform.
+          int s1_char = static_cast<int>(static_cast<unsigned char>(s1[pos]));
+          int s2_char = s1_char + diff;
+          if (s2_char < 0) {
+            s2_char = 0;
+          }
+          if (s2_char > 255) {
+            s2_char = 255;
+          }
+          s2[pos] = static_cast<char>(s2_char);
+        }
+      } while (pos-- != 0);
+    }
+
+    // Test separators
+    for (int rev = 0; rev < 2; rev++) {
+      if (rev == 1) {
+        // switch s1 and s2
+        std::string t = s1;
+        s1 = s2;
+        s2 = t;
+      }
+      std::string separator = s1;
+      BytewiseComparator()->FindShortestSeparator(&separator, s2);
+      std::string rev_separator = s1;
+      ReverseBytewiseComparator()->FindShortestSeparator(&rev_separator, s2);
+
+      if (s1 == s2) {
+        ASSERT_EQ(s1, separator);
+        ASSERT_EQ(s2, rev_separator);
+      } else if (s1 < s2) {
+        ASSERT_TRUE(s1 <= separator);
+        ASSERT_TRUE(s2 > separator);
+        ASSERT_LE(separator.size(), std::max(s1.size(), s2.size()));
+        ASSERT_EQ(s1, rev_separator);
+      } else {
+        ASSERT_TRUE(s1 >= rev_separator);
+        ASSERT_TRUE(s2 < rev_separator);
+        ASSERT_LE(rev_separator.size(), std::max(s1.size(), s2.size()));
+        ASSERT_EQ(s1, separator);
+      }
+    }
+
+    // Test successors
+    std::string succ = s1;
+    BytewiseComparator()->FindShortSuccessor(&succ);
+    ASSERT_TRUE(succ >= s1);
+
+    succ = s1;
+    ReverseBytewiseComparator()->FindShortSuccessor(&succ);
+    ASSERT_TRUE(succ <= s1);
   }
 }
 

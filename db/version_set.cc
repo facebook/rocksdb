@@ -502,13 +502,7 @@ class LevelIterator final : public InternalIterator {
     return file_iter_.value();
   }
   virtual Status status() const override {
-    // It'd be nice if status() returned a const Status& instead of a Status
-    if (!status_.ok()) {
-      return status_;
-    } else if (file_iter_.iter() != nullptr) {
-      return file_iter_.status();
-    }
-    return Status::OK();
+    return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
   virtual void SetPinnedItersMgr(
       PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -573,7 +567,6 @@ class LevelIterator final : public InternalIterator {
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
-  Status status_;
 };
 
 void LevelIterator::Seek(const Slice& target) {
@@ -628,16 +621,9 @@ void LevelIterator::Prev() {
 }
 
 void LevelIterator::SkipEmptyFileForward() {
-  // For an error (IO error, checksum mismatch, etc), we skip the file
-  // and move to the next one and continue reading data.
-  // TODO this behavior is from LevelDB. We should revisit it.
   while (file_iter_.iter() == nullptr ||
-         (!file_iter_.Valid() && !file_iter_.status().IsIncomplete())) {
-    if (file_iter_.iter() != nullptr && !file_iter_.Valid() &&
-        file_iter_.iter()->IsOutOfBound()) {
-      return;
-    }
-
+         (!file_iter_.Valid() && file_iter_.status().ok() &&
+          !file_iter_.iter()->IsOutOfBound())) {
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {
       // Already at the last file
@@ -657,7 +643,7 @@ void LevelIterator::SkipEmptyFileForward() {
 
 void LevelIterator::SkipEmptyFileBackward() {
   while (file_iter_.iter() == nullptr ||
-         (!file_iter_.Valid() && !file_iter_.status().IsIncomplete())) {
+         (!file_iter_.Valid() && file_iter_.status().ok())) {
     // Move to previous file
     if (file_index_ == 0) {
       // Already the first file
@@ -672,13 +658,6 @@ void LevelIterator::SkipEmptyFileBackward() {
 }
 
 void LevelIterator::SetFileIterator(InternalIterator* iter) {
-  if (file_iter_.iter() != nullptr && status_.ok()) {
-    // TODO right now we don't invalidate the iterator even if the status is
-    // not OK. We should consider to do that so that it is harder for users to
-    // skip errors.
-    status_ = file_iter_.status();
-  }
-
   if (pinned_iters_mgr_ && iter) {
     iter->SetPinnedItersMgr(pinned_iters_mgr_);
   }

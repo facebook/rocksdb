@@ -119,6 +119,7 @@ class BlobDBIterator : public Iterator {
     TEST_SYNC_POINT("BlobDBIterator::UpdateBlobValue:Start:1");
     TEST_SYNC_POINT("BlobDBIterator::UpdateBlobValue:Start:2");
     value_.Reset();
+    status_ = Status::OK();
     if (iter_->Valid() && iter_->status().ok() && iter_->IsBlob()) {
       Status s = blob_db_->GetBlobValue(iter_->key(), iter_->value(), &value_);
       if (s.IsNotFound()) {
