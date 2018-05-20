@@ -68,6 +68,7 @@ DBTestBase::DBTestBase(const std::string path)
       s3_env_(nullptr) {
 
 #ifdef USE_AWS
+  option_env_ = kDefaultEnv;
   env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
   info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
   s3_env_ = CreateNewAwsEnv();
