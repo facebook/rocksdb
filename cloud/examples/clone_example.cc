@@ -27,6 +27,7 @@ std::string kClonePath = "/tmp/rocksdb_clone_db";
 // the same bucket (obviously with different pathnames).
 //
 std::string kBucketSuffix = "cloud.clone.example.";
+std::string kRegion = "us-west-2";
 
 //
 // Creates and Opens a clone
@@ -43,8 +44,9 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
 
   // Create new AWS env
   CloudEnv* cenv;
-  Status st = CloudEnv::NewAwsEnv(Env::Default(), src_bucket, src_object_path,
-                                  dest_bucket, dest_object_path,
+  Status st = CloudEnv::NewAwsEnv(Env::Default(),
+                                  src_bucket, src_object_path, kRegion,
+                                  dest_bucket, dest_object_path, kRegion,
                                   cloud_env_options, nullptr, &cenv);
   if (!st.ok()) {
     fprintf(stderr,
@@ -62,12 +64,15 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   // No persistent cache
   std::string persistent_cache = "";
 
+  // create a bucket name for debugging purposes
+  const std::string bucketName = "rockset." + kBucketSuffix;
+
   // open clone
   DBCloud* db;
   st = DBCloud::Open(options, kClonePath, persistent_cache, 0, &db);
   if (!st.ok()) {
-    fprintf(stderr, "Unable to open clone at path %s with bucket %s. %s\n",
-            kClonePath.c_str(), kBucketSuffix.c_str(), st.ToString().c_str());
+    fprintf(stderr, "Unable to open clone at path %s in bucket %s. %s\n",
+            kClonePath.c_str(), bucketName.c_str(), st.ToString().c_str());
     return st;
   }
   cloud_db->reset(db);
@@ -95,7 +100,6 @@ int main() {
   }
   cloud_env_options.credentials.access_key_id.assign(keyid);
   cloud_env_options.credentials.secret_key.assign(secret);
-  cloud_env_options.region = "us-west-2";
 
   // Append the user name to the bucket name in an attempt to make it
   // globally unique. S3 bucket-namess need to be globlly unique.
@@ -103,14 +107,19 @@ int main() {
   char* user = getenv("USER");
   kBucketSuffix.append(user);
 
+  // create a bucket name for debugging purposes
+  const std::string bucketName = "rockset." + kBucketSuffix;
+
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
   Status s =
-      CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath, kBucketSuffix,
-                          kDBPath, cloud_env_options, nullptr, &cenv);
+      CloudEnv::NewAwsEnv(Env::Default(),
+                          kBucketSuffix, kDBPath, kRegion,
+                          kBucketSuffix, kDBPath, kRegion,
+                          cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
-    fprintf(stderr, "Unable to create cloud env bucket suffix %s. %s\n",
-            kBucketSuffix.c_str(), s.ToString().c_str());
+    fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
+            bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
   cloud_env.reset(cenv);
@@ -127,8 +136,8 @@ int main() {
   DBCloud* db;
   s = DBCloud::Open(options, kDBPath, persistent_cache, 0, &db);
   if (!s.ok()) {
-    fprintf(stderr, "Unable to open db at path %s with bucket %s. %s\n",
-            kDBPath.c_str(), kBucketSuffix.c_str(), s.ToString().c_str());
+    fprintf(stderr, "Unable to open db at path %s in bucket %s. %s\n",
+            kDBPath.c_str(), bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
 
@@ -154,8 +163,8 @@ int main() {
   s = CloneDB("clone1", kBucketSuffix, kDBPath, kBucketSuffix, kClonePath,
               cloud_env_options, &clone_db, &clone_env);
   if (!s.ok()) {
-    fprintf(stderr, "Unable to clone db at path %s with bucket %s. %s\n",
-            kDBPath.c_str(), kBucketSuffix.c_str(), s.ToString().c_str());
+    fprintf(stderr, "Unable to clone db at path %s in bucket %s. %s\n",
+            kDBPath.c_str(), bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
 
@@ -178,6 +187,6 @@ int main() {
   delete db;
 
   fprintf(stdout, "Successfully used db at %s and clone at %s in bucket %s.\n",
-          kDBPath.c_str(), kClonePath.c_str(), kBucketSuffix.c_str());
+          kDBPath.c_str(), kClonePath.c_str(), bucketName.c_str());
   return 0;
 }

@@ -17,6 +17,7 @@ std::string kDBPath = "/tmp/rocksdb_cloud_durable";
 // conflict with any other S3 users who might have already created
 // this bucket name.
 std::string kBucketSuffix = "cloud.durable.example.";
+std::string kRegion = "us-west-2";
 
 int main() {
   // cloud environment config options here
@@ -39,22 +40,26 @@ int main() {
   }
   cloud_env_options.credentials.access_key_id.assign(keyid);
   cloud_env_options.credentials.secret_key.assign(secret);
-  cloud_env_options.region = "us-west-2";
 
   // Append the user name to the bucket name in an attempt to make it
-  // globally unique. S3 bucket-namess need to be groblly unique.
+  // globally unique. S3 bucket-names need to be globally unique.
   // If you want to rerun this example, then unique user-name suffix here.
   char* user = getenv("USER");
   kBucketSuffix.append(user);
 
+  // create a bucket name for debugging purposes
+  const std::string bucketName = "rockset." + kBucketSuffix;
+
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
   Status s =
-      CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath, kBucketSuffix,
-                          kDBPath, cloud_env_options, nullptr, &cenv);
+      CloudEnv::NewAwsEnv(Env::Default(),
+                          kBucketSuffix, kDBPath, kRegion,
+                          kBucketSuffix, kDBPath, kRegion,
+                          cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
-    fprintf(stderr, "Unable to create cloud env bucket suffix %s. %s\n",
-            kBucketSuffix.c_str(), s.ToString().c_str());
+    fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
+            bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
   cloud_env.reset(cenv);
@@ -72,7 +77,7 @@ int main() {
   s = DBCloud::Open(options, kDBPath, persistent_cache, 0, &db);
   if (!s.ok()) {
     fprintf(stderr, "Unable to open db at path %s with bucket %s. %s\n",
-            kDBPath.c_str(), kBucketSuffix.c_str(), s.ToString().c_str());
+            kDBPath.c_str(), bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
 
@@ -111,7 +116,7 @@ int main() {
   db->Flush(FlushOptions());
   delete db;
 
-  fprintf(stdout, "Successfully used db at path %s bucket %s.\n",
-          kDBPath.c_str(), kBucketSuffix.c_str());
+  fprintf(stdout, "Successfully used db at path %s in bucket %s.\n",
+          kDBPath.c_str(), bucketName.c_str());
   return 0;
 }
