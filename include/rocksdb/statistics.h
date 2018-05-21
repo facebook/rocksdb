@@ -619,6 +619,8 @@ struct HistogramData {
   // zero-initialize new members since old Statistics::histogramData()
   // implementations won't write them.
   double max = 0.0;
+  uint64_t count = 0;
+  uint64_t sum = 0;
 };
 
 enum StatsLevel {
