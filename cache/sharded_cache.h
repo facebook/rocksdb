@@ -59,7 +59,7 @@ class ShardedCache : public Cache {
 
   virtual void SetCapacity(size_t capacity) override;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
-
+  virtual void SetHighPriPoolRatio(double high_pri_pool_ratio) override = 0;
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle, Priority priority) override;
@@ -69,10 +69,14 @@ class ShardedCache : public Cache {
   virtual void Erase(const Slice& key) override;
   virtual uint64_t NewId() override;
   virtual size_t GetCapacity() const override;
+  virtual size_t GetHighPriPoolCapacity() const override = 0;
   virtual bool HasStrictCapacityLimit() const override;
   virtual size_t GetUsage() const override;
   virtual size_t GetUsage(Handle* handle) const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetHighPriPoolUsage() const override = 0;
+  virtual double GetHighPriPoolRatio() const override = 0;
+
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) override;
   virtual void EraseUnRefEntries() override;

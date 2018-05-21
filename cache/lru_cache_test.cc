@@ -29,7 +29,7 @@ class LRUCacheTest : public testing::Test {
     );
     cache_->SetCapacity(capacity);
     cache_->SetStrictCapacityLimit(false);
-    cache_->SetHighPriorityPoolRatio(high_pri_pool_ratio);
+    cache_->SetHighPriPoolRatio(high_pri_pool_ratio);
   }
 
   void Insert(const std::string& key,
