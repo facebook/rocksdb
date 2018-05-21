@@ -262,11 +262,13 @@ class TestPlainTableReader : public PlainTableReader {
                        const TableProperties* table_properties,
                        unique_ptr<RandomAccessFileReader>&& file,
                        const ImmutableCFOptions& ioptions,
+                       const SliceTransform* prefix_extractor,
                        bool* expect_bloom_not_match, bool store_index_in_file,
                        uint32_t column_family_id,
                        const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
-                         encoding_type, file_size, table_properties),
+                         encoding_type, file_size, table_properties,
+                         prefix_extractor),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataIfNeeded();
     EXPECT_TRUE(s.ok());
@@ -360,7 +362,8 @@ class TestPlainTableFactory : public PlainTableFactory {
         table_reader_options.env_options,
         table_reader_options.internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
-        std::move(file), table_reader_options.ioptions, expect_bloom_not_match_,
+        std::move(file), table_reader_options.ioptions,
+        table_reader_options.prefix_extractor, expect_bloom_not_match_,
         store_index_in_file_, column_family_id_, column_family_name_));
 
     *table = std::move(new_reader);

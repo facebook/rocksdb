@@ -49,8 +49,8 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                          GetContext::kNotFound, key, value, nullptr, nullptr,
                          nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
-  files_.files[FindFile(key)].fd.table_reader->Get(
-      options, lkey.internal_key(), &get_context);
+  files_.files[FindFile(key)].fd.table_reader->Get(options, lkey.internal_key(),
+                                                   &get_context, nullptr);
   if (get_context.State() == GetContext::kFound) {
     return Status::OK();
   }
@@ -82,7 +82,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
                              GetContext::kNotFound, keys[idx], &pinnable_val,
                              nullptr, nullptr, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
-      r->Get(options, lkey.internal_key(), &get_context);
+      r->Get(options, lkey.internal_key(), &get_context, nullptr);
       value.assign(pinnable_val.data(), pinnable_val.size());
       if (get_context.State() == GetContext::kFound) {
         statuses[idx] = Status::OK();

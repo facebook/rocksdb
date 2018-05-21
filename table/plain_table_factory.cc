@@ -27,7 +27,7 @@ Status PlainTableFactory::NewTableReader(
       table_reader_options.internal_comparator, std::move(file), file_size,
       table, table_options_.bloom_bits_per_key, table_options_.hash_table_ratio,
       table_options_.index_sparseness, table_options_.huge_page_tlb_size,
-      table_options_.full_scan_mode);
+      table_options_.full_scan_mode, table_reader_options.prefix_extractor);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
@@ -38,7 +38,7 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   // tables
   //
   return new PlainTableBuilder(
-      table_builder_options.ioptions,
+      table_builder_options.ioptions, table_builder_options.moptions,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_options_.user_key_len, table_options_.encoding_type,
       table_options_.index_sparseness, table_options_.bloom_bits_per_key,

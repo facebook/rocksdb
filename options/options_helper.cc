@@ -145,6 +145,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
   cf_opts.inplace_update_num_locks =
       mutable_cf_options.inplace_update_num_locks;
+  cf_opts.prefix_extractor = mutable_cf_options.prefix_extractor;
 
   // Compaction related options
   cf_opts.disable_auto_compactions =
@@ -383,7 +384,8 @@ bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform) {
-
+  const char* no_op_name = "rocksdb.Noop";
+  size_t no_op_length = strlen(no_op_name);
   auto& pe_value = value;
   if (pe_value.size() > kFixedPrefixName.size() &&
       pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
@@ -395,6 +397,10 @@ bool ParseSliceTransformHelper(
     int prefix_length =
         ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
     slice_transform->reset(NewCappedPrefixTransform(prefix_length));
+  } else if (pe_value.size() == no_op_length &&
+             pe_value.compare(0, no_op_length, no_op_name) == 0) {
+    const SliceTransform* no_op_transform = NewNoopTransform();
+    slice_transform->reset(no_op_transform);
   } else if (value == kNullptrString) {
     slice_transform->reset();
   } else {
@@ -1791,7 +1797,7 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"prefix_extractor",
          {offset_of(&ColumnFamilyOptions::prefix_extractor),
           OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
-          false, 0}},
+          true, offsetof(struct MutableCFOptions, prefix_extractor)}},
         {"memtable_insert_with_hint_prefix_extractor",
          {offset_of(
               &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),

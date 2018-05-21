@@ -84,6 +84,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   DB* db = nullptr;
   Status s;
   const ImmutableCFOptions ioptions(opts);
+  const ColumnFamilyOptions cfo(opts);
+  const MutableCFOptions moptions(cfo);
   unique_ptr<WritableFileWriter> file_writer;
   if (!through_db) {
     unique_ptr<WritableFile> file;
@@ -95,12 +97,11 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     file_writer.reset(new WritableFileWriter(std::move(file), env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
-        TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
-                            CompressionType::kNoCompression,
-                            CompressionOptions(),
-                            nullptr /* compression_dict */,
-                            false /* skip_filters */, kDefaultColumnFamilyName,
-                            unknown_level),
+        TableBuilderOptions(
+            ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
+            CompressionType::kNoCompression, CompressionOptions(),
+            nullptr /* compression_dict */, false /* skip_filters */,
+            kDefaultColumnFamilyName, unknown_level),
         0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
@@ -138,8 +139,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(raf), file_name));
     s = opts.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, env_options, ikc), std::move(file_reader),
-        file_size, &table_reader);
+        TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
+                           env_options, ikc),
+        std::move(file_reader), file_size, &table_reader);
     if (!s.ok()) {
       fprintf(stderr, "Open Table Error: %s\n", s.ToString().c_str());
       exit(1);
@@ -173,7 +175,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                    ioptions.statistics, GetContext::kNotFound,
                                    Slice(key), &value, nullptr, &merge_context,
                                    &range_del_agg, env);
-            s = table_reader->Get(read_options, key, &get_context);
+            s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
           }
@@ -195,7 +197,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           Iterator* iter = nullptr;
           InternalIterator* iiter = nullptr;
           if (!through_db) {
-            iiter = table_reader->NewIterator(read_options);
+            iiter = table_reader->NewIterator(read_options, nullptr);
           } else {
             iter = db->NewIterator(read_options);
           }

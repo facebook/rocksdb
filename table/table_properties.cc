@@ -107,6 +107,11 @@ std::string TableProperties::ToString(
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "prefix extractor name",
+                 prefix_extractor_name.empty() ? std::string("N/A")
+                                               : prefix_extractor_name,
+                 prop_delim, kv_delim);
+
   AppendProperty(result, "column family ID",
                  column_family_id == rocksdb::TablePropertiesCollectorFactory::
                                          Context::kUnknownColumnFamily
