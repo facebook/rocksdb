@@ -29,8 +29,8 @@ class MockedBlockBasedTable : public BlockBasedTable {
 
   virtual CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
-      const bool /* unused */, bool /* unused */,
-      GetContext* /* unused */) const override {
+      const bool /* unused */, bool /* unused */, GetContext* /* unused */,
+      const SliceTransform* /* unused */) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),
@@ -121,6 +121,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     } while (status.IsIncomplete());
     const Options options;
     const ImmutableCFOptions ioptions(options);
+    const MutableCFOptions moptions(options);
     const EnvOptions env_options;
     table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
         ioptions, env_options, table_options_, icomp, false)));
@@ -138,23 +139,27 @@ class PartitionedFilterBlockTest : public testing::Test {
     for (auto key : keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey_slice));
+      ASSERT_TRUE(
+          reader->KeyMayMatch(key, nullptr, kNotValid, !no_io, &ikey_slice));
     }
     {
       // querying a key twice
       auto ikey = InternalKey(keys[0], 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(keys[0], kNotValid, !no_io, &ikey_slice));
+      ASSERT_TRUE(reader->KeyMayMatch(keys[0], nullptr, kNotValid, !no_io,
+                                      &ikey_slice));
     }
     // querying missing keys
     for (auto key : missing_keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
-        ASSERT_TRUE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey_slice));
+        ASSERT_TRUE(
+            reader->KeyMayMatch(key, nullptr, kNotValid, !no_io, &ikey_slice));
       } else {
         // assuming a good hash function
-        ASSERT_FALSE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey_slice));
+        ASSERT_FALSE(
+            reader->KeyMayMatch(key, nullptr, kNotValid, !no_io, &ikey_slice));
       }
     }
   }

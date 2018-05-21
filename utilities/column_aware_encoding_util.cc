@@ -38,6 +38,7 @@ ColumnAwareEncodingReader::ColumnAwareEncodingReader(
     const std::string& file_path)
     : file_name_(file_path),
       ioptions_(options_),
+      moptions_(options_),
       internal_comparator_(BytewiseComparator()) {
   InitTableReader(file_name_);
 }
@@ -55,7 +56,8 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
 
   std::unique_ptr<TableReader> table_reader;
   options_.table_factory->NewTableReader(
-      TableReaderOptions(ioptions_, soptions_, internal_comparator_,
+      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
+                         internal_comparator_,
                          /*skip_filters=*/false),
       std::move(file_), file_size, &table_reader, /*enable_prefetch=*/false);
 

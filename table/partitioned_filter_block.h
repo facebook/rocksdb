@@ -79,12 +79,12 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
 
   virtual bool IsBlockBased() override { return false; }
   virtual bool KeyMayMatch(
-      const Slice& key, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& key, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual bool PrefixMayMatch(
-      const Slice& prefix, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& prefix, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
@@ -92,8 +92,9 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
   Slice GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
       FilePrefetchBuffer* prefetch_buffer, Slice* handle, const bool no_io,
-      bool* cached);
-  virtual void CacheDependencies(bool pin) override;
+      bool* cached, const SliceTransform* prefix_extractor = nullptr);
+  virtual void CacheDependencies(
+      bool bin, const SliceTransform* prefix_extractor) override;
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;

@@ -862,6 +862,8 @@ TEST_P(DBIteratorTest, IteratorPinsRef) {
   } while (ChangeCompactOptions());
 }
 
+// SetOptions not defined in ROCKSDB LITE
+#ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -946,9 +948,7 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   }
 
   // prefix is the first letter of the key
-  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-
-  DestroyAndReopen(options);
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:1"}}));
   ASSERT_OK(Put("a", "0"));
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("foo1", "bar1"));
@@ -1035,6 +1035,7 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
   }
 }
+#endif
 
 TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
   int upper_bound_hits = 0;

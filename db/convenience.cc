@@ -50,8 +50,9 @@ Status VerifySstFileChecksum(const Options& options,
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(file), file_path));
   s = ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, env_options, internal_comparator,
-                         false /* skip_filters */, -1 /* level */),
+      TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
+                         internal_comparator, false /* skip_filters */,
+                         -1 /* level */),
       std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
