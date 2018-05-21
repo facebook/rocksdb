@@ -1532,14 +1532,15 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context) {
+    GetContext* get_context,
+    FilePrefetchBuffer* prefetch_buffer) {
   BlockHandle handle;
   Slice input = index_value;
   // We intentionally allow extra stuff in index_value so that we
   // can add more features in the future.
   Status s = handle.DecodeFrom(&input);
   return NewDataBlockIterator(rep, ro, handle, input_iter, is_index,
-                              key_includes_seq, get_context, s);
+                              key_includes_seq, get_context, s, prefetch_buffer);
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -1549,7 +1550,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
 BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
     BlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context, Status s) {
+    GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   const bool no_io = (ro.read_tier == kBlockCacheTier);
@@ -1560,7 +1561,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
     if (rep->compression_dict_block) {
       compression_dict = rep->compression_dict_block->data;
     }
-    s = MaybeLoadDataBlockToCache(nullptr /*prefetch_buffer*/, rep, ro, handle,
+    s = MaybeLoadDataBlockToCache(prefetch_buffer, rep, ro, handle,
                                   compression_dict, &block, is_index,
                                   get_context);
   }
@@ -1583,7 +1584,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
       StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
                    READ_BLOCK_GET_MICROS);
       s = ReadBlockFromFile(
-          rep->file.get(), nullptr /* prefetch_buffer */, rep->footer, ro,
+          rep->file.get(), prefetch_buffer, rep->footer, ro,
           handle, &block_value, rep->ioptions, rep->blocks_maybe_compressed,
           compression_dict, rep->persistent_cache_options,
           is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
@@ -1987,10 +1988,17 @@ void BlockBasedTableIterator::InitDataBlock() {
         num_file_reads_++;
         // Do not readahead more than kMaxReadaheadSize.
         readahead_size_ = std::min(kMaxReadaheadSize, readahead_size_);
-        table_->get_rep()->file->Prefetch(data_block_handle.offset(),
-                                          readahead_size_);
-        readahead_limit_ = static_cast<size_t>(data_block_handle.offset()
-          + readahead_size_);
+
+        if (!rep->file->use_direct_io()) {
+          rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
+        } else {
+          prefetch_buffer_.reset(new FilePrefetchBuffer());
+          prefetch_buffer_->Prefetch(
+              rep->file.get(), data_block_handle.offset(), readahead_size_);
+        }
+
+        readahead_limit_ =
+            static_cast<size_t>(data_block_handle.offset() + readahead_size_);
         // Keep exponentially increasing readahead size until kMaxReadaheadSize.
         readahead_size_ *= 2;
       }
@@ -1999,7 +2007,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     BlockBasedTable::NewDataBlockIterator(rep, read_options_, data_block_handle,
                                           &data_block_iter_, is_index_,
                                           key_includes_seq_,
-                                          /* get_context */ nullptr, s);
+                                          /* get_context */ nullptr, s, prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
   }
 }

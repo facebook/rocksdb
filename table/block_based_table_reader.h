@@ -218,14 +218,16 @@ class BlockBasedTable : public TableReader {
                                          BlockIter* input_iter = nullptr,
                                          bool is_index = false,
                                          bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr);
+                                         GetContext* get_context = nullptr,
+                                         FilePrefetchBuffer* prefetch_buffer = nullptr);
   static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
                                          const BlockHandle& block_hanlde,
                                          BlockIter* input_iter = nullptr,
                                          bool is_index = false,
                                          bool key_includes_seq = true,
                                          GetContext* get_context = nullptr,
-                                         Status s = Status());
+                                         Status s = Status(),
+                                         FilePrefetchBuffer* prefetch_buffer = nullptr);
 
   class PartitionedIndexIteratorState;
 
@@ -631,6 +633,7 @@ class BlockBasedTableIterator : public InternalIterator {
   size_t readahead_size_ = kInitReadaheadSize;
   size_t readahead_limit_ = 0;
   int num_file_reads_ = 0;
+  std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
 
 }  // namespace rocksdb
