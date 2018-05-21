@@ -1989,6 +1989,8 @@ void BlockBasedTableIterator::InitDataBlock() {
         // Do not readahead more than kMaxReadaheadSize.
         readahead_size_ = std::min(kMaxReadaheadSize, readahead_size_);
 
+        // Discarding the return status of Prefetch calls intentionally, as we
+        // can fallback to reading from disk if Prefetch fails.
         if (!rep->file->use_direct_io()) {
           rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
         } else {
