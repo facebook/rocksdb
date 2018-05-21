@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* For users of `Statistics` objects created via `CreateDBStatistics()`, the format of the string returned by its `ToString()` method has changed.
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change
