@@ -300,7 +300,7 @@ struct BlockBasedTableBuilder::Rep {
                       : 0),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
-        range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
+        range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_ioptions.prefix_extractor),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
