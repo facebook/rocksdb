@@ -242,11 +242,12 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
   ASSERT_EQ(unmatch_cnt, 0);
   ASSERT_GE(match_cnt, 11);
 
-  buffer_size = 512 * 1024;
-  match_cnt = 0;
-  unmatch_cnt = 0;
   ASSERT_OK(
       dbfull()->SetDBOptions({{"writable_file_max_buffer_size", "524288"}}));
+  buffer_size = 512 * 1024;
+  match_cnt = 0;
+  unmatch_cnt = 0;  // SetDBOptions() will create a WriteableFileWriter
+
   ASSERT_EQ(buffer_size,
             dbfull()->GetDBOptions().writable_file_max_buffer_size);
   i = 0;
