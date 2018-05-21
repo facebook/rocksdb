@@ -299,6 +299,9 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   void PutRandomData(int cf, int num, int key_value_size, bool save = false) {
+    if (cf >= static_cast<int>(keys_.size())) {
+      keys_.resize(cf + 1);
+    }
     for (int i = 0; i < num; ++i) {
       // 10 bytes for key, rest is value
       if (!save) {
@@ -306,7 +309,7 @@ class ColumnFamilyTest : public testing::Test {
                       RandomString(&rnd_, key_value_size - 10)));
       } else {
         std::string key = test::RandomKey(&rnd_, 11);
-        keys_.insert(key);
+        keys_[cf].insert(key);
         ASSERT_OK(Put(cf, key, RandomString(&rnd_, key_value_size - 10)));
       }
     }
@@ -506,7 +509,7 @@ class ColumnFamilyTest : public testing::Test {
 
   std::vector<ColumnFamilyHandle*> handles_;
   std::vector<std::string> names_;
-  std::set<std::string> keys_;
+  std::vector<std::set<std::string>> keys_;
   ColumnFamilyOptions column_family_options_;
   DBOptions db_options_;
   std::string dbname_;
@@ -1414,8 +1417,8 @@ TEST_F(ColumnFamilyTest, MultipleManualCompactions) {
   CompactAll(2);
   AssertFilesPerLevel("0,1", 2);
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -1508,8 +1511,8 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
   CompactAll(2);
   AssertFilesPerLevel("0,1", 2);
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -1604,8 +1607,8 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   CompactAll(2);
   AssertFilesPerLevel("0,1", 2);
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -1703,8 +1706,8 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
   ASSERT_LE(NumTableFilesAtLevel(0, 1), 2);
 
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -1793,8 +1796,8 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   ASSERT_LE(NumTableFilesAtLevel(0, 1), 2);
 
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -1883,8 +1886,8 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   AssertFilesPerLevel("0,1", 1);
 
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -1972,8 +1975,8 @@ TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   // VERIFY compaction "one"
   AssertFilesPerLevel("1", 1);
   // Compare against saved keys
-  std::set<std::string>::iterator key_iter = keys_.begin();
-  while (key_iter != keys_.end()) {
+  std::set<std::string>::iterator key_iter = keys_[1].begin();
+  while (key_iter != keys_[1].end()) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
@@ -3189,19 +3192,38 @@ TEST_F(ColumnFamilyTest, MultipleCFPathsTest) {
   CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
   Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
 
-  PutRandomData(1, 100, 100);
+  PutRandomData(1, 100, 100, true /* save */);
   Flush(1);
 
   // Check that files are generated in appropriate paths.
   ASSERT_EQ(1, GetSstFileCount(cf_opt1.cf_paths[0].path));
   ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  PutRandomData(2, 100, 100);
+  PutRandomData(2, 100, 100, true /* save */);
   Flush(2);
 
   ASSERT_EQ(1, GetSstFileCount(cf_opt2.cf_paths[0].path));
   ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // Re-open and verify the keys.
+  Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  for (int cf = 1; cf != 3; ++cf) {
+    ReadOptions read_options;
+    read_options.readahead_size = 0;
+    auto it = dbi->NewIterator(read_options, handles_[cf]);
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      Slice key(it->key());
+      ASSERT_NE(keys_[cf].end(), keys_[cf].find(key.ToString()));
+    }
+    delete it;
+
+    for (const auto& key : keys_[cf]) {
+      ASSERT_NE("NOT_FOUND", Get(cf, key));
+    }
+  }
 }
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
