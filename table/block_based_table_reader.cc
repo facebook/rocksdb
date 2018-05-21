@@ -1785,6 +1785,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
+                                     const ReadOptions& read_options,
                                      const SliceTransform* prefix_extractor) {
   if (!rep_->filter_policy) {
     return true;
@@ -1795,9 +1796,40 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   if (!prefix_extractor->InDomain(user_key)) {
     return true;
   }
-  assert(rep_->table_properties->prefix_extractor_name.compare(
-             prefix_extractor->Name()) == 0);
   auto prefix = prefix_extractor->Transform(user_key);
+  if (rep_->table_properties->prefix_extractor_name.compare(
+          prefix_extractor->Name()) != 0) {
+#ifndef ROCKSDB_LITE
+    // Try to reuse the bloom filter in the SST table if prefix_extractor in
+    // mutable_cf_options has been changed. If range (user_key, stop_key) all
+    // share the same prefix then we may still be able to use the bloom filter.
+    if (read_options.stop_key != nullptr) {
+      auto end_key = *(read_options.stop_key);
+      std::shared_ptr<const SliceTransform> table_prefix_extractor;
+      if (ParseSliceTransform(rep_->table_properties->prefix_extractor_name,
+                              &table_prefix_extractor)) {
+        Slice user_key_xform = table_prefix_extractor->Transform(user_key);
+        Slice end_key_xform = table_prefix_extractor->Transform(end_key);
+        if (user_key_xform.compare(end_key_xform) != 0) {
+          // fprintf(stdout, "internal_key = %s, end_key = %s, user_key_xform =
+          // %s, end_key_xform = %s transformed into different prefix, not
+          // possible\n",
+          //         user_key.ToString().c_str(), end_key.ToString().c_str(),
+          //         user_key_xform.ToString().c_str(),
+          //         end_key_xform.ToString().c_str());
+          return true;
+        }
+        // Use prefix_extractor found in the SSTtable to do the transformation.
+        prefix = table_prefix_extractor->Transform(user_key);
+      }
+    } else {
+      return true;
+    }
+#else
+    (void) read_options;
+    return true;
+#endif  // ROCKSDB_LITE
+  }
 
   bool may_match = true;
   Status s;
@@ -2112,18 +2144,16 @@ InternalIterator* BlockBasedTable::NewIterator(
             prefix_extractor_changed &&
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr && !prefix_extractor_changed,
-        prefix_extractor, kIsNotIndex, true /*key_includes_seq*/,
-        for_compaction);
+            prefix_extractor != nullptr, prefix_extractor, kIsNotIndex,
+        true /*key_includes_seq*/, for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr && !prefix_extractor_changed,
-        prefix_extractor, kIsNotIndex, true /*key_includes_seq*/,
-        for_compaction);
+            prefix_extractor != nullptr, prefix_extractor, kIsNotIndex,
+        true /*key_includes_seq*/, for_compaction);
   }
 }
 

@@ -95,6 +95,7 @@ class BlockBasedTable : public TableReader {
                      bool skip_filters = false, int level = -1);
 
   bool PrefixMayMatch(const Slice& internal_key,
+                      const ReadOptions& read_options,
                       const SliceTransform* prefix_extractor = nullptr);
 
   // Returns a new iterator over the table contents.
@@ -577,7 +578,8 @@ class BlockBasedTableIterator : public InternalIterator {
 
   bool CheckPrefixMayMatch(const Slice& ikey,
                            const SliceTransform* prefix_extractor = nullptr) {
-    if (check_filter_ && !table_->PrefixMayMatch(ikey, prefix_extractor)) {
+    if (check_filter_ &&
+        !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to
