@@ -127,7 +127,8 @@ class CuckooReaderTest : public testing::Test {
       GetContext get_context(ucomp, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, Slice(user_keys[i]), &value,
                              nullptr, nullptr, nullptr, nullptr);
-      ASSERT_OK(reader.Get(ReadOptions(), Slice(keys[i]), &get_context));
+      ASSERT_OK(
+          reader.Get(ReadOptions(), Slice(keys[i]), &get_context, nullptr));
       ASSERT_STREQ(values[i].c_str(), value.data());
     }
   }
@@ -149,7 +150,8 @@ class CuckooReaderTest : public testing::Test {
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
-    InternalIterator* it = reader.NewIterator(ReadOptions(), nullptr);
+    InternalIterator* it =
+        reader.NewIterator(ReadOptions(), nullptr, nullptr, false);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
     it->SeekToFirst();
@@ -188,7 +190,7 @@ class CuckooReaderTest : public testing::Test {
     delete it;
 
     Arena arena;
-    it = reader.NewIterator(ReadOptions(), &arena);
+    it = reader.NewIterator(ReadOptions(), nullptr, &arena);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
     it->Seek(keys[num_items/2]);
@@ -337,7 +339,8 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   GetContext get_context(ucmp, nullptr, nullptr, nullptr, GetContext::kNotFound,
                          Slice(not_found_key), &value, nullptr, nullptr,
                          nullptr, nullptr);
-  ASSERT_OK(reader.Get(ReadOptions(), Slice(not_found_key), &get_context));
+  ASSERT_OK(
+      reader.Get(ReadOptions(), Slice(not_found_key), &get_context, nullptr));
   ASSERT_TRUE(value.empty());
   ASSERT_OK(reader.status());
   // Search for a key with an independent hash value.
@@ -350,7 +353,8 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   GetContext get_context2(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(not_found_key2), &value,
                           nullptr, nullptr, nullptr, nullptr);
-  ASSERT_OK(reader.Get(ReadOptions(), Slice(not_found_key2), &get_context2));
+  ASSERT_OK(
+      reader.Get(ReadOptions(), Slice(not_found_key2), &get_context2, nullptr));
   ASSERT_TRUE(value.empty());
   ASSERT_OK(reader.status());
 
@@ -365,7 +369,8 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   GetContext get_context3(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(unused_key), &value,
                           nullptr, nullptr, nullptr, nullptr);
-  ASSERT_OK(reader.Get(ReadOptions(), Slice(unused_key), &get_context3));
+  ASSERT_OK(
+      reader.Get(ReadOptions(), Slice(unused_key), &get_context3, nullptr));
   ASSERT_TRUE(value.empty());
   ASSERT_OK(reader.status());
 }
@@ -443,7 +448,7 @@ void WriteFile(const std::vector<std::string>& keys,
   for (uint64_t i = 0; i < num; ++i) {
     value.Reset();
     value.clear();
-    ASSERT_OK(reader.Get(r_options, Slice(keys[i]), &get_context));
+    ASSERT_OK(reader.Get(r_options, Slice(keys[i]), &get_context, nullptr));
     ASSERT_TRUE(Slice(keys[i]) == Slice(&keys[i][0], 4));
   }
 }
@@ -496,13 +501,13 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
       }
       for (uint64_t j = i; j < i+batch_size && j < num; ++j) {
         reader.Get(r_options, Slice(reinterpret_cast<char*>(&keys[j]), 16),
-                   &get_context);
+                   &get_context, nullptr);
       }
     }
   } else {
     for (uint64_t i = 0; i < num; i++) {
       reader.Get(r_options, Slice(reinterpret_cast<char*>(&keys[i]), 16),
-                 &get_context);
+                 &get_context, nullptr);
     }
   }
   float time_per_op = (env->NowMicros() - start_time) * 1.0f / num;

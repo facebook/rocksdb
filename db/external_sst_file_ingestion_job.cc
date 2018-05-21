@@ -29,13 +29,13 @@
 namespace rocksdb {
 
 Status ExternalSstFileIngestionJob::Prepare(
-    const std::vector<std::string>& external_files_paths) {
+    const std::vector<std::string>& external_files_paths, SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
   for (const std::string& file_path : external_files_paths) {
     IngestedFileInfo file_to_ingest;
-    status = GetIngestedFileInfo(file_path, &file_to_ingest);
+    status = GetIngestedFileInfo(file_path, &file_to_ingest, sv);
     if (!status.ok()) {
       return status;
     }
@@ -284,7 +284,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
 }
 
 Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
-    const std::string& external_file, IngestedFileInfo* file_to_ingest) {
+    const std::string& external_file, IngestedFileInfo* file_to_ingest,
+    SuperVersion* sv) {
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
@@ -306,8 +307,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
                                                    external_file));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(), env_options_,
-                         cfd_->internal_comparator()),
+      TableReaderOptions(*cfd_->ioptions(),
+                         sv->mutable_cf_options.prefix_extractor.get(),
+                         env_options_, cfd_->internal_comparator()),
       std::move(sst_file_reader), file_to_ingest->file_size, &table_reader);
   if (!status.ok()) {
     return status;
@@ -363,7 +365,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // We need to disable fill_cache so that we read from the file without
   // updating the block cache.
   ro.fill_cache = false;
-  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro));
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+      ro, sv->mutable_cf_options.prefix_extractor.get()));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();

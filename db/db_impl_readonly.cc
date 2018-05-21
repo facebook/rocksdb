@@ -58,7 +58,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   SequenceNumber latest_snapshot = versions_->LastSequence();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(),
+      env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
       (read_options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                  ->number_
@@ -88,7 +88,7 @@ Status DBImplReadOnly::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(),
+        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         (read_options.snapshot != nullptr
              ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                    ->number_
