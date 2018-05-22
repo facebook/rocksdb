@@ -129,17 +129,6 @@ int fromHex(char c) {
   return c - 'A' + 10;
 }
 
- Slice::Slice(const char* s) {
-  if(s == nullptr) {
-    data_ = "";
-    size_ = 0;
-  }
-  else {
-    data_ = s;
-    size_ = strlen(s);
-  }
-}
-
 Slice::Slice(const SliceParts& parts, std::string* buf) {
   size_t length = 0;
   for (int i = 0; i < parts.num_parts; ++i) {
