@@ -162,7 +162,13 @@ bool UniversalCompactionPicker::IsInputFilesNonOverlapping(Compaction* c) {
 bool UniversalCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
   const int kLevel0 = 0;
-  return vstorage->CompactionScore(kLevel0) >= 1;
+  if (vstorage->CompactionScore(kLevel0) >= 1) {
+    return true;
+  }
+  if (!vstorage->FilesMarkedForCompaction().empty()) {
+    return true;
+  }
+  return false;
 }
 
 void UniversalCompactionPicker::SortedRun::Dump(char* out_buf,
@@ -257,8 +263,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       CalculateSortedRuns(*vstorage, ioptions_, mutable_cf_options);
 
   if (sorted_runs.size() == 0 ||
-      sorted_runs.size() <
-          (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger) {
+      (vstorage->FilesMarkedForCompaction().empty() && sorted_runs.size() <
+          (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger)) {
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: nothing to do\n",
                      cf_name.c_str());
     TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
@@ -272,54 +278,57 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       cf_name.c_str(), sorted_runs.size(), vstorage->LevelSummary(&tmp));
 
   // Check for size amplification first.
-  Compaction* c;
-  if ((c = PickCompactionToReduceSizeAmp(cf_name, mutable_cf_options, vstorage,
-                                         score, sorted_runs, log_buffer)) !=
-      nullptr) {
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: compacting for size amp\n",
-                     cf_name.c_str());
-  } else {
-    // Size amplification is within limits. Try reducing read
-    // amplification while maintaining file size ratios.
-    unsigned int ratio =
-        mutable_cf_options.compaction_options_universal.size_ratio;
-
-    if ((c = PickCompactionToReduceSortedRuns(
-             cf_name, mutable_cf_options, vstorage, score, ratio, UINT_MAX,
-             sorted_runs, log_buffer)) != nullptr) {
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Universal: compacting for size ratio\n",
+  Compaction* c = nullptr;
+  if (sorted_runs.size() >= static_cast<size_t>(
+                 mutable_cf_options.level0_file_num_compaction_trigger)) {
+    if ((c = PickCompactionToReduceSizeAmp(cf_name, mutable_cf_options, vstorage,
+                                           score, sorted_runs, log_buffer)) !=
+        nullptr) {
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: compacting for size amp\n",
                        cf_name.c_str());
     } else {
-      // Size amplification and file size ratios are within configured limits.
-      // If max read amplification is exceeding configured limits, then force
-      // compaction without looking at filesize ratios and try to reduce
-      // the number of files to fewer than level0_file_num_compaction_trigger.
-      // This is guaranteed by NeedsCompaction()
-      assert(sorted_runs.size() >=
-             static_cast<size_t>(
-                 mutable_cf_options.level0_file_num_compaction_trigger));
-      // Get the total number of sorted runs that are not being compacted
-      int num_sr_not_compacted = 0;
-      for (size_t i = 0; i < sorted_runs.size(); i++) {
-        if (sorted_runs[i].being_compacted == false) {
-          num_sr_not_compacted++;
-        }
-      }
+      // Size amplification is within limits. Try reducing read
+      // amplification while maintaining file size ratios.
+      unsigned int ratio =
+          mutable_cf_options.compaction_options_universal.size_ratio;
 
-      // The number of sorted runs that are not being compacted is greater than
-      // the maximum allowed number of sorted runs
-      if (num_sr_not_compacted >
-          mutable_cf_options.level0_file_num_compaction_trigger) {
-        unsigned int num_files =
-            num_sr_not_compacted -
-            mutable_cf_options.level0_file_num_compaction_trigger + 1;
-        if ((c = PickCompactionToReduceSortedRuns(
-                 cf_name, mutable_cf_options, vstorage, score, UINT_MAX,
-                 num_files, sorted_runs, log_buffer)) != nullptr) {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Universal: compacting for file num -- %u\n",
-                           cf_name.c_str(), num_files);
+      if ((c = PickCompactionToReduceSortedRuns(
+               cf_name, mutable_cf_options, vstorage, score, ratio, UINT_MAX,
+               sorted_runs, log_buffer)) != nullptr) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Universal: compacting for size ratio\n",
+                         cf_name.c_str());
+      } else {
+        // Size amplification and file size ratios are within configured limits.
+        // If max read amplification is exceeding configured limits, then force
+        // compaction without looking at filesize ratios and try to reduce
+        // the number of files to fewer than level0_file_num_compaction_trigger.
+        // This is guaranteed by NeedsCompaction()
+        assert(sorted_runs.size() >=
+               static_cast<size_t>(
+                   mutable_cf_options.level0_file_num_compaction_trigger));
+        // Get the total number of sorted runs that are not being compacted
+        int num_sr_not_compacted = 0;
+        for (size_t i = 0; i < sorted_runs.size(); i++) {
+          if (sorted_runs[i].being_compacted == false) {
+            num_sr_not_compacted++;
+          }
+        }
+
+        // The number of sorted runs that are not being compacted is greater than
+        // the maximum allowed number of sorted runs
+        if (num_sr_not_compacted >
+            mutable_cf_options.level0_file_num_compaction_trigger) {
+          unsigned int num_files =
+              num_sr_not_compacted -
+              mutable_cf_options.level0_file_num_compaction_trigger + 1;
+          if ((c = PickCompactionToReduceSortedRuns(
+                   cf_name, mutable_cf_options, vstorage, score, UINT_MAX,
+                   num_files, sorted_runs, log_buffer)) != nullptr) {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Universal: compacting for file num -- %u\n",
+                             cf_name.c_str(), num_files);
+          }
         }
       }
     }
@@ -806,9 +815,8 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
     if (start_level_inputs.empty()) {
       return nullptr;
     }
-    inputs.push_back(start_level_inputs);
 
-    // Pick the first non-mepty level after the start_level
+    // Pick the first non-empty level after the start_level
     for (output_level = start_level + 1; output_level < vstorage->num_levels(); output_level++) {
       if (vstorage->NumLevelFiles(output_level) != 0) {
         break;
@@ -839,12 +847,15 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
             &start_level_inputs, &output_level_inputs, &parent_index, -1)) {
         return nullptr;
       }
+      inputs.push_back(start_level_inputs);
       if (!output_level_inputs.empty()) {
         inputs.push_back(output_level_inputs);
       }
       if (FilesRangeOverlapWithCompaction(inputs, output_level)) {
         return nullptr;
       }
+    } else {
+      inputs.push_back(start_level_inputs);
     }
   }
 
