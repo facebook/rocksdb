@@ -171,7 +171,10 @@ struct LevelFilesBrief {
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
+  VersionEdit(const VersionEdit& other);
+  VersionEdit(VersionEdit&& other);
   ~VersionEdit() { }
+  VersionEdit& operator=(VersionEdit&& other);
 
   void Clear();
 
@@ -278,6 +281,11 @@ class VersionEdit {
     return new_files_;
   }
 
+  void MarkGroupCommitStart(uint32_t group_commit_size) {
+    is_first_entry_in_group_commit_ = true;
+    group_commit_size_ = group_commit_size;
+  }
+
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
@@ -316,6 +324,9 @@ class VersionEdit {
   bool is_column_family_drop_;
   bool is_column_family_add_;
   std::string column_family_name_;
+
+  bool is_first_entry_in_group_commit_ = false;
+  uint32_t group_commit_size_;
 };
 
 }  // namespace rocksdb

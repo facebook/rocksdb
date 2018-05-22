@@ -302,17 +302,27 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
   (void) prep_tracker;
   // flush was successful
   std::vector<autovector<VersionEdit*>> edit_lists;
+  uint32_t num_entries = 0;
   for (size_t k = 0; k != mems.size(); ++k) {
     autovector<VersionEdit*> edit_list;
     for (size_t i = 0; i != mems[k].size(); ++i) {
       assert(i == 0 || mems[k][i]->GetEdits()->NumEntries() == 0);
       if (i == 0) {
         edit_list.push_back(mems[k][i]->GetEdits());
+        ++num_entries;
       }
       mems[k][i]->flush_completed_ = true;
       mems[k][i]->file_number_ = file_meta[k].fd.GetNumber();
     }
     edit_lists.emplace_back(edit_list);
+  }
+
+  if (!edit_lists.empty()) {
+#ifndef NDEBUG
+    assert(!edit_lists[0].empty());
+    assert(edit_lists[0][0] != nullptr);
+#endif
+    edit_lists[0][0]->MarkGroupCommitStart(num_entries);
   }
 
   // This can release and re-acquire the mutex.

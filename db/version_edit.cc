@@ -40,6 +40,7 @@ enum Tag {
   kColumnFamilyAdd = 201,
   kColumnFamilyDrop = 202,
   kMaxColumnFamily = 203,
+  kFirstEntryInGroupCommit = 300,
 };
 
 enum CustomTag {
@@ -59,6 +60,81 @@ uint32_t kCustomTagNonSafeIgnoreMask = 1 << 6;
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
   return number | (path_id * (kFileNumberMask + 1));
+}
+
+VersionEdit::VersionEdit(const VersionEdit& other):
+    max_level_(other.max_level_), comparator_(other.comparator_),
+    log_number_(other.log_number_), prev_log_number_(other.prev_log_number_),
+    next_file_number_(other.next_file_number_),
+    max_column_family_(other.max_column_family_),
+    min_log_number_to_keep_(other.min_log_number_to_keep_),
+    last_sequence_(other.last_sequence_),
+    has_comparator_(other.has_comparator_),
+    has_log_number_(other.has_log_number_),
+    has_prev_log_number_(other.has_prev_log_number_),
+    has_next_file_number_(other.has_next_file_number_),
+    has_last_sequence_(other.has_last_sequence_),
+    has_max_column_family_(other.has_max_column_family_),
+    has_min_log_number_to_keep_(other.has_min_log_number_to_keep_),
+    deleted_files_(other.deleted_files_),
+    new_files_(other.new_files_),
+    column_family_(other.column_family_),
+    is_column_family_drop_(other.is_column_family_drop_),
+    is_column_family_add_(other.is_column_family_add_),
+    column_family_name_(other.column_family_name_),
+    is_first_entry_in_group_commit_(other.is_first_entry_in_group_commit_),
+    group_commit_size_(other.group_commit_size_) {}
+
+VersionEdit::VersionEdit(VersionEdit&& other):
+    max_level_(other.max_level_), comparator_(other.comparator_),
+    log_number_(other.log_number_), prev_log_number_(other.prev_log_number_),
+    next_file_number_(other.next_file_number_),
+    max_column_family_(other.max_column_family_),
+    min_log_number_to_keep_(other.min_log_number_to_keep_),
+    last_sequence_(other.last_sequence_),
+    has_comparator_(other.has_comparator_),
+    has_log_number_(other.has_log_number_),
+    has_prev_log_number_(other.has_prev_log_number_),
+    has_next_file_number_(other.has_next_file_number_),
+    has_last_sequence_(other.has_last_sequence_),
+    has_max_column_family_(other.has_max_column_family_),
+    has_min_log_number_to_keep_(other.has_min_log_number_to_keep_),
+    deleted_files_(std::move(other.deleted_files_)),
+    new_files_(std::move(other.new_files_)),
+    column_family_(other.column_family_),
+    is_column_family_drop_(other.is_column_family_drop_),
+    is_column_family_add_(other.is_column_family_add_),
+    column_family_name_(other.column_family_name_),
+    is_first_entry_in_group_commit_(other.is_first_entry_in_group_commit_),
+    group_commit_size_(other.group_commit_size_) {}
+
+VersionEdit& VersionEdit::operator=(VersionEdit&& other) {
+  if (this != &other) {
+    max_level_ = other.max_level_;
+    comparator_ = other.comparator_;
+    log_number_ = other.log_number_;
+    prev_log_number_ = other.prev_log_number_;
+    next_file_number_ = other.next_file_number_;
+    max_column_family_ = other.max_column_family_;
+    min_log_number_to_keep_ = other.min_log_number_to_keep_;
+    last_sequence_ = other.last_sequence_;
+    has_comparator_ = other.has_comparator_;
+    has_log_number_ = other.has_log_number_;
+    has_prev_log_number_ = other.has_prev_log_number_;
+    has_next_file_number_ = other.has_next_file_number_;
+    has_last_sequence_ = other.has_last_sequence_;
+    has_max_column_family_ = other.has_max_column_family_;
+    has_min_log_number_to_keep_ = other.has_min_log_number_to_keep_;
+    deleted_files_ = std::move(other.deleted_files_);
+    new_files_ = std::move(other.new_files_);
+    column_family_ = other.column_family_;
+    is_column_family_drop_ = other.is_column_family_drop_;
+    is_column_family_add_ = other.is_column_family_add_;
+    column_family_name_ = other.column_family_name_;
+    is_first_entry_in_group_commit_ = other.is_first_entry_in_group_commit_;
+    group_commit_size_ = other.group_commit_size_;
+  }
+  return *this;
 }
 
 void VersionEdit::Clear() {
@@ -199,6 +275,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
 
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
+  }
+
+  if (is_first_entry_in_group_commit_) {
+    PutVarint32(dst, kFirstEntryInGroupCommit);
+    PutVarint32(dst, group_commit_size_);
   }
   return true;
 }
@@ -471,6 +552,15 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
       case kColumnFamilyDrop:
         is_column_family_drop_ = true;
+        break;
+
+      case kFirstEntryInGroupCommit:
+        is_first_entry_in_group_commit_ = true;
+        if (!GetVarint32(&input, &group_commit_size_)) {
+          if (!msg) {
+            msg = "group commit size";
+          }
+        }
         break;
 
       default:
