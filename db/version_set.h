@@ -633,6 +633,8 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
+  MutableCFOptions GetMutableCFOptions() { return mutable_cf_options_; }
+
  private:
   Env* env_;
   friend class VersionSet;
@@ -680,13 +682,14 @@ class Version {
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
   const EnvOptions env_options_;
+  const MutableCFOptions mutable_cf_options_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const EnvOptions& env_opt,
-          uint64_t version_number = 0);
+          MutableCFOptions mutable_cf_options, uint64_t version_number = 0);
 
   ~Version();
 

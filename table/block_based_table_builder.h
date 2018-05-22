@@ -38,7 +38,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   // @param compression_dict Data for presetting the compression library's
   //    dictionary, or nullptr.
   BlockBasedTableBuilder(
-      const ImmutableCFOptions& ioptions,
+      const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*

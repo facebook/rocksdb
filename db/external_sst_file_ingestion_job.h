@@ -86,7 +86,8 @@ class ExternalSstFileIngestionJob {
         job_start_time_(env_->NowMicros()) {}
 
   // Prepare the job by copying external files into the DB.
-  Status Prepare(const std::vector<std::string>& external_files_paths);
+  Status Prepare(const std::vector<std::string>& external_files_paths,
+                 SuperVersion* sv);
 
   // Check if we need to flush the memtable before running the ingestion job
   // This will be true if the files we are ingesting are overlapping with any
@@ -119,7 +120,8 @@ class ExternalSstFileIngestionJob {
   // Open the external file and populate `file_to_ingest` with all the
   // external information we need to ingest this file.
   Status GetIngestedFileInfo(const std::string& external_file,
-                             IngestedFileInfo* file_to_ingest);
+                             IngestedFileInfo* file_to_ingest,
+                             SuperVersion* sv);
 
   // Assign `file_to_ingest` the appropriate sequence number and  the lowest
   // possible level that it can be ingested to according to compaction_style.

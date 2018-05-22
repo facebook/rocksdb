@@ -62,14 +62,16 @@ namespace {
 
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
-    const ImmutableCFOptions& opt, const BlockBasedTableOptions& table_opt,
+    const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
+    const BlockBasedTableOptions& table_opt,
     PartitionedIndexBuilder* const p_index_builder) {
   if (table_opt.filter_policy == nullptr) return nullptr;
 
   FilterBitsBuilder* filter_bits_builder =
       table_opt.filter_policy->GetFilterBitsBuilder();
   if (filter_bits_builder == nullptr) {
-    return new BlockBasedFilterBlockBuilder(opt.prefix_extractor, table_opt);
+    return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
+                                            table_opt);
   } else {
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
@@ -82,11 +84,11 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
           (100 - table_opt.block_size_deviation)) + 99) / 100);
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
-          opt.prefix_extractor, table_opt.whole_key_filtering,
+          mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
           p_index_builder, partition_size);
     } else {
-      return new FullFilterBlockBuilder(opt.prefix_extractor,
+      return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
                                         filter_bits_builder);
     }
@@ -244,6 +246,7 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 
 struct BlockBasedTableBuilder::Rep {
   const ImmutableCFOptions ioptions;
+  const MutableCFOptions moptions;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   WritableFileWriter* file;
@@ -280,7 +283,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
-  Rep(const ImmutableCFOptions& _ioptions,
+  Rep(const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
       const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& icomparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -292,6 +295,7 @@ struct BlockBasedTableBuilder::Rep {
       const std::string& _column_family_name, const uint64_t _creation_time,
       const uint64_t _oldest_key_time)
       : ioptions(_ioptions),
+        moptions(_moptions),
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
@@ -300,8 +304,8 @@ struct BlockBasedTableBuilder::Rep {
                       : 0),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
-        range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
-        internal_prefix_transform(_ioptions.prefix_extractor),
+        range_del_block(1 /* block_restart_interval */),
+        internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
@@ -326,8 +330,8 @@ struct BlockBasedTableBuilder::Rep {
     if (skip_filters) {
       filter_builder = nullptr;
     } else {
-      filter_builder.reset(
-          CreateFilterBlockBuilder(_ioptions, table_options, p_index_builder_));
+      filter_builder.reset(CreateFilterBlockBuilder(
+          _ioptions, _moptions, table_options, p_index_builder_));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -337,12 +341,12 @@ struct BlockBasedTableBuilder::Rep {
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
-            _ioptions.prefix_extractor != nullptr));
+            _moptions.prefix_extractor != nullptr));
   }
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
-    const ImmutableCFOptions& ioptions,
+    const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
     const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -365,11 +369,11 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
-                 int_tbl_prop_collector_factories, column_family_id, file,
-                 compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name, creation_time,
-                 oldest_key_time);
+  rep_ =
+      new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
+              int_tbl_prop_collector_factories, column_family_id, file,
+              compression_type, compression_opts, compression_dict,
+              skip_filters, column_family_name, creation_time, oldest_key_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -737,8 +741,8 @@ Status BlockBasedTableBuilder::Finish() {
                                          : "nullptr";
       r->props.compression_name = CompressionTypeToString(r->compression_type);
       r->props.prefix_extractor_name =
-          r->ioptions.prefix_extractor != nullptr
-              ? r->ioptions.prefix_extractor->Name()
+          r->moptions.prefix_extractor != nullptr
+              ? r->moptions.prefix_extractor->Name()
               : "nullptr";
 
       std::string property_collectors_names = "[";
