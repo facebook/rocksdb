@@ -32,9 +32,11 @@ class MockedBlockBasedTable : public BlockBasedTable {
       const bool /* unused */, bool /* unused */, GetContext* /* unused */,
       const SliceTransform* /* unused */) const override {
     Slice slice = slices[filter_blk_handle.offset()];
+    const BlockBasedTableOptions& table_opts =
+        rep_->table_factory->table_options();
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),
-        rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
+        table_opts.filter_policy->GetFilterBitsReader(slice), nullptr);
     return {obj, nullptr};
   }
 };
@@ -119,12 +121,16 @@ class PartitionedFilterBlockTest : public testing::Test {
       slice = builder->Finish(bh, &status);
       bh = Write(slice);
     } while (status.IsIncomplete());
-    const Options options;
+    Options options;
+    options.table_factory.reset(new BlockBasedTableFactory(table_options_));
     const ImmutableCFOptions ioptions(options);
     const MutableCFOptions moptions(options);
     const EnvOptions env_options;
+    auto table_factory =
+        std::static_pointer_cast<BlockBasedTableFactory>(options.table_factory);
     table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
-        ioptions, env_options, table_options_, icomp, false)));
+        ioptions, env_options, table_options_, table_factory->GetPtr(),
+        icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
         nullptr, *icomp.user_comparator(), table.get());

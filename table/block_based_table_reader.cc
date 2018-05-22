@@ -665,7 +665,7 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 
 Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const EnvOptions& env_options,
-                             std::shared_ptr<const BlockBasedTableFactory> table_factory,
+                             std::shared_ptr<BlockBasedTableFactory> table_factory,
                              const InternalKeyComparator& internal_comparator,
                              unique_ptr<RandomAccessFileReader>&& file,
                              uint64_t file_size,
