@@ -2126,9 +2126,12 @@ class StressTest {
         Slice v(value, sz);
         if (!FLAGS_test_batches_snapshots) {
           // If the chosen key does not allow overwrite and it already
-          // exists, choose another key.
+          // exists, choose another key. Also avoid using merge operands in
+          // no-overwrite positions (where single delete will be called later),
+          // as those features have undefined behavior when used together.
           while (!shared->AllowsOverwrite(rand_column_family, rand_key) &&
-                 shared->Exists(rand_column_family, rand_key)) {
+                 (FLAGS_use_merge ||
+                  shared->Exists(rand_column_family, rand_key))) {
             l.reset();
             rand_key = thread->rand.Next() % max_key;
             rand_column_family = thread->rand.Next() % FLAGS_column_families;
@@ -2917,6 +2920,12 @@ int main(int argc, char** argv) {
   if (FLAGS_value_size_mult * kRandomValueMaxFactor > kValueMaxLen) {
     fprintf(stderr, "Error: value_size_mult can be at most %d\n",
             kValueMaxLen / kRandomValueMaxFactor);
+    exit(1);
+  }
+  if (FLAGS_use_merge && FLAGS_nooverwritepercent == 100) {
+    fprintf(
+        stderr,
+        "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
 
