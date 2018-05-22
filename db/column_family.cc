@@ -53,22 +53,11 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
 #endif  // ROCKSDB_LITE
-    // Job id == 0 means that this is not our background process, but rather
-    // user thread
-    // Need to hold some shared pointers owned by the initial_cf_options
-    // before final cleaning up finishes.
-    ColumnFamilyOptions initial_cf_options_copy = cfd_->initial_cf_options();
-    JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
       delete cfd_;
     }
-    db_->FindObsoleteFiles(&job_context, false, true);
     mutex_->Unlock();
-    if (job_context.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(job_context);
-    }
-    job_context.Clean();
   }
 }
 

@@ -662,6 +662,7 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const EnvOptions& env_options,
                              const BlockBasedTableOptions& table_options,
+                             std::shared_ptr<const BlockBasedTableFactory> table_factory,
                              const InternalKeyComparator& internal_comparator,
                              unique_ptr<RandomAccessFileReader>&& file,
                              uint64_t file_size,
@@ -710,7 +711,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
   Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters);
+      table_factory, internal_comparator, skip_filters);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
@@ -2674,7 +2675,7 @@ void BlockBasedTable::Close() {
     // Get the filter block key
     auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
                            rep_->filter_handle, cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
+    rep_->table_factory->table_options().block_cache.get()->Erase(key);
     // Get the index block key
     key = GetCacheKeyFromOffset(rep_->cache_key_prefix,
                                 rep_->cache_key_prefix_size,
