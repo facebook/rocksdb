@@ -2153,9 +2153,13 @@ TEST_F(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
     options.env = env_;
-    env_->log_write_slowdown_.store(100);
     options.statistics = rocksdb::CreateDBStatistics();
     Reopen(options);
+
+    rocksdb::SyncPoint::GetInstance()->LoadDependency(
+        {{"WriteThread::JoinBatchGroup:BeganWaiting",
+          "DBImpl::WriteImpl:BeforeLeaderEnters"}});
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     // Start threads
     GCThread thread[kGCNumThreads];
@@ -2165,13 +2169,7 @@ TEST_F(DBTest, GroupCommitTest) {
       thread[id].done = false;
       env_->StartThread(GCThreadBody, &thread[id]);
     }
-
-    for (int id = 0; id < kGCNumThreads; id++) {
-      while (thread[id].done == false) {
-        env_->SleepForMicroseconds(100000);
-      }
-    }
-    env_->log_write_slowdown_.store(0);
+    env_->WaitForJoin();
 
     ASSERT_GT(TestGetTickerCount(options, WRITE_DONE_BY_OTHER), 0);
 
