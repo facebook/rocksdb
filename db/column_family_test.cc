@@ -2837,7 +2837,7 @@ TEST_F(ColumnFamilyTest, CreateDropAndDestroy) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
-TEST_F(ColumnFamilyTest, CreateDropAndDestroy1) {
+TEST_F(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
   ColumnFamilyHandle* cfh;
   Open();
   ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "yoyo", &cfh));

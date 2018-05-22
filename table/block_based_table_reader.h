@@ -87,7 +87,6 @@ class BlockBasedTable : public TableReader {
   //    are set.
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
-                     const BlockBasedTableOptions& table_options,
                      std::shared_ptr<const BlockBasedTableFactory> table_factory,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
@@ -274,7 +273,7 @@ class BlockBasedTable : public TableReader {
   //
   // Note: ErrorIterator with Status::Incomplete shall be returned if all the
   // following conditions are met:
-  //  1. We enabled table_options.cache_index_and_filter_blocks.
+  //  1. We enabled table_factory.table_options.cache_index_and_filter_blocks.
   //  2. index is not present in block cache.
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
@@ -419,8 +418,8 @@ struct BlockBasedTable::Rep {
       const InternalKeyComparator& _internal_comparator, bool skip_filters)
       : ioptions(_ioptions),
         env_options(_env_options),
-        table_options(_table_opt),
-        table_factory(std::const_pointer_cast<BlockBasedTableFactory>(_table_factory)),
+        table_factory(
+            std::const_pointer_cast<BlockBasedTableFactory>(_table_factory)),
         filter_policy(skip_filters ? nullptr : _table_opt.filter_policy.get()),
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
@@ -433,7 +432,6 @@ struct BlockBasedTable::Rep {
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
-  const BlockBasedTableOptions& table_options;
   std::shared_ptr<BlockBasedTableFactory> table_factory;
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;

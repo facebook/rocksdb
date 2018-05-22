@@ -26,7 +26,9 @@ struct EnvOptions;
 using std::unique_ptr;
 class BlockBasedTableBuilder;
 
-class BlockBasedTableFactory : public TableFactory, public std::enable_shared_from_this<BlockBasedTableFactory> {
+class BlockBasedTableFactory : public TableFactory,
+    public std::enable_shared_from_this<BlockBasedTableFactory> {
+
  public:
   explicit BlockBasedTableFactory(
       const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
