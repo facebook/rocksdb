@@ -20,7 +20,7 @@ namespace rocksdb {
 
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed.
-enum Tag {
+enum Tag : uint32_t {
   kComparator = 1,
   kLogNumber = 2,
   kNextFileNumber = 3,
@@ -42,7 +42,7 @@ enum Tag {
   kMaxColumnFamily = 203,
 };
 
-enum CustomTag {
+enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
   // Since Manifest is not entirely currently forward-compatible, and the only
