@@ -43,8 +43,8 @@ class Slice {
 
   // Create a slice that refers to s[0,strlen(s)-1]
   /* implicit */
-  Slice(const char* s) : data_(s), size_(strlen(s)) { }
-
+  Slice(const char* s);
+  
   // Create a single slice from SliceParts using buf as storage.
   // buf must exist as long as the returned Slice exists.
   Slice(const struct SliceParts& parts, std::string* buf);
