@@ -156,7 +156,8 @@ class LRUHandleTable {
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
  public:
-  LRUCacheShard();
+  LRUCacheShard(size_t capacity, bool strict_capacity_limit,
+                double high_pri_pool_ratio);
   virtual ~LRUCacheShard();
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -206,13 +207,16 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   double GetHighPriPoolRatio();
 
   // Overloading to aligned it to cache line size
+  // They are used by tests.
   void* operator new(size_t);
 
-  void* operator new[](size_t);
+  // placement new
+  void* operator new(size_t, void*);
 
   void operator delete(void *);
 
-  void operator delete[](void*);
+  // placement delete, does nothing.
+  void operator delete(void*, void*);
 
  private:
   void LRU_Remove(LRUHandle* e);
