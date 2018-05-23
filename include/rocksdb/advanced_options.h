@@ -88,8 +88,8 @@ struct CompactionOptionsFIFO {
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
   // RocksDB's generic default compression level. Internally it'll be translated
-  // to the default compression level specific to the library being used (e.g.,
-  // 0 for zstd, -1 for zlib).
+  // to the default compression level specific to the library being used (see
+  // comment above `ColumnFamilyOptions::compression`).
   //
   // The default value is the max 16-bit int as it'll be written out in OPTIONS
   // file, which should be portable.

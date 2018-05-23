@@ -821,9 +821,9 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   size_t outlen;
   int level;
   if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
-    // 0 is sanitized to ZSTD's default level. Unclear if future-proof, see
+    // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
     // https://github.com/facebook/zstd/issues/1148
-    level = 0;
+    level = 3;
   } else {
     level = opts.level;
   }

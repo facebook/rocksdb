@@ -209,7 +209,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
   // default corresponding to `compression` as follows:
   //
-  // - kZSTD: 0
+  // - kZSTD: 3
   // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
   // - kLZ4HCCompression: 0
   // - For all others, we do not specify a compression level
