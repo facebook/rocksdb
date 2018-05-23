@@ -162,7 +162,11 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   virtual size_t EstimatedSize() const override {
-    return index_block_builder_.CurrentSizeEstimate();
+    if (seperator_is_key_plus_seq_) {
+      return index_block_builder_.CurrentSizeEstimate();
+    } else {
+      return index_block_builder_without_seq_.CurrentSizeEstimate();
+    }
   }
 
   virtual bool seperator_is_key_plus_seq() override {
