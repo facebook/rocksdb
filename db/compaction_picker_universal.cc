@@ -867,12 +867,13 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
   uint32_t path_id = GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-      output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
+      output_level, MaxFileSizeForLevel(mutable_cf_options, output_level,
+          kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                          output_level, 1),
-      /* grandparents */ {}, /* is manual */ true, score,
-      false /* deletion_compaction */,
+      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
+      score, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
 }
 }  // namespace rocksdb
