@@ -165,7 +165,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     return index_block_builder_.CurrentSizeEstimate();
   }
 
-  bool seperator_is_key_plus_seq() override {
+  virtual bool seperator_is_key_plus_seq() override {
     return seperator_is_key_plus_seq_;
   }
 
@@ -265,7 +265,7 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
-  virtual bool seperator_is_key_plus_seq() {
+  virtual bool seperator_is_key_plus_seq() override {
     return primary_index_builder_.seperator_is_key_plus_seq();
   }
 
@@ -345,7 +345,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // cutting the next partition
   void RequestPartitionCut();
 
-  bool seperator_is_key_plus_seq() override {
+  virtual bool seperator_is_key_plus_seq() override {
     return seperator_is_key_plus_seq_;
   }
 
