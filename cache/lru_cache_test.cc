@@ -7,6 +7,7 @@
 
 #include <string>
 #include <vector>
+#include "port/port.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -17,19 +18,8 @@ class LRUCacheTest : public testing::Test {
   ~LRUCacheTest() {}
 
   void NewCache(size_t capacity, double high_pri_pool_ratio = 0.0) {
-    cache_.reset(
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4316) // We've validated the alignment with the new operators
-#endif
-      new LRUCacheShard()
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
-    );
-    cache_->SetCapacity(capacity);
-    cache_->SetStrictCapacityLimit(false);
-    cache_->SetHighPriorityPoolRatio(high_pri_pool_ratio);
+    cache_.reset(new LRUCacheShard(capacity, false /*strict_capcity_limit*/,
+                                   high_pri_pool_ratio));
   }
 
   void Insert(const std::string& key,
@@ -114,7 +104,7 @@ TEST_F(LRUCacheTest, BasicLRU) {
   ValidateLRUList({"e", "z", "d", "u", "v"});
 }
 
-TEST_F(LRUCacheTest, MidPointInsertion) {
+TEST_F(LRUCacheTest, EntriesWithPriority) {
   // Allocate 2 cache entries to high-pri pool.
   NewCache(5, 0.45);
 
