@@ -142,7 +142,7 @@ void BlockIter::Prev() {
 void BlockIter::Seek(const Slice& target) {
   Slice seek_key = target;
   if (!key_includes_seq_) {
-    seek_key.remove_suffix(8);
+    seek_key = ExtractUserKey(target);
   }
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
@@ -175,7 +175,7 @@ void BlockIter::SeekForPrev(const Slice& target) {
   PERF_TIMER_GUARD(block_seek_nanos);
   Slice seek_key = target;
   if (!key_includes_seq_) {
-    seek_key.remove_suffix(8);
+    seek_key = ExtractUserKey(target);
   }
   if (data_ == nullptr) {  // Not init yet
     return;
@@ -404,7 +404,7 @@ bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   assert(prefix_index_);
   Slice seek_key = target;
   if (!key_includes_seq_) {
-    seek_key.remove_suffix(8);
+    seek_key = ExtractUserKey(target);
   }
   uint32_t* block_ids = nullptr;
   uint32_t num_blocks = prefix_index_->GetBlocks(target, &block_ids);
