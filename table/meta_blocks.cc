@@ -71,7 +71,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kIndexPartitions, props.index_partitions);
     Add(TablePropertiesNames::kTopLevelIndexSize, props.top_level_index_size);
   }
-  Add(TablePropertiesNames::kIndexKeyIncludesSeq, props.index_key_includes_seq);
+  Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
@@ -204,8 +204,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
        &new_table_properties->index_partitions},
       {TablePropertiesNames::kTopLevelIndexSize,
        &new_table_properties->top_level_index_size},
-      {TablePropertiesNames::kIndexKeyIncludesSeq,
-       &new_table_properties->index_key_includes_seq},
+      {TablePropertiesNames::kIndexKeyIsUserKey,
+       &new_table_properties->index_key_is_user_key},
       {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
       {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
       {TablePropertiesNames::kRawValueSize,
