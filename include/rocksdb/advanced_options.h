@@ -93,8 +93,7 @@ struct CompressionOptions {
   //
   // The default value is the max 16-bit int as it'll be written out in OPTIONS
   // file, which should be portable.
-  const static int kDefaultCompressionLevel =
-      std::numeric_limits<int16_t>::max();
+  const static int kDefaultCompressionLevel = 32767;
 
   int window_bits;
   int level;
