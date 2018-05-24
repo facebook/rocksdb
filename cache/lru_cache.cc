@@ -99,14 +99,20 @@ void LRUHandleTable::Resize() {
   length_ = new_length;
 }
 
-LRUCacheShard::LRUCacheShard()
-    : capacity_(0), high_pri_pool_usage_(0), strict_capacity_limit_(false),
-      high_pri_pool_ratio_(0), high_pri_pool_capacity_(0), usage_(0),
+LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
+                             double high_pri_pool_ratio)
+    : capacity_(0),
+      high_pri_pool_usage_(0),
+      strict_capacity_limit_(strict_capacity_limit),
+      high_pri_pool_ratio_(high_pri_pool_ratio),
+      high_pri_pool_capacity_(0),
+      usage_(0),
       lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
   lru_low_pri_ = &lru_;
+  SetCapacity(capacity);
 }
 
 LRUCacheShard::~LRUCacheShard() {}
@@ -244,17 +250,13 @@ void* LRUCacheShard::operator new(size_t size) {
   return port::cacheline_aligned_alloc(size);
 }
 
-void* LRUCacheShard::operator new[](size_t size) {
-  return port::cacheline_aligned_alloc(size);
-}
+void* LRUCacheShard::operator new(size_t /*size*/, void* ptr) { return ptr; }
 
 void LRUCacheShard::operator delete(void *memblock) {
   port::cacheline_aligned_free(memblock);
 }
 
-void LRUCacheShard::operator delete[](void* memblock) {
-  port::cacheline_aligned_free(memblock);
-}
+void LRUCacheShard::operator delete(void* /*memblock*/, void* /*ptr*/) {}
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
   autovector<LRUHandle*> last_reference_list;
@@ -473,15 +475,21 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
-  shards_ = new LRUCacheShard[num_shards_];
-  SetCapacity(capacity);
-  SetStrictCapacityLimit(strict_capacity_limit);
+  shards_ = reinterpret_cast<LRUCacheShard*>(
+      port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
+  size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
   for (int i = 0; i < num_shards_; i++) {
-    shards_[i].SetHighPriorityPoolRatio(high_pri_pool_ratio);
+    new (&shards_[i])
+        LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio);
   }
 }
 
-LRUCache::~LRUCache() { delete[] shards_; }
+LRUCache::~LRUCache() {
+  for (int i = 0; i < num_shards_; i++) {
+    shards_[i].~LRUCacheShard();
+  }
+  port::cacheline_aligned_free(shards_);
+}
 
 CacheShard* LRUCache::GetShard(int shard) {
   return reinterpret_cast<CacheShard*>(&shards_[shard]);
