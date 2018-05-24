@@ -143,7 +143,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup(
-    rocksdb_backup_engine_t* be, rocksdb_t* db, int flush_before_backup,
+    rocksdb_backup_engine_t* be, rocksdb_t* db, unsigned char flush_before_backup,
     char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_purge_old_backups(
