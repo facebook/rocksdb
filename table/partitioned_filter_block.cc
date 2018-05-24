@@ -106,7 +106,9 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
   // TODO(myabandeh): if instead of filter object we store only the blocks in
   // block cache, then we don't have to manually earse them from block cache
   // here.
-  auto block_cache = table_->rep_->table_options.block_cache.get();
+  const BlockBasedTableOptions& table_opts =
+      table_->rep_->table_factory->table_options();
+  auto block_cache = table_opts.block_cache.get();
   if (UNLIKELY(block_cache == nullptr)) {
     return;
   }
@@ -158,7 +160,9 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
     return res;
   }
   if (LIKELY(filter_partition.IsSet())) {
-    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+    const BlockBasedTableOptions& table_opts =
+        table_->rep_->table_factory->table_options();
+    filter_partition.Release(table_opts.block_cache.get());
   } else {
     delete filter_partition.value;
   }
@@ -197,7 +201,9 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return res;
   }
   if (LIKELY(filter_partition.IsSet())) {
-    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+    const BlockBasedTableOptions& table_opts =
+        table_->rep_->table_factory->table_options();
+    filter_partition.Release(table_opts.block_cache.get());
   } else {
     delete filter_partition.value;
   }
@@ -225,7 +231,9 @@ PartitionedFilterBlockReader::GetFilterPartition(
   auto s = fltr_blk_handle.DecodeFrom(handle_value);
   assert(s.ok());
   const bool is_a_filter_partition = true;
-  auto block_cache = table_->rep_->table_options.block_cache.get();
+  const BlockBasedTableOptions& table_opts =
+      table_->rep_->table_factory->table_options();
+  auto block_cache = table_opts.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
     if (filter_map_.size() != 0) {
       auto iter = filter_map_.find(fltr_blk_handle.offset());
@@ -303,7 +311,9 @@ void PartitionedFilterBlockReader::CacheDependencies(
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
-  Cache* block_cache = rep->table_options.block_cache.get();
+  const BlockBasedTableOptions& table_opts =
+      rep->table_factory->table_options();
+  Cache* block_cache = table_opts.block_cache.get();
   for (; biter.Valid(); biter.Next()) {
     input = biter.value();
     s = handle.DecodeFrom(&input);

@@ -27,6 +27,7 @@ using std::unique_ptr;
 class BlockBasedTableBuilder;
 
 class BlockBasedTableFactory : public TableFactory {
+
  public:
   explicit BlockBasedTableFactory(
       const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
@@ -34,6 +35,12 @@ class BlockBasedTableFactory : public TableFactory {
   ~BlockBasedTableFactory() {}
 
   const char* Name() const override { return kName.c_str(); }
+
+  std::shared_ptr<BlockBasedTableFactory> GetPtr() const {
+    std::shared_ptr<const TableFactory> cptr = shared_from_this();
+    std::shared_ptr<TableFactory> ptr = std::const_pointer_cast<TableFactory>(cptr);
+    return std::static_pointer_cast<BlockBasedTableFactory>(ptr);
+  }
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,

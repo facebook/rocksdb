@@ -400,7 +400,7 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory {
+class TableFactory : public std::enable_shared_from_this<TableFactory> {
  public:
   virtual ~TableFactory() {}
 

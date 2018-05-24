@@ -57,7 +57,6 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     // user thread
     // Need to hold some shared pointers owned by the initial_cf_options
     // before final cleaning up finishes.
-    ColumnFamilyOptions initial_cf_options_copy = cfd_->initial_cf_options();
     JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
