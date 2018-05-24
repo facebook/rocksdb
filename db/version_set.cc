@@ -3364,14 +3364,13 @@ Status VersionSet::Recover(
         break;
       }
 
-      if (edit.is_first_entry_in_group_commit_) {
-        num_entries_decoded = 1;
-        assert(replay_buffer.empty());
-        replay_buffer.resize(edit.group_commit_size_);
-        replay_buffer[0] = std::move(edit);
-      } else if (!replay_buffer.empty()) {
+      if (edit.is_in_group_commit_) {
+        if (replay_buffer.empty()) {
+          replay_buffer.resize(edit.remaining_entries_ + 1);
+        }
         ++num_entries_decoded;
-        assert(num_entries_decoded <= replay_buffer.size());
+        assert(num_entries_decoded + edit.remaining_entries_ ==
+            static_cast<uint32_t>(replay_buffer.size()));
         replay_buffer[num_entries_decoded - 1] = std::move(edit);
         if (num_entries_decoded == replay_buffer.size()) {
           for (auto& e : replay_buffer) {
@@ -3390,6 +3389,8 @@ Status VersionSet::Recover(
           num_entries_decoded = 0;
         }
       } else {
+        assert(replay_buffer.empty());
+        assert(!edit.is_in_group_commit_);
         s = ApplyOneVersionEdit(edit, cf_name_to_options,
             column_families_not_found, builders,
             &have_log_number, &log_number,
@@ -3401,9 +3402,6 @@ Status VersionSet::Recover(
       if (!s.ok()) {
         break;
       }
-    }
-    if (!replay_buffer.empty()) {
-      return Status::Corruption("group commit is not complete");
     }
   }
 

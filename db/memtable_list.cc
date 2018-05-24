@@ -317,13 +317,12 @@ Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>&
     edit_lists.emplace_back(edit_list);
   }
 
-  if (!edit_lists.empty()) {
-#ifndef NDEBUG
-    assert(!edit_lists[0].empty());
-    assert(edit_lists[0][0] != nullptr);
-#endif
-    edit_lists[0][0]->MarkGroupCommitStart(num_entries);
+  uint32_t remaining = num_entries;
+  for (auto& edit_list : edit_lists) {
+    assert(edit_list.size() == 1);
+    edit_list[0]->MarkGroupCommit(--remaining);
   }
+  assert(0 == remaining);
 
   // This can release and re-acquire the mutex.
   Status s = vset->LogAndApply(cfds, mutable_cf_options, edit_lists, mu,

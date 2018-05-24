@@ -281,9 +281,9 @@ class VersionEdit {
     return new_files_;
   }
 
-  void MarkGroupCommitStart(uint32_t group_commit_size) {
-    is_first_entry_in_group_commit_ = true;
-    group_commit_size_ = group_commit_size;
+  void MarkGroupCommit(uint32_t remaining_entries) {
+    is_in_group_commit_ = true;
+    remaining_entries_ = remaining_entries;
   }
 
   std::string DebugString(bool hex_key = false) const;
@@ -325,8 +325,8 @@ class VersionEdit {
   bool is_column_family_add_;
   std::string column_family_name_;
 
-  bool is_first_entry_in_group_commit_ = false;
-  uint32_t group_commit_size_;
+  bool is_in_group_commit_;
+  uint32_t remaining_entries_;
 };
 
 }  // namespace rocksdb

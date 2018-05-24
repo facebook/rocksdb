@@ -40,7 +40,8 @@ enum Tag : uint32_t {
   kColumnFamilyAdd = 201,
   kColumnFamilyDrop = 202,
   kMaxColumnFamily = 203,
-  kFirstEntryInGroupCommit = 300,
+
+  kInGroupCommit = 300,
 };
 
 enum CustomTag : uint32_t {
@@ -82,8 +83,8 @@ VersionEdit::VersionEdit(const VersionEdit& other):
     is_column_family_drop_(other.is_column_family_drop_),
     is_column_family_add_(other.is_column_family_add_),
     column_family_name_(other.column_family_name_),
-    is_first_entry_in_group_commit_(other.is_first_entry_in_group_commit_),
-    group_commit_size_(other.group_commit_size_) {}
+    is_in_group_commit_(other.is_in_group_commit_),
+    remaining_entries_(other.remaining_entries_) {}
 
 VersionEdit::VersionEdit(VersionEdit&& other):
     max_level_(other.max_level_), comparator_(other.comparator_),
@@ -105,8 +106,8 @@ VersionEdit::VersionEdit(VersionEdit&& other):
     is_column_family_drop_(other.is_column_family_drop_),
     is_column_family_add_(other.is_column_family_add_),
     column_family_name_(other.column_family_name_),
-    is_first_entry_in_group_commit_(other.is_first_entry_in_group_commit_),
-    group_commit_size_(other.group_commit_size_) {}
+    is_in_group_commit_(other.is_in_group_commit_),
+    remaining_entries_(other.remaining_entries_) {}
 
 VersionEdit& VersionEdit::operator=(VersionEdit&& other) {
   if (this != &other) {
@@ -131,8 +132,8 @@ VersionEdit& VersionEdit::operator=(VersionEdit&& other) {
     is_column_family_drop_ = other.is_column_family_drop_;
     is_column_family_add_ = other.is_column_family_add_;
     column_family_name_ = other.column_family_name_;
-    is_first_entry_in_group_commit_ = other.is_first_entry_in_group_commit_;
-    group_commit_size_ = other.group_commit_size_;
+    is_in_group_commit_ = other.is_in_group_commit_;
+    remaining_entries_ = other.remaining_entries_;
   }
   return *this;
 }
@@ -159,6 +160,8 @@ void VersionEdit::Clear() {
   is_column_family_add_ = 0;
   is_column_family_drop_ = 0;
   column_family_name_.clear();
+  is_in_group_commit_ = false;
+  remaining_entries_ = 0;
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -277,9 +280,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kColumnFamilyDrop);
   }
 
-  if (is_first_entry_in_group_commit_) {
-    PutVarint32(dst, kFirstEntryInGroupCommit);
-    PutVarint32(dst, group_commit_size_);
+  if (is_in_group_commit_) {
+    PutVarint32(dst, kInGroupCommit);
+    PutVarint32(dst, remaining_entries_);
   }
   return true;
 }
@@ -554,11 +557,11 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         is_column_family_drop_ = true;
         break;
 
-      case kFirstEntryInGroupCommit:
-        is_first_entry_in_group_commit_ = true;
-        if (!GetVarint32(&input, &group_commit_size_)) {
+      case kInGroupCommit:
+        is_in_group_commit_ = true;
+        if (!GetVarint32(&input, &remaining_entries_)) {
           if (!msg) {
-            msg = "group commit size";
+            msg = "remaining entries";
           }
         }
         break;
@@ -641,6 +644,11 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
   }
+  if (is_in_group_commit_) {
+    r.append("\n GroupCommit: ");
+    AppendNumberTo(&r, remaining_entries_);
+    r.append(" entries remains");
+  }
   r.append("\n}\n");
   return r;
 }
@@ -712,6 +720,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (has_min_log_number_to_keep_) {
     jw << "MinLogNumberToKeep" << min_log_number_to_keep_;
+  }
+  if (is_in_group_commit_) {
+    jw << "GroupCommit" << remaining_entries_;
   }
 
   jw.EndObject();
