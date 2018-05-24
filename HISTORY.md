@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.13.2 (5/23/2018)
 ### Public API Change
 * Introduced `CompressionOptions::kDefaultCompressionLevel`, which is a generic way to tell RocksDB to use the compression library's default level. It is now the default value for `CompressionOptions::level`. Previously the level defaulted to -1, which gave poor compression ratios in ZSTD.
 

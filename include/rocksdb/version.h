@@ -6,7 +6,7 @@
 
 #define ROCKSDB_MAJOR 5
 #define ROCKSDB_MINOR 13
-#define ROCKSDB_PATCH 1
+#define ROCKSDB_PATCH 2
 
 // Do not use these. We made the mistake of declaring macros starting with
 // double underscore. Now we have to live with our choice. We'll deprecate these
