@@ -15,11 +15,22 @@ namespace rocksdb {
 class LRUCacheTest : public testing::Test {
  public:
   LRUCacheTest() {}
-  ~LRUCacheTest() {}
+  ~LRUCacheTest() { DeleteCache(); }
+
+  void DeleteCache() {
+    if (cache_ != nullptr) {
+      cache_->~LRUCacheShard();
+      port::cacheline_aligned_free(cache_);
+      cache_ = nullptr;
+    }
+  }
 
   void NewCache(size_t capacity, double high_pri_pool_ratio = 0.0) {
-    cache_.reset(new LRUCacheShard(capacity, false /*strict_capcity_limit*/,
-                                   high_pri_pool_ratio));
+    DeleteCache();
+    cache_ = reinterpret_cast<LRUCacheShard*>(
+        port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
+    new (cache_) LRUCacheShard(capacity, false /*strict_capcity_limit*/,
+                               high_pri_pool_ratio);
   }
 
   void Insert(const std::string& key,
@@ -75,7 +86,7 @@ class LRUCacheTest : public testing::Test {
   }
 
  private:
-  std::unique_ptr<LRUCacheShard> cache_;
+  LRUCacheShard* cache_ = nullptr;
 };
 
 TEST_F(LRUCacheTest, BasicLRU) {

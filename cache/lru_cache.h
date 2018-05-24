@@ -209,18 +209,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   //  Retrives high pri pool ratio
   double GetHighPriPoolRatio();
 
-  // Overloading to aligned it to cache line size
-  // They are used by tests.
-  void* operator new(size_t);
-
-  // placement new
-  void* operator new(size_t, void*);
-
-  void operator delete(void*);
-
-  // placement delete, does nothing.
-  void operator delete(void*, void*);
-
  private:
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);

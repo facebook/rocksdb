@@ -246,18 +246,6 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-void* LRUCacheShard::operator new(size_t size) {
-  return port::cacheline_aligned_alloc(size);
-}
-
-void* LRUCacheShard::operator new(size_t /*size*/, void* ptr) { return ptr; }
-
-void LRUCacheShard::operator delete(void* memblock) {
-  port::cacheline_aligned_free(memblock);
-}
-
-void LRUCacheShard::operator delete(void* /*memblock*/, void* /*ptr*/) {}
-
 void LRUCacheShard::SetCapacity(size_t capacity) {
   autovector<LRUHandle*> last_reference_list;
   {
