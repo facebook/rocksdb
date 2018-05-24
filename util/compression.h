@@ -246,9 +246,15 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
   // memLevel=9 uses maximum memory for optimal speed.
   // The default value is 8. See zconf.h for more details.
   static const int memLevel = 8;
+  int level;
+  if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+    level = Z_DEFAULT_COMPRESSION;
+  } else {
+    level = opts.level;
+  }
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
-  int st = deflateInit2(&_stream, opts.level, Z_DEFLATED, opts.window_bits,
+  int st = deflateInit2(&_stream, level, Z_DEFLATED, opts.window_bits,
                         memLevel, opts.strategy);
   if (st != Z_OK) {
     return false;
@@ -682,9 +688,15 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
   output->resize(static_cast<size_t>(output_header_len + compress_bound));
 
   int outlen;
+  int level;
+  if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+    level = 0;  // lz4hc.h says any value < 1 will be sanitized to default
+  } else {
+    level = opts.level;
+  }
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamHC_t* stream = LZ4_createStreamHC();
-  LZ4_resetStreamHC(stream, opts.level);
+  LZ4_resetStreamHC(stream, level);
   const char* compression_dict_data =
       compression_dict.size() > 0 ? compression_dict.data() : nullptr;
   size_t compression_dict_size = compression_dict.size();
@@ -705,7 +717,7 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
 #elif LZ4_VERSION_MAJOR  // r113-r123
   outlen = LZ4_compressHC2_limitedOutput(input, &(*output)[output_header_len],
                                          static_cast<int>(length),
-                                         compress_bound, opts.level);
+                                         compress_bound, level);
 #else                    // up to r112
   outlen =
       LZ4_compressHC_limitedOutput(input, &(*output)[output_header_len],
@@ -766,15 +778,23 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   size_t compressBound = ZSTD_compressBound(length);
   output->resize(static_cast<size_t>(output_header_len + compressBound));
   size_t outlen;
+  int level;
+  if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+    // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+    // https://github.com/facebook/zstd/issues/1148
+    level = 3;
+  } else {
+    level = opts.level;
+  }
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
   ZSTD_CCtx* context = ZSTD_createCCtx();
   outlen = ZSTD_compress_usingDict(
       context, &(*output)[output_header_len], compressBound, input, length,
-      compression_dict.data(), compression_dict.size(), opts.level);
+      compression_dict.data(), compression_dict.size(), level);
   ZSTD_freeCCtx(context);
 #else  // up to v0.4.x
   outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,
-                         length, opts.level);
+                         length, level);
 #endif  // ZSTD_VERSION_NUMBER >= 500
   if (outlen == 0) {
     return false;

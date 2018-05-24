@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Public API Change
+* Introduced `CompressionOptions::kDefaultCompressionLevel`, which is a generic way to tell RocksDB to use the compression library's default level. It is now the default value for `CompressionOptions::level`. Previously the level defaulted to -1, which gave poor compression ratios in ZSTD.
+
 ## 5.13.1 (4/30/2018)
 ### New Features
 * Add `Env::LowerThreadPoolCPUPriority(Priority)` method, which lowers the CPU priority of background (esp. compaction) threads to minimize interference with foreground tasks.

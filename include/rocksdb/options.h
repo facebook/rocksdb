@@ -197,11 +197,21 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
   //    ~200-500MB/s compression
   //    ~400-800MB/s decompression
+  //
   // Note that these speeds are significantly faster than most
   // persistent storage speeds, and therefore it is typically never
   // worth switching to kNoCompression.  Even if the input data is
   // incompressible, the kSnappyCompression implementation will
   // efficiently detect that and will switch to uncompressed mode.
+  //
+  // If you do not set `compression_opts.level`, or set it to
+  // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
+  // default corresponding to `compression` as follows:
+  //
+  // - kZSTD: 3
+  // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
+  // - kLZ4HCCompression: 0
+  // - For all others, we do not specify a compression level
   CompressionType compression;
 
   // Compression algorithm that will be used for the bottommost level that
