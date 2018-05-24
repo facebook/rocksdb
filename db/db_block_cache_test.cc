@@ -390,7 +390,10 @@ class MockCache : public LRUCache {
   static uint32_t high_pri_insert_count;
   static uint32_t low_pri_insert_count;
 
-  MockCache() : LRUCache(1 << 25, 0, false, 0.0) {}
+  MockCache()
+      : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
+                 false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
+  }
 
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
