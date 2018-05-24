@@ -112,6 +112,15 @@ Status WinEnvIO::DeleteFile(const std::string& fname) {
   return result;
 }
 
+Status WinEnvIO::Truncate(const std::string& fname, size_t size) {
+  Status s;
+  int result = truncate(fname.c_str(), size);
+  if (result != 0) {
+    s = IOError("Failed to truncate: " + fname, errno);
+  }
+  return s;
+}
+
 Status WinEnvIO::GetCurrentTime(int64_t* unix_time) {
   time_t time = std::time(nullptr);
   if (time == (time_t)(-1)) {
@@ -344,7 +353,7 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   // Random access is to disable read-ahead as the system reads too much data
   DWORD desired_access = GENERIC_READ | GENERIC_WRITE;
   DWORD shared_mode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-  DWORD creation_disposition = OPEN_ALWAYS; // Create if necessary or open existing
+  DWORD creation_disposition = OPEN_EXISTING; // Fail if file does not exist
   DWORD file_flags = FILE_FLAG_RANDOM_ACCESS;
 
   if (options.use_direct_reads && options.use_direct_writes) {
@@ -375,6 +384,84 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
   result->reset(new WinRandomRWFile(fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
    options));
+  fileGuard.release();
+
+  return s;
+}
+
+Status WinEnvIO::NewMemoryMappedFileBuffer(const std::string & fname,
+  std::unique_ptr<MemoryMappedFileBuffer>* result) {
+  Status s;
+  result->reset();
+
+  DWORD fileFlags = FILE_ATTRIBUTE_READONLY;
+
+  HANDLE hFile = INVALID_HANDLE_VALUE;
+  {
+    IOSTATS_TIMER_GUARD(open_nanos);
+    hFile = CreateFileA(
+      fname.c_str(), GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      NULL,
+      OPEN_EXISTING,  // Open only if it exists
+      fileFlags,
+      NULL);
+  }
+
+  if (INVALID_HANDLE_VALUE == hFile) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError("Failed to open NewMemoryMappedFileBuffer: " + fname,
+      lastError);
+    return s;
+  }
+  UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
+
+  uint64_t fileSize = 0;
+  s = GetFileSize(fname, &fileSize);
+  if (!s.ok()) {
+    return s;
+  }
+  // Will not map empty files
+  if (fileSize == 0) {
+    return Status::NotSupported("NewMemoryMappedFileBuffer can not map zero length files: " + fname);
+  }
+
+  // size_t is 32-bit with 32-bit builds
+  if (fileSize > std::numeric_limits<size_t>::max()) {
+    return Status::NotSupported(
+      "The specified file size does not fit into 32-bit memory addressing: " + fname);
+  }
+
+  HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READWRITE,
+      0,  // Whole file at its present length
+      0,
+      NULL);  // Mapping name
+
+  if (!hMap) {
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError(
+      "Failed to create file mapping for NewMemoryMappedFileBuffer: " + fname,
+      lastError);
+  }
+  UniqueCloseHandlePtr mapGuard(hMap, CloseHandleFunc);
+
+  void* base = MapViewOfFileEx(hMap, FILE_MAP_WRITE,
+    0,  // High DWORD of access start
+    0,  // Low DWORD
+    fileSize,
+    NULL);  // Let the OS choose the mapping
+
+  if (!base) {
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError(
+      "Failed to MapViewOfFile for NewMemoryMappedFileBuffer: " + fname,
+      lastError);
+  }
+
+  result->reset(new WinMemoryMappedBuffer(hFile, hMap, 
+    base, static_cast<size_t>(fileSize)));
+
+  mapGuard.release();
   fileGuard.release();
 
   return s;
@@ -928,27 +1015,33 @@ std::string WinEnvIO::TimeToString(uint64_t secondsSince1970) {
 
 EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   const DBOptions& db_options) const {
-  EnvOptions optimized = env_options;
+  EnvOptions optimized(env_options);
+  // These two the same as default optimizations
   optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
-  optimized.use_mmap_writes = false;
-  // This is because we flush only whole pages on unbuffered io and
-  // the last records are not guaranteed to be flushed.
-  optimized.use_direct_writes = false;
-  // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
-  // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
-  // test and make this false
-  optimized.fallocate_with_keep_size = true;
   optimized.writable_file_max_buffer_size =
       db_options.writable_file_max_buffer_size;
+
+  // This adversely affects %999 on windows
+  optimized.use_mmap_writes = false;
+  // Direct writes will produce a huge perf impact on
+  // Windows. Pre-allocate space for WAL.
+  optimized.use_direct_writes = false;
   return optimized;
 }
 
 EnvOptions WinEnvIO::OptimizeForManifestWrite(
   const EnvOptions& env_options) const {
-  EnvOptions optimized = env_options;
+  EnvOptions optimized(env_options);
   optimized.use_mmap_writes = false;
-  optimized.use_direct_writes = false;
-  optimized.fallocate_with_keep_size = true;
+  optimized.use_direct_reads = false;
+  return optimized;
+}
+
+EnvOptions WinEnvIO::OptimizeForManifestRead(
+  const EnvOptions& env_options) const {
+  EnvOptions optimized(env_options);
+  optimized.use_mmap_writes = false;
+  optimized.use_direct_reads = false;
   return optimized;
 }
 
@@ -1145,6 +1238,10 @@ Status WinEnv::DeleteFile(const std::string& fname) {
   return winenv_io_.DeleteFile(fname);
 }
 
+Status WinEnv::Truncate(const std::string& fname, size_t size) {
+  return winenv_io_.Truncate(fname, size);
+}
+
 Status WinEnv::GetCurrentTime(int64_t* unix_time) {
   return winenv_io_.GetCurrentTime(unix_time);
 }
@@ -1173,8 +1270,13 @@ Status WinEnv::ReopenWritableFile(const std::string& fname,
 }
 
 Status WinEnv::NewRandomRWFile(const std::string & fname,
-  unique_ptr<RandomRWFile>* result, const EnvOptions & options) {
+  std::unique_ptr<RandomRWFile>* result, const EnvOptions & options) {
   return winenv_io_.NewRandomRWFile(fname, result, options);
+}
+
+Status WinEnv::NewMemoryMappedFileBuffer(const std::string& fname,
+  std::unique_ptr<MemoryMappedFileBuffer>* result) {
+  return winenv_io_.NewMemoryMappedFileBuffer(fname, result);
 }
 
 Status WinEnv::NewDirectory(const std::string& name,
@@ -1308,6 +1410,11 @@ int WinEnv::GetBackgroundThreads(Env::Priority pri) {
 
 void  WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   return winenv_threads_.IncBackgroundThreadsIfNeeded(num, pri);
+}
+
+EnvOptions WinEnv::OptimizeForManifestRead(
+  const EnvOptions& env_options) const {
+  return winenv_io_.OptimizeForManifestRead(env_options);
 }
 
 EnvOptions WinEnv::OptimizeForLogWrite(const EnvOptions& env_options,
