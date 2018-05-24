@@ -411,6 +411,18 @@ class WinRandomRWFile : private WinFileData,
   virtual Status Close() override;
 };
 
+class WinMemoryMappedBuffer : public MemoryMappedFileBuffer {
+private:
+  HANDLE  file_handle_;
+  HANDLE  map_handle_;
+public:
+  WinMemoryMappedBuffer(HANDLE file_handle, HANDLE map_handle, void* base, size_t size) :
+    MemoryMappedFileBuffer(base, size),
+    file_handle_(file_handle),
+    map_handle_(map_handle) {}
+  ~WinMemoryMappedBuffer() override;
+};
+
 class WinDirectory : public Directory {
   HANDLE handle_;
  public:

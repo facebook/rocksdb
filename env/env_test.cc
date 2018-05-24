@@ -232,10 +232,10 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
 
   ASSERT_OK(status);
   ASSERT_NE(nullptr, mmap_buffer.get());
-  ASSERT_NE(nullptr, mmap_buffer->base);
-  ASSERT_EQ(kFileBytes, mmap_buffer->length);
-  std::string actual_data(static_cast<char*>(mmap_buffer->base),
-                          mmap_buffer->length);
+  ASSERT_NE(nullptr, mmap_buffer->GetBase());
+  ASSERT_EQ(kFileBytes, mmap_buffer->GetLen());
+  std::string actual_data(reinterpret_cast<const char*>(mmap_buffer->GetBase()),
+                          mmap_buffer->GetLen());
   ASSERT_EQ(expected_data, actual_data);
 }
 
@@ -1437,10 +1437,8 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
 
   std::unique_ptr<RandomRWFile> file;
 
-#ifdef OS_LINUX
   // Cannot open non-existing file.
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
-#endif
 
   // Create the file using WriteableFile
   {
