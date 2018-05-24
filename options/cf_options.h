@@ -26,6 +26,8 @@ struct ImmutableCFOptions {
   ImmutableCFOptions(const ImmutableDBOptions& db_options,
                      const ColumnFamilyOptions& cf_options);
 
+  FlushStyle flush_style;
+
   CompactionStyle compaction_style;
 
   CompactionPri compaction_pri;
