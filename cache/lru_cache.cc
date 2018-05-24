@@ -199,7 +199,7 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
 void LRUCacheShard::LRU_Insert(LRUHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
-  if (high_pri_pool_ratio_ > 0 && e->IsHighPri()) {
+  if (high_pri_pool_ratio_ > 0 && (e->IsHighPri() || e->HasHit())) {
     // Inset "e" to head of LRU list.
     e->next = &lru_;
     e->prev = lru_.prev;
@@ -246,18 +246,6 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-void* LRUCacheShard::operator new(size_t size) {
-  return port::cacheline_aligned_alloc(size);
-}
-
-void* LRUCacheShard::operator new(size_t /*size*/, void* ptr) { return ptr; }
-
-void LRUCacheShard::operator delete(void *memblock) {
-  port::cacheline_aligned_free(memblock);
-}
-
-void LRUCacheShard::operator delete(void* /*memblock*/, void* /*ptr*/) {}
-
 void LRUCacheShard::SetCapacity(size_t capacity) {
   autovector<LRUHandle*> last_reference_list;
   {
@@ -287,6 +275,7 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
       LRU_Remove(e);
     }
     e->refs++;
+    e->SetHit();
   }
   return reinterpret_cast<Cache::Handle*>(e);
 }

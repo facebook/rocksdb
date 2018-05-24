@@ -100,13 +100,13 @@ DEFINE_string(
     "readreverse,"
     "compact,"
     "compactall,"
-    "readrandom,"
     "multireadrandom,"
     "readseq,"
     "readtocache,"
     "readreverse,"
     "readwhilewriting,"
     "readwhilemerging,"
+    "readwhilescanning,"
     "readrandomwriterandom,"
     "updaterandom,"
     "xorupdaterandom,"
@@ -149,6 +149,8 @@ DEFINE_string(
     "reads\n"
     "\treadwhilemerging      -- 1 merger, N threads doing random "
     "reads\n"
+    "\treadwhilescanning     -- 1 thread doing full table scan, "
+    "N threads doing random reads\n"
     "\treadrandomwriterandom -- N threads doing random-read, "
     "random-write\n"
     "\tupdaterandom  -- N threads doing read-modify-write for random "
@@ -2524,6 +2526,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (name == "readwhilemerging") {
         num_threads++;  // Add extra thread for writing
         method = &Benchmark::ReadWhileMerging;
+      } else if (name == "readwhilescanning") {
+        num_threads++;  // Add extra thread for scaning
+        method = &Benchmark::ReadWhileScanning;
       } else if (name == "readrandomwriterandom") {
         method = &Benchmark::ReadRandomWriteRandom;
       } else if (name == "readrandommergerandom") {
@@ -4505,6 +4510,45 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     }
     thread->stats.AddBytes(bytes);
+  }
+
+  void ReadWhileScanning(ThreadState* thread) {
+    if (thread->tid > 0) {
+      ReadRandom(thread);
+    } else {
+      BGScan(thread);
+    }
+  }
+
+  void BGScan(ThreadState* thread) {
+    if (FLAGS_num_multi_db > 0) {
+      fprintf(stderr, "Not supporting multiple DBs.\n");
+      abort();
+    }
+    assert(db_.db != nullptr);
+    ReadOptions read_options;
+    Iterator* iter = db_.db->NewIterator(read_options);
+
+    fprintf(stderr, "num reads to do %lu\n", reads_);
+    Duration duration(FLAGS_duration, reads_);
+    uint64_t num_seek_to_first = 0;
+    uint64_t num_next = 0;
+    while (!duration.Done(1)) {
+      if (!iter->Valid()) {
+        iter->SeekToFirst();
+        num_seek_to_first++;
+      } else if (!iter->status().ok()) {
+        fprintf(stderr, "Iterator error: %s\n",
+                iter->status().ToString().c_str());
+        abort();
+      } else {
+        iter->Next();
+        num_next++;
+      }
+
+      thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
+    }
+    delete iter;
   }
 
   // Given a key K and value V, this puts (K+"0", V), (K+"1", V), (K+"2", V)
