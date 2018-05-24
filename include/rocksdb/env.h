@@ -42,7 +42,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
-struct MemoryMappedFileBuffer;
+class MemoryMappedFileBuffer;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
@@ -822,13 +822,24 @@ class RandomRWFile {
 
 // MemoryMappedFileBuffer object represents a memory-mapped file's raw buffer.
 // Subclasses should release the mapping upon destruction.
-struct MemoryMappedFileBuffer {
+class MemoryMappedFileBuffer {
+public:
   MemoryMappedFileBuffer(void* _base, size_t _length)
-      : base(_base), length(_length) {}
+      : base_(_base), length_(_length) {}
+
   virtual ~MemoryMappedFileBuffer() = 0;
 
-  void* const base;
-  const size_t length;
+  // We do not want to unmap this twice. We can make this class
+  // movable if desired, however, since
+  MemoryMappedFileBuffer(const MemoryMappedFileBuffer&) = delete;
+  MemoryMappedFileBuffer& operator=(const MemoryMappedFileBuffer&) = delete;
+
+  void*       GetBase() const { return base_;   }
+  size_t      GetLen() const  { return length_; }
+
+protected:
+  void*        base_;
+  const size_t length_;
 };
 
 // Directory object represents collection of files and implements
