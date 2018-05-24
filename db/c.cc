@@ -531,8 +531,10 @@ rocksdb_backup_engine_t* rocksdb_backup_engine_open(
 }
 
 void rocksdb_backup_engine_create_new_backup(rocksdb_backup_engine_t* be,
-                                             rocksdb_t* db, char** errptr) {
-  SaveError(errptr, be->rep->CreateNewBackup(db->rep));
+                                             rocksdb_t* db,
+                                             int flush_before_backup,
+                                             char** errptr) {
+  SaveError(errptr, be->rep->CreateNewBackup(db->rep, flush_before_backup));
 }
 
 void rocksdb_backup_engine_purge_old_backups(rocksdb_backup_engine_t* be,
