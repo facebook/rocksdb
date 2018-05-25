@@ -122,7 +122,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
       : IndexBuilder(comparator),
         index_block_builder_(index_block_restart_interval),
         index_block_builder_without_seq_(index_block_restart_interval) {
-    // makeing the default true will disable the feature for old versions
+    // Making the default true will disable the feature for old versions
     seperator_is_key_plus_seq_ = (format_version <= 2);
   }
 

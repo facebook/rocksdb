@@ -522,9 +522,9 @@ class BlockBasedTableIterator : public InternalIterator {
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
-        prefix_extractor_(prefix_extractor),
         is_index_(is_index),
-        key_includes_seq_(key_includes_seq) {}
+        key_includes_seq_(key_includes_seq),
+        prefix_extractor_(prefix_extractor) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -616,13 +616,13 @@ class BlockBasedTableIterator : public InternalIterator {
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
   bool check_filter_;
-  // TODO use block offset instead
-  std::string prev_index_value_;
-  const SliceTransform* prefix_extractor_;
   // If the blocks over which we iterate are index blocks
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
+  // TODO use block offset instead
+  std::string prev_index_value_;
+  const SliceTransform* prefix_extractor_;
 
   static const size_t kInitReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on

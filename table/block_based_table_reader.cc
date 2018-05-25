@@ -2060,7 +2060,7 @@ InternalIterator* BlockBasedTable::NewIterator(
     Arena* arena, bool skip_filters) {
   bool prefix_extractor_changed =
       PrefixExtractorChanged(rep_->table_properties, prefix_extractor);
-  const bool IS_NOT_INDEX = false;
+  const bool kIsNotIndex = false;
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
@@ -2070,7 +2070,7 @@ InternalIterator* BlockBasedTable::NewIterator(
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr && !prefix_extractor_changed,
-        prefix_extractor, IS_NOT_INDEX);
+        prefix_extractor, kIsNotIndex);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
@@ -2078,7 +2078,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr && !prefix_extractor_changed,
-        prefix_extractor, IS_NOT_INDEX);
+        prefix_extractor, kIsNotIndex);
   }
 }
 

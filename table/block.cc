@@ -451,7 +451,6 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   } else {
     ret_iter = new BlockIter;
   }
-  ret_iter->key_includes_seq_ = key_includes_seq;
   if (size_ < 2*sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
@@ -465,7 +464,7 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
         total_order_seek ? nullptr : prefix_index_.get();
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
-                         read_amp_bitmap_.get());
+                         read_amp_bitmap_.get(), key_includes_seq);
 
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {

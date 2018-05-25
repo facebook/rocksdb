@@ -217,25 +217,25 @@ class BlockIter final : public InternalIterator {
         status_(Status::OK()),
         prefix_index_(nullptr),
         key_pinned_(false),
-        global_seqno_(kDisableGlobalSequenceNumber),
         key_includes_seq_(true),
+        global_seqno_(kDisableGlobalSequenceNumber),
         read_amp_bitmap_(nullptr),
         last_bitmap_offset_(0) {}
 
   BlockIter(const Comparator* comparator, const Comparator* user_comparator,
             const char* data, uint32_t restarts, uint32_t num_restarts,
             BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
-            BlockReadAmpBitmap* read_amp_bitmap)
+            BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq)
       : BlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
-               prefix_index, global_seqno, read_amp_bitmap);
+               prefix_index, global_seqno, read_amp_bitmap, key_includes_seq);
   }
 
   void Initialize(const Comparator* comparator,
                   const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
-                  BlockReadAmpBitmap* read_amp_bitmap) {
+                  BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq) {
     assert(data_ == nullptr);           // Ensure it is called only once
     assert(num_restarts > 0);           // Ensure the param is valid
 
@@ -250,6 +250,7 @@ class BlockIter final : public InternalIterator {
     global_seqno_ = global_seqno;
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
+    key_includes_seq_ = key_includes_seq;
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
@@ -339,11 +340,11 @@ class BlockIter final : public InternalIterator {
   Status status_;
   BlockPrefixIndex* prefix_index_;
   bool key_pinned_;
+  // Key is in InternalKey format
+  bool key_includes_seq_;
   SequenceNumber global_seqno_;
 
  public:
-  bool key_includes_seq_;
-
   // read-amp bitmap
   BlockReadAmpBitmap* read_amp_bitmap_;
   // last `current_` value we report to read-amp bitmp
