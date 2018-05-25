@@ -1541,7 +1541,7 @@ class StressTest {
     SharedState* shared = thread->shared;
 
     if (shared->ShouldVerifyAtBeginning()) {
-      thread->shared->GetStressTest()->VerifyDb(thread);
+      shared->GetStressTest()->VerifyDb(thread);
     }
     {
       MutexLock l(shared->GetMutex());
@@ -1553,7 +1553,7 @@ class StressTest {
         shared->GetCondVar()->Wait();
       }
     }
-    thread->shared->GetStressTest()->OperateDb(thread);
+    shared->GetStressTest()->OperateDb(thread);
 
     {
       MutexLock l(shared->GetMutex());
@@ -1567,7 +1567,7 @@ class StressTest {
     }
 
     if (!FLAGS_test_batches_snapshots) {
-      thread->shared->GetStressTest()->VerifyDb(thread);
+      shared->GetStressTest()->VerifyDb(thread);
     }
 
     {
@@ -1889,12 +1889,12 @@ class StressTest {
   }
 #endif
 
-  virtual void OperateDb(ThreadState* thread) {
+  void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
     auto shared = thread->shared;
     char value[100];
-    auto max_key = thread->shared->GetMaxKey();
+    auto max_key = shared->GetMaxKey();
     std::string from_db;
     if (FLAGS_sync) {
       write_opts.sync = true;
@@ -1907,25 +1907,25 @@ class StressTest {
 
     thread->stats.Start();
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      if (thread->shared->HasVerificationFailedYet()) {
+      if (shared->HasVerificationFailedYet()) {
         break;
       }
       if (i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
         {
           thread->stats.FinishedSingleOp();
-          MutexLock l(thread->shared->GetMutex());
+          MutexLock l(shared->GetMutex());
           while (!thread->snapshot_queue.empty()) {
             db_->ReleaseSnapshot(
                 thread->snapshot_queue.front().second.snapshot);
             thread->snapshot_queue.pop();
           }
-          thread->shared->IncVotedReopen();
-          if (thread->shared->AllVotedReopen()) {
-            thread->shared->GetStressTest()->Reopen();
-            thread->shared->GetCondVar()->SignalAll();
+          shared->IncVotedReopen();
+          if (shared->AllVotedReopen()) {
+            shared->GetStressTest()->Reopen();
+            shared->GetCondVar()->SignalAll();
           }
           else {
-            thread->shared->GetCondVar()->Wait();
+            shared->GetCondVar()->Wait();
           }
           // Commenting this out as we don't want to reset stats on each open.
           // thread->stats.Start();
@@ -1951,13 +1951,13 @@ class StressTest {
           std::string new_name =
               ToString(new_column_family_name_.fetch_add(1));
           {
-            MutexLock l(thread->shared->GetMutex());
+            MutexLock l(shared->GetMutex());
             fprintf(
                 stdout,
                 "[CF %d] Dropping and recreating column family. new name: %s\n",
                 cf, new_name.c_str());
           }
-          thread->shared->LockColumnFamily(cf);
+          shared->LockColumnFamily(cf);
           Status s __attribute__((__unused__));
           s = db_->DropColumnFamily(column_families_[cf]);
           delete column_families_[cf];
@@ -1969,13 +1969,13 @@ class StressTest {
           s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                       &column_families_[cf]);
           column_family_names_[cf] = new_name;
-          thread->shared->ClearColumnFamily(cf);
+          shared->ClearColumnFamily(cf);
           if (!s.ok()) {
             fprintf(stderr, "creating column family error: %s\n",
                 s.ToString().c_str());
             std::terminate();
           }
-          thread->shared->UnlockColumnFamily(cf);
+          shared->UnlockColumnFamily(cf);
         }
       }
 
@@ -2151,7 +2151,7 @@ class StressTest {
             Slice k = keystr2;
             Status s = db_->Get(read_opts, column_family, k, &from_db);
             if (!VerifyValue(rand_column_family, rand_key, read_opts,
-                             thread->shared, from_db, s, true)) {
+                             shared, from_db, s, true)) {
               break;
             }
           }
@@ -2339,7 +2339,7 @@ class StressTest {
       end = max_key;
     }
     for (size_t cf = 0; cf < column_families_.size(); ++cf) {
-      if (thread->shared->HasVerificationFailedYet()) {
+      if (shared->HasVerificationFailedYet()) {
         break;
       }
       if (!thread->rand.OneIn(2)) {
@@ -2348,7 +2348,7 @@ class StressTest {
             db_->NewIterator(options, column_families_[cf]));
         iter->Seek(Key(start));
         for (auto i = start; i < end; i++) {
-          if (thread->shared->HasVerificationFailedYet()) {
+          if (shared->HasVerificationFailedYet()) {
             break;
           }
           // TODO(ljin): update "long" to uint64_t
@@ -2386,7 +2386,7 @@ class StressTest {
       } else {
         // Use Get to verify this range
         for (auto i = start; i < end; i++) {
-          if (thread->shared->HasVerificationFailedYet()) {
+          if (shared->HasVerificationFailedYet()) {
             break;
           }
           std::string from_db;
@@ -2840,13 +2840,6 @@ class StressTest {
  */
 class ExampleStressTest : public StressTest {
  public:
-  virtual void OperateDb(ThreadState* thread) {
-    (void) thread;
-#ifndef NDEBUG
-    assert(thread != nullptr);
-#endif
-  }
-
   virtual void VerifyDb(ThreadState* thread) const {
     (void) thread;
 #ifndef NDEBUG
