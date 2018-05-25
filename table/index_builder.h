@@ -117,11 +117,14 @@ class IndexBuilder {
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
   explicit ShortenedIndexBuilder(const InternalKeyComparator* comparator,
-                                 int index_block_restart_interval)
+                                 int index_block_restart_interval,
+                                 uint32_t format_version)
       : IndexBuilder(comparator),
         index_block_builder_(index_block_restart_interval),
-        index_block_builder_without_seq_(index_block_restart_interval),
-        seperator_is_key_plus_seq_(false) {}
+        index_block_builder_without_seq_(index_block_restart_interval) {
+          // makeing the default true will disable the feature for old versions
+          seperator_is_key_plus_seq_ = (format_version <= 2);
+        }
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
@@ -129,7 +132,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
     if (first_key_in_next_block != nullptr) {
       comparator_->FindShortestSeparator(last_key_in_current_block,
                                          *first_key_in_next_block);
-      if (comparator_->user_comparator()->Compare(
+      if (!seperator_is_key_plus_seq_ &&
+          comparator_->user_comparator()->Compare(
               ExtractUserKey(*last_key_in_current_block),
               ExtractUserKey(*first_key_in_next_block)) == 0) {
         seperator_is_key_plus_seq_ = true;
@@ -212,9 +216,11 @@ class HashIndexBuilder : public IndexBuilder {
  public:
   explicit HashIndexBuilder(const InternalKeyComparator* comparator,
                             const SliceTransform* hash_key_extractor,
-                            int index_block_restart_interval)
+                            int index_block_restart_interval,
+                            int format_version)
       : IndexBuilder(comparator),
-        primary_index_builder_(comparator, index_block_restart_interval),
+        primary_index_builder_(comparator, index_block_restart_interval,
+                               format_version),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,

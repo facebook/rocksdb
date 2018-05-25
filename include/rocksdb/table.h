@@ -214,6 +214,9 @@ struct BlockBasedTableOptions {
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use
   // this.
+  // 3 -- Can be read by RocksDB's versions since 5.15. Changes the way we
+  // encode the keys in index blocks. If you don't plan to run RocksDB before
+  // version 5.15, you should probably use this.
   // This option only affects newly written tables. When reading existing tables,
   // the information about version is read from the footer.
   uint32_t format_version = 2;
