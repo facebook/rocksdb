@@ -304,11 +304,14 @@ jobject Java_org_rocksdb_TransactionDB_getLockStatusData(
       return nullptr;
   }
 
-  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo> fn_map_kv =
-      [env, txn_db, &lock_status_data](const std::pair<const int32_t, const rocksdb::KeyLockInfo>& pair) {
-          const jobject jlong_column_family_id =
-              rocksdb::LongJni::valueOf(env, pair.first);
-          if (jlong_column_family_id == nullptr) {
+  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo>
+      fn_map_kv =
+          [env](
+              const std::pair<const int32_t, const rocksdb::KeyLockInfo>&
+                  pair) {
+            const jobject jlong_column_family_id =
+                rocksdb::LongJni::valueOf(env, pair.first);
+            if (jlong_column_family_id == nullptr) {
               // an error occurred
               return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
           }
