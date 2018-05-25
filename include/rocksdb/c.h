@@ -143,8 +143,10 @@ extern ROCKSDB_LIBRARY_API rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup(
-    rocksdb_backup_engine_t* be, rocksdb_t* db, unsigned char flush_before_backup,
-    char** errptr);
+    rocksdb_backup_engine_t* be, rocksdb_t* db, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup_flush(
+    rocksdb_backup_engine_t* be, rocksdb_t* db, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_purge_old_backups(
     rocksdb_backup_engine_t* be, uint32_t num_backups_to_keep, char** errptr);
@@ -155,6 +157,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_destroy(
     rocksdb_restore_options_t* opt);
 extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_set_keep_log_files(
     rocksdb_restore_options_t* opt, int v);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_verify_backup(rocksdb_backup_engine_t* be,
+    uint32_t backup_id);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_backup_engine_restore_db_from_latest_backup(
