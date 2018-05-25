@@ -442,7 +442,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
   }
 }
 
-BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
+BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp, BlockIter* iter,
                               bool total_order_seek, Statistics* stats,
                               bool key_includes_seq) {
   BlockIter* ret_iter;
@@ -463,7 +463,7 @@ BlockIter* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index_.get();
-    ret_iter->Initialize(cmp, data_, restart_offset_, num_restarts_,
+    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
                          read_amp_bitmap_.get());
 

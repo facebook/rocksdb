@@ -162,6 +162,9 @@ class Block {
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
   //
+  // If comparator is InternalKeyComparator, user_comparator is its user
+  // comparator; they are equal otherwise.
+  //
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
   //
@@ -169,6 +172,7 @@ class Block {
   // This option only applies for index block. For data block, hash_index_
   // and prefix_index_ are null, so this option does not matter.
   BlockIter* NewIterator(const Comparator* comparator,
+                         const Comparator* user_comparator,
                          BlockIter* iter = nullptr,
                          bool total_order_seek = true,
                          Statistics* stats = nullptr,
@@ -204,6 +208,7 @@ class BlockIter final : public InternalIterator {
   // and status() is OK.
   BlockIter()
       : comparator_(nullptr),
+        user_comparator_(nullptr),
         data_(nullptr),
         restarts_(0),
         num_restarts_(0),
@@ -217,15 +222,17 @@ class BlockIter final : public InternalIterator {
         read_amp_bitmap_(nullptr),
         last_bitmap_offset_(0) {}
 
-  BlockIter(const Comparator* comparator, const char* data, uint32_t restarts,
-            uint32_t num_restarts, BlockPrefixIndex* prefix_index,
-            SequenceNumber global_seqno, BlockReadAmpBitmap* read_amp_bitmap)
+  BlockIter(const Comparator* comparator, const Comparator* user_comparator,
+            const char* data, uint32_t restarts, uint32_t num_restarts,
+            BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
+            BlockReadAmpBitmap* read_amp_bitmap)
       : BlockIter() {
-    Initialize(comparator, data, restarts, num_restarts, prefix_index,
-               global_seqno, read_amp_bitmap);
+    Initialize(comparator, user_comparator, data, restarts, num_restarts,
+               prefix_index, global_seqno, read_amp_bitmap);
   }
 
-  void Initialize(const Comparator* comparator, const char* data,
+  void Initialize(const Comparator* comparator,
+                  const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap) {
@@ -233,6 +240,7 @@ class BlockIter final : public InternalIterator {
     assert(num_restarts > 0);           // Ensure the param is valid
 
     comparator_ = comparator;
+    user_comparator_ = user_comparator;
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;
@@ -314,7 +322,11 @@ class BlockIter final : public InternalIterator {
   }
 
  private:
+  // Note: The type could be changed to InternalKeyComparator but we see a weird
+  // performance drop by that.
   const Comparator* comparator_;
+  // Same as comparator_ if comparator_ is not InernalKeyComparator
+  const Comparator* user_comparator_;
   const char* data_;       // underlying block contents
   uint32_t restarts_;      // Offset of restart array (list of fixed32)
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
@@ -362,12 +374,19 @@ class BlockIter final : public InternalIterator {
   int32_t prev_entries_idx_ = -1;
 
   inline int Compare(const Slice& a, const Slice& b) const {
-    return comparator_->Compare(a, b);
+    if (key_includes_seq_) {
+      return comparator_->Compare(a, b);
+    } else {
+      return user_comparator_->Compare(a, b);
+    }
   }
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
-    auto a = key_includes_seq_ ? ikey.GetInternalKey() : ikey.GetUserKey();
-    return comparator_->Compare(a, b);
+    if (key_includes_seq_) {
+      return comparator_->Compare(ikey.GetInternalKey(), b);
+    } else {
+      return user_comparator_->Compare(ikey.GetUserKey(), b);
+    }
   }
 
   // Return the offset in data_ just past the end of the current entry.

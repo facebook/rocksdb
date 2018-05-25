@@ -237,7 +237,7 @@ class BlockConstructor: public Constructor {
   }
   virtual InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewIterator(comparator_);
+    return block_->NewIterator(comparator_, comparator_);
   }
 
  private:

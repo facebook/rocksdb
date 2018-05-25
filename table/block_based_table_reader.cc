@@ -238,14 +238,17 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       return NewTwoLevelIterator(
           new BlockBasedTable::PartitionedIndexIteratorState(
               table_, &partition_map_, index_key_includes_seq_),
-          index_block_->NewIterator(icomparator_, nullptr, true));
+          index_block_->NewIterator(
+              icomparator_, icomparator_->user_comparator(), nullptr, true));
     } else {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
       bool kIsIndex = true;
       return new BlockBasedTableIterator(
           table_, ro, *icomparator_,
-          index_block_->NewIterator(icomparator_, nullptr, true), false,
+          index_block_->NewIterator(
+              icomparator_, icomparator_->user_comparator(), nullptr, true),
+          false,
           /* prefix_extractor */ nullptr, kIsIndex, index_key_includes_seq_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
@@ -259,7 +262,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     auto rep = table_->rep_;
     BlockIter biter;
     BlockHandle handle;
-    index_block_->NewIterator(icomparator_, &biter, true);
+    index_block_->NewIterator(icomparator_, icomparator_->user_comparator(),
+                              &biter, true);
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
@@ -398,10 +402,9 @@ class BinarySearchIndexReader : public IndexReader {
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
                                         bool /*dont_care*/ = true,
                                         bool /*dont_care*/ = true) override {
-    return index_block_->NewIterator(
-        index_key_includes_seq_ ? icomparator_
-                                : icomparator_->user_comparator(),
-        iter, true, nullptr, index_key_includes_seq_);
+    return index_block_->NewIterator(icomparator_,
+                                     icomparator_->user_comparator(), iter,
+                                     true, nullptr, index_key_includes_seq_);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -517,9 +520,8 @@ class HashIndexReader : public IndexReader {
                                         bool total_order_seek = true,
                                         bool /*dont_care*/ = true) override {
     return index_block_->NewIterator(
-        index_key_includes_seq_ ? icomparator_
-                                : icomparator_->user_comparator(),
-        iter, total_order_seek, nullptr, index_key_includes_seq_);
+        icomparator_, icomparator_->user_comparator(), iter, total_order_seek,
+        nullptr, index_key_includes_seq_);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -1045,7 +1047,8 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
 
   *meta_block = std::move(meta);
   // meta block uses bytewise comparator.
-  iter->reset(meta_block->get()->NewIterator(BytewiseComparator()));
+  iter->reset(meta_block->get()->NewIterator(BytewiseComparator(),
+                                             BytewiseComparator()));
   return Status::OK();
 }
 
@@ -1586,8 +1589,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
   if (s.ok()) {
     assert(block.value != nullptr);
     iter = block.value->NewIterator(
-        key_includes_seq ? &rep->internal_comparator
-                         : rep->internal_comparator.user_comparator(),
+        &rep->internal_comparator, rep->internal_comparator.user_comparator(),
         iter, true, rep->ioptions.statistics, key_includes_seq);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
@@ -1728,8 +1730,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     RecordTick(rep->ioptions.statistics, BLOCK_CACHE_BYTES_READ,
                block_cache->GetUsage(block->second.cache_handle));
     return block->second.value->NewIterator(
-        index_key_includes_seq_ ? &rep->internal_comparator
-                                : rep->internal_comparator.user_comparator(),
+        &rep->internal_comparator, rep->internal_comparator.user_comparator(),
         nullptr, true, rep->ioptions.statistics, index_key_includes_seq_);
   }
   // Create an empty iterator
@@ -2097,7 +2098,8 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
     assert(block_cache != nullptr);
     if (block_cache->Ref(rep_->range_del_entry.cache_handle)) {
       auto iter = rep_->range_del_entry.value->NewIterator(
-          &rep_->internal_comparator, nullptr /* iter */,
+          &rep_->internal_comparator,
+          rep_->internal_comparator.user_comparator(), nullptr /* iter */,
           true /* total_order_seek */, rep_->ioptions.statistics);
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             rep_->range_del_entry.cache_handle);
