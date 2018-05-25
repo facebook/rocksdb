@@ -103,6 +103,9 @@ DEFINE_int64(max_key, 1 * KB* KB,
 
 DEFINE_int32(column_families, 10, "Number of column families");
 
+DEFINE_string(test_class_name, "StressTest",
+    "Name of the class for stress test.");
+
 DEFINE_string(
     options_file, "",
     "The path to a RocksDB options file.  If specified, then db_stress will "
@@ -1301,7 +1304,7 @@ class StressTest {
     }
   }
 
-  ~StressTest() {
+  virtual ~StressTest() {
     for (auto cf : column_families_) {
       delete cf;
     }
@@ -1886,7 +1889,7 @@ class StressTest {
   }
 #endif
 
-  void OperateDb(ThreadState* thread) {
+  virtual void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
     auto shared = thread->shared;
@@ -2325,7 +2328,7 @@ class StressTest {
     thread->stats.Stop();
   }
 
-  void VerifyDb(ThreadState* thread) const {
+  virtual void VerifyDb(ThreadState* thread) const {
     ReadOptions options(FLAGS_verify_checksum, true);
     auto shared = thread->shared;
     const int64_t max_key = shared->GetMaxKey();
@@ -2831,6 +2834,27 @@ class StressTest {
   std::vector<std::string> options_index_;
 };
 
+/*
+ * An example showing how to add new customized test without changing
+ * StressTest class.
+ */
+class ExampleStressTest : public StressTest {
+ public:
+  virtual void OperateDb(ThreadState* thread) {
+    (void) thread;
+#ifndef NDEBUG
+    assert(thread != nullptr);
+#endif
+  }
+
+  virtual void VerifyDb(ThreadState* thread) const {
+    (void) thread;
+#ifndef NDEBUG
+    assert(thread != nullptr);
+#endif
+  }
+};
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -2940,8 +2964,17 @@ int main(int argc, char** argv) {
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
-  rocksdb::StressTest stress;
-  if (stress.Run()) {
+  std::unique_ptr<rocksdb::StressTest> stress;
+  if (FLAGS_test_class_name == "StressTest") {
+    stress.reset(new rocksdb::StressTest());
+  } else if (FLAGS_test_class_name == "ExampleStressTest") {
+    stress.reset(new rocksdb::ExampleStressTest());
+  } else {
+    fprintf(stderr, "Error: %s is unknown test class.", FLAGS_test_class_name.c_str());
+    fflush(stderr);
+    exit(1);
+  }
+  if (stress->Run()) {
     return 0;
   } else {
     return 1;
