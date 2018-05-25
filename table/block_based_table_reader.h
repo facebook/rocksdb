@@ -513,8 +513,8 @@ class BlockBasedTableIterator : public InternalIterator {
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
                           InternalIterator* index_iter, bool check_filter,
-                          const SliceTransform* prefix_extractor,
-                          bool is_index, bool key_includes_seq = true)
+                          const SliceTransform* prefix_extractor, bool is_index,
+                          bool key_includes_seq = true)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),

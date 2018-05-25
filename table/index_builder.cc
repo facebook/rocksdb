@@ -31,15 +31,15 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
   IndexBuilder* result = nullptr;
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
-      result =  new ShortenedIndexBuilder(comparator,
-                                       table_opt.index_block_restart_interval, 
-                                       table_opt.format_version);
+      result = new ShortenedIndexBuilder(comparator,
+                                         table_opt.index_block_restart_interval,
+                                         table_opt.format_version);
     }
   break;
     case BlockBasedTableOptions::kHashSearch: {
       result = new HashIndexBuilder(comparator, int_key_slice_transform,
-                                  table_opt.index_block_restart_interval,
-                                  table_opt.format_version);
+                                    table_opt.index_block_restart_interval,
+                                    table_opt.format_version);
     }
   break;
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
@@ -64,7 +64,8 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
     const InternalKeyComparator* comparator,
     const BlockBasedTableOptions& table_opt)
     : IndexBuilder(comparator),
-      index_block_builder_(table_opt.index_block_restart_interval, table_opt.format_version),
+      index_block_builder_(table_opt.index_block_restart_interval,
+                           table_opt.format_version),
       sub_index_builder_(nullptr),
       table_opt_(table_opt),
       seperator_is_key_plus_seq_(false) {}
@@ -76,7 +77,8 @@ PartitionedIndexBuilder::~PartitionedIndexBuilder() {
 void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   assert(sub_index_builder_ == nullptr);
   sub_index_builder_ = new ShortenedIndexBuilder(
-      comparator_, table_opt_.index_block_restart_interval, table_opt_.format_version);
+      comparator_, table_opt_.index_block_restart_interval,
+      table_opt_.format_version);
   flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
       sub_index_builder_->index_block_builder_));

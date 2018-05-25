@@ -217,8 +217,8 @@ struct BlockBasedTableOptions {
   // 3 -- Can be read by RocksDB's versions since 5.15. Changes the way we
   // encode the keys in index blocks. If you don't plan to run RocksDB before
   // version 5.15, you should probably use this.
-  // This option only affects newly written tables. When reading existing tables,
-  // the information about version is read from the footer.
+  // This option only affects newly written tables. When reading existing
+  // tables, the information about version is read from the footer.
   uint32_t format_version = 2;
 
   // Store index blocks on disk in compressed format. Changing this option to

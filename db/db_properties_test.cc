@@ -499,10 +499,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_EQ(sum_tp.num_data_blocks, tp.num_data_blocks);
     ASSERT_EQ(sum_tp.num_entries, tp.num_entries);
     if (table > 3) {
-      GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
-                                 kKeysPerTable, table, kBloomBitsPerKey,
-                                 table_options.block_size,
-                                 index_key_is_user_key);
+      GetExpectedTableProperties(
+          &expected_tp, kKeySize, kValueSize, kKeysPerTable, table,
+          kBloomBitsPerKey, table_options.block_size, index_key_is_user_key);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
       VerifyTableProperties(tp, expected_tp, 0.5, 0.4, 0.4, 0.25);

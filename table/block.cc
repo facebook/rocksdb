@@ -442,9 +442,9 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
   }
 }
 
-BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp, BlockIter* iter,
-                              bool total_order_seek, Statistics* stats,
-                              bool key_includes_seq) {
+BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
+                              BlockIter* iter, bool total_order_seek,
+                              Statistics* stats, bool key_includes_seq) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;

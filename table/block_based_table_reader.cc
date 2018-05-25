@@ -2067,9 +2067,9 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(
             read_options,
             prefix_extractor_changed &&
-            rep_->index_type == BlockBasedTableOptions::kHashSearch),
+                rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
-        prefix_extractor != nullptr && !prefix_extractor_changed,
+            prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor, IS_NOT_INDEX);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
@@ -2077,7 +2077,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
-        prefix_extractor != nullptr && !prefix_extractor_changed,
+            prefix_extractor != nullptr && !prefix_extractor_changed,
         prefix_extractor, IS_NOT_INDEX);
   }
 }
@@ -2278,8 +2278,7 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   for (begin ? iiter->Seek(*begin) : iiter->SeekToFirst(); iiter->Valid();
        iiter->Next()) {
     Slice block_handle = iiter->value();
-    const bool is_user_key =
-        rep_->table_properties->index_key_is_user_key > 0;
+    const bool is_user_key = rep_->table_properties->index_key_is_user_key > 0;
     if (end &&
         ((!is_user_key && comparator.Compare(iiter->key(), *end) >= 0) ||
          (is_user_key &&

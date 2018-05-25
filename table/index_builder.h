@@ -122,9 +122,9 @@ class ShortenedIndexBuilder : public IndexBuilder {
       : IndexBuilder(comparator),
         index_block_builder_(index_block_restart_interval),
         index_block_builder_without_seq_(index_block_restart_interval) {
-          // makeing the default true will disable the feature for old versions
-          seperator_is_key_plus_seq_ = (format_version <= 2);
-        }
+    // makeing the default true will disable the feature for old versions
+    seperator_is_key_plus_seq_ = (format_version <= 2);
+  }
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,

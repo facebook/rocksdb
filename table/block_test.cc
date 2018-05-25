@@ -99,7 +99,8 @@ TEST_F(BlockTest, SimpleTest) {
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter = reader.NewIterator(options.comparator, options.comparator);
+  InternalIterator *iter =
+      reader.NewIterator(options.comparator, options.comparator);
   for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
 
     // read kv from block
@@ -388,8 +389,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     // read contents of block sequentially
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, options.comparator, nullptr, true, stats.get()));
+    BlockIter *iter = static_cast<BlockIter *>(reader.NewIterator(
+        options.comparator, options.comparator, nullptr, true, stats.get()));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -421,8 +422,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, options.comparator, nullptr, true, stats.get()));
+    BlockIter *iter = static_cast<BlockIter *>(reader.NewIterator(
+        options.comparator, options.comparator, nullptr, true, stats.get()));
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -457,8 +458,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, options.comparator, nullptr, true, stats.get()));
+    BlockIter *iter = static_cast<BlockIter *>(reader.NewIterator(
+        options.comparator, options.comparator, nullptr, true, stats.get()));
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);
