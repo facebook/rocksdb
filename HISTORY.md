@@ -1,7 +1,11 @@
 # Rocksdb Change Log
-## 5.13.2 (5/23/2018)
+## 5.13.2 (5/25/2018)
 ### Public API Change
 * Introduced `CompressionOptions::kDefaultCompressionLevel`, which is a generic way to tell RocksDB to use the compression library's default level. It is now the default value for `CompressionOptions::level`. Previously the level defaulted to -1, which gave poor compression ratios in ZSTD.
+
+### Bug Fixes
+* Fix segfault caused by object premature destruction (PR #3898)
+* Fix an issue with unnecessary capture in lambda expressions (PR #3904)
 
 ## 5.13.1 (4/30/2018)
 ### New Features
