@@ -419,7 +419,7 @@ struct BlockBasedTable::Rep {
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
-  const BlockBasedTableOptions& table_options;
+  const BlockBasedTableOptions table_options;
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
