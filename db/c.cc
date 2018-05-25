@@ -564,8 +564,8 @@ void rocksdb_restore_options_set_keep_log_files(rocksdb_restore_options_t* opt,
 
 
 void rocksdb_backup_engine_verify_backup(rocksdb_backup_engine_t* be,
-    uint32_t backup_id) {
-  be->rep->VerifyBackup(static_cast<BackupID>(backup_id));
+    uint32_t backup_id, char** errptr) {
+  SaveError(errptr, be->rep->VerifyBackup(static_cast<BackupID>(backup_id)));
 }
 
 void rocksdb_backup_engine_restore_db_from_latest_backup(

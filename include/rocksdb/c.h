@@ -160,7 +160,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_set_keep_log_files(
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_backup_engine_verify_backup(rocksdb_backup_engine_t* be,
-    uint32_t backup_id);
+    uint32_t backup_id, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_backup_engine_restore_db_from_latest_backup(
