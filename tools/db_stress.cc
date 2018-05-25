@@ -1612,6 +1612,30 @@ class StressTest {
     }
   }
 
+  virtual void GenerateRandomColumnFamilyIds(ThreadState* thread,
+      std::vector<int>* rand_column_families) const {
+    int rand_column_family = thread->rand.Next() % FLAGS_column_families;
+    const int n = 10;
+    rand_column_families->resize(n);
+    for (int i = 0; i != n; ++i) {
+      (*rand_column_families)[i] = rand_column_family;
+    }
+  }
+
+  virtual void GenerateRandomKeys(ThreadState* thread, double completed_ratio,
+      std::vector<int64_t>* rand_keys, std::vector<Slice>* key_slices) const {
+    const int64_t base_key = static_cast<int64_t>(
+        completed_ratio * (FLAGS_max_key - FLAGS_active_width));
+    int64_t rand_key = base_key + thread->rand.Next() % FLAGS_active_width;
+    const int n = 10;
+    rand_keys->resize(n);
+    key_slices->resize(n);
+    for (int i = 0; i != n; ++i) {
+      (*rand_keys)[i] = rand_key;
+      (*key_slices)[i] = Slice(std::to_string(i) + Key(rand_key));
+    }
+  }
+
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
   // Also refer MultiGet.
@@ -1677,55 +1701,61 @@ class StressTest {
   // in the same snapshot, and verifies that all the values are of the form
   // "0"+V, "1"+V,..."9"+V.
   // ASSUMES that MultiPut was used to put (K, V) into the DB.
-  Status MultiGet(ThreadState* thread, const ReadOptions& readoptions,
-                  ColumnFamilyHandle* column_family, const Slice& key,
-                  std::string* value) {
-    std::string keys[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-    Slice key_slices[10];
-    std::string values[10];
+  virtual Status MultiGet(ThreadState* thread, const ReadOptions& readoptions,
+                  const std::vector<ColumnFamilyHandle*>& column_families,
+                  const std::vector<Slice>& key_slices,
+                  std::vector<std::string>* values) {
+    values->resize(key_slices.size());
+    std::string value;
     ReadOptions readoptionscopy = readoptions;
     readoptionscopy.snapshot = db_->GetSnapshot();
     Status s;
-    for (int i = 0; i < 10; i++) {
-      keys[i] += key.ToString();
-      key_slices[i] = keys[i];
-      s = db_->Get(readoptionscopy, column_family, key_slices[i], value);
+    for (int i = 0; i < static_cast<int>(key_slices.size()); i++) {
+      s = db_->Get(readoptionscopy, column_families[i], key_slices[i], &value);
       if (!s.ok() && !s.IsNotFound()) {
         fprintf(stderr, "get error: %s\n", s.ToString().c_str());
-        values[i] = "";
+        (*values)[i] = "";
         thread->stats.AddErrors(1);
         // we continue after error rather than exiting so that we can
         // find more errors if any
       } else if (s.IsNotFound()) {
-        values[i] = "";
+        (*values)[i] = "";
         thread->stats.AddGets(1, 0);
       } else {
-        values[i] = *value;
-
-        char expected_prefix = (keys[i])[0];
-        char actual_prefix = (values[i])[0];
-        if (actual_prefix != expected_prefix) {
-          fprintf(stderr, "error expected prefix = %c actual = %c\n",
-                  expected_prefix, actual_prefix);
-        }
-        (values[i])[0] = ' '; // blank out the differing character
+        (*values)[i] = value;
         thread->stats.AddGets(1, 1);
       }
     }
-    db_->ReleaseSnapshot(readoptionscopy.snapshot);
+    return s;
+  }
+
+  virtual void AfterMultiGet(const ReadOptions& readoptions,
+      const std::vector<Slice>& key_slices,
+      std::vector<std::string>& values) {
+    for (int i = 0; i != static_cast<int>(key_slices.size()); ++i) {
+      if (values[i].empty()) {
+        continue;
+      }
+      char expected_prefix = key_slices[i].ToString().at(0);
+      char actual_prefix = values[i].at(0);
+      if (actual_prefix != expected_prefix) {
+        fprintf(stderr, "error expected prefix = %c actual = %c\n",
+            expected_prefix, actual_prefix);
+      }
+      values[i][0] = ' '; // blank out the differing character
+    }
+    db_->ReleaseSnapshot(readoptions.snapshot);
 
     // Now that we retrieved all values, check that they all match
-    for (int i = 1; i < 10; i++) {
+    for (int i = 1; i != static_cast<int>(key_slices.size()); ++i) {
       if (values[i] != values[0]) {
         fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
-                key.ToString(true).c_str(), StringToHex(values[0]).c_str(),
-                StringToHex(values[i]).c_str());
-      // we continue after error rather than exiting so that we can
-      // find more errors if any
+            key_slices[i].ToString(true).c_str(),
+            StringToHex(values[0]).c_str(), StringToHex(values[i]).c_str());
+        // we continue after error rather than exiting so that we can
+        // find more errors if any.
       }
     }
-
-    return s;
   }
 
   // Given a key, this does prefix scans for "0"+P, "1"+P,..."9"+P
@@ -2038,12 +2068,22 @@ class StressTest {
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       std::string keystr = Key(rand_key);
       Slice key = keystr;
+      std::vector<int64_t> rand_keys;
+      std::vector<Slice> key_slices;
+      std::vector<std::string> values;
+      std::vector<int> rand_column_families;
+      GenerateRandomColumnFamilyIds(thread, &rand_column_families);
+      GenerateRandomKeys(thread, completed_ratio, &rand_keys, &key_slices);
       std::unique_ptr<MutexLock> l;
       if (!FLAGS_test_batches_snapshots) {
         l.reset(new MutexLock(
-            shared->GetMutexForKey(rand_column_family, rand_key)));
+            shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
       }
 
+      std::vector<ColumnFamilyHandle*> column_families;
+      for (auto cf : rand_column_families) {
+        column_families.emplace_back(column_families_[cf]);
+      }
       auto column_family = column_families_[rand_column_family];
 
       if (FLAGS_acquire_snapshot_one_in > 0 &&
@@ -2055,10 +2095,10 @@ class StressTest {
         // When taking a snapshot, we also read a key from that snapshot. We
         // will later read the same key before releasing the snapshot and verify
         // that the results are the same.
-        auto status_at = db_->Get(ropt, column_family, key, &value_at);
+        auto status_at = db_->Get(ropt, column_families[0], key_slices[0], &value_at);
         ThreadState::SnapshotState snap_state = {
-            snapshot, rand_column_family, column_family->GetName(),
-            keystr,   status_at,          value_at};
+            snapshot, rand_column_families[0], column_families[0]->GetName(),
+            Key(rand_keys[0]), status_at, value_at};
         thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             snap_state);
@@ -2083,7 +2123,8 @@ class StressTest {
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (!FLAGS_test_batches_snapshots) {
-          Status s = db_->Get(read_opts, column_family, key, &from_db);
+          Status s =
+              db_->Get(read_opts, column_families[0], key_slices[0], &from_db);
           if (s.ok()) {
             // found case
             thread->stats.AddGets(1, 1);
@@ -2095,7 +2136,10 @@ class StressTest {
             thread->stats.AddErrors(1);
           }
         } else {
-          MultiGet(thread, read_opts, column_family, key, &from_db);
+          MultiGet(thread, read_opts, column_families, key_slices, &values);
+          ReadOptions readoptionscopy = read_opts;
+          readoptionscopy.snapshot = db_->GetSnapshot();
+          AfterMultiGet(readoptionscopy, key_slices, values);
         }
       } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
         // OPERATION prefix scan
