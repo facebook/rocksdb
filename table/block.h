@@ -365,6 +365,11 @@ class BlockIter final : public InternalIterator {
     return comparator_->Compare(a, b);
   }
 
+  inline int Compare(const IterKey& ikey, const Slice& b) const {
+    auto a = key_includes_seq_ ? ikey.GetInternalKey() : ikey.GetUserKey();
+    return comparator_->Compare(a, b);
+  }
+
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
     // NOTE: We don't support blocks bigger than 2GB

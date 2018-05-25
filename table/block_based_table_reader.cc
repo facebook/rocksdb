@@ -242,11 +242,11 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     } else {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
-      bool IS_INDEX = true;
+      bool kIsIndex = true;
       return new BlockBasedTableIterator(
           table_, ro, *icomparator_,
           index_block_->NewIterator(icomparator_, nullptr, true), false,
-          /* prefix_extractor */ nullptr, IS_INDEX, index_key_includes_seq_);
+          /* prefix_extractor */ nullptr, kIsIndex, index_key_includes_seq_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
     // on-stack BlockIter while the state is on heap. Currentlly it assumes

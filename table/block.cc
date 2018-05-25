@@ -163,9 +163,7 @@ void BlockIter::Seek(const Slice& target) {
   // Linear search (within restart block) for first key >= target
 
   while (true) {
-    if (!ParseNextKey() ||
-        Compare(key_includes_seq_ ? key_.GetInternalKey() : key_.GetUserKey(),
-                seek_key) >= 0) {
+    if (!ParseNextKey() || Compare(key_, seek_key) >= 0) {
       return;
     }
   }
@@ -189,16 +187,12 @@ void BlockIter::SeekForPrev(const Slice& target) {
   SeekToRestartPoint(index);
   // Linear search (within restart block) for first key >= seek_key
 
-  while (ParseNextKey() &&
-         Compare(key_includes_seq_ ? key_.GetInternalKey() : key_.GetUserKey(),
-                 seek_key) < 0) {
+  while (ParseNextKey() && Compare(key_, seek_key) < 0) {
   }
   if (!Valid()) {
     SeekToLast();
   } else {
-    while (Valid() && Compare(key_includes_seq_ ? key_.GetInternalKey()
-                                                : key_.GetUserKey(),
-                              seek_key) > 0) {
+    while (Valid() && Compare(key_, seek_key) > 0) {
       Prev();
     }
   }
