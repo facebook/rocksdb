@@ -237,7 +237,7 @@ class BlockConstructor: public Constructor {
   }
   virtual InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewIterator(comparator_);
+    return block_->NewIterator(comparator_, comparator_);
   }
 
  private:
@@ -2115,7 +2115,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
                          nullptr, nullptr, nullptr);
-  ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context,
+  ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
   ASSERT_STREQ(value.data(), "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
@@ -2427,7 +2427,8 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   ASSERT_OK(c.Reopen(ioptions1, moptions1));
   auto table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   for (const std::string& key : keys) {
-    ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
+    InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
+    ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), ikey.Encode()));
   }
   c.ResetTableReader();
 
@@ -2439,7 +2440,8 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   ASSERT_OK(c.Reopen(ioptions2, moptions2));
   table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   for (const std::string& key : keys) {
-    ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
+    InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
+    ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), ikey.Encode()));
   }
   c.ResetTableReader();
 }
