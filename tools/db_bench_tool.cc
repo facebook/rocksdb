@@ -885,8 +885,23 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
             "background I/O");
 
 
-DEFINE_bool(write_rate_sine, false,
+DEFINE_bool(sine_write_rate, false,
             "Use a sine wave write_rate_limit");
+
+DEFINE_uint32(sine_write_rate_interval_milliseconds, 10000,
+              "Interval of which the sine wave write_rate_limit is recalculated");
+
+DEFINE_double(sine_a, 1,
+             "A in f(x) = A sin(bx + c) + d");
+
+DEFINE_double(sine_b, 1,
+             "B in f(x) = A sin(bx + c) + d");
+
+DEFINE_double(sine_c, 0,
+             "C in f(x) = A sin(bx + c) + d");
+
+DEFINE_double(sine_d, 1,
+             "D in f(x) = A sin(bx + c) + d");
 
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
@@ -3351,6 +3366,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       FLAGS_env->LowerThreadPoolCPUPriority(Env::HIGH);
     }
     options.env = FLAGS_env;
+    if (FLAGS_sine_write_rate) {
+      FLAGS_benchmark_write_rate_limit = static_cast<uint64_t>(SineRate(0));
+    }
 
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
       if (FLAGS_rate_limit_bg_reads &&
@@ -3584,6 +3602,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
+  double SineRate(double x) {
+    return FLAGS_sine_a*sin((FLAGS_sine_b*x) + FLAGS_sine_c) + FLAGS_sine_d;
+  }
+
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
     const int64_t num_ops = writes_ == 0 ? num_ : writes_;
@@ -3729,17 +3751,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);
-      if (FLAGS_write_rate_sine) {
+      if (FLAGS_sine_write_rate) {
         uint64_t now = FLAGS_env->NowMicros();
+        uint64_t usecs_since_last = now - thread->stats.GetSineInterval();
 
-        int64_t usecs_since_start = now - thread->stats.GetStart();
-        int64_t usecs_since_last = now - thread->stats.GetSineInterval();
-
-        if (FLAGS_stats_interval_seconds && usecs_since_last > (FLAGS_stats_interval_seconds * 1000000)) {
+        if (usecs_since_last > (FLAGS_sine_write_rate_interval_milliseconds * 1000)) {
+          uint64_t usecs_since_start = now - thread->stats.GetStart();
           thread->stats.ResetSineInterval();
-          int test = (int) (75000000*cos(((usecs_since_start/1000)/(17500*3.14)) + 3.14) + 125000000);
+          uint64_t write_rate = static_cast<uint64_t>(SineRate(usecs_since_start/1000000.0));
           thread->shared->write_rate_limiter.reset(
-                  NewGenericRateLimiter(test));
+                  NewGenericRateLimiter(write_rate));
         }
       }
       if (!s.ok()) {
