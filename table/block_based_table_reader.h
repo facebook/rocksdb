@@ -217,11 +217,13 @@ class BlockBasedTable : public TableReader {
                                          const Slice& index_value,
                                          BlockIter* input_iter = nullptr,
                                          bool is_index = false,
+                                         bool key_includes_seq = true,
                                          GetContext* get_context = nullptr);
   static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
                                          const BlockHandle& block_hanlde,
                                          BlockIter* input_iter = nullptr,
                                          bool is_index = false,
+                                         bool key_includes_seq = true,
                                          GetContext* get_context = nullptr,
                                          Status s = Status());
 
@@ -378,13 +380,15 @@ class BlockBasedTable::PartitionedIndexIteratorState
  public:
   PartitionedIndexIteratorState(
       BlockBasedTable* table,
-      std::unordered_map<uint64_t, CachableEntry<Block>>* block_map = nullptr);
+      std::unordered_map<uint64_t, CachableEntry<Block>>* block_map,
+      const bool index_key_includes_seq);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
 
  private:
   // Don't own table_
   BlockBasedTable* table_;
   std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
+  bool index_key_includes_seq_;
 };
 
 // CachableEntry represents the entries that *may* be fetched from block cache.
@@ -509,7 +513,8 @@ class BlockBasedTableIterator : public InternalIterator {
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
                           InternalIterator* index_iter, bool check_filter,
-                          const SliceTransform* prefix_extractor)
+                          const SliceTransform* prefix_extractor, bool is_index,
+                          bool key_includes_seq = true)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -517,6 +522,8 @@ class BlockBasedTableIterator : public InternalIterator {
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
+        is_index_(is_index),
+        key_includes_seq_(key_includes_seq),
         prefix_extractor_(prefix_extractor) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
@@ -609,6 +616,10 @@ class BlockBasedTableIterator : public InternalIterator {
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
   bool check_filter_;
+  // If the blocks over which we iterate are index blocks
+  bool is_index_;
+  // If the keys in the blocks over which we iterate include 8 byte sequence
+  bool key_includes_seq_;
   // TODO use block offset instead
   std::string prev_index_value_;
   const SliceTransform* prefix_extractor_;

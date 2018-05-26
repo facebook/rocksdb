@@ -763,6 +763,8 @@ Status BlockBasedTableBuilder::Finish() {
         r->props.top_level_index_size =
             r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
       }
+      r->props.index_key_is_user_key =
+          !r->index_builder->seperator_is_key_plus_seq();
       r->props.creation_time = r->creation_time;
       r->props.oldest_key_time = r->oldest_key_time;
 
