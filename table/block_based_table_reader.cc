@@ -484,7 +484,7 @@ class HashIndexReader : public IndexReader {
         file, prefetch_buffer, footer, ReadOptions(), prefixes_meta_handle,
         &prefixes_meta_contents, ioptions, true /* decompress */,
         dummy_comp_dict /*compression dict*/, cache_options);
-    prefixes_meta_block_fetcher.ReadBlockContents();
+    s = prefixes_meta_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       // TODO: log error
       return Status::OK();
