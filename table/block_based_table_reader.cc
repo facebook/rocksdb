@@ -2757,8 +2757,8 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
     }
     Slice key = blockhandles_iter->key();
     Slice user_key;
+    InternalKey ikey;
     if (rep_->table_properties->index_key_is_user_key == 0) {
-      InternalKey ikey;
       ikey.DecodeFrom(key);
       user_key = ikey.user_key();
     } else {
