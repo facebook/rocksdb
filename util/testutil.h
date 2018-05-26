@@ -87,13 +87,6 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
   virtual int Compare(const Slice& a, const Slice& b) const override {
     return user_comparator()->Compare(a, b);
   }
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override {
-    user_comparator()->FindShortestSeparator(start, limit);
-  }
-  virtual void FindShortSuccessor(std::string* key) const override {
-    user_comparator()->FindShortSuccessor(key);
-  }
 };
 #endif
 

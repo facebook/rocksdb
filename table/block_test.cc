@@ -99,7 +99,8 @@ TEST_F(BlockTest, SimpleTest) {
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter = reader.NewIterator(options.comparator);
+  InternalIterator *iter =
+      reader.NewIterator(options.comparator, options.comparator);
   for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
 
     // read kv from block
@@ -113,7 +114,7 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewIterator(options.comparator);
+  iter = reader.NewIterator(options.comparator, options.comparator);
   for (int i = 0; i < num_records; i++) {
 
     // find a random key in the lookaside array
@@ -163,7 +164,7 @@ void CheckBlockContents(BlockContents contents, const int max_key,
       NewFixedPrefixTransform(prefix_size));
 
   std::unique_ptr<InternalIterator> regular_iter(
-      reader2.NewIterator(BytewiseComparator()));
+      reader2.NewIterator(BytewiseComparator(), BytewiseComparator()));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -388,8 +389,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     // read contents of block sequentially
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, nullptr, true, stats.get()));
+    BlockIter *iter = static_cast<BlockIter *>(reader.NewIterator(
+        options.comparator, options.comparator, nullptr, true, stats.get()));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -421,8 +422,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, nullptr, true, stats.get()));
+    BlockIter *iter = static_cast<BlockIter *>(reader.NewIterator(
+        options.comparator, options.comparator, nullptr, true, stats.get()));
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -457,8 +458,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    BlockIter *iter = static_cast<BlockIter *>(
-        reader.NewIterator(options.comparator, nullptr, true, stats.get()));
+    BlockIter *iter = static_cast<BlockIter *>(reader.NewIterator(
+        options.comparator, options.comparator, nullptr, true, stats.get()));
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);
