@@ -179,7 +179,7 @@ class PinnableSlice : public Slice, public Cleanable {
     }
   }
 
-  void remove_prefix(size_t /*n*/) {
+  [[noreturn]] void remove_prefix(size_t /*n*/) {
     assert(0);  // Not implemented
   }
 
