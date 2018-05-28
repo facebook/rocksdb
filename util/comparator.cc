@@ -98,6 +98,22 @@ class BytewiseComparatorImpl : public Comparator {
     }
     // *key is a run of 0xffs.  Leave it alone.
   }
+
+  virtual bool IsSameLengthImmediateSuccessor(std::string s,
+                                              std::string t) const override {
+    if (s.size() != t.size()) return false;
+    int len = static_cast<int>(s.size());
+    for (int i = len - 1; i >= 0; --i) {
+      const uint8_t byte = s[i];
+      if (byte != static_cast<uint8_t>(0xff)) {
+        s[i] = byte + 1;
+        break;
+      }
+    }
+    // if s is ffffffff, then t cannot be successor of s under the constraint
+    // that they are the same length
+    return !s.compare(t);
+  }
 };
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {

@@ -249,8 +249,9 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           index_block_->NewIterator(icomparator_,
                                     icomparator_->user_comparator(), nullptr,
                                     true, nullptr, index_key_includes_seq_),
-          false,
-          /* prefix_extractor */ nullptr, kIsIndex, index_key_includes_seq_);
+          false, true, /* prefix_extractor */ nullptr,
+          /*table_prefix_extractor*/ nullptr, kIsIndex,
+          index_key_includes_seq_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
     // on-stack BlockIter while the state is on heap. Currentlly it assumes
@@ -1784,9 +1785,10 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // Otherwise, this method guarantees no I/O will be incurred.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
-bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
-                                     const ReadOptions& read_options,
-                                     const SliceTransform* prefix_extractor) {
+bool BlockBasedTable::PrefixMayMatch(
+    const Slice& internal_key, const ReadOptions& read_options,
+    const bool prefix_extractor_changed, const SliceTransform* prefix_extractor,
+    std::shared_ptr<const SliceTransform> table_prefix_extractor) {
   if (!rep_->filter_policy) {
     return true;
   }
@@ -1797,38 +1799,39 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
     return true;
   }
   auto prefix = prefix_extractor->Transform(user_key);
-  if (rep_->table_properties->prefix_extractor_name.compare(
-          prefix_extractor->Name()) != 0) {
-#ifndef ROCKSDB_LITE
+  if (prefix_extractor_changed) {
     // Try to reuse the bloom filter in the SST table if prefix_extractor in
-    // mutable_cf_options has been changed. If range (user_key, stop_key) all
+    // mutable_cf_options has changed. If range [user_key, upper_bound) all
     // share the same prefix then we may still be able to use the bloom filter.
-    if (read_options.stop_key != nullptr) {
-      auto end_key = *(read_options.stop_key);
-      std::shared_ptr<const SliceTransform> table_prefix_extractor;
-      if (ParseSliceTransform(rep_->table_properties->prefix_extractor_name,
-                              &table_prefix_extractor)) {
-        Slice user_key_xform = table_prefix_extractor->Transform(user_key);
-        Slice end_key_xform = table_prefix_extractor->Transform(end_key);
-        if (user_key_xform.compare(end_key_xform) != 0) {
-          // fprintf(stdout, "internal_key = %s, end_key = %s, user_key_xform =
-          // %s, end_key_xform = %s transformed into different prefix, not
-          // possible\n",
-          //         user_key.ToString().c_str(), end_key.ToString().c_str(),
+    if (read_options.iterate_upper_bound != nullptr && table_prefix_extractor) {
+      auto upper_bound = *(read_options.iterate_upper_bound);
+      Slice user_key_xform = table_prefix_extractor->Transform(user_key);
+      Slice upper_bound_xform = table_prefix_extractor->Transform(upper_bound);
+      // first check if user_key and upper_bound all share the same prefix
+      if (user_key_xform.compare(upper_bound_xform) != 0) {
+        auto& comparator = rep_->internal_comparator;
+        // second check if user_key's prefix is the immediate predecessor of
+        // upper_bound and have the same length. If so, we know for sure all
+        // keys in the range [user_key, upper_bound) share the same prefix.
+        if (!comparator.IsSameLengthImmediateSuccessor(
+              user_key_xform.ToString(), upper_bound.ToString())) {
+          // TODO(Zhongyi): delete debug code before merging
+          // fprintf(stdout, "BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
+          // "%s, upper_bound_xform = %s transformed into different prefix, not "
+          // "possible\n",
+          //         table_prefix_extractor->Name(),
+          //         user_key.ToString().c_str(),
+          //         upper_bound.ToString().c_str(),
           //         user_key_xform.ToString().c_str(),
-          //         end_key_xform.ToString().c_str());
+          //         upper_bound_xform.ToString().c_str());
           return true;
         }
-        // Use prefix_extractor found in the SSTtable to do the transformation.
-        prefix = table_prefix_extractor->Transform(user_key);
       }
+      // Use prefix_extractor found in the SSTtable to do the transformation.
+      prefix = user_key_xform;
     } else {
       return true;
     }
-#else
-    (void) read_options;
-    return true;
-#endif  // ROCKSDB_LITE
   }
 
   bool may_match = true;
@@ -1855,9 +1858,9 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
       // Then, try find it within each block
       // we already know prefix_extractor and prefix_extractor_name must match
       // because `CheckPrefixMayMatch` first checks `check_filter_ == true`
-      bool prefix_extractor_changed = false;
       unique_ptr<InternalIterator> iiter(
-          NewIndexIterator(no_io_read_options, prefix_extractor_changed));
+          NewIndexIterator(no_io_read_options,
+                           /* prefix_extractor_changed */ false));
       iiter->Seek(internal_prefix);
 
       if (!iiter->Valid()) {
@@ -1915,7 +1918,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
 }
 
 void BlockBasedTableIterator::Seek(const Slice& target) {
-  if (!CheckPrefixMayMatch(target, prefix_extractor_)) {
+  if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
   }
@@ -1943,7 +1946,7 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
-  if (!CheckPrefixMayMatch(target, prefix_extractor_)) {
+  if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
   }
@@ -2136,6 +2139,14 @@ InternalIterator* BlockBasedTable::NewIterator(
   bool prefix_extractor_changed =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
+  std::shared_ptr<const SliceTransform> table_prefix_extractor;
+  // TODO (Zhongyi): figure out performance impact of copying a shared_ptr here
+  #ifndef ROCKSDB_LITE
+  if (prefix_extractor_changed) {
+    ParseSliceTransform(rep_->table_properties->prefix_extractor_name,
+                        &table_prefix_extractor);
+  }
+  #endif  // ROCKSDB_LITE
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
@@ -2144,16 +2155,18 @@ InternalIterator* BlockBasedTable::NewIterator(
             prefix_extractor_changed &&
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, for_compaction);
+            prefix_extractor != nullptr,
+        prefix_extractor_changed, prefix_extractor, table_prefix_extractor,
+        kIsNotIndex, true /*key_includes_seq*/, for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
-            prefix_extractor != nullptr, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, for_compaction);
+            prefix_extractor != nullptr,
+        prefix_extractor_changed, prefix_extractor, table_prefix_extractor,
+        kIsNotIndex, true /*key_includes_seq*/, for_compaction);
   }
 }
 

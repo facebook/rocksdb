@@ -1021,8 +1021,6 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* iterate_upper_bound;
 
-  const Slice* stop_key;
-
   // If non-zero, NewIterator will create a new table reader which
   // performs reads of the given size. Using a large size (> 2MB) can
   // improve the performance of forward iteration on spinning disks.

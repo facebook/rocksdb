@@ -176,6 +176,8 @@ class InternalKeyComparator
   virtual const Comparator* GetRootComparator() const override {
     return user_comparator_->GetRootComparator();
   }
+  virtual bool IsSameLengthImmediateSuccessor(std::string s,
+                                              std::string t) const override;
 };
 
 // Modules in this directory should keep internal keys wrapped inside
