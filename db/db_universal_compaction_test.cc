@@ -10,8 +10,8 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #if !defined(ROCKSDB_LITE)
-#include "util/sync_point.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -43,8 +43,8 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
 
 class DBTestUniversalDeleteTrigCompaction : public DBTestBase {
  public:
-  DBTestUniversalDeleteTrigCompaction() :
-      DBTestBase("/db_universal_compaction_test") {}
+  DBTestUniversalDeleteTrigCompaction()
+      : DBTestBase("/db_universal_compaction_test") {}
 };
 
 namespace {
@@ -1871,11 +1871,11 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
   int i;
-  for (i=0; i<2000; ++i) {
+  for (i = 0; i < 2000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-//  MoveFilesToLevel(6);
+  //  MoveFilesToLevel(6);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   for (i = 1999; i < kNumKeys; ++i) {
@@ -1913,7 +1913,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
   int i;
-  for (i=0; i<2000; ++i) {
+  for (i = 0; i < 2000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
@@ -1950,19 +1950,19 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
   int i;
-  for (i=0; i<500; ++i) {
+  for (i = 0; i < 500; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=500; i<1000; ++i) {
+  for (i = 500; i < 1000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=1000; i<1500; ++i) {
+  for (i = 1000; i < 1500; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=1500; i<2000; ++i) {
+  for (i = 1500; i < 2000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
@@ -1971,15 +1971,15 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 
-  for (i=1999; i<2333; ++i) {
+  for (i = 1999; i < 2333; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=2333; i<2666; ++i) {
+  for (i = 2333; i < 2666; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=2666; i<2999; ++i) {
+  for (i = 2666; i < 2999; ++i) {
     Put(Key(i), "val");
   }
   Flush();
@@ -1989,7 +1989,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
   ASSERT_GT(NumTableFilesAtLevel(5), 0);
 
-  for (i=1900; i<2100; ++i) {
+  for (i = 1900; i < 2100; ++i) {
     Delete(Key(i));
   }
   Flush();
@@ -2022,19 +2022,19 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
   int i;
-  for (i=0; i<2000; ++i) {
+  for (i = 0; i < 2000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=2000; i<3000; ++i) {
+  for (i = 2000; i < 3000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=3500; i<4000; ++i) {
+  for (i = 3500; i < 4000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-  for (i=2900; i<3100; ++i) {
+  for (i = 2900; i < 3100; ++i) {
     Delete(Key(i));
   }
   Flush();
@@ -2064,11 +2064,11 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
   int i;
-  for (i=0; i<2000; ++i) {
+  for (i = 0; i < 2000; ++i) {
     Put(Key(i), "val");
   }
   Flush();
-//  MoveFilesToLevel(6);
+  //  MoveFilesToLevel(6);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   for (i = 1999; i < kNumKeys; ++i) {

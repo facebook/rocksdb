@@ -93,7 +93,6 @@ class UniversalCompactionPicker : public CompactionPicker {
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
                             const MutableCFOptions& mutable_cf_options,
                             uint64_t file_size);
-
 };
 }  // namespace rocksdb
 #endif  // !ROCKSDB_LITE
