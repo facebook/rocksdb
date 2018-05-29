@@ -202,6 +202,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
 
   Options opt = options_;
   opt.create_if_missing = false;
+  opt.allow_mmap_writes = false;
 
   map<string, string>::const_iterator itr;
 
