@@ -366,7 +366,7 @@ bool CompactionPicker::IsRangeInCompaction(VersionStorageInfo* vstorage,
   assert(level < NumberLevels());
 
   vstorage->GetOverlappingInputs(level, smallest, largest, &inputs,
-                                 *level_index, level_index);
+                                 level_index ? *level_index : 0, level_index);
   return AreFilesInCompaction(inputs);
 }
 
@@ -947,6 +947,78 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
   compactions_in_progress_.erase(c);
 }
 
+void CompactionPicker::PickFilesMarkedForCompaction(
+    const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
+    int* output_level, CompactionInputFiles* start_level_inputs) {
+  if (vstorage->FilesMarkedForCompaction().empty()) {
+    return;
+  }
+
+  auto continuation = [&, cf_name](std::pair<int, FileMetaData*> level_file) {
+    // If it's being compacted it has nothing to do here.
+    // If this assert() fails that means that some function marked some
+    // files as being_compacted, but didn't call ComputeCompactionScore()
+    assert(!level_file.second->being_compacted);
+    *start_level = level_file.first;
+    *output_level =
+        (*start_level == 0) ? vstorage->base_level() : *start_level + 1;
+
+    if (*start_level == 0 && !level0_compactions_in_progress()->empty()) {
+      return false;
+    }
+
+    start_level_inputs->files = {level_file.second};
+    start_level_inputs->level = *start_level;
+    return ExpandInputsToCleanCut(cf_name, vstorage, start_level_inputs);
+  };
+
+  // take a chance on a random file first
+  Random64 rnd(/* seed */ reinterpret_cast<uint64_t>(vstorage));
+  size_t random_file_index = static_cast<size_t>(rnd.Uniform(
+      static_cast<uint64_t>(vstorage->FilesMarkedForCompaction().size())));
+
+  if (continuation(vstorage->FilesMarkedForCompaction()[random_file_index])) {
+    // found the compaction!
+    return;
+  }
+
+  for (auto& level_file : vstorage->FilesMarkedForCompaction()) {
+    if (continuation(level_file)) {
+      // found the compaction!
+      return;
+    }
+  }
+  start_level_inputs->files.clear();
+}
+
+bool CompactionPicker::GetOverlappingL0Files(
+    VersionStorageInfo* vstorage, CompactionInputFiles* start_level_inputs,
+    int output_level, int* parent_index) {
+  // Two level 0 compaction won't run at the same time, so don't need to worry
+  // about files on level 0 being compacted.
+  assert(level0_compactions_in_progress()->empty());
+  InternalKey smallest, largest;
+  GetRange(*start_level_inputs, &smallest, &largest);
+  // Note that the next call will discard the file we placed in
+  // c->inputs_[0] earlier and replace it with an overlapping set
+  // which will include the picked file.
+  start_level_inputs->files.clear();
+  vstorage->GetOverlappingInputs(0, &smallest, &largest,
+                                 &(start_level_inputs->files));
+
+  // If we include more L0 files in the same compaction run it can
+  // cause the 'smallest' and 'largest' key to get extended to a
+  // larger range. So, re-invoke GetRange to get the new key range
+  GetRange(*start_level_inputs, &smallest, &largest);
+  if (IsRangeInCompaction(vstorage, &smallest, &largest, output_level,
+                          parent_index)) {
+    return false;
+  }
+  assert(!start_level_inputs->files.empty());
+
+  return true;
+}
+
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
   if (!vstorage->ExpiredTtlFiles().empty()) {
@@ -1018,9 +1090,6 @@ class LevelCompactionBuilder {
   // otherwise, returns false.
   bool PickIntraL0Compaction();
 
-  // If there is any file marked for compaction, put put it into inputs.
-  void PickFilesMarkedForCompaction();
-
   void PickExpiredTtlFiles();
 
   const std::string& cf_name_;
@@ -1048,50 +1117,6 @@ class LevelCompactionBuilder {
 
   static const int kMinFilesForIntraL0Compaction = 4;
 };
-
-void LevelCompactionBuilder::PickFilesMarkedForCompaction() {
-  if (vstorage_->FilesMarkedForCompaction().empty()) {
-    return;
-  }
-
-  auto continuation = [&](std::pair<int, FileMetaData*> level_file) {
-    // If it's being compacted it has nothing to do here.
-    // If this assert() fails that means that some function marked some
-    // files as being_compacted, but didn't call ComputeCompactionScore()
-    assert(!level_file.second->being_compacted);
-    start_level_ = level_file.first;
-    output_level_ =
-        (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
-
-    if (start_level_ == 0 &&
-        !compaction_picker_->level0_compactions_in_progress()->empty()) {
-      return false;
-    }
-
-    start_level_inputs_.files = {level_file.second};
-    start_level_inputs_.level = start_level_;
-    return compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                      &start_level_inputs_);
-  };
-
-  // take a chance on a random file first
-  Random64 rnd(/* seed */ reinterpret_cast<uint64_t>(vstorage_));
-  size_t random_file_index = static_cast<size_t>(rnd.Uniform(
-      static_cast<uint64_t>(vstorage_->FilesMarkedForCompaction().size())));
-
-  if (continuation(vstorage_->FilesMarkedForCompaction()[random_file_index])) {
-    // found the compaction!
-    return;
-  }
-
-  for (auto& level_file : vstorage_->FilesMarkedForCompaction()) {
-    if (continuation(level_file)) {
-      // found the compaction!
-      return;
-    }
-  }
-  start_level_inputs_.files.clear();
-}
 
 void LevelCompactionBuilder::PickExpiredTtlFiles() {
   if (vstorage_->ExpiredTtlFiles().empty()) {
@@ -1182,7 +1207,9 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   if (start_level_inputs_.empty()) {
     parent_index_ = base_index_ = -1;
 
-    PickFilesMarkedForCompaction();
+    // PickFilesMarkedForCompaction();
+    compaction_picker_->PickFilesMarkedForCompaction(
+        cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_);
     if (!start_level_inputs_.empty()) {
       is_manual_ = true;
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
@@ -1220,29 +1247,9 @@ void LevelCompactionBuilder::SetupInitialFiles() {
 
 bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
   if (start_level_ == 0 && output_level_ != 0) {
-    // Two level 0 compaction won't run at the same time, so don't need to worry
-    // about files on level 0 being compacted.
-    assert(compaction_picker_->level0_compactions_in_progress()->empty());
-    InternalKey smallest, largest;
-    compaction_picker_->GetRange(start_level_inputs_, &smallest, &largest);
-    // Note that the next call will discard the file we placed in
-    // c->inputs_[0] earlier and replace it with an overlapping set
-    // which will include the picked file.
-    start_level_inputs_.files.clear();
-    vstorage_->GetOverlappingInputs(0, &smallest, &largest,
-                                    &start_level_inputs_.files);
-
-    // If we include more L0 files in the same compaction run it can
-    // cause the 'smallest' and 'largest' key to get extended to a
-    // larger range. So, re-invoke GetRange to get the new key range
-    compaction_picker_->GetRange(start_level_inputs_, &smallest, &largest);
-    if (compaction_picker_->IsRangeInCompaction(
-            vstorage_, &smallest, &largest, output_level_, &parent_index_)) {
-      return false;
-    }
+    return compaction_picker_->GetOverlappingL0Files(
+        vstorage_, &start_level_inputs_, output_level_, &parent_index_);
   }
-  assert(!start_level_inputs_.files.empty());
-
   return true;
 }
 

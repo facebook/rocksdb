@@ -175,6 +175,15 @@ class CompactionPicker {
                        const CompactionInputFiles& output_level_inputs,
                        std::vector<FileMetaData*>* grandparents);
 
+  void PickFilesMarkedForCompaction(const std::string& cf_name,
+                                    VersionStorageInfo* vstorage,
+                                    int* start_level, int* output_level,
+                                    CompactionInputFiles* start_level_inputs);
+
+  bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
+                             CompactionInputFiles* start_level_inputs,
+                             int output_level, int* parent_index);
+
   // Register this compaction in the set of running compactions
   void RegisterCompaction(Compaction* c);
 

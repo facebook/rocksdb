@@ -391,10 +391,10 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
   NewVersionStorage(1, kCompactionStyleUniversal);
   UniversalCompactionPicker universal_compaction_picker(
       ioptions_, &icmp_);
+  UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
             false);
-  UpdateVersionStorageInfo();
 
   // verify the trigger given different number of L0 files.
   for (int i = 1;
@@ -415,6 +415,7 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   ioptions_.allow_ingest_behind = true;
   ioptions_.num_levels = 3;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
             false);
@@ -448,6 +449,7 @@ TEST_F(CompactionPickerTest, CannotTrivialMoveUniversal) {
   mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
   NewVersionStorage(1, kCompactionStyleUniversal);
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
             false);
