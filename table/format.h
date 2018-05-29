@@ -241,7 +241,7 @@ extern Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx,
     const char* data, size_t n, BlockContents* contents,
     uint32_t compress_format_version,
-    const ImmutableCFOptions &ioptions);
+    const ImmutableCFOptions& ioptions);
 
 // Implementation details follow.  Clients should ignore,
 
