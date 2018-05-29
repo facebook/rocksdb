@@ -888,7 +888,7 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
 DEFINE_bool(sine_write_rate, false,
             "Use a sine wave write_rate_limit");
 
-DEFINE_uint32(sine_write_rate_interval_milliseconds, 10000,
+DEFINE_int32(sine_write_rate_interval_milliseconds, 10000,
               "Interval of which the sine wave write_rate_limit is recalculated");
 
 DEFINE_double(sine_a, 1,
@@ -3753,7 +3753,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                                 entries_per_batch_, kWrite);
       if (FLAGS_sine_write_rate) {
         uint64_t now = FLAGS_env->NowMicros();
-        uint64_t usecs_since_last = now - thread->stats.GetSineInterval();
+        int64_t usecs_since_last = static_cast<int64_t>(now - thread->stats.GetSineInterval());
 
         if (usecs_since_last > (FLAGS_sine_write_rate_interval_milliseconds * 1000)) {
           uint64_t usecs_since_start = now - thread->stats.GetStart();
