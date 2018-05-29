@@ -119,6 +119,8 @@ EnvOptions::EnvOptions(const Options& options) {
 EnvOptions::EnvOptions() {
   Options options;
   AssignEnvOptions(this, options);
+  // Do not use mmap_write by default to be safe.
+  use_mmap_writes = options.allow_mmap_writes;
 }
 
 
