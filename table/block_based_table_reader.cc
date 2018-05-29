@@ -1799,7 +1799,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         // and we're not really sure that we're past the end
         // of the file
         may_match = iiter->status().IsIncomplete();
-      } else if ((rep_->table_properties->index_key_is_user_key
+      } else if ((rep_->table_properties &&
+                          rep_->table_properties->index_key_is_user_key
                       ? iiter->key()
                       : ExtractUserKey(iiter->key()))
                      .starts_with(ExtractUserKey(internal_prefix))) {
@@ -2278,7 +2279,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   for (begin ? iiter->Seek(*begin) : iiter->SeekToFirst(); iiter->Valid();
        iiter->Next()) {
     Slice block_handle = iiter->value();
-    const bool is_user_key = rep_->table_properties->index_key_is_user_key > 0;
+    const bool is_user_key = rep_->table_properties &&
+                             rep_->table_properties->index_key_is_user_key > 0;
     if (end &&
         ((!is_user_key && comparator.Compare(iiter->key(), *end) >= 0) ||
          (is_user_key &&
@@ -2436,13 +2438,15 @@ Status BlockBasedTable::CreateIndexReader(
           this, file, prefetch_buffer, footer, footer.index_handle(),
           rep_->ioptions, icomparator, index_reader,
           rep_->persistent_cache_options, level,
-          rep_->table_properties->index_key_is_user_key == 0);
+          rep_->table_properties == nullptr ||
+              rep_->table_properties->index_key_is_user_key == 0);
     }
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
           file, prefetch_buffer, footer, footer.index_handle(), rep_->ioptions,
           icomparator, index_reader, rep_->persistent_cache_options,
-          rep_->table_properties->index_key_is_user_key == 0);
+          rep_->table_properties == nullptr ||
+              rep_->table_properties->index_key_is_user_key == 0);
     }
     case BlockBasedTableOptions::kHashSearch: {
       std::unique_ptr<Block> meta_guard;
@@ -2461,7 +2465,8 @@ Status BlockBasedTable::CreateIndexReader(
               file, prefetch_buffer, footer, footer.index_handle(),
               rep_->ioptions, icomparator, index_reader,
               rep_->persistent_cache_options,
-              rep_->table_properties->index_key_is_user_key == 0);
+              rep_->table_properties == nullptr ||
+                  rep_->table_properties->index_key_is_user_key == 0);
         }
         meta_index_iter = meta_iter_guard.get();
       }
@@ -2471,7 +2476,8 @@ Status BlockBasedTable::CreateIndexReader(
           rep_->ioptions, icomparator, footer.index_handle(), meta_index_iter,
           index_reader, rep_->hash_index_allow_collision,
           rep_->persistent_cache_options,
-          rep_->table_properties->index_key_is_user_key == 0);
+          rep_->table_properties == nullptr ||
+              rep_->table_properties->index_key_is_user_key == 0);
     }
     default: {
       std::string error_message =
@@ -2758,11 +2764,12 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
     Slice key = blockhandles_iter->key();
     Slice user_key;
     InternalKey ikey;
-    if (rep_->table_properties->index_key_is_user_key == 0) {
+    if (rep_->table_properties &&
+        rep_->table_properties->index_key_is_user_key != 0) {
+      user_key = key;
+    } else {
       ikey.DecodeFrom(key);
       user_key = ikey.user_key();
-    } else {
-      user_key = key;
     }
 
     out_file->Append("  HEX    ");
