@@ -2827,6 +2827,27 @@ TEST_F(ColumnFamilyTest, CreateAndDestoryOptions) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
+TEST_F(ColumnFamilyTest, CreateDropAndDestroy) {
+  ColumnFamilyHandle* cfh;
+  Open();
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "yoyo", &cfh));
+  ASSERT_OK(db_->Put(WriteOptions(), cfh, "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+}
+
+TEST_F(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
+  ColumnFamilyHandle* cfh;
+  Open();
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "yoyo", &cfh));
+  ASSERT_OK(db_->Put(WriteOptions(), cfh, "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+  ASSERT_OK(db_->DisableFileDeletions());
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
   SpecialEnv env(Env::Default());

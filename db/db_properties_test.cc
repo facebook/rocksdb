@@ -177,17 +177,16 @@ void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
   std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
   std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
   ResetTableProperties(tp);
-
   sscanf(tp_string.c_str(),
          "# data blocks %" SCNu64 " # entries %" SCNu64 " raw key size %" SCNu64
          " raw average key size %lf "
          " raw value size %" SCNu64
          " raw average value size %lf "
-         " data block size %" SCNu64 " index block size %" SCNu64
-         " filter block size %" SCNu64,
+         " data block size %" SCNu64 " index block size (user-key? %" SCNu64
+         ") %" SCNu64 " filter block size %" SCNu64,
          &tp->num_data_blocks, &tp->num_entries, &tp->raw_key_size,
          &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-         &tp->index_size, &tp->filter_size);
+         &tp->index_key_is_user_key, &tp->index_size, &tp->filter_size);
 }
 
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
@@ -224,7 +223,8 @@ void GetExpectedTableProperties(TableProperties* expected_tp,
                                 const int kKeySize, const int kValueSize,
                                 const int kKeysPerTable, const int kTableCount,
                                 const int kBloomBitsPerKey,
-                                const size_t kBlockSize) {
+                                const size_t kBlockSize,
+                                const bool index_key_is_user_key) {
   const int kKeyCount = kTableCount * kKeysPerTable;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
@@ -238,7 +238,8 @@ void GetExpectedTableProperties(TableProperties* expected_tp,
   expected_tp->data_size =
       kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
   expected_tp->index_size =
-      expected_tp->num_data_blocks * (kAvgSuccessorSize + 8);
+      expected_tp->num_data_blocks *
+      (kAvgSuccessorSize + (index_key_is_user_key ? 0 : 8));
   expected_tp->filter_size =
       kTableCount * (kKeysPerTable * kBloomBitsPerKey / 8);
 }
@@ -315,14 +316,14 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     }
     std::string property;
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+    TableProperties output_tp;
+    ParseTablePropertiesString(property, &output_tp);
+    bool index_key_is_user_key = output_tp.index_key_is_user_key > 0;
 
     TableProperties expected_tp;
     GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
                                kKeysPerTable, kTableCount, kBloomBitsPerKey,
-                               table_options.block_size);
-
-    TableProperties output_tp;
-    ParseTablePropertiesString(property, &output_tp);
+                               table_options.block_size, index_key_is_user_key);
 
     VerifyTableProperties(expected_tp, output_tp);
   }
@@ -489,6 +490,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     }
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &tp_string);
     ParseTablePropertiesString(tp_string, &tp);
+    bool index_key_is_user_key = tp.index_key_is_user_key > 0;
     ASSERT_EQ(sum_tp.data_size, tp.data_size);
     ASSERT_EQ(sum_tp.index_size, tp.index_size);
     ASSERT_EQ(sum_tp.filter_size, tp.filter_size);
@@ -497,9 +499,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_EQ(sum_tp.num_data_blocks, tp.num_data_blocks);
     ASSERT_EQ(sum_tp.num_entries, tp.num_entries);
     if (table > 3) {
-      GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
-                                 kKeysPerTable, table, kBloomBitsPerKey,
-                                 table_options.block_size);
+      GetExpectedTableProperties(
+          &expected_tp, kKeySize, kValueSize, kKeysPerTable, table,
+          kBloomBitsPerKey, table_options.block_size, index_key_is_user_key);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
       VerifyTableProperties(tp, expected_tp, 0.5, 0.4, 0.4, 0.25);

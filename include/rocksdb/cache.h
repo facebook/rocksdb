@@ -47,6 +47,15 @@ struct LRUCacheOptions {
   bool strict_capacity_limit = false;
 
   // Percentage of cache reserved for high priority entries.
+  // If greater than zero, the LRU list will be split into a high-pri
+  // list and a low-pri list. High-pri entries will be insert to the
+  // tail of high-pri list, while low-pri entries will be first inserted to
+  // the low-pri list (the midpoint). This is refered to as
+  // midpoint insertion strategy to make entries never get hit in cache
+  // age out faster.
+  //
+  // See also
+  // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
   double high_pri_pool_ratio = 0.0;
 
   LRUCacheOptions() {}

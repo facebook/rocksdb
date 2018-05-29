@@ -77,6 +77,7 @@ struct LRUHandle {
   bool InCache() { return flags & 1; }
   bool IsHighPri() { return flags & 2; }
   bool InHighPriPool() { return flags & 4; }
+  bool HasHit() { return flags & 8; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -101,6 +102,8 @@ struct LRUHandle {
       flags &= ~4;
     }
   }
+
+  void SetHit() { flags |= 8; }
 
   void Free() {
     assert((refs == 1 && InCache()) || (refs == 0 && !InCache()));
@@ -205,18 +208,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
 
   //  Retrives high pri pool ratio
   double GetHighPriPoolRatio();
-
-  // Overloading to aligned it to cache line size
-  // They are used by tests.
-  void* operator new(size_t);
-
-  // placement new
-  void* operator new(size_t, void*);
-
-  void operator delete(void *);
-
-  // placement delete, does nothing.
-  void operator delete(void*, void*);
 
  private:
   void LRU_Remove(LRUHandle* e);
