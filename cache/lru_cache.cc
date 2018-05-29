@@ -504,6 +504,7 @@ void LRUCache::DisownData() {
 // Do not drop data if compile with ASAN to suppress leak warning.
 #ifndef __SANITIZE_ADDRESS__
   shards_ = nullptr;
+  num_shards_ = 0;
 #endif  // !__SANITIZE_ADDRESS__
 }
 
