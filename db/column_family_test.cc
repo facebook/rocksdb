@@ -2837,6 +2837,7 @@ TEST_F(ColumnFamilyTest, CreateDropAndDestroy) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
   ColumnFamilyHandle* cfh;
   Open();
@@ -2848,7 +2849,6 @@ TEST_F(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;

@@ -295,7 +295,7 @@ class LRUCache : public ShardedCache {
   double GetHighPriPoolRatio();
 
  private:
-  LRUCacheShard* shards_;
+  LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
 };
 
