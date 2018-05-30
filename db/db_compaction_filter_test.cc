@@ -45,18 +45,21 @@ class DBTestCompactionFilterWithCompactParam
   }
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     DBTestCompactionFilterWithCompactOption,
     DBTestCompactionFilterWithCompactParam,
-    ::testing::Values(DBTestBase::OptionConfig::kDefault
-#ifndef ROCKSDB_VALGRIND_RUN
-                      ,
+    ::testing::Values(DBTestBase::OptionConfig::kDefault,
                       DBTestBase::OptionConfig::kUniversalCompaction,
                       DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
                       DBTestBase::OptionConfig::kLevelSubcompactions,
-                      DBTestBase::OptionConfig::kUniversalSubcompactions
+                      DBTestBase::OptionConfig::kUniversalSubcompactions));
+#else
+// Run fewer cases in valgrind
+INSTANTIATE_TEST_CASE_P(DBTestCompactionFilterWithCompactOption,
+                        DBTestCompactionFilterWithCompactParam,
+                        ::testing::Values(DBTestBase::OptionConfig::kDefault));
 #endif  // ROCKSDB_VALGRIND_RUN
-                      ));
 
 class KeepFilter : public CompactionFilter {
  public:
