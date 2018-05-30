@@ -555,7 +555,6 @@ TOOLS = \
 	sst_dump \
 	db_sanity_test \
 	db_stress \
-	new_db_stress \
 	write_stress \
 	ldb \
 	db_repl_stress \
@@ -1042,9 +1041,6 @@ memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
-
-new_db_stress: tools/new_db_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
