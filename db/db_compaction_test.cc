@@ -3170,6 +3170,61 @@ TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
+TEST_F(DBCompactionTest, DrainEmptyLevelsAfterMultiplierChanged) {
+  // When the level size multiplier increases such that fewer levels become
+  // necessary, we expect the unnecessary levels to be eventually drained.
+  const int kBaseLevelBytes = 256 << 10;  // 256KB
+  const int kFileBytes = 64 << 10;  // 64KB
+  const int kInitMultiplier = 2, kChangedMultiplier = 10;
+  const int kNumFiles = 32;
+  const int kNumLevels = 5;
+  const int kValueBytes = 1 << 10;  // 1KB
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = kBaseLevelBytes;
+  options.max_bytes_for_level_multiplier = kInitMultiplier;
+  options.num_levels = kNumLevels;
+  Reopen(options);
+
+  // Initially we setup the LSM to look roughly as follows:
+  //
+  // L0: empty
+  // L1: 256KB
+  // ...
+  // L4: 2MB
+  Random rnd(301);
+  for (int file = 0; file < kNumFiles; ++file) {
+    for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
+      Put(Key(file * kFileBytes / kValueBytes + i),
+          RandomString(&rnd, kValueBytes));
+    }
+    Flush();
+  }
+
+  int init_num_nonempty = 0;
+  dbfull()->TEST_WaitForCompact();
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++init_num_nonempty;
+    }
+  }
+
+  // After increasing the multiplier and running compaction fewer levels are
+  // needed to hold all the data. Other levels should be drained.
+  db_->SetOptions({{"max_bytes_for_level_multiplier",
+                    ToString(kChangedMultiplier)}});
+  dbfull()->TEST_WaitForCompact();
+  int final_num_nonempty = 0;
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++final_num_nonempty;
+    }
+  }
+  ASSERT_GT(init_num_nonempty, final_num_nonempty);
+}
+
 TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
   // Deletions can be dropped when compacted to non-last level if they fall
   // outside the lower-level files' key-ranges.
