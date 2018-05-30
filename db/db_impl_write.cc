@@ -1281,7 +1281,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   // In case of pipelined write is enabled, wait for all pending memtable
   // writers.
   if (immutable_db_options_.enable_pipelined_write) {
+    mutex_.Unlock();
     write_thread_.WaitForMemTableWriters();
+    mutex_.Lock();
   }
 
   // Attempt to switch to a new memtable and trigger flush of old.
