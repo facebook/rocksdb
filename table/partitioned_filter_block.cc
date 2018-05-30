@@ -113,7 +113,7 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
   char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   BlockIter biter;
   BlockHandle handle;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &biter, true);
+  idx_on_fltr_blk_->NewIterator(&comparator_, &comparator_, &biter, true);
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
     auto input = biter.value();
@@ -207,7 +207,7 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
     const Slice& entry) {
   BlockIter iter;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
+  idx_on_fltr_blk_->NewIterator(&comparator_, &comparator_, &iter, true);
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     return Slice();
@@ -269,7 +269,7 @@ void PartitionedFilterBlockReader::CacheDependencies(
   auto rep = table_->rep_;
   BlockIter biter;
   BlockHandle handle;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &biter, true);
+  idx_on_fltr_blk_->NewIterator(&comparator_, &comparator_, &biter, true);
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();

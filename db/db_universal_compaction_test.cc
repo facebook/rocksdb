@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #if !defined(ROCKSDB_LITE)
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -38,6 +39,12 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
  public:
   DBTestUniversalCompaction() :
       DBTestUniversalCompactionBase("/db_universal_compaction_test") {}
+};
+
+class DBTestUniversalDeleteTrigCompaction : public DBTestBase {
+ public:
+  DBTestUniversalDeleteTrigCompaction()
+      : DBTestBase("/db_universal_compaction_test") {}
 };
 
 namespace {
@@ -1844,6 +1851,241 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         DBTestUniversalManualCompactionOutputPathId,
                         ::testing::Combine(::testing::Values(1, 8),
                                            ::testing::Bool()));
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
+  const int kNumKeys = 3000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.compression = kNoCompression;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  //  MoveFilesToLevel(6);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  for (i = 1999; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
+  const int kNumKeys = 3000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.compression = kNoCompression;
+  opts.num_levels = 1;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+
+  for (i = 1999; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 4;
+  opts.compression = kNoCompression;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 500; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 500; i < 1000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 1000; i < 1500; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 1500; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+
+  for (i = 1999; i < 2333; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2333; i < 2666; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2666; i < 2999; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+  ASSERT_GT(NumTableFilesAtLevel(5), 0);
+
+  for (i = 1900; i < 2100; ++i) {
+    Delete(Key(i));
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(3));
+  ASSERT_EQ(0, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 5;
+  opts.compression = kNoCompression;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2000; i < 3000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 3500; i < 4000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2900; i < 3100; ++i) {
+    Delete(Key(i));
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
+  const int kNumKeys = 3000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.compression = kNoCompression;
+  opts.allow_ingest_behind = true;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  //  MoveFilesToLevel(6);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  for (i = 1999; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(6));
+  ASSERT_GT(NumTableFilesAtLevel(5), 0);
+}
 
 }  // namespace rocksdb
 
