@@ -48,11 +48,15 @@ class DBTestCompactionFilterWithCompactParam
 INSTANTIATE_TEST_CASE_P(
     DBTestCompactionFilterWithCompactOption,
     DBTestCompactionFilterWithCompactParam,
-    ::testing::Values(DBTestBase::OptionConfig::kDefault,
+    ::testing::Values(DBTestBase::OptionConfig::kDefault
+#ifndef ROCKSDB_VALGRIND_RUN
+                      ,
                       DBTestBase::OptionConfig::kUniversalCompaction,
                       DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
                       DBTestBase::OptionConfig::kLevelSubcompactions,
-                      DBTestBase::OptionConfig::kUniversalSubcompactions));
+                      DBTestBase::OptionConfig::kUniversalSubcompactions
+#endif  // ROCKSDB_VALGRIND_RUN
+                      ));
 
 class KeepFilter : public CompactionFilter {
  public:
