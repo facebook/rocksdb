@@ -521,6 +521,7 @@ class WritePreparedTransactionTest
                                          std::get<2>(GetParam())){};
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,
       virtual public ::testing::WithParamInterface<
@@ -539,6 +540,7 @@ class SnapshotConcurrentAccessTest
   size_t split_id_;
   size_t split_cnt_;
 };
+#endif  // ROCKSDB_VALGRIND_RUN
 
 class SeqAdvanceConcurrentTest
     : public WritePreparedTransactionTestBase,
@@ -564,6 +566,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED)));
 
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SnapshotConcurrentAccessTest,
     ::testing::Values(std::make_tuple(false, true, WRITE_PREPARED, 0, 20),
@@ -635,6 +638,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED, 7, 10),
                       std::make_tuple(false, false, WRITE_PREPARED, 8, 10),
                       std::make_tuple(false, false, WRITE_PREPARED, 9, 10)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -841,6 +845,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
 
 // This test is too slow for travis
 #ifndef TRAVIS
+#ifndef ROCKSDB_VALGRIND_RUN
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
 TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
@@ -919,6 +924,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
   }
   printf("\n");
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 #endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method

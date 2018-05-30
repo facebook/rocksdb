@@ -157,7 +157,7 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifdef TRAVIS
+#if defined(TRAVIS) || defined(ROCKSDB_VALGRIND_RUN)
 // Travis is unable to handle the normal version of the tests running out of
 // fds, out of space and timeouts. This is an easier version of the test
 // specifically written for Travis
@@ -435,7 +435,7 @@ void PersistentCacheDBTest::RunTest(
   }
 }
 
-#ifdef TRAVIS
+#if defined(TRAVIS) || defined(ROCKSDB_VALGRIND_RUN)
 // Travis is unable to handle the normal version of the tests running out of
 // fds, out of space and timeouts. This is an easier version of the test
 // specifically written for Travis

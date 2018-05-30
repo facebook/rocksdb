@@ -45,6 +45,7 @@ class DBTestCompactionFilterWithCompactParam
   }
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     DBTestCompactionFilterWithCompactOption,
     DBTestCompactionFilterWithCompactParam,
@@ -53,6 +54,12 @@ INSTANTIATE_TEST_CASE_P(
                       DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
                       DBTestBase::OptionConfig::kLevelSubcompactions,
                       DBTestBase::OptionConfig::kUniversalSubcompactions));
+#else
+// Run fewer cases in valgrind
+INSTANTIATE_TEST_CASE_P(DBTestCompactionFilterWithCompactOption,
+                        DBTestCompactionFilterWithCompactParam,
+                        ::testing::Values(DBTestBase::OptionConfig::kDefault));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 class KeepFilter : public CompactionFilter {
  public:
