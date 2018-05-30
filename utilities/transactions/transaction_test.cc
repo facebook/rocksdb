@@ -50,6 +50,9 @@ INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(true, true, WRITE_PREPARED)));
+
+// MySQLStyleTransactionTest takes far too long for valgrind to run.
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
@@ -60,6 +63,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, WRITE_PREPARED),
                       std::make_tuple(true, false, WRITE_PREPARED),
                       std::make_tuple(true, true, WRITE_PREPARED)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -4803,6 +4807,7 @@ TEST_P(TransactionTest, ExpiredTransactionDataRace1) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 namespace {
 Status TransactionStressTestInserter(TransactionDB* db,
                                      const size_t num_transactions,
@@ -4890,6 +4895,7 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
                                                !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, MemoryLimitTest) {
   TransactionOptions txn_options;
