@@ -1640,8 +1640,16 @@ void VersionStorageInfo::ComputeCompactionScore(
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
-      score = static_cast<double>(level_bytes_no_compacting) /
-              MaxBytesForLevel(level);
+      uint64_t max_bytes = MaxBytesForLevel(level);
+      if (max_bytes == 0) {
+        score = static_cast<double>(level_bytes_no_compacting) /
+                mutable_cf_options.max_bytes_for_level_base;
+        // This level is no longer necessary so make sure it is always eligible
+        // for compaction.
+        score = std::max(score, 1.0);
+      } else {
+        score = static_cast<double>(level_bytes_no_compacting) / max_bytes;
+      }
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
@@ -2471,8 +2479,6 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
       base_level_ = num_levels_ - 1;
     } else {
       uint64_t base_bytes_max = options.max_bytes_for_level_base;
-      uint64_t base_bytes_min = static_cast<uint64_t>(
-          base_bytes_max / options.max_bytes_for_level_multiplier);
 
       // Try whether we can make last level's target size to be max_level_size
       uint64_t cur_level_size = max_level_size;
@@ -2484,15 +2490,10 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
 
       // Calculate base level and its size.
       uint64_t base_level_size;
-      if (cur_level_size <= base_bytes_min) {
-        // Case 1. If we make target size of last level to be max_level_size,
-        // target size of the first non-empty level would be smaller than
-        // base_bytes_min. We set it be base_bytes_min.
-        base_level_size = base_bytes_min + 1U;
+      if (cur_level_size == 0) {
+        // it got rounded down to zero, which won't work
+        base_level_size = 1;
         base_level_ = first_non_empty_level;
-        ROCKS_LOG_WARN(ioptions.info_log,
-                       "More existing levels in DB than needed. "
-                       "max_bytes_for_level_multiplier may not be guaranteed.");
       } else {
         // Find base level (where L0 data is compacted to).
         base_level_ = first_non_empty_level;
@@ -2510,17 +2511,31 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         }
       }
 
+      const uint64_t kMinNonEmptyLevelSize = static_cast<uint64_t>(
+          base_bytes_max / options.max_bytes_for_level_multiplier);
       uint64_t level_size = base_level_size;
       for (int i = base_level_; i < num_levels_; i++) {
         if (i > base_level_) {
           level_size = MultiplyCheckOverflow(
               level_size, options.max_bytes_for_level_multiplier);
         }
-        // Don't set any level below base_bytes_max. Otherwise, the LSM can
-        // assume an hourglass shape where L1+ sizes are smaller than L0. This
-        // causes compaction scoring, which depends on level sizes, to favor L1+
-        // at the expense of L0, which may fill up and stall.
-        level_max_bytes_[i] = std::max(level_size, base_bytes_max);
+        if (level_size < kMinNonEmptyLevelSize) {
+          // This level is no longer necessary, so drain it.
+          level_max_bytes_[i] = 0;
+          if (i == base_level_) {
+            // only log the first time
+            ROCKS_LOG_WARN(ioptions.info_log,
+                           "More existing levels in DB than needed. "
+                           "max_bytes_for_level_multiplier may not be "
+                           "guaranteed.");
+          }
+        } else {
+          // Don't set any level below base_bytes_max. Otherwise, the LSM can
+          // assume an hourglass shape where L1+ sizes are smaller than L0. This
+          // causes compaction scoring, which depends on level sizes, to favor
+          // L1+ at the expense of L0, which may fill up and stall.
+          level_max_bytes_[i] = std::max(level_size, base_bytes_max);
+        }
       }
     }
   }

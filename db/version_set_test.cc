@@ -181,8 +181,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   Add(3, 5U, "5", "7", 300U);
   vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
   ASSERT_EQ(1, logger_->log_count);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1005U);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 1000U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1000U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 0U);
   ASSERT_EQ(vstorage_.base_level(), 3);
 
   Add(1, 6U, "3", "4", 5U);
@@ -190,10 +190,13 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   logger_->log_count = 0;
   vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
   ASSERT_EQ(1, logger_->log_count);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 1005U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 1005U);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 1005U);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 1000U);
+  // They're all being drained because the base level's size is 1050 / 5^4 = 1
+  // due to integer division. Then L1's target size is 1, L2's is 5, L3's is 25,
+  // and L4's is 125, which are all below the drain threshold of 1050 / 5 = 210.
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 0U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 0U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 0U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 0U);
   ASSERT_EQ(vstorage_.base_level(), 1);
 }
 
