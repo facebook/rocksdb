@@ -1281,6 +1281,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   // In case of pipelined write is enabled, wait for all pending memtable
   // writers.
   if (immutable_db_options_.enable_pipelined_write) {
+    // Memtable writers may call DB::Get in case max_successive_merges > 0,
+    // which may lock mutex. Unlocking mutex here to avoid deadlock.
     mutex_.Unlock();
     write_thread_.WaitForMemTableWriters();
     mutex_.Lock();
