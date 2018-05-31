@@ -97,8 +97,12 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           allowed = read_size;
         }
         Slice tmp;
+
+        NotifyOnFileReadStart();
         s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
                         buf.Destination());
+        NotifyOnFileReadFinish();
+
         buf.Size(buf.CurrentSize() + tmp.size());
         if (!s.ok() || tmp.size() < allowed) {
           break;
@@ -124,7 +128,11 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           allowed = n;
         }
         Slice tmp_result;
+
+        NotifyOnFileReadStart();
         s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+        NotifyOnFileReadFinish();
+
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
           // data in a different buffer.

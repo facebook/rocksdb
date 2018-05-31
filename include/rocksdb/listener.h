@@ -393,6 +393,10 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
+  virtual void OnFileReadStart() {}
+
+  virtual void OnFileReadFinish() {}
+
   virtual ~EventListener() {}
 };
 
