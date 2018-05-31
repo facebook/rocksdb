@@ -13,6 +13,9 @@
 
 namespace rocksdb {
 
+const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
+const uint32_t kLatestFormatVersion = 3u;
+
 // Special Env used to delay background operations
 
 SpecialEnv::SpecialEnv(Env* base)

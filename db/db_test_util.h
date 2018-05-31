@@ -658,6 +658,9 @@ class TestPutOperator : public MergeOperator {
   virtual const char* Name() const override { return "TestPutOperator"; }
 };
 
+extern const uint32_t kDefaultFormatVersion;
+extern const uint32_t kLatestFormatVersion;
+
 class DBTestBase : public testing::Test {
  public:
   // Sequence of option configurations to try
