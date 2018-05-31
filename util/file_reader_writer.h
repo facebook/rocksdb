@@ -11,6 +11,7 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 #include "util/sync_point.h"
@@ -57,6 +58,18 @@ class SequentialFileReader {
 
 class RandomAccessFileReader {
  private:
+  void NotifyOnFileReadStart() const {
+    for (auto& listener : listeners_) {
+      listener->OnFileReadStart();
+    }
+  }
+
+  void NotifyOnFileReadFinish() const {
+    for (auto& listener : listeners_) {
+      listener->OnFileReadFinish();
+    }
+  }
+
   std::unique_ptr<RandomAccessFile> file_;
   std::string     file_name_;
   Env*            env_;
@@ -65,16 +78,18 @@ class RandomAccessFileReader {
   HistogramImpl*  file_read_hist_;
   RateLimiter* rate_limiter_;
   bool for_compaction_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
-                                  std::string _file_name,
-                                  Env* env = nullptr,
-                                  Statistics* stats = nullptr,
-                                  uint32_t hist_type = 0,
-                                  HistogramImpl* file_read_hist = nullptr,
-                                  RateLimiter* rate_limiter = nullptr,
-                                  bool for_compaction = false)
+      std::string _file_name,
+      Env* env = nullptr,
+      Statistics* stats = nullptr,
+      uint32_t hist_type = 0,
+      HistogramImpl* file_read_hist = nullptr,
+      RateLimiter* rate_limiter = nullptr,
+      bool for_compaction = false,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
         env_(env),
@@ -82,7 +97,8 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        listeners_(listeners) {}
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
