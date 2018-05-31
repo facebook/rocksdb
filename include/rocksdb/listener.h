@@ -141,6 +141,11 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
+struct FileOperationInfo {
+  uint64_t start_timestamp;
+  uint64_t finish_timestamp;
+};
+
 struct FlushJobInfo {
   // the name of the column family
   std::string cf_name;
@@ -393,9 +398,9 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
-  virtual void OnFileReadStart() {}
+  virtual void OnFileReadStart(FileOperationInfo* /* info */) {}
 
-  virtual void OnFileReadFinish() {}
+  virtual void OnFileReadFinish(FileOperationInfo* /* info */) {}
 
   virtual ~EventListener() {}
 };

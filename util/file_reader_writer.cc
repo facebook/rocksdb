@@ -76,6 +76,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   {
     StopWatch sw(env_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr);
+    FileOperationInfo rw_info;
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
@@ -98,10 +99,10 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         Slice tmp;
 
-        NotifyOnFileReadStart();
+        NotifyOnFileReadStart(&rw_info);
         s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
                         buf.Destination());
-        NotifyOnFileReadFinish();
+        NotifyOnFileReadFinish(&rw_info);
 
         buf.Size(buf.CurrentSize() + tmp.size());
         if (!s.ok() || tmp.size() < allowed) {
@@ -129,9 +130,9 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         Slice tmp_result;
 
-        NotifyOnFileReadStart();
+        NotifyOnFileReadStart(&rw_info);
         s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
-        NotifyOnFileReadFinish();
+        NotifyOnFileReadFinish(&rw_info);
 
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
