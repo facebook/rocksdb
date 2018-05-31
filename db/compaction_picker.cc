@@ -852,11 +852,11 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
         }
       }
     }
-    if (RangeOverlapWithCompaction(smallestkey, largestkey, output_level)) {
-      return Status::Aborted(
-          "A running compaction is writing to the same output level in an "
-          "overlapping key range");
-    }
+  }
+  if (RangeOverlapWithCompaction(smallestkey, largestkey, output_level)) {
+    return Status::Aborted(
+        "A running compaction is writing to the same output level in an "
+        "overlapping key range");
   }
   return Status::OK();
 }
