@@ -58,15 +58,15 @@ class SequentialFileReader {
 
 class RandomAccessFileReader {
  private:
-  void NotifyOnFileReadStart() const {
+  void NotifyOnFileReadStart(FileOperationInfo* info) const {
     for (auto& listener : listeners_) {
-      listener->OnFileReadStart();
+      listener->OnFileReadStart(info);
     }
   }
 
-  void NotifyOnFileReadFinish() const {
+  void NotifyOnFileReadFinish(FileOperationInfo* info) const {
     for (auto& listener : listeners_) {
-      listener->OnFileReadFinish();
+      listener->OnFileReadFinish(info);
     }
   }
 
