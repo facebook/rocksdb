@@ -4529,7 +4529,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     ReadOptions read_options;
     Iterator* iter = db_.db->NewIterator(read_options);
 
-    fprintf(stderr, "num reads to do %lu\n", reads_);
+    fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
     Duration duration(FLAGS_duration, reads_);
     uint64_t num_seek_to_first = 0;
     uint64_t num_next = 0;
