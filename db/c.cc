@@ -93,6 +93,7 @@ using rocksdb::BackupInfo;
 using rocksdb::BackupID;
 using rocksdb::RestoreOptions;
 using rocksdb::CompactRangeOptions;
+using rocksdb::BottommostLevelCompaction;
 using rocksdb::RateLimiter;
 using rocksdb::NewGenericRateLimiter;
 using rocksdb::PinnableSlice;
@@ -3107,6 +3108,11 @@ rocksdb_compactoptions_t* rocksdb_compactoptions_create() {
 
 void rocksdb_compactoptions_destroy(rocksdb_compactoptions_t* opt) {
   delete opt;
+}
+
+void rocksdb_compactoptions_set_bottommost_level_compaction(
+    rocksdb_compactoptions_t* opt, unsigned char v) {
+  opt->rep.bottommost_level_compaction = static_cast<BottommostLevelCompaction>(v);
 }
 
 void rocksdb_compactoptions_set_exclusive_manual_compaction(
