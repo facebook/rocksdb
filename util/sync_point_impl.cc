@@ -89,10 +89,11 @@ void SyncPoint::Data::ClearAllCallBacks() {
 }
 
 void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
-  std::unique_lock<std::mutex> lock(mutex_);
-  if (!enabled_) {
+  if (mode_ != Mode::kAll) {
     return;
   }
+
+  std::unique_lock<std::mutex> lock(mutex_);
 
   auto thread_id = std::this_thread::get_id();
 
