@@ -564,7 +564,8 @@ class SeqAdvanceConcurrentTest
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransactionTest, WritePreparedTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED)));
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
 
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
@@ -588,7 +589,27 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, WRITE_PREPARED, 16, 20),
                       std::make_tuple(false, true, WRITE_PREPARED, 17, 20),
                       std::make_tuple(false, true, WRITE_PREPARED, 18, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 19, 20)));
+                      std::make_tuple(false, true, WRITE_PREPARED, 19, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 0, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 1, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 2, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 3, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 4, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 5, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 6, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 7, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 8, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 9, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 10, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 11, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 12, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 13, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 14, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 15, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 16, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 17, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 18, 20),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 19, 20)));
 
 INSTANTIATE_TEST_CASE_P(
     OneWriteQueue, SnapshotConcurrentAccessTest,
@@ -611,7 +632,27 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED, 16, 20),
                       std::make_tuple(false, false, WRITE_PREPARED, 17, 20),
                       std::make_tuple(false, false, WRITE_PREPARED, 18, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 19, 20)));
+                      std::make_tuple(false, false, WRITE_PREPARED, 19, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 0, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 1, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 2, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 3, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 4, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 5, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 6, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 7, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 8, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 9, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 10, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 11, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 12, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 13, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 14, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 15, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 16, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 17, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 18, 20),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 19, 20)));
 
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SeqAdvanceConcurrentTest,
@@ -624,7 +665,17 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, WRITE_PREPARED, 6, 10),
                       std::make_tuple(false, true, WRITE_PREPARED, 7, 10),
                       std::make_tuple(false, true, WRITE_PREPARED, 8, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 9, 10)));
+                      std::make_tuple(false, true, WRITE_PREPARED, 9, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 0, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 1, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 2, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 3, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 4, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 5, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 6, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 7, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 8, 10),
+                      std::make_tuple(false, true, WRITE_UNPREPARED, 9, 10)));
 
 INSTANTIATE_TEST_CASE_P(
     OneWriteQueue, SeqAdvanceConcurrentTest,
@@ -637,7 +688,17 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED, 6, 10),
                       std::make_tuple(false, false, WRITE_PREPARED, 7, 10),
                       std::make_tuple(false, false, WRITE_PREPARED, 8, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 9, 10)));
+                      std::make_tuple(false, false, WRITE_PREPARED, 9, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 0, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 1, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 2, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 3, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 4, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 5, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 6, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 7, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 8, 10),
+                      std::make_tuple(false, false, WRITE_UNPREPARED, 9, 10)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {

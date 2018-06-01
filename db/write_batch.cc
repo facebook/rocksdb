@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
+#include <csignal>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
@@ -513,6 +514,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         handler->MarkBeginPrepare();
         empty_batch = false;
         if (handler->WriteAfterCommit()) {
+          std::raise(SIGINT);
           s = Status::NotSupported(
               "WritePrepared txn tag when write_after_commit_ is enabled (in "
               "default WriteCommitted mode). If it is not due to corruption, "
