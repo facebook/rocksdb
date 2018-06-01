@@ -1235,6 +1235,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_destroy(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_compactoptions_set_exclusive_manual_compaction(
     rocksdb_compactoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compactoptions_set_bottommost_level_compaction(
+    rocksdb_compactoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_change_level(
     rocksdb_compactoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_level(
