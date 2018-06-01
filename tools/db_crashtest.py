@@ -43,6 +43,8 @@ default_params = {
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "use_direct_reads": lambda: random.randint(0, 1),
+    "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     "verify_checksum": 1,
@@ -58,7 +60,18 @@ def get_dbname(test_name):
     else:
         dbname = test_tmpdir + "/rocksdb_crashtest_" + test_name
         shutil.rmtree(dbname, True)
+        os.mkdir(dbname)
     return dbname
+
+
+def is_direct_io_supported(dbname):
+    with tempfile.NamedTemporaryFile(dir=dbname) as f:
+        try:
+            os.open(f.name, os.O_DIRECT)
+        except:
+            return False
+        return True
+
 
 blackbox_default_params = {
     # total time for this script to test db_stress
@@ -107,6 +120,10 @@ def finalize_and_sanitize(src_params):
                         for (k, v) in src_params.items()])
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
+    if dest_params["mmap_read"] == 1 or not is_direct_io_supported(
+            dest_params["db"]):
+        dest_params["use_direct_io_for_flush_and_compaction"] = 0
+        dest_params["use_direct_reads"] = 0
     return dest_params
 
 
