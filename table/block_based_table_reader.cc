@@ -1575,11 +1575,12 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
     {
       StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
                    READ_BLOCK_GET_MICROS);
-      s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
-                            rep->footer, ro, handle, &block_value, rep->ioptions,
-                            rep->blocks_maybe_compressed, compression_dict,
-                            rep->persistent_cache_options, rep->global_seqno,
-                            rep->table_options.read_amp_bytes_per_bit);
+      s = ReadBlockFromFile(
+          rep->file.get(), nullptr /* prefetch_buffer */, rep->footer, ro,
+          handle, &block_value, rep->ioptions, rep->blocks_maybe_compressed,
+          compression_dict, rep->persistent_cache_options,
+          is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
+          rep->table_options.read_amp_bytes_per_bit);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1678,7 +1679,8 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
             &raw_block, rep->ioptions,
             block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
-            compression_dict, rep->persistent_cache_options, rep->global_seqno,
+            compression_dict, rep->persistent_cache_options,
+            is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
             rep->table_options.read_amp_bytes_per_bit);
       }
 
