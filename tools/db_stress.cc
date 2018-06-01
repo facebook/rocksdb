@@ -1397,8 +1397,6 @@ class StressTest {
              ToString(options_.max_bytes_for_level_multiplier), "1", "2",
          }},
         {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
-        {"use_direct_reads", {"false", "true"}},
-        {"use_direct_io_for_flush_and_compaction", {"false", "true"}},
     };
 
     options_table_ = std::move(options_tbl);
@@ -2837,20 +2835,6 @@ int main(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
-#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
-  !defined(OS_SOLARIS) && !defined(OS_AIX)
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "NewWritableFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-#endif
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
