@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 * fix deadlock with enable_pipelined_write=true and max_successive_merges > 0
+* Fix corruption in non-iterator reads when mmap is used for file reads
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change

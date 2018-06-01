@@ -2226,8 +2226,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             s = Status::Corruption(Slice());
           }
 
-          if (!get_context->SaveValue(parsed_key, biter.value(), &matched,
-                                      &biter)) {
+          if (!get_context->SaveValue(
+                  parsed_key, biter.value(), &matched,
+                  biter.IsValuePinned() ? &biter : nullptr)) {
             done = true;
             break;
           }
