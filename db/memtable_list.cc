@@ -269,10 +269,108 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
+void MemTableList::RollbackMemtableFlush(std::vector<ColumnFamilyData*>& cfds,
+    std::vector<autovector<MemTable*>>& mems,
+    const std::vector<FileMetaData>& /* file_meta */) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
+  for (size_t k = 0; k != cfds.size(); ++k) {
+    assert(!mems[k].empty());
+    for (MemTable* m : mems[k]) {
+      assert(m->flush_in_progress_);
+      assert(m->file_number_ == 0);
+
+      m->flush_in_progress_ = false;
+      m->flush_completed_ = false;
+      m->edit_.Clear();
+      cfds[k]->imm()->num_flush_not_started_++;
+    }
+    cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
+  }
+}
+
+Status MemTableList::InstallMemtableFlushResults(std::vector<ColumnFamilyData*>& cfds,
+    const std::vector<MutableCFOptions>& mutable_cf_options,
+    const std::vector<autovector<MemTable*>>& mems,
+    LogsWithPrepTracker* prep_tracker, VersionSet* vset,
+    InstrumentedMutex* mu, std::vector<FileMetaData>& file_meta,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer) {
+  mu->AssertHeld();
+
+  // Currently unused.
+  (void) prep_tracker;
+  // flush was successful
+  std::vector<autovector<VersionEdit*>> edit_lists;
+  uint32_t num_entries = 0;
+  for (size_t k = 0; k != mems.size(); ++k) {
+    autovector<VersionEdit*> edit_list;
+    for (size_t i = 0; i != mems[k].size(); ++i) {
+      assert(i == 0 || mems[k][i]->GetEdits()->NumEntries() == 0);
+      if (i == 0) {
+        edit_list.push_back(mems[k][i]->GetEdits());
+        ++num_entries;
+      }
+      mems[k][i]->flush_completed_ = true;
+      mems[k][i]->file_number_ = file_meta[k].fd.GetNumber();
+    }
+    edit_lists.emplace_back(edit_list);
+  }
+
+  uint32_t remaining = num_entries;
+  for (auto& edit_list : edit_lists) {
+    assert(edit_list.size() == 1);
+    edit_list[0]->MarkGroupCommit(--remaining);
+  }
+  assert(0 == remaining);
+
+  // This can release and re-acquire the mutex.
+  Status s = vset->LogAndApply(cfds, mutable_cf_options, edit_lists, mu,
+      db_directory);
+
+  for (auto cfd : cfds) {
+    cfd->imm()->InstallNewVersion();
+  }
+
+  uint64_t mem_id = 1;
+  if (s.ok()) {
+    for (size_t k = 0; k != mems.size(); ++k) {
+      for (auto m : mems[k]) {
+        ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
+                                     ": memtable #%" PRIu64 " done",
+                         cfds[k]->GetName().c_str(), m->file_number_, mem_id);
+        assert(m->file_number_ > 0);
+        cfds[k]->imm()->current_->Remove(m, to_delete);
+        ++mem_id;
+      }
+    }
+  } else {
+    for (size_t k = 0; k != mems.size(); ++k) {
+      for (size_t i = 0; i != mems[k].size(); ++i) {
+        MemTable* m = mems[k][i];
+        // commit failed, and we have to restore the state so that future flush
+        // can retry.
+        ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
+                                     ": memtable #%" PRIu64 " failed",
+                         m->file_number_, mem_id);
+        m->flush_completed_ = false;
+        m->flush_in_progress_ = false;
+        m->edit_.Clear();
+        cfds[k]->imm()->num_flush_not_started_++;
+        m->file_number_ = 0;
+        ++mem_id;
+      }
+      cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
+    }
+  }
+
+  return s;
+}
+
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
 bool MemTableList::IsFlushPending() const {
-  if ((flush_requested_ && num_flush_not_started_ >= 1) ||
+  if ((flush_requested_ && num_flush_not_started_ > 0) ||
       (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
     assert(imm_flush_needed.load(std::memory_order_relaxed));
     return true;
@@ -298,6 +396,28 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
     }
   }
   flush_requested_ = false;  // start-flush request is complete
+}
+
+void MemTableList::PickMemtablesToFlush(uint64_t memtable_id,
+    autovector<MemTable*>* ret) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
+  const auto& memlist = current_->memlist_;
+  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+    MemTable *m = *it;
+    if (m->GetID() > memtable_id) {
+      continue;
+    }
+    if (!m->flush_in_progress_) {
+      assert(!m->flush_completed_);
+      num_flush_not_started_--;
+      if (num_flush_not_started_ == 0) {
+        imm_flush_needed.store(false, std::memory_order_release);
+      }
+      m->flush_in_progress_ = true;  // flushing will start very soon
+      ret->push_back(m);
+    }
+  }
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,

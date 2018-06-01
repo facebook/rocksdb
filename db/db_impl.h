@@ -448,6 +448,7 @@ class DBImpl : public DB {
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
+  bool TEST_AtomicFlushEnabled() const { return atomic_flush_; }
 
 #endif  // NDEBUG
 
@@ -670,10 +671,19 @@ class DBImpl : public DB {
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
                           int job_id, TableProperties prop);
+  void NotifyOnFlushBegin(std::vector<ColumnFamilyData*>& cfds,
+      std::vector<FileMetaData>& file_meta,
+      std::vector<MutableCFOptions>& mutable_cf_options,
+      int job_id, const std::vector<TableProperties>& props);
+
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
+  void NotifyOnFlushCompleted(std::vector<ColumnFamilyData*>& cfds,
+      std::vector<FileMetaData>& file_meta,
+      std::vector<MutableCFOptions>& mutable_cf_options,
+      int job_id, const std::vector<TableProperties>& props);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,
@@ -814,12 +824,18 @@ class DBImpl : public DB {
   // pending_outputs_. This will prevent any background process to delete any
   // file created after this point.
   std::list<uint64_t>::iterator CaptureCurrentFileNumberInPendingOutputs();
+  std::pair<std::list<uint64_t>::iterator, std::list<uint64_t>::iterator>
+      CaptureCurrentFileNumberInPendingOutputs(int num_of_pending_outputs);
+
   // This function should be called with the result of
   // CaptureCurrentFileNumberInPendingOutputs(). It then marks that any file
   // created between the calls CaptureCurrentFileNumberInPendingOutputs() and
   // ReleaseFileNumberFromPendingOutputs() can now be deleted (if it's not live
   // and blocked by any other pending_outputs_ calls)
   void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
+  void ReleaseFileNumberFromPendingOutputs(
+      std::list<uint64_t>::iterator first /* inclusive */,
+      std::list<uint64_t>::iterator last /* inclusive */);
 
   Status SyncClosedLogs(JobContext* job_context);
 
@@ -829,6 +845,10 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
+  Status FlushMemTableToOutputFile(std::vector<ColumnFamilyData*>& cfds,
+    std::vector<MutableCFOptions>& mutable_cf_options,
+    const std::vector<uint64_t>& flush_memtable_ids,
+    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -857,6 +877,8 @@ class DBImpl : public DB {
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
+  Status FlushMemTables(const FlushOptions& options, FlushReason flush_reason,
+      bool writes_stopped);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID
@@ -864,6 +886,8 @@ class DBImpl : public DB {
   // memtable pending flush.
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
                               const uint64_t* flush_memtable_id = nullptr);
+  Status WaitForFlushMemTables(std::vector<ColumnFamilyData*>& cfds,
+      const std::vector<uint64_t*>& flush_memtable_ids);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
@@ -920,6 +944,11 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
   void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
+
+  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> GroupFlushRequest;
+  void SchedulePendingGroupFlush(const GroupFlushRequest& req,
+      FlushReason flush_reason);
+
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
@@ -933,6 +962,7 @@ class DBImpl : public DB {
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                                 Env::Priority bg_thread_pri);
   void BackgroundCallFlush();
+  void BackgroundCallGroupFlush();
   void BackgroundCallPurge();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
@@ -963,6 +993,8 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   void AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason);
   ColumnFamilyData* PopFirstFromFlushQueue();
+  GroupFlushRequest PopFirstFromGroupFlushQueue();
+  const GroupFlushRequest* PeekFirstFromGroupFlushQueue() const;
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
@@ -1200,6 +1232,10 @@ class DBImpl : public DB {
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
 
+  // atomic_flush_queue_ stores batches of column families that should be
+  // flushed.
+  std::deque<GroupFlushRequest> group_flush_queue_;
+
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;
 
@@ -1364,6 +1400,10 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
       const MutableCFOptions& mutable_cf_options,
       FlushReason flush_reason = FlushReason::kOthers);
+  void InstallSuperVersionAndScheduleWork(
+      const std::vector<ColumnFamilyData*>& cfds,
+      std::vector<SuperVersionContext>& sv_contexts,
+      const std::vector<MutableCFOptions>& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
@@ -1421,6 +1461,8 @@ class DBImpl : public DB {
   // is set to false.
   std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   const bool preserve_deletes_;
+
+  const bool atomic_flush_;
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;

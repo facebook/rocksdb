@@ -2644,11 +2644,13 @@ struct VersionSet::ManifestWriter {
   bool done;
   InstrumentedCondVar cv;
   ColumnFamilyData* cfd;
+  const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
 
   explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const autovector<VersionEdit*>& e)
-      : done(false), cv(mu), cfd(_cfd), edit_list(e) {}
+      const MutableCFOptions& cf_options, const autovector<VersionEdit*>& e)
+      : done(false), cv(mu), cfd(_cfd),
+        mutable_cf_options(cf_options), edit_list(e) {}
 };
 
 VersionSet::VersionSet(const std::string& dbname,
@@ -2723,6 +2725,321 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
   v->next_->prev_ = v;
 }
 
+Status VersionSet::ProcessManifestWrites(
+    std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
+    Directory* db_directory, bool new_descriptor_log,
+    const ColumnFamilyOptions* new_cf_options) {
+  ManifestWriter& first_writer = writers.front();
+  ManifestWriter* last_writer = &first_writer;
+
+  assert(!manifest_writers_.empty());
+  assert(manifest_writers_.front() == &first_writer);
+
+  autovector<VersionEdit*> batch_edits;
+  std::vector<Version*> versions;
+  std::vector<const MutableCFOptions*> mutable_cf_options_ptrs;
+  std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
+
+  if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+    // No group commits for column family add or drop
+    LogAndApplyCFHelper(first_writer.edit_list.front());
+    batch_edits.push_back(first_writer.edit_list.front());
+  } else {
+    ColumnFamilyData* cfd = nullptr;
+    Version* version = nullptr;
+    auto it = manifest_writers_.cbegin();
+    while (it != manifest_writers_.cend()) {
+      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
+        // no group commits for column family add or drop
+        break;
+      }
+      last_writer = *(it++);
+      if (last_writer->cfd != nullptr && last_writer->cfd->IsDropped()) {
+        continue;
+      }
+      if (cfd == nullptr || last_writer->cfd->GetID() != cfd->GetID()) {
+        cfd = last_writer->cfd;
+        version = new Version(cfd, this, env_options_,
+            last_writer->mutable_cf_options, current_version_number_++);
+        versions.push_back(version);
+        mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
+        builder_guards.emplace_back(new BaseReferencedVersionBuilder(cfd));
+      }
+      auto* builder = builder_guards.back()->version_builder();
+      for (const auto& e : last_writer->edit_list) {
+        LogAndApplyHelper(cfd, builder, version, e, mu);
+        batch_edits.push_back(e);
+      }
+    }
+    for (int i = 0; i < (int) versions.size(); ++i) {
+      auto* builder = builder_guards[i]->version_builder();
+      builder->SaveTo(versions[i]->storage_info());
+    }
+  }
+
+  uint64_t new_manifest_file_size = 0;
+  Status s;
+
+  assert(pending_manifest_file_number_ == 0);
+  if (!descriptor_log_ ||
+      manifest_file_size_ > db_options_->max_manifest_file_size) {
+    pending_manifest_file_number_ = NewFileNumber();
+    batch_edits.back()->SetNextFile(next_file_number_.load());
+    new_descriptor_log = true;
+  } else {
+    pending_manifest_file_number_ = manifest_file_number_;
+  }
+
+  if (new_descriptor_log) {
+    // if we are writing out new snapshot make sure to persist max column
+    // family.
+    if (column_family_set_->GetMaxColumnFamily() > 0) {
+      first_writer.edit_list.front()->SetMaxColumnFamily(
+          column_family_set_->GetMaxColumnFamily());
+    }
+  }
+
+  {
+    EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
+    mu->Unlock();
+
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
+        column_family_set_->get_table_cache()->GetCapacity() ==
+        TableCache::kInfiniteCapacity) {
+      for (int i = 0; i < (int) versions.size(); ++i) {
+        ColumnFamilyData* cfd = versions[i]->cfd_;
+        builder_guards[i]->version_builder()->LoadTableHandlers(
+            cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
+            true /* prefetch_index_and_filter_in_cache */,
+            mutable_cf_options_ptrs[i]->prefix_extractor.get());
+      }
+    }
+
+    // This is fine because everything inside of this block is serialized --
+    // only one thread can be here at the same time
+    if (new_descriptor_log) {
+      // create new manifest file
+      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
+          pending_manifest_file_number_);
+      unique_ptr<WritableFile> descriptor_file;
+      s = NewWritableFile(
+          env_, DescriptorFileName(dbname_, pending_manifest_file_number_),
+          &descriptor_file, opt_env_opts);
+      if (s.ok()) {
+        descriptor_file->SetPreallocationBlockSize(
+            db_options_->manifest_preallocation_size);
+
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(descriptor_file), opt_env_opts));
+        descriptor_log_.reset(
+            new log::Writer(std::move(file_writer), 0, false));
+        s = WriteSnapshot(descriptor_log_.get());
+      }
+    }
+
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+      for (int i = 0; i < (int) versions.size(); ++i) {
+        versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
+      }
+    }
+
+    // Write new records to MANIFEST log
+    if (s.ok()) {
+      for (auto& e : batch_edits) {
+        std::string record;
+        if (!e->EncodeTo(&record)) {
+          s = Status::Corruption(
+              "Unable to encode VersionEdit:" + e->DebugString(true));
+          break;
+        }
+        TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
+            rocksdb_kill_odds * REDUCE_ODDS2);
+        s = descriptor_log_->AddRecord(record);
+        if (!s.ok()) {
+          break;
+        }
+      }
+      if (s.ok()) {
+        s = SyncManifest(env_, db_options_, descriptor_log_->file());
+      }
+      if (!s.ok()) {
+        ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write %s\n",
+            s.ToString().c_str());
+      }
+    }
+
+    // If we just created a new descriptor file, install it by writing a
+    // new CURRENT file that points to it.
+    if (s.ok() && new_descriptor_log) {
+      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
+          db_directory);
+    }
+
+    if (s.ok()) {
+      // find offset in manifest file where this version is stored.
+      new_manifest_file_size = descriptor_log_->file()->GetFileSize();
+    }
+
+    if (first_writer.edit_list.front()->is_column_family_drop_) {
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
+    }
+
+    LogFlush(db_options_->info_log);
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
+    mu->Lock();
+  }
+
+  // Append the old manifest file to the obsolete_manifest_ list to be deleted
+  // by PurgeObsoleteFiles later.
+  if (s.ok() && new_descriptor_log) {
+    obsolete_manifests_.emplace_back(
+        DescriptorFileName("", manifest_file_number_));
+  }
+
+  // Install the new versions
+  if (s.ok()) {
+    if (first_writer.edit_list.front()->is_column_family_add_) {
+      assert(batch_edits.size() == 1);
+      assert(new_cf_options != nullptr);
+      CreateColumnFamily(*new_cf_options, first_writer.edit_list.front());
+    } else if (first_writer.edit_list.front()->is_column_family_drop_) {
+      assert(batch_edits.size() == 1);
+      first_writer.cfd->SetDropped();
+      if (first_writer.cfd->Unref()) {
+        delete first_writer.cfd;
+      }
+    } else {
+      uint64_t max_log_number_in_batch  = 0;
+      uint64_t last_min_log_number_to_keep = 0;
+      for (auto& e : batch_edits) {
+        if (e->has_log_number_) {
+          max_log_number_in_batch =
+            std::max(max_log_number_in_batch, e->log_number_);
+        }
+        if (e->has_min_log_number_to_keep_) {
+          last_min_log_number_to_keep =
+              std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
+        }
+      }
+      if (max_log_number_in_batch != 0) {
+        for (int i = 0; i < (int) versions.size(); ++i) {
+          ColumnFamilyData* cfd = versions[i]->cfd_;
+          assert(cfd->GetLogNumber() <= max_log_number_in_batch);
+          cfd->SetLogNumber(max_log_number_in_batch);
+        }
+      }
+
+      if (last_min_log_number_to_keep != 0) {
+        // Should only be set in 2PC mode.
+        MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
+      }
+
+      for (int i = 0; i < (int) versions.size(); ++i) {
+        ColumnFamilyData* cfd = versions[i]->cfd_;
+        AppendVersion(cfd, versions[i]);
+      }
+    }
+    manifest_file_number_ = pending_manifest_file_number_;
+    manifest_file_size_ = new_manifest_file_size;
+    prev_log_number_ = first_writer.edit_list.front()->prev_log_number_;
+  } else {
+    std::string version_edits;
+    for (auto& e : batch_edits) {
+      version_edits += ("\n" + e->DebugString(true));
+    }
+    ROCKS_LOG_ERROR(db_options_->info_log,
+        "Error in committing version edit to MANIFEST: %s",
+        version_edits.c_str());
+    for (auto v : versions) {
+      delete v;
+    }
+    if (new_descriptor_log) {
+      ROCKS_LOG_INFO(db_options_->info_log, "Deleting manifest %" PRIu64
+          " current manifest %" PRIu64 "\n",
+          manifest_file_number_, pending_manifest_file_number_);
+      descriptor_log_.reset();
+      env_->DeleteFile(
+          DescriptorFileName(dbname_, pending_manifest_file_number_));
+    }
+  }
+
+  pending_manifest_file_number_ = 0;
+
+  // wake up all the waiting writers
+  while (true) {
+    ManifestWriter* ready = manifest_writers_.front();
+    manifest_writers_.pop_front();
+    bool need_signal = true;
+    for (const auto& w : writers) {
+      if (&w == ready) {
+        need_signal = false;
+        break;
+      }
+    }
+    ready->status = s;
+    ready->done = true;
+    if (need_signal) {
+      ready->cv.Signal();
+    }
+    if (ready == last_writer) {
+      break;
+    }
+  }
+  if (!manifest_writers_.empty()) {
+    manifest_writers_.front()->cv.Signal();
+  }
+  return s;
+}
+
+Status VersionSet::LogAndApply(
+    std::vector<ColumnFamilyData*>& column_family_data,
+    const std::vector<MutableCFOptions>& mutable_cf_options,
+    std::vector<autovector<VersionEdit*>>& edit_lists, InstrumentedMutex* mu,
+    Directory* db_directory, bool new_descriptor_log,
+    const ColumnFamilyOptions* new_cf_options) {
+  mu->AssertHeld();
+  int num_edits = 0;
+  for (const auto& elist : edit_lists) {
+    num_edits += (int) elist.size();
+  }
+  if (num_edits == 0) {
+    return Status::OK();
+  } else if (num_edits > 1) {
+#ifndef NDEBUG
+    for (const auto& edit_list : edit_lists) {
+      for (const auto& edit : edit_list) {
+        assert(!edit->IsColumnFamilyManipulation());
+      }
+    }
+#endif /* ! NDEBUG */
+  }
+
+  int n = (int) column_family_data.size();
+  if (n == 1 && column_family_data[0] == nullptr) {
+    assert(edit_lists.size() == 1 && edit_lists[0].size() == 1);
+    assert(edit_lists[0][0]->is_column_family_add_);
+    assert(new_cf_options != nullptr);
+  }
+  std::deque<ManifestWriter> writers;
+  for (int i = 0; i < n; ++i) {
+    writers.emplace_back(mu, column_family_data[i], mutable_cf_options[i],
+        edit_lists[i]);
+    manifest_writers_.push_back(&writers[i]);
+  }
+  ManifestWriter& first_writer = writers.front();
+  while (!first_writer.done && &first_writer != manifest_writers_.front()) {
+    first_writer.cv.Wait();
+  }
+  if (first_writer.done) {
+    return first_writer.status;
+  }
+  return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
+      new_cf_options);
+}
+
 Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                                const MutableCFOptions& mutable_cf_options,
                                const autovector<VersionEdit*>& edit_list,
@@ -2752,7 +3069,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
 
   // queue our request
-  ManifestWriter w(mu, column_family_data, edit_list);
+  std::deque<ManifestWriter> writers;
+  writers.emplace_back(mu, column_family_data, mutable_cf_options, edit_list);
+  ManifestWriter& w = writers.front();
   manifest_writers_.push_back(&w);
   while (!w.done && &w != manifest_writers_.front()) {
     w.cv.Wait();
@@ -2771,246 +3090,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // we steal this code to also inform about cf-drop
     return Status::ShutdownInProgress();
   }
-
-  autovector<VersionEdit*> batch_edits;
-  Version* v = nullptr;
-  std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(nullptr);
-
-  // process all requests in the queue
-  ManifestWriter* last_writer = &w;
-  assert(!manifest_writers_.empty());
-  assert(manifest_writers_.front() == &w);
-  if (w.edit_list.front()->IsColumnFamilyManipulation()) {
-    // no group commits for column family add or drop
-    LogAndApplyCFHelper(w.edit_list.front());
-    batch_edits.push_back(w.edit_list.front());
-  } else {
-    v = new Version(column_family_data, this, env_options_, mutable_cf_options,
-                    current_version_number_++);
-    builder_guard.reset(new BaseReferencedVersionBuilder(column_family_data));
-    auto* builder = builder_guard->version_builder();
-    for (const auto& writer : manifest_writers_) {
-      if (writer->edit_list.front()->IsColumnFamilyManipulation() ||
-          writer->cfd->GetID() != column_family_data->GetID()) {
-        // no group commits for column family add or drop
-        // also, group commits across column families are not supported
-        break;
-      }
-      last_writer = writer;
-      for (const auto& edit : writer->edit_list) {
-        LogAndApplyHelper(column_family_data, builder, v, edit, mu);
-        batch_edits.push_back(edit);
-      }
-    }
-    builder->SaveTo(v->storage_info());
-  }
-
-  // Initialize new descriptor log file if necessary by creating
-  // a temporary file that contains a snapshot of the current version.
-  uint64_t new_manifest_file_size = 0;
-  Status s;
-
-  assert(pending_manifest_file_number_ == 0);
-  if (!descriptor_log_ ||
-      manifest_file_size_ > db_options_->max_manifest_file_size) {
-    pending_manifest_file_number_ = NewFileNumber();
-    batch_edits.back()->SetNextFile(next_file_number_.load());
-    new_descriptor_log = true;
-  } else {
-    pending_manifest_file_number_ = manifest_file_number_;
-  }
-
-  if (new_descriptor_log) {
-    // if we're writing out new snapshot make sure to persist max column family
-    if (column_family_set_->GetMaxColumnFamily() > 0) {
-      w.edit_list.front()->SetMaxColumnFamily(
-          column_family_set_->GetMaxColumnFamily());
-    }
-  }
-
-  // Unlock during expensive operations. New writes cannot get here
-  // because &w is ensuring that all new writes get queued.
-  {
-    EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
-    // Before releasing mutex, make a copy of mutable_cf_options and pass to
-    // `PrepareApply` to avoided a potential data race with backgroundflush
-    MutableCFOptions mutable_cf_options_copy(mutable_cf_options);
-    mu->Unlock();
-
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
-    if (!w.edit_list.front()->IsColumnFamilyManipulation() &&
-        this->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-            TableCache::kInfiniteCapacity) {
-      // unlimited table cache. Pre-load table handle now.
-      // Need to do it out of the mutex.
-      builder_guard->version_builder()->LoadTableHandlers(
-          column_family_data->internal_stats(),
-          column_family_data->ioptions()->optimize_filters_for_hits,
-          true /* prefetch_index_and_filter_in_cache */,
-          mutable_cf_options.prefix_extractor.get());
-    }
-
-    // This is fine because everything inside of this block is serialized --
-    // only one thread can be here at the same time
-    if (new_descriptor_log) {
-      // create manifest file
-      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
-                     pending_manifest_file_number_);
-      unique_ptr<WritableFile> descriptor_file;
-      s = NewWritableFile(
-          env_, DescriptorFileName(dbname_, pending_manifest_file_number_),
-          &descriptor_file, opt_env_opts);
-      if (s.ok()) {
-        descriptor_file->SetPreallocationBlockSize(
-            db_options_->manifest_preallocation_size);
-
-        unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(descriptor_file), opt_env_opts));
-        descriptor_log_.reset(
-            new log::Writer(std::move(file_writer), 0, false));
-        s = WriteSnapshot(descriptor_log_.get());
-      }
-    }
-
-    if (!w.edit_list.front()->IsColumnFamilyManipulation()) {
-      // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply(mutable_cf_options_copy, true);
-    }
-
-    // Write new record to MANIFEST log
-    if (s.ok()) {
-      for (auto& e : batch_edits) {
-        std::string record;
-        if (!e->EncodeTo(&record)) {
-          s = Status::Corruption(
-              "Unable to Encode VersionEdit:" + e->DebugString(true));
-          break;
-        }
-        TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
-                         rocksdb_kill_odds * REDUCE_ODDS2);
-        s = descriptor_log_->AddRecord(record);
-        if (!s.ok()) {
-          break;
-        }
-      }
-      if (s.ok()) {
-        s = SyncManifest(env_, db_options_, descriptor_log_->file());
-      }
-      if (!s.ok()) {
-        ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write: %s\n",
-                        s.ToString().c_str());
-      }
-    }
-
-    // If we just created a new descriptor file, install it by writing a
-    // new CURRENT file that points to it.
-    if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
-                         db_directory);
-    }
-
-    if (s.ok()) {
-      // find offset in manifest file where this version is stored.
-      new_manifest_file_size = descriptor_log_->file()->GetFileSize();
-    }
-
-    if (w.edit_list.front()->is_column_family_drop_) {
-      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
-      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
-      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
-    }
-
-    LogFlush(db_options_->info_log);
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
-    mu->Lock();
-  }
-
-  // Append the old mainfest file to the obsolete_manifests_ list to be deleted
-  // by PurgeObsoleteFiles later.
-  if (s.ok() && new_descriptor_log) {
-    obsolete_manifests_.emplace_back(
-        DescriptorFileName("", manifest_file_number_));
-  }
-
-  // Install the new version
-  if (s.ok()) {
-    if (w.edit_list.front()->is_column_family_add_) {
-      // no group commit on column family add
-      assert(batch_edits.size() == 1);
-      assert(new_cf_options != nullptr);
-      CreateColumnFamily(*new_cf_options, w.edit_list.front());
-    } else if (w.edit_list.front()->is_column_family_drop_) {
-      assert(batch_edits.size() == 1);
-      column_family_data->SetDropped();
-      if (column_family_data->Unref()) {
-        delete column_family_data;
-      }
-    } else {
-      uint64_t max_log_number_in_batch  = 0;
-      uint64_t last_min_log_number_to_keep = 0;
-      for (auto& e : batch_edits) {
-        if (e->has_log_number_) {
-          max_log_number_in_batch =
-              std::max(max_log_number_in_batch, e->log_number_);
-        }
-        if (e->has_min_log_number_to_keep_) {
-          last_min_log_number_to_keep =
-              std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
-        }
-      }
-      if (max_log_number_in_batch != 0) {
-        assert(column_family_data->GetLogNumber() <= max_log_number_in_batch);
-        column_family_data->SetLogNumber(max_log_number_in_batch);
-      }
-      if (last_min_log_number_to_keep != 0) {
-        // Should only be set in 2PC mode.
-        MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
-      }
-
-      AppendVersion(column_family_data, v);
-    }
-
-    manifest_file_number_ = pending_manifest_file_number_;
-    manifest_file_size_ = new_manifest_file_size;
-    prev_log_number_ = w.edit_list.front()->prev_log_number_;
-  } else {
-    std::string version_edits;
-    for (auto& e : batch_edits) {
-      version_edits = version_edits + "\n" + e->DebugString(true);
-    }
-    ROCKS_LOG_ERROR(
-        db_options_->info_log,
-        "[%s] Error in committing version edit to MANIFEST: %s",
-        column_family_data ? column_family_data->GetName().c_str() : "<null>",
-        version_edits.c_str());
-    delete v;
-    if (new_descriptor_log) {
-      ROCKS_LOG_INFO(db_options_->info_log, "Deleting manifest %" PRIu64
-                                            " current manifest %" PRIu64 "\n",
-                     manifest_file_number_, pending_manifest_file_number_);
-      descriptor_log_.reset();
-      env_->DeleteFile(
-          DescriptorFileName(dbname_, pending_manifest_file_number_));
-    }
-  }
-  pending_manifest_file_number_ = 0;
-
-  // wake up all the waiting writers
-  while (true) {
-    ManifestWriter* ready = manifest_writers_.front();
-    manifest_writers_.pop_front();
-    if (ready != &w) {
-      ready->status = s;
-      ready->done = true;
-      ready->cv.Signal();
-    }
-    if (ready == last_writer) break;
-  }
-  // Notify new head of write queue
-  if (!manifest_writers_.empty()) {
-    manifest_writers_.front()->cv.Signal();
-  }
-  return s;
+  return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
+      new_cf_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
@@ -3057,6 +3138,133 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
                                                       : last_sequence_);
 
   builder->Apply(edit);
+}
+
+Status VersionSet::ApplyOneVersionEdit(VersionEdit& edit,
+    const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
+    std::unordered_map<int, std::string>& column_families_not_found,
+    std::unordered_map<uint32_t, BaseReferencedVersionBuilder*>& builders,
+    bool* have_log_number, uint64_t* /* log_number */,
+    bool* have_prev_log_number, uint64_t* previous_log_number,
+    bool* have_next_file, uint64_t* next_file,
+    bool* have_last_sequence, SequenceNumber* last_sequence,
+    uint64_t* min_log_number_to_keep,
+    uint32_t* max_column_family) {
+  // Not found means that user didn't supply that column
+  // family option AND we encountered column family add
+  // record. Once we encounter column family drop record,
+  // we will delete the column family from
+  // column_families_not_found.
+  bool cf_in_not_found =
+      (column_families_not_found.find(edit.column_family_) !=
+      column_families_not_found.end());
+  // in builders means that user supplied that column family
+  // option AND that we encountered column family add record
+  bool cf_in_builders =
+      builders.find(edit.column_family_) != builders.end();
+
+  // they can't both be true
+  assert(!(cf_in_not_found && cf_in_builders));
+
+  ColumnFamilyData* cfd = nullptr;
+
+  if (edit.is_column_family_add_) {
+    if (cf_in_builders || cf_in_not_found) {
+      return Status::Corruption(
+          "Manifest adding the same column family twice: " +
+          edit.column_family_name_);
+    }
+    auto cf_options = name_to_options.find(edit.column_family_name_);
+    if (cf_options == name_to_options.end()) {
+      column_families_not_found.insert(
+          {edit.column_family_, edit.column_family_name_});
+    } else {
+      cfd = CreateColumnFamily(cf_options->second, &edit);
+      cfd->set_initialized();
+      builders.insert(
+          {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
+    }
+  } else if (edit.is_column_family_drop_) {
+    if (cf_in_builders) {
+      auto builder = builders.find(edit.column_family_);
+      assert(builder != builders.end());
+      delete builder->second;
+      builders.erase(builder);
+      cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+      if (cfd->Unref()) {
+        delete cfd;
+        cfd = nullptr;
+      } else {
+        // who else can have reference to cfd!?
+        assert(false);
+      }
+    } else if (cf_in_not_found) {
+      column_families_not_found.erase(edit.column_family_);
+    } else {
+      return Status::Corruption(
+          "Manifest - dropping non-existing column family");
+    }
+  } else if (!cf_in_not_found) {
+    if (!cf_in_builders) {
+      return Status::Corruption(
+          "Manifest record referencing unknown column family");
+    }
+
+    cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+    // this should never happen since cf_in_builders is true
+    assert(cfd != nullptr);
+
+    // if it is not column family add or column family drop,
+    // then it's a file add/delete, which should be forwarded
+    // to builder
+    auto builder = builders.find(edit.column_family_);
+    assert(builder != builders.end());
+    builder->second->version_builder()->Apply(&edit);
+  }
+
+  if (cfd != nullptr) {
+    if (edit.has_log_number_) {
+      if (cfd->GetLogNumber() > edit.log_number_) {
+        ROCKS_LOG_WARN(
+            db_options_->info_log,
+            "MANIFEST corruption detected, but ignored - Log numbers in "
+            "records NOT monotonically increasing");
+      } else {
+        cfd->SetLogNumber(edit.log_number_);
+        *have_log_number = true;
+      }
+    }
+    if (edit.has_comparator_ &&
+        edit.comparator_ != cfd->user_comparator()->Name()) {
+      return Status::InvalidArgument(cfd->user_comparator()->Name(),
+          "does not match existing comparator " + edit.comparator_);
+    }
+  }
+
+  if (edit.has_prev_log_number_) {
+    *previous_log_number = edit.prev_log_number_;
+    *have_prev_log_number = true;
+  }
+
+  if (edit.has_next_file_number_) {
+    *next_file = edit.next_file_number_;
+    *have_next_file = true;
+  }
+
+  if (edit.has_max_column_family_) {
+    *max_column_family = edit.max_column_family_;
+  }
+
+  if (edit.has_min_log_number_to_keep_) {
+    *min_log_number_to_keep =
+        std::max(*min_log_number_to_keep, edit.min_log_number_to_keep_);
+  }
+
+  if (edit.has_last_sequence_) {
+    *last_sequence = edit.last_sequence_;
+    *have_last_sequence = true;
+  }
+  return Status::OK();
 }
 
 Status VersionSet::Recover(
@@ -3147,6 +3355,8 @@ Status VersionSet::Recover(
                        true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;
+    std::vector<VersionEdit> replay_buffer;
+    size_t num_entries_decoded = 0;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
@@ -3154,123 +3364,43 @@ Status VersionSet::Recover(
         break;
       }
 
-      // Not found means that user didn't supply that column
-      // family option AND we encountered column family add
-      // record. Once we encounter column family drop record,
-      // we will delete the column family from
-      // column_families_not_found.
-      bool cf_in_not_found =
-          column_families_not_found.find(edit.column_family_) !=
-          column_families_not_found.end();
-      // in builders means that user supplied that column family
-      // option AND that we encountered column family add record
-      bool cf_in_builders =
-          builders.find(edit.column_family_) != builders.end();
-
-      // they can't both be true
-      assert(!(cf_in_not_found && cf_in_builders));
-
-      ColumnFamilyData* cfd = nullptr;
-
-      if (edit.is_column_family_add_) {
-        if (cf_in_builders || cf_in_not_found) {
-          s = Status::Corruption(
-              "Manifest adding the same column family twice");
-          break;
+      if (edit.is_in_group_commit_) {
+        if (replay_buffer.empty()) {
+          replay_buffer.resize(edit.remaining_entries_ + 1);
         }
-        auto cf_options = cf_name_to_options.find(edit.column_family_name_);
-        if (cf_options == cf_name_to_options.end()) {
-          column_families_not_found.insert(
-              {edit.column_family_, edit.column_family_name_});
-        } else {
-          cfd = CreateColumnFamily(cf_options->second, &edit);
-          cfd->set_initialized();
-          builders.insert(
-              {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
-        }
-      } else if (edit.is_column_family_drop_) {
-        if (cf_in_builders) {
-          auto builder = builders.find(edit.column_family_);
-          assert(builder != builders.end());
-          delete builder->second;
-          builders.erase(builder);
-          cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-          if (cfd->Unref()) {
-            delete cfd;
-            cfd = nullptr;
-          } else {
-            // who else can have reference to cfd!?
-            assert(false);
+        ++num_entries_decoded;
+        assert(num_entries_decoded + edit.remaining_entries_ ==
+            static_cast<uint32_t>(replay_buffer.size()));
+        replay_buffer[num_entries_decoded - 1] = std::move(edit);
+        if (num_entries_decoded == replay_buffer.size()) {
+          for (auto& e : replay_buffer) {
+            s = ApplyOneVersionEdit(e, cf_name_to_options,
+                column_families_not_found, builders,
+                &have_log_number, &log_number,
+                &have_prev_log_number, &previous_log_number,
+                &have_next_file, &next_file,
+                &have_last_sequence, &last_sequence,
+                &min_log_number_to_keep, &max_column_family);
+            if (!s.ok()) {
+              break;
+            }
           }
-        } else if (cf_in_not_found) {
-          column_families_not_found.erase(edit.column_family_);
-        } else {
-          s = Status::Corruption(
-              "Manifest - dropping non-existing column family");
-          break;
+          replay_buffer.clear();
+          num_entries_decoded = 0;
         }
-      } else if (!cf_in_not_found) {
-        if (!cf_in_builders) {
-          s = Status::Corruption(
-              "Manifest record referencing unknown column family");
-          break;
-        }
-
-        cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-        // this should never happen since cf_in_builders is true
-        assert(cfd != nullptr);
-
-        // if it is not column family add or column family drop,
-        // then it's a file add/delete, which should be forwarded
-        // to builder
-        auto builder = builders.find(edit.column_family_);
-        assert(builder != builders.end());
-        builder->second->version_builder()->Apply(&edit);
+      } else {
+        assert(replay_buffer.empty());
+        assert(!edit.is_in_group_commit_);
+        s = ApplyOneVersionEdit(edit, cf_name_to_options,
+            column_families_not_found, builders,
+            &have_log_number, &log_number,
+            &have_prev_log_number, &previous_log_number,
+            &have_next_file, &next_file,
+            &have_last_sequence, &last_sequence,
+            &min_log_number_to_keep, &max_column_family);
       }
-
-      if (cfd != nullptr) {
-        if (edit.has_log_number_) {
-          if (cfd->GetLogNumber() > edit.log_number_) {
-            ROCKS_LOG_WARN(
-                db_options_->info_log,
-                "MANIFEST corruption detected, but ignored - Log numbers in "
-                "records NOT monotonically increasing");
-          } else {
-            cfd->SetLogNumber(edit.log_number_);
-            have_log_number = true;
-          }
-        }
-        if (edit.has_comparator_ &&
-            edit.comparator_ != cfd->user_comparator()->Name()) {
-          s = Status::InvalidArgument(
-              cfd->user_comparator()->Name(),
-              "does not match existing comparator " + edit.comparator_);
-          break;
-        }
-      }
-
-      if (edit.has_prev_log_number_) {
-        previous_log_number = edit.prev_log_number_;
-        have_prev_log_number = true;
-      }
-
-      if (edit.has_next_file_number_) {
-        next_file = edit.next_file_number_;
-        have_next_file = true;
-      }
-
-      if (edit.has_max_column_family_) {
-        max_column_family = edit.max_column_family_;
-      }
-
-      if (edit.has_min_log_number_to_keep_) {
-        min_log_number_to_keep =
-            std::max(min_log_number_to_keep, edit.min_log_number_to_keep_);
-      }
-
-      if (edit.has_last_sequence_) {
-        last_sequence = edit.last_sequence_;
-        have_last_sequence = true;
+      if (!s.ok()) {
+        break;
       }
     }
   }

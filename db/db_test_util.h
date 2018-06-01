@@ -787,6 +787,9 @@ class DBTestBase : public testing::Test {
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);
 
+  void CreateColumnFamilies(const std::vector<std::string>& cfs,
+                            const std::vector<Options>& options);
+
   void CreateAndReopenWithCF(const std::vector<std::string>& cfs,
                              const Options& options);
 

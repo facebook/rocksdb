@@ -141,5 +141,16 @@ void MockTableFactory::AssertLatestFile(
   }
 }
 
+void MockTableFactory::AssertOneFile(const stl_wrappers::KVMap& file_contents) const {
+  ASSERT_GE(file_system_.files.size(), 1U);
+  bool contains = false;
+  for (const auto& iter : file_system_.files) {
+    if (iter.second == file_contents) {
+      contains = true;
+    }
+  }
+  ASSERT_EQ(true, contains);
+}
+
 }  // namespace mock
 }  // namespace rocksdb

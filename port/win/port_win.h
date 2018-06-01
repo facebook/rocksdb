@@ -196,8 +196,7 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu) : mu_(mu) {
-  }
+  explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
   void Wait();

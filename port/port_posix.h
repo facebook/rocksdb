@@ -159,6 +159,13 @@ class CondVar {
   bool TimedWait(uint64_t abs_time_us);
   void Signal();
   void SignalAll();
+
+  CondVar(const CondVar&) = delete;
+  CondVar& operator=(const CondVar&) = delete;
+
+  CondVar(CondVar&&) = delete;
+  CondVar& operator=(CondVar&&) = delete;
+
  private:
   pthread_cond_t cv_;
   Mutex* mu_;

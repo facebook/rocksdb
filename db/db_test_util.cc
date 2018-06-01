@@ -519,6 +519,19 @@ void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
   }
 }
 
+void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
+                                      const std::vector<Options>& options) {
+  std::vector<ColumnFamilyOptions> cf_opts;
+  for (const auto& opt : options) {
+    cf_opts.emplace_back(opt);
+  }
+  size_t cfi = handles_.size();
+  handles_.resize(cfi + cfs.size());
+  for (size_t i = 0; i != cfs.size(); ++i) {
+    ASSERT_OK(db_->CreateColumnFamily(cf_opts[i], cfs[i], &handles_[cfi + i]));
+  }
+}
+
 void DBTestBase::CreateAndReopenWithCF(const std::vector<std::string>& cfs,
                                        const Options& options) {
   CreateColumnFamilies(cfs, options);

@@ -215,6 +215,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // as well.
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
+      atomic_flush_(options.atomic_flush),
       closed_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
@@ -254,13 +255,19 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-        cfd->Ref();
-        mutex_.Unlock();
-        FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-        mutex_.Lock();
-        cfd->Unref();
+    if (atomic_flush_) {
+      mutex_.Unlock();
+      FlushMemTables(FlushOptions(), FlushReason::kShutDown, false);
+      mutex_.Lock();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
+          cfd->Ref();
+          mutex_.Unlock();
+          FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          mutex_.Lock();
+          cfd->Unref();
+        }
       }
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
@@ -2086,9 +2093,30 @@ DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
   return pending_outputs_inserted_elem;
 }
 
+std::pair<std::list<uint64_t>::iterator, std::list<uint64_t>::iterator>
+DBImpl::CaptureCurrentFileNumberInPendingOutputs(int num_of_pending_outputs) {
+  for (int i = 0; i != num_of_pending_outputs; ++i) {
+    pending_outputs_.push_back(versions_->current_next_file_number() + i);
+  }
+  auto first = pending_outputs_.end();
+  auto last = pending_outputs_.end();
+  for (int i = 0; i != num_of_pending_outputs; ++i) {
+    if (i == 0) {
+      --last;
+    }
+    --first;
+  }
+  return {first, last};
+}
+
 void DBImpl::ReleaseFileNumberFromPendingOutputs(
     std::list<uint64_t>::iterator v) {
   pending_outputs_.erase(v);
+}
+
+void DBImpl::ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator first,
+    std::list<uint64_t>::iterator last) {
+  pending_outputs_.erase(first, ++last);
 }
 
 #ifndef ROCKSDB_LITE
