@@ -58,6 +58,7 @@ class SequentialFileReader {
 
 class RandomAccessFileReader {
  private:
+#ifndef ROCKSDB_LITE
   void NotifyOnFileReadStart(FileOperationInfo* info) const {
     for (auto& listener : listeners_) {
       listener->OnFileReadStart(info);
@@ -69,6 +70,7 @@ class RandomAccessFileReader {
       listener->OnFileReadFinish(info);
     }
   }
+#endif // ROCKSDB_LITE
 
   std::unique_ptr<RandomAccessFile> file_;
   std::string     file_name_;
@@ -135,6 +137,7 @@ class RandomAccessFileReader {
 // Use posix write to write data to a file.
 class WritableFileWriter {
  private:
+#ifndef ROCKSDB_LITE
    void NotifyOnFileWriteStart(FileOperationInfo* info) {
      for (auto& listener : listeners_) {
        listener->OnFileWriteStart(info);
@@ -146,6 +149,7 @@ class WritableFileWriter {
        listener->OnFileWriteFinish(info);
      }
    }
+#endif // ROCKSDB_LITE
 
   std::unique_ptr<WritableFile> writable_file_;
   AlignedBuffer           buf_;

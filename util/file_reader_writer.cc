@@ -76,7 +76,6 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   {
     StopWatch sw(env_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr);
-    FileOperationInfo rw_info;
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
@@ -99,6 +98,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         Slice tmp;
 
+        FileOperationInfo rw_info;
         NotifyOnFileReadStart(&rw_info);
         s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
                         buf.Destination());
@@ -130,9 +130,14 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         Slice tmp_result;
 
+#ifndef ROCKSDB_LITE
+        FileOperationInfo rw_info;
         NotifyOnFileReadStart(&rw_info);
+#endif
         s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+#ifndef ROCKSDB_LITE
         NotifyOnFileReadFinish(&rw_info);
+#endif
 
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
@@ -417,10 +422,14 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
 
+#ifndef ROCKSDB_LITE
       FileOperationInfo rw_info;
       NotifyOnFileWriteStart(&rw_info);
+#endif
       s = writable_file_->Append(Slice(src, allowed));
+#ifndef ROCKSDB_LITE
       NotifyOnFileWriteFinish(&rw_info);
+#endif
       if (!s.ok()) {
         return s;
       }
