@@ -464,7 +464,7 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
         total_order_seek ? nullptr : prefix_index_.get();
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
-                         read_amp_bitmap_.get(), key_includes_seq);
+                         read_amp_bitmap_.get(), key_includes_seq, cachable());
 
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
