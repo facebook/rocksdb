@@ -135,6 +135,18 @@ class RandomAccessFileReader {
 // Use posix write to write data to a file.
 class WritableFileWriter {
  private:
+   void NotifyOnFileWriteStart(FileOperationInfo* info) {
+     for (auto& listener : listeners_) {
+       listener->OnFileWriteStart(info);
+     }
+   }
+
+   void NotifyOnFileWriteFinish(FileOperationInfo* info) {
+     for (auto& listener : listeners_) {
+       listener->OnFileWriteFinish(info);
+     }
+   }
+
   std::unique_ptr<WritableFile> writable_file_;
   AlignedBuffer           buf_;
   size_t                  max_buffer_size_;
@@ -152,10 +164,12 @@ class WritableFileWriter {
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
   Statistics* stats_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
   WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                     const EnvOptions& options, Statistics* stats = nullptr)
+      const EnvOptions& options, Statistics* stats = nullptr,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : writable_file_(std::move(file)),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
@@ -167,7 +181,8 @@ class WritableFileWriter {
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
-        stats_(stats) {
+        stats_(stats),
+        listeners_(listeners) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());

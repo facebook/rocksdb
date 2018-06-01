@@ -402,6 +402,10 @@ class EventListener {
 
   virtual void OnFileReadFinish(FileOperationInfo* /* info */) {}
 
+  virtual void OnFileWriteStart(FileOperationInfo* /* info */) {}
+
+  virtual void OnFileWriteFinish(FileOperationInfo* /* info */) {}
+
   virtual ~EventListener() {}
 };
 
