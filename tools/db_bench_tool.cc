@@ -3762,8 +3762,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
 
         if (usecs_since_last >
-            (FLAGS_sine_write_rate_interval_milliseconds * 1000)) {
-          uint64_t usecs_since_start = now - thread->stats.GetStart();
+            (FLAGS_sine_write_rate_interval_milliseconds * uint64_t{1000})) {
+          double usecs_since_start =
+                  static_cast<double>(now - thread->stats.GetStart());
           thread->stats.ResetSineInterval();
           uint64_t write_rate =
                   static_cast<uint64_t>(SineRate(usecs_since_start / 1000000.0));
