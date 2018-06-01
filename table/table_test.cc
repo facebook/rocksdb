@@ -1049,12 +1049,31 @@ class TableTest : public testing::Test {
 };
 
 class GeneralTableTest : public TableTest {};
-class BlockBasedTableTest : public TableTest {
+class BlockBasedTableTest
+    : public TableTest,
+      virtual public ::testing::WithParamInterface<uint32_t> {
+ public:
+  BlockBasedTableTest() : format_(GetParam()) {}
+
+  BlockBasedTableOptions GetBlockBasedTableOptions() {
+    BlockBasedTableOptions options;
+    options.format_version = format_;
+    return options;
+  }
+
  protected:
   uint64_t IndexUncompressedHelper(bool indexCompress);
+
+ private:
+  uint32_t format_;
 };
 class PlainTableTest : public TableTest {};
 class TablePropertyTest : public testing::Test {};
+
+INSTANTIATE_TEST_CASE_P(FormatDef, BlockBasedTableTest,
+                        testing::Values(test::kDefaultFormatVersion));
+INSTANTIATE_TEST_CASE_P(FormatLatest, BlockBasedTableTest,
+                        testing::Values(test::kLatestFormatVersion));
 
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
@@ -1095,7 +1114,7 @@ TEST_F(TablePropertyTest, PrefixScanTest) {
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
-TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
+TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
 
   c.Add("a1", "val1");
@@ -1115,7 +1134,7 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   options.compression = kNoCompression;
   options.statistics = CreateDBStatistics();
   options.statistics->stats_level_ = StatsLevel::kAll;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1163,7 +1182,7 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   options.compression = kSnappyCompression;
   options.statistics = CreateDBStatistics();
   options.statistics->stats_level_ = StatsLevel::kAll;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_restart_interval = 1;
   table_options.enable_index_compression = compressed;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1176,7 +1195,7 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   c.ResetTableReader();
   return options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
 }
-TEST_F(BlockBasedTableTest, IndexUncompressed) {
+TEST_P(BlockBasedTableTest, IndexUncompressed) {
   uint64_t tbl1_compressed_cnt = IndexUncompressedHelper(true);
   uint64_t tbl2_compressed_cnt = IndexUncompressedHelper(false);
   // tbl1_compressed_cnt should include 1 index block
@@ -1184,7 +1203,7 @@ TEST_F(BlockBasedTableTest, IndexUncompressed) {
 }
 #endif  // SNAPPY
 
-TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
+TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
   TableConstructor c(&reverse_key_comparator);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
@@ -1192,7 +1211,7 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
   {
     Options options;
     options.compression = CompressionType::kNoCompression;
-    BlockBasedTableOptions table_options;
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     const ImmutableCFOptions ioptions(options);
@@ -1219,7 +1238,7 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
 
   {
     Options options;
-    BlockBasedTableOptions table_options;
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.comparator = &reverse_key_comparator;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
@@ -1246,7 +1265,7 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
   }
 }
 
-TEST_F(BlockBasedTableTest, RangeDelBlock) {
+TEST_P(BlockBasedTableTest, RangeDelBlock) {
   TableConstructor c(BytewiseComparator());
   std::vector<std::string> keys = {"1pika", "2chu"};
   std::vector<std::string> vals = {"p", "c"};
@@ -1261,7 +1280,7 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
   stl_wrappers::KVMap kvmap;
   Options options;
   options.compression = kNoCompression;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1297,12 +1316,12 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
   }
 }
 
-TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
+TEST_P(BlockBasedTableTest, FilterPolicyNameProperties) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   c.Add("a1", "val1");
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1386,14 +1405,14 @@ void PrefetchRange(TableConstructor* c, Options* opt,
   c->ResetTableReader();
 }
 
-TEST_F(BlockBasedTableTest, PrefetchTest) {
+TEST_P(BlockBasedTableTest, PrefetchTest) {
   // The purpose of this test is to test the prefetching operation built into
   // BlockBasedTable.
   Options opt;
   unique_ptr<InternalKeyComparator> ikc;
   ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
   opt.compression = kNoCompression;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_size = 1024;
   // big enough so we don't ever lose cached values.
   table_options.block_cache = NewLRUCache(16 * 1024 * 1024, 4);
@@ -1454,8 +1473,8 @@ TEST_F(BlockBasedTableTest, PrefetchTest) {
   c.ResetTableReader();
 }
 
-TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
-  BlockBasedTableOptions table_options;
+TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   for (int i = 0; i < 4; ++i) {
     Options options;
     // Make each key/value an individual block
@@ -1546,8 +1565,8 @@ TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   }
 }
 
-TEST_F(BlockBasedTableTest, NoopTransformSeek) {
-  BlockBasedTableOptions table_options;
+TEST_P(BlockBasedTableTest, NoopTransformSeek) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
 
   Options options;
@@ -1583,10 +1602,10 @@ TEST_F(BlockBasedTableTest, NoopTransformSeek) {
   }
 }
 
-TEST_F(BlockBasedTableTest, SkipPrefixBloomFilter) {
+TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   // if DB is opened with a prefix extractor of a different name,
   // prefix bloom is skipped when read the file
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.filter_policy.reset(NewBloomFilterPolicy(2));
   table_options.whole_key_filtering = false;
 
@@ -1750,24 +1769,24 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   c.ResetTableReader();
 }
 
-TEST_F(TableTest, BinaryIndexTest) {
-  BlockBasedTableOptions table_options;
+TEST_P(BlockBasedTableTest, BinaryIndexTest) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.index_type = BlockBasedTableOptions::kBinarySearch;
   IndexTest(table_options);
 }
 
-TEST_F(TableTest, HashIndexTest) {
-  BlockBasedTableOptions table_options;
+TEST_P(BlockBasedTableTest, HashIndexTest) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.index_type = BlockBasedTableOptions::kHashSearch;
   IndexTest(table_options);
 }
 
-TEST_F(TableTest, PartitionIndexTest) {
+TEST_P(BlockBasedTableTest, PartitionIndexTest) {
   const int max_index_keys = 5;
   const int est_max_index_key_value_size = 32;
   const int est_max_index_size = max_index_keys * est_max_index_key_value_size;
   for (int i = 1; i <= est_max_index_size + 1; i++) {
-    BlockBasedTableOptions table_options;
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
     table_options.metadata_block_size = i;
     IndexTest(table_options);
@@ -1777,7 +1796,7 @@ TEST_F(TableTest, PartitionIndexTest) {
 // It's very hard to figure out the index block size of a block accurately.
 // To make sure we get the index size, we just make sure as key number
 // grows, the filter block size also grows.
-TEST_F(BlockBasedTableTest, IndexSizeStat) {
+TEST_P(BlockBasedTableTest, IndexSizeStat) {
   uint64_t last_index_size = 0;
 
   // we need to use random keys since the pure human readable texts
@@ -1803,7 +1822,7 @@ TEST_F(BlockBasedTableTest, IndexSizeStat) {
     stl_wrappers::KVMap kvmap;
     Options options;
     options.compression = kNoCompression;
-    BlockBasedTableOptions table_options;
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     table_options.block_restart_interval = 1;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1818,12 +1837,12 @@ TEST_F(BlockBasedTableTest, IndexSizeStat) {
   }
 }
 
-TEST_F(BlockBasedTableTest, NumBlockStat) {
+TEST_P(BlockBasedTableTest, NumBlockStat) {
   Random rnd(test::RandomSeed());
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   Options options;
   options.compression = kNoCompression;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_restart_interval = 1;
   table_options.block_size = 1000;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1910,11 +1929,11 @@ class BlockCachePropertiesSnapshot {
 
 // Make sure, by default, index/filter blocks were pre-loaded (meaning we won't
 // use block cache to store them).
-TEST_F(BlockBasedTableTest, BlockCacheDisabledTest) {
+TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_cache = NewLRUCache(1024, 4);
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -1955,14 +1974,14 @@ TEST_F(BlockBasedTableTest, BlockCacheDisabledTest) {
 
 // Due to the difficulities of the intersaction between statistics, this test
 // only tests the case when "index block is put to block cache"
-TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
+TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   // -- Table construction
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
 
   // Enable the cache for index/filter blocks
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_cache = NewLRUCache(1024, 4);
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -2147,7 +2166,7 @@ void ValidateBlockRestartInterval(int value, int expected) {
   delete factory;
 }
 
-TEST_F(BlockBasedTableTest, InvalidOptions) {
+TEST_P(BlockBasedTableTest, InvalidOptions) {
   // invalid values for block_size_deviation (<0 or >100) are silently set to 0
   ValidateBlockSizeDeviation(-10, 0);
   ValidateBlockSizeDeviation(-1, 0);
@@ -2167,7 +2186,7 @@ TEST_F(BlockBasedTableTest, InvalidOptions) {
   ValidateBlockRestartInterval(1000, 1000);
 }
 
-TEST_F(BlockBasedTableTest, BlockReadCountTest) {
+TEST_P(BlockBasedTableTest, BlockReadCountTest) {
   // bloom_filter_type = 0 -- block-based filter
   // bloom_filter_type = 0 -- full filter
   for (int bloom_filter_type = 0; bloom_filter_type < 2; ++bloom_filter_type) {
@@ -2176,7 +2195,7 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
       Options options;
       options.create_if_missing = true;
 
-      BlockBasedTableOptions table_options;
+      BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
       table_options.block_cache = NewLRUCache(1, 0);
       table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
       table_options.filter_policy.reset(
@@ -2295,7 +2314,7 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 // object depends on the table to be live, it then must be destructed before the
 // table is closed. This test makes sure that the only items remains in the
 // cache after the table is closed are raw data blocks.
-TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
+TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
   for (int level: {-1, 0, 1, 10}) {
   for (auto index_type :
        {BlockBasedTableOptions::IndexType::kBinarySearch,
@@ -2318,7 +2337,7 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
             unique_ptr<InternalKeyComparator> ikc;
             ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
             opt.compression = kNoCompression;
-            BlockBasedTableOptions table_options;
+            BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
             table_options.block_size = 1024;
             table_options.index_type =
                 BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -2382,7 +2401,7 @@ TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
   } // level
 }
 
-TEST_F(BlockBasedTableTest, BlockCacheLeak) {
+TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   // Check that when we reopen a table we don't lose access to blocks already
   // in the cache. This test checks whether the Table actually makes use of the
   // unique ID from the file.
@@ -2391,7 +2410,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   unique_ptr<InternalKeyComparator> ikc;
   ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
   opt.compression = kNoCompression;
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_size = 1024;
   // big enough so we don't ever lose cached values.
   table_options.block_cache = NewLRUCache(16 * 1024 * 1024, 4);
@@ -2446,7 +2465,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   c.ResetTableReader();
 }
 
-TEST_F(BlockBasedTableTest, NewIndexIteratorLeak) {
+TEST_P(BlockBasedTableTest, NewIndexIteratorLeak) {
   // A regression test to avoid data race described in
   // https://github.com/facebook/rocksdb/issues/1267
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
@@ -2455,7 +2474,7 @@ TEST_F(BlockBasedTableTest, NewIndexIteratorLeak) {
   c.Add("a1", "val1");
   Options options;
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.index_type = BlockBasedTableOptions::kHashSearch;
   table_options.cache_index_and_filter_blocks = true;
   table_options.block_cache = NewLRUCache(0);
@@ -2957,7 +2976,7 @@ TEST_F(HarnessTest, FooterTests) {
 }
 
 class IndexBlockRestartIntervalTest
-    : public BlockBasedTableTest,
+    : public TableTest,
       public ::testing::WithParamInterface<int> {
  public:
   static std::vector<int> GetRestartValues() { return {-1, 0, 1, 8, 16, 32}; }
@@ -3102,8 +3121,8 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   // rocksdb still works.
 }
 
-TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
-  BlockBasedTableOptions bbto;
+TEST_P(BlockBasedTableTest, TableWithGlobalSeqno) {
+  BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   test::StringSink* sink = new test::StringSink();
   unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
   Options options;
@@ -3282,8 +3301,8 @@ TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
   delete iter;
 }
 
-TEST_F(BlockBasedTableTest, BlockAlignTest) {
-  BlockBasedTableOptions bbto;
+TEST_P(BlockBasedTableTest, BlockAlignTest) {
+  BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
   unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
@@ -3371,10 +3390,10 @@ TEST_F(BlockBasedTableTest, BlockAlignTest) {
   table_reader.reset();
 }
 
-TEST_F(BlockBasedTableTest, BadOptions) {
+TEST_P(BlockBasedTableTest, BadOptions) {
   rocksdb::Options options;
   options.compression = kNoCompression;
-  rocksdb::BlockBasedTableOptions bbto;
+  BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_size = 4000;
   bbto.block_align = true;
 

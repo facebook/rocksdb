@@ -528,7 +528,7 @@ class ColumnFamilyTestBase : public testing::Test {
 class ColumnFamilyTest
     : public ColumnFamilyTestBase,
       virtual public ::testing::WithParamInterface<uint32_t> {
-        public:
+ public:
   ColumnFamilyTest() : ColumnFamilyTestBase(GetParam()) {}
 };
 
@@ -563,7 +563,7 @@ TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
     Close();
     Destroy();
   }
-  }
+}
 
 #ifndef ROCKSDB_LITE
 TEST_P(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
@@ -1466,7 +1466,8 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  ;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1559,7 +1560,8 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  ;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1655,7 +1657,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  ;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1754,7 +1757,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  ;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1844,7 +1848,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  ;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1940,7 +1945,8 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  ;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
