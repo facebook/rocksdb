@@ -45,11 +45,14 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED)));
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_PREPARED)));
+                      std::make_tuple(true, true, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_UNPREPARED)));
 
 // MySQLStyleTransactionTest takes far too long for valgrind to run.
 #ifndef ROCKSDB_VALGRIND_RUN
@@ -62,7 +65,11 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED),
                       std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED)));
+                      std::make_tuple(true, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED),
+                      std::make_tuple(true, false, WRITE_UNPREPARED),
+                      std::make_tuple(true, true, WRITE_UNPREPARED)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -1779,10 +1786,10 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
       ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
       break;
     case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
       // This cf is not flushed yet and should ref the log that has its data
       ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
       break;
-    case WRITE_UNPREPARED:
     default:
       assert(false);
   }

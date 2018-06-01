@@ -1042,6 +1042,11 @@ ROCKS_TESTS = [
         "utilities/transactions/write_prepared_transaction_test.cc",
         "parallel",
     ],
+    [
+        "write_unprepared_transaction_test",
+        "utilities/transactions/write_unprepared_transaction_test.cc",
+        "parallel",
+    ],
 ]
 
 # Generate a test rule for each entry in ROCKS_TESTS
