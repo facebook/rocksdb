@@ -26,6 +26,7 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
+#include "utilities/transactions/write_unprepared_txn_db.h"
 
 namespace rocksdb {
 
@@ -264,7 +265,9 @@ Status TransactionDB::WrapDB(
   std::unique_ptr<PessimisticTransactionDB> txn_db;
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
-      return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+      txn_db.reset(new WriteUnpreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
+      break;
     case WRITE_PREPARED:
       txn_db.reset(new WritePreparedTxnDB(
           db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
@@ -297,7 +300,9 @@ Status TransactionDB::WrapStackableDB(
 
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
-      return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+      txn_db.reset(new WriteUnpreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
+      break;
     case WRITE_PREPARED:
       txn_db.reset(new WritePreparedTxnDB(
           db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options)));
