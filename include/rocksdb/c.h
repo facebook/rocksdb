@@ -1310,6 +1310,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete(
     char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_finish(
     rocksdb_sstfilewriter_t* writer, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_file_size(
+    rocksdb_sstfilewriter_t* writer, uint64_t* file_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
     rocksdb_sstfilewriter_t* writer);
 
