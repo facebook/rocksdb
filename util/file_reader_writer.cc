@@ -416,7 +416,11 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
+
+      FileOperationInfo rw_info;
+      NotifyOnFileWriteStart(&rw_info);
       s = writable_file_->Append(Slice(src, allowed));
+      NotifyOnFileWriteFinish(&rw_info);
       if (!s.ok()) {
         return s;
       }
