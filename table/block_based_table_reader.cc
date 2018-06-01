@@ -177,7 +177,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 // prefix_extractor_block mismatch, false otherwise. This flag will be used
 // as total_order_seek via NewIndexIterator
 bool PrefixExtractorChanged(
-    std::shared_ptr<const TableProperties> table_properties,
+    const TableProperties* table_properties,
     const SliceTransform* prefix_extractor) {
   // BlockBasedTableOptions::kHashSearch requires prefix_extractor to be set.
   // Turn off hash index in prefix_extractor is not set; if  prefix_extractor
@@ -913,7 +913,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // check prefix_extractor match only if hash based index is used
       if (rep->index_type == BlockBasedTableOptions::kHashSearch) {
         prefix_extractor_changed =
-            PrefixExtractorChanged(rep->table_properties, prefix_extractor);
+            PrefixExtractorChanged(rep->table_properties.get(),
+                                   prefix_extractor);
       }
       unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
           ReadOptions(), prefix_extractor_changed, nullptr, &index_entry));
@@ -2062,7 +2063,7 @@ InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
     Arena* arena, bool skip_filters) {
   bool prefix_extractor_changed =
-      PrefixExtractorChanged(rep_->table_properties, prefix_extractor);
+      PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
@@ -2171,7 +2172,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     bool prefix_extractor_changed = false;
     if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
       prefix_extractor_changed =
-          PrefixExtractorChanged(rep_->table_properties, prefix_extractor);
+          PrefixExtractorChanged(rep_->table_properties.get(),
+                                 prefix_extractor);
     }
     auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
                                   &iiter_on_stack, /* index_entry */ nullptr,
