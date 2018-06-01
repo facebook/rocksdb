@@ -886,6 +886,72 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 }
 
+class TestFileOperationListener : public EventListener {
+ public:
+  TestFileOperationListener() {
+    file_reads_.store(0);
+    file_reads_success_.store(0);
+    file_writes_.store(0);
+    file_writes_success_.store(0);
+  }
+
+  void OnFileReadStart(FileOperationInfo* info) override {
+    time_t start =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    info->start_timestamp = static_cast<uint64_t>(start);
+    file_reads_++;
+  }
+
+  void OnFileReadFinish(FileOperationInfo* info) override {
+    time_t finish =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    info->finish_timestamp = static_cast<uint64_t>(finish);
+    file_reads_success_++;
+  }
+
+  void OnFileWriteStart(FileOperationInfo* info) override {
+    time_t start =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    info->start_timestamp = static_cast<uint64_t>(start);
+    file_writes_++;
+  }
+
+  void OnFileWriteFinish(FileOperationInfo* info) override {
+    time_t finish =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    info->finish_timestamp = static_cast<uint64_t>(finish);
+    file_writes_success_++;
+  }
+
+  std::atomic<int> file_reads_;
+  std::atomic<int> file_reads_success_;
+  std::atomic<int> file_writes_;
+  std::atomic<int> file_writes_success_;
+};
+
+TEST_F(EventListenerTest, OnFileOperationTest) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.create_if_missing = true;
+
+  TestFileOperationListener* listener = new TestFileOperationListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "aaa"));
+  dbfull()->Flush(FlushOptions());
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ(listener->file_writes_.load(),
+      listener->file_writes_success_.load());
+  ASSERT_GT(listener->file_writes_success_.load(), 0);
+  Close();
+
+  Reopen(options);
+  ASSERT_EQ(listener->file_reads_.load(),
+      listener->file_reads_success_.load());
+  ASSERT_GT(listener->file_reads_success_.load(), 0);
+}
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
