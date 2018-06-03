@@ -333,6 +333,7 @@ def whitebox_crash_main(args, unknown_args):
             # we need to clean up after ourselves -- only do this on test
             # success
             shutil.rmtree(dbname, True)
+            os.mkdir(dbname)
             cmd_params.pop('expected_values_path', None)
             check_mode = (check_mode + 1) % total_check_mode
 
