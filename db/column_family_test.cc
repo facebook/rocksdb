@@ -2447,7 +2447,7 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
       "WriteThread::EnterUnbatched:Wait", [&](void* /*arg*/) {
         // This means a thread doing DropColumnFamily() is waiting for
         // other thread to finish persisting options.
-        // In such case, we update the test_stage to unblock the main thread.
+        // In such case, we update test_stage to unblock the main thread.
         test_stage = kChildThreadWaitingMainThreadPersistOptions;
       });
 
