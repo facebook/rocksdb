@@ -234,16 +234,16 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   // If the iterator has started, then confirm that we get continuous batches
   if (started_ && !IsBatchExpected(batch.get(), expectedSeq)) {
     // Seek to the batch having expected sequence number
-    bool fileChanged = false;
+    bool file_changed = false;
     if (expectedSeq < files_->at(currentFileIndex_)->StartSequence()) {
       // Expected batch must lie in the previous log file
       // Avoid underflow.
       if (currentFileIndex_ != 0) {
         currentFileIndex_--;
-        fileChanged = true;
+        file_changed = true;
       }
     }
-    if (fileChanged) {
+    if (file_changed) {
       startingSequenceNumber_ = expectedSeq;
       // currentStatus_ will be set to Ok if reseek succeeds
       // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
@@ -252,6 +252,8 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
       // should be disabled
       return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
+    } else if (seq_per_batch_) {
+      currentStatus_ = Status::NotFound("Unexpected failures!");
     }
   }
 
