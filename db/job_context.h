@@ -35,6 +35,13 @@ struct SuperVersionContext {
   explicit SuperVersionContext(bool create_superversion = false)
     : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
 
+  explicit SuperVersionContext(SuperVersionContext&& other)
+    : superversions_to_free(std::move(other.superversions_to_free)),
+#ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
+      write_stall_notifications(std::move(other.write_stall_notifications)),
+#endif
+      new_superversion(std::move(other.new_superversion)) {}
+
   void NewSuperVersion() {
     new_superversion = unique_ptr<SuperVersion>(new SuperVersion());
   }
@@ -142,7 +149,11 @@ struct JobContext {
   // a list of memtables to be free
   autovector<MemTable*> memtables_to_free;
 
+  // context for installing superversion for one column family
   SuperVersionContext superversion_context;
+
+  // contexts for installing superversions for multiple column families
+  std::vector<SuperVersionContext> superversion_contexts;
 
   autovector<log::Writer*> logs_to_free;
 
@@ -174,6 +185,9 @@ struct JobContext {
   void Clean() {
     // free superversions
     superversion_context.Clean();
+    for (auto& sv_context : superversion_contexts) {
+      sv_context.Clean();
+    }
     // free pending memtables
     for (auto m : memtables_to_free) {
       delete m;
