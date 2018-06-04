@@ -11,6 +11,7 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 #include "util/sync_point.h"
@@ -57,6 +58,20 @@ class SequentialFileReader {
 
 class RandomAccessFileReader {
  private:
+#ifndef ROCKSDB_LITE
+  void NotifyOnFileReadStart(FileOperationInfo* info) const {
+    for (auto& listener : listeners_) {
+      listener->OnFileReadStart(info);
+    }
+  }
+
+  void NotifyOnFileReadFinish(FileOperationInfo* info) const {
+    for (auto& listener : listeners_) {
+      listener->OnFileReadFinish(info);
+    }
+  }
+#endif // ROCKSDB_LITE
+
   std::unique_ptr<RandomAccessFile> file_;
   std::string     file_name_;
   Env*            env_;
@@ -65,16 +80,18 @@ class RandomAccessFileReader {
   HistogramImpl*  file_read_hist_;
   RateLimiter* rate_limiter_;
   bool for_compaction_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
-                                  std::string _file_name,
-                                  Env* env = nullptr,
-                                  Statistics* stats = nullptr,
-                                  uint32_t hist_type = 0,
-                                  HistogramImpl* file_read_hist = nullptr,
-                                  RateLimiter* rate_limiter = nullptr,
-                                  bool for_compaction = false)
+      std::string _file_name,
+      Env* env = nullptr,
+      Statistics* stats = nullptr,
+      uint32_t hist_type = 0,
+      HistogramImpl* file_read_hist = nullptr,
+      RateLimiter* rate_limiter = nullptr,
+      bool for_compaction = false,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
         env_(env),
@@ -82,7 +99,8 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        listeners_(listeners) {}
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -119,6 +137,20 @@ class RandomAccessFileReader {
 // Use posix write to write data to a file.
 class WritableFileWriter {
  private:
+#ifndef ROCKSDB_LITE
+   void NotifyOnFileWriteStart(FileOperationInfo* info) {
+     for (auto& listener : listeners_) {
+       listener->OnFileWriteStart(info);
+     }
+   }
+
+   void NotifyOnFileWriteFinish(FileOperationInfo* info) {
+     for (auto& listener : listeners_) {
+       listener->OnFileWriteFinish(info);
+     }
+   }
+#endif // ROCKSDB_LITE
+
   std::unique_ptr<WritableFile> writable_file_;
   AlignedBuffer           buf_;
   size_t                  max_buffer_size_;
@@ -136,10 +168,12 @@ class WritableFileWriter {
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
   Statistics* stats_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
   WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                     const EnvOptions& options, Statistics* stats = nullptr)
+      const EnvOptions& options, Statistics* stats = nullptr,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : writable_file_(std::move(file)),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
@@ -151,7 +185,8 @@ class WritableFileWriter {
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
-        stats_(stats) {
+        stats_(stats),
+        listeners_(listeners) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
