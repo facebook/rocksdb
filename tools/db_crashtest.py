@@ -52,9 +52,11 @@ default_params = {
     "writepercent": 35,
 }
 
+_TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
+
 
 def get_dbname(test_name):
-    test_tmpdir = os.environ.get("TEST_TMPDIR")
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
         dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_' + test_name)
     else:
@@ -333,6 +335,7 @@ def whitebox_crash_main(args, unknown_args):
             # we need to clean up after ourselves -- only do this on test
             # success
             shutil.rmtree(dbname, True)
+            os.mkdir(dbname)
             cmd_params.pop('expected_values_path', None)
             check_mode = (check_mode + 1) % total_check_mode
 
@@ -356,6 +359,12 @@ def main():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
     # unknown_args are passed directly to db_stress
     args, unknown_args = parser.parse_known_args()
+
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is not None and not os.path.isdir(test_tmpdir):
+        print('%s env var is set to a non-existent directory: %s' %
+                (_TEST_DIR_ENV_VAR, test_tmpdir))
+        sys.exit(1)
 
     if args.test_type == 'blackbox':
         blackbox_crash_main(args, unknown_args)
