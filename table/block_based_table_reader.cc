@@ -1104,9 +1104,12 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
-  s = UncompressBlockContents(compressed_block->data(),
+  UncompressionContext uncompresssion_ctx(compressed_block->compression_type(),
+    compression_dict);
+  s = UncompressBlockContents(uncompresssion_ctx,
+                              compressed_block->data(),
                               compressed_block->size(), &contents,
-                              format_version, compression_dict,
+                              format_version,
                               ioptions);
 
   // Insert uncompressed block into block cache
@@ -1182,8 +1185,10 @@ Status BlockBasedTable::PutDataBlockToCache(
   BlockContents contents;
   Statistics* statistics = ioptions.statistics;
   if (raw_block->compression_type() != kNoCompression) {
-    s = UncompressBlockContents(raw_block->data(), raw_block->size(), &contents,
-                                format_version, compression_dict, ioptions);
+    UncompressionContext uncompression_ctx(raw_block->compression_type(), compression_dict);
+    s = UncompressBlockContents(uncompression_ctx, raw_block->data(),
+                                raw_block->size(), &contents,
+                                format_version, ioptions);
   }
   if (!s.ok()) {
     delete raw_block;
