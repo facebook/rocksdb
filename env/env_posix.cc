@@ -1057,6 +1057,7 @@ Env* Env::Default() {
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
   ThreadLocalPtr::InitSingletons();
+  INIT_SYNC_POINT_SINGLETONS();
   static PosixEnv default_env;
   return &default_env;
 }
