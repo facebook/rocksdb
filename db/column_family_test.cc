@@ -2449,10 +2449,6 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
         // other thread to finish persisting options.
         // In such case, we update the test_stage to unblock the main thread.
         test_stage = kChildThreadWaitingMainThreadPersistOptions;
-
-        // Note that based on the test setting, this must not be the
-        // main thread.
-        ASSERT_NE(main_thread_id, std::this_thread::get_id());
       });
 
   // Create a database with four column families
@@ -2463,7 +2459,8 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
 
   // Start a thread that will drop the first column family
   // and its comparator
-  rocksdb::port::Thread drop_cf_thread(DropSingleColumnFamily, this, 1, &comparators);
+  rocksdb::port::Thread drop_cf_thread(DropSingleColumnFamily, this, 1,
+                                       &comparators);
 
   DropColumnFamilies({2});
 
