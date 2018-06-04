@@ -2502,6 +2502,27 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBTest2, PinnableSliceAndMmapReads) {
+  Options options = CurrentOptions();
+  options.allow_mmap_reads = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  PinnableSlice pinned_value;
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+
+  dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
+                              nullptr /* end */, nullptr /* column_family */,
+                              true /* disallow_trivial_move */);
+
+  // Ensure pinned_value doesn't rely on memory munmap'd by the above
+  // compaction.
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

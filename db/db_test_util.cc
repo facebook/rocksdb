@@ -346,6 +346,26 @@ Options DBTestBase::GetOptions(
           NewHashCuckooRepFactory(options.write_buffer_size));
       options.allow_concurrent_memtable_write = false;
       break;
+      case kDirectIO: {
+        options.use_direct_reads = true;
+        options.use_direct_io_for_flush_and_compaction = true;
+        options.compaction_readahead_size = 2 * 1024 * 1024;
+  #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+      !defined(OS_AIX) && !defined(OS_OPENBSD)
+        rocksdb::SyncPoint::GetInstance()->SetCallBack(
+            "NewWritableFile:O_DIRECT", [&](void* arg) {
+              int* val = static_cast<int*>(arg);
+              *val &= ~O_DIRECT;
+            });
+        rocksdb::SyncPoint::GetInstance()->SetCallBack(
+            "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+              int* val = static_cast<int*>(arg);
+              *val &= ~O_DIRECT;
+            });
+        rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  #endif
+        break;
+      }
 #endif  // ROCKSDB_LITE
     case kMergePut:
       options.merge_operator = MergeOperators::CreatePutOperator();
@@ -458,26 +478,6 @@ Options DBTestBase::GetOptions(
     case kConcurrentSkipList: {
       options.allow_concurrent_memtable_write = true;
       options.enable_write_thread_adaptive_yield = true;
-      break;
-    }
-    case kDirectIO: {
-      options.use_direct_reads = true;
-      options.use_direct_io_for_flush_and_compaction = true;
-      options.compaction_readahead_size = 2 * 1024 * 1024;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX) && !defined(OS_OPENBSD)
-      rocksdb::SyncPoint::GetInstance()->SetCallBack(
-          "NewWritableFile:O_DIRECT", [&](void* arg) {
-            int* val = static_cast<int*>(arg);
-            *val &= ~O_DIRECT;
-          });
-      rocksdb::SyncPoint::GetInstance()->SetCallBack(
-          "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-            int* val = static_cast<int*>(arg);
-            *val &= ~O_DIRECT;
-          });
-      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-#endif
       break;
     }
     case kPipelinedWrite: {

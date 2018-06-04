@@ -3264,6 +3264,11 @@ void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
   SaveError(errptr, writer->rep->Finish(nullptr));
 }
 
+void rocksdb_sstfilewriter_file_size(rocksdb_sstfilewriter_t* writer,
+                                  uint64_t* file_size) {
+  *file_size = writer->rep->FileSize();
+}
+
 void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {
   delete writer->rep;
   delete writer;
