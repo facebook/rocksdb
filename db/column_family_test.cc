@@ -2461,6 +2461,8 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
       delete comparator;
     }
   }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif  // !ROCKSDB_LITE
 
