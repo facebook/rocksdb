@@ -857,6 +857,8 @@ class DBImpl : public DB {
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
+  Status FlushMemTables(const FlushOptions& options, FlushReason flush_reason,
+      bool writes_stopped);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID
@@ -864,6 +866,8 @@ class DBImpl : public DB {
   // memtable pending flush.
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
                               const uint64_t* flush_memtable_id = nullptr);
+  Status WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
+      const autovector<uint64_t*>& flush_memtable_ids);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
@@ -920,6 +924,11 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
   void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
+
+  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> GroupFlushRequest;
+  void SchedulePendingGroupFlush(const GroupFlushRequest& req,
+      FlushReason flush_reason);
+
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
@@ -1200,6 +1209,10 @@ class DBImpl : public DB {
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
 
+  // atomic_flush_queue_ stores batches of column families that should be
+  // flushed.
+  std::deque<GroupFlushRequest> group_flush_queue_;
+
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;
 
@@ -1421,6 +1434,10 @@ class DBImpl : public DB {
   // is set to false.
   std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   const bool preserve_deletes_;
+
+  // If true, all column families in the DB instance must be flushed
+  // atomically.
+  bool atomic_flush_ = false;
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;

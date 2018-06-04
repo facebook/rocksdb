@@ -964,11 +964,16 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s =
-      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+  Status s;
+  if (atomic_flush_) {
+    s = FlushMemTables(flush_options, FlushReason::kManualFlush,
+        false /* writes_stopped */);
+  } else {
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+  }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] Manual flush finished, status: %s\n",
-                 cfh->GetName().c_str(), s.ToString().c_str());
+      "[%s] Manual flush finished, status: %s\n",
+      cfh->GetName().c_str(), s.ToString().c_str());
   return s;
 }
 
@@ -1124,6 +1129,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
+    if (s.ok()) {
+      cfd->imm()->FlushRequested();
+      // schedule flush
+      SchedulePendingFlush(cfd, flush_reason);
+    }
     flush_memtable_id = cfd->imm()->GetLatestMemTableID();
 
     if (!writes_stopped) {
@@ -1144,6 +1154,67 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   return s;
 }
 
+Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
+    FlushReason flush_reason, bool writes_stopped) {
+  Status s;
+  bool schedule_flush = false;
+  GroupFlushRequest flush_req;
+  {
+    WriteContext context;
+    InstrumentedMutexLock guard_lock(&mutex_);
+
+    WriteThread::Writer w;
+    if (!writes_stopped) {
+      write_thread_.EnterUnbatched(&w, &mutex_);
+    }
+
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped() ||
+          (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+          cached_recoverable_state_empty_.load())) {
+        continue;
+      }
+      s = SwitchMemtable(cfd, &context);
+      if (!s.ok()) {
+        break;
+      }
+      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      flush_req.emplace_back(cfd, flush_memtable_id);
+    }
+
+    if (s.ok()) {
+      for (auto& iter : flush_req) {
+        auto& cfd = iter.first;
+        cfd->imm()->FlushRequested();
+      }
+      schedule_flush = !flush_req.empty();
+      if (schedule_flush) {
+        // All cfd will be refcounted.
+        SchedulePendingGroupFlush(flush_req, flush_reason);
+      }
+    }
+
+    if (!writes_stopped) {
+      write_thread_.ExitUnbatched(&w);
+    }
+
+    if (schedule_flush) {
+      MaybeScheduleFlushOrCompaction();
+    }
+  }
+
+  if (schedule_flush && s.ok() && flush_options.wait) {
+    autovector<ColumnFamilyData*> cfds;
+    autovector<uint64_t*> flush_memtable_ids;
+    for (auto& iter : flush_req) {
+      cfds.push_back(iter.first);
+      flush_memtable_ids.push_back(&(iter.second));
+    }
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
+  }
+  return s;
+}
+
 Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
                                     const uint64_t* flush_memtable_id) {
   Status s;
@@ -1160,6 +1231,38 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
       // we will loop forever since cfd->imm()->NumNotFlushed() will never
       // drop to zero
       return Status::InvalidArgument("Cannot flush a dropped CF");
+    }
+    bg_cv_.Wait();
+  }
+  if (!bg_error_.ok()) {
+    s = bg_error_;
+  }
+  return s;
+}
+
+Status DBImpl::WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
+    const autovector<uint64_t*>& flush_memtable_ids) {
+  Status s;
+  InstrumentedMutexLock l(&mutex_);
+  while (bg_error_.ok()) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return Status::ShutdownInProgress();
+    }
+    bool exit = true;
+    for (int i = 0; i < (int) cfds.size(); i++) {
+      if (cfds[i]->IsDropped()) {
+        s = Status::InvalidArgument("Cannot flush a dropped CF");
+        break;
+      }
+      if (cfds[i]->imm()->NumNotFlushed() > 0 &&
+          (flush_memtable_ids[i] == nullptr ||
+           cfds[i]->imm()->GetEarliestMemTableID() <= *flush_memtable_ids[i])) {
+        exit = false;
+        break;
+      }
+    }
+    if (exit) {
+      break;
     }
     bg_cv_.Wait();
   }
@@ -1199,22 +1302,43 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
-  while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
-         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-    unscheduled_flushes_--;
-    bg_flush_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
-  }
+  if (atomic_flush_) {
+    if (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
+        bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+      unscheduled_flushes_ = 0;
+      bg_flush_scheduled_++;
+      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+    }
 
-  // special case -- if high-pri (flush) thread pool is empty, then schedule
-  // flushes in low-pri (compaction) thread pool.
-  if (is_flush_pool_empty) {
-    while (unscheduled_flushes_ > 0 &&
-           bg_flush_scheduled_ + bg_compaction_scheduled_ <
-               bg_job_limits.max_flushes) {
+    // special case -- if high-pri (flush) thread pool is empty, then schedule
+    // flushes in low-pri (compaction) thread pool.
+    if (is_flush_pool_empty) {
+      if (unscheduled_flushes_ > 0 &&
+          bg_flush_scheduled_ + bg_compaction_scheduled_ <
+          bg_job_limits.max_flushes) {
+        unscheduled_flushes_ = 0;
+        bg_flush_scheduled_++;
+        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      }
+    }
+  } else {
+    while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
+           bg_flush_scheduled_ < bg_job_limits.max_flushes) {
       unscheduled_flushes_--;
       bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+    }
+
+    // special case -- if high-pri (flush) thread pool is empty, then schedule
+    // flushes in low-pri (compaction) thread pool.
+    if (is_flush_pool_empty) {
+      while (unscheduled_flushes_ > 0 &&
+             bg_flush_scheduled_ + bg_compaction_scheduled_ <
+                 bg_job_limits.max_flushes) {
+        unscheduled_flushes_--;
+        bg_flush_scheduled_++;
+        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+      }
     }
   }
 
@@ -1320,6 +1444,17 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
     AddToCompactionQueue(cfd);
     ++unscheduled_compactions_;
   }
+}
+
+void DBImpl::SchedulePendingGroupFlush(const GroupFlushRequest& flush_req,
+    FlushReason flush_reason) {
+  for (auto& iter : flush_req) {
+    auto cfd = iter.first;
+    cfd->Ref();
+    cfd->SetFlushReason(flush_reason);
+    ++unscheduled_flushes_;
+  }
+  group_flush_queue_.push_back(flush_req);
 }
 
 void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
