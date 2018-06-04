@@ -1451,6 +1451,8 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
 
@@ -1546,6 +1548,8 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
@@ -1643,6 +1647,8 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
@@ -1743,6 +1749,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
@@ -1834,6 +1842,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
@@ -1925,6 +1935,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // In this test, we generate enough files to trigger automatic compactions.
@@ -2015,6 +2027,8 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // !ROCKSDB_LITE
 
@@ -2463,6 +2477,7 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
   }
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // !ROCKSDB_LITE
 
