@@ -2399,12 +2399,13 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
 // skipped as persisting options is not supported in ROCKSDB_LITE
 namespace {
 std::atomic<int> test_stage(0);
+std::atomic<bool> ordered_by_writethread(false);
 const int kMainThreadStartPersistingOptionsFile = 1;
 const int kChildThreadFinishDroppingColumnFamily = 2;
-const int kChildThreadWaitingMainThreadPersistOptions = 3;
 void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
                             std::vector<Comparator*>* comparators) {
-  while (test_stage < kMainThreadStartPersistingOptionsFile) {
+  while (test_stage < kMainThreadStartPersistingOptionsFile &&
+         !ordered_by_writethread) {
     Env::Default()->SleepForMicroseconds(100);
   }
   cf_test->DropColumnFamilies({cf_id});
@@ -2437,7 +2438,8 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
     // will be blocked until some other thread update the test_stage.
     if (main_thread_id == current_thread_id) {
       test_stage = kMainThreadStartPersistingOptionsFile;
-      while (test_stage < kChildThreadFinishDroppingColumnFamily) {
+      while (test_stage < kChildThreadFinishDroppingColumnFamily &&
+             !ordered_by_writethread) {
         Env::Default()->SleepForMicroseconds(100);
       }
     }
@@ -2448,7 +2450,7 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
         // This means a thread doing DropColumnFamily() is waiting for
         // other thread to finish persisting options.
         // In such case, we update the test_stage to unblock the main thread.
-        test_stage = kChildThreadWaitingMainThreadPersistOptions;
+        ordered_by_writethread = true;
       });
 
   // Create a database with four column families
