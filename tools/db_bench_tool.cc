@@ -436,6 +436,11 @@ DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
 
+DEFINE_int32(
+    format_version,
+    static_cast<int32_t>(rocksdb::BlockBasedTableOptions().format_version),
+    "Format version of SST files.");
+
 DEFINE_int32(block_restart_interval,
              rocksdb::BlockBasedTableOptions().block_restart_interval,
              "Number of keys between restart points "
@@ -3161,7 +3166,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.index_block_restart_interval =
           FLAGS_index_block_restart_interval;
       block_based_options.filter_policy = filter_policy_;
-      block_based_options.format_version = 2;
+      block_based_options.format_version =
+          static_cast<uint32_t>(FLAGS_format_version);
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;

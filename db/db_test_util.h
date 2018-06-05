@@ -698,7 +698,10 @@ class DBTestBase : public testing::Test {
     kLevelSubcompactions,
     kBlockBasedTableWithIndexRestartInterval,
     kBlockBasedTableWithPartitionedIndex,
+    kBlockBasedTableWithPartitionedIndexFormat3,
     kPartitionedFilterWithNewTableReaderForCompactions,
+
+    // This must be the last line
     kEnd,
 
     // TODO: This option although been there for a while was disable due to a
