@@ -356,9 +356,6 @@ extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
-DEFINE_bool(atomic_flush, false, "If true, all column families in the same DB "
-            "will be flushed atomically.");
-
 DEFINE_int64(target_file_size_base, rocksdb::Options().target_file_size_base,
              "Target level-1 file size for compaction");
 
@@ -2071,7 +2068,6 @@ class StressTest {
       options_.statistics = dbstats;
       options_.env = FLAGS_env;
       options_.use_fsync = FLAGS_use_fsync;
-      //options_.atomic_flush = FLAGS_atomic_flush;
       options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
       options_.allow_mmap_reads = FLAGS_mmap_read;
       options_.allow_mmap_writes = FLAGS_mmap_write;
@@ -2739,7 +2735,7 @@ class BatchedOpsStressTest : public StressTest {
 
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
-  // Also refer MultiGet.
+  // Also refer BatchedOpsStressTest::TestGet
   virtual Status TestPut(ThreadState* thread,
       WriteOptions& write_opts, const ReadOptions& /* read_opts */,
       const std::vector<int>& rand_column_families, const std::vector<int64_t>& rand_keys,
@@ -2818,7 +2814,8 @@ class BatchedOpsStressTest : public StressTest {
   // Given a key K, this gets values for "0"+K, "1"+K,..."9"+K
   // in the same snapshot, and verifies that all the values are of the form
   // "0"+V, "1"+V,..."9"+V.
-  // ASSUMES that MultiPut was used to put (K, V) into the DB.
+  // ASSUMES that BatchedOpsStressTest::TestPut was used to put (K, V) into
+  // the DB.
   virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
@@ -3007,19 +3004,8 @@ int main(int argc, char** argv) {
               "100!\n");
       exit(1);
   }
-  if (FLAGS_atomic_flush) {
-    fprintf(stdout, "Opening Db with atomic_flush being true. We do not "
-        "perform strict and thorough verification of database since WAL is "
-        "often disabled when atomic_flush is enabled. We just verify that "
-        "data from different column families are consistent with each other.");
-  } else if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
-    fprintf(stderr, "Error: Db cannot reopen safely with disable_wal set "
-        "and atomic_flush being false!\n");
-    exit(1);
-  }
-  if (!FLAGS_disable_wal && FLAGS_atomic_flush) {
-    fprintf(stderr, "Error: atomic flush does not need to be "
-        "enabled when WAL is enabled!\n");
+  if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
+    fprintf(stderr, "Error: Db cannot reopen safely with disable_wal set!\n");
     exit(1);
   }
   if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
