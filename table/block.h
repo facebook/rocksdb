@@ -242,7 +242,7 @@ class BlockIter final : public InternalIterator {
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
-  // nothing.
+  // nothing. Calls cleanup functions.
   void Invalidate(Status s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
@@ -251,6 +251,9 @@ class BlockIter final : public InternalIterator {
     data_ = nullptr;
     current_ = restarts_;
     status_ = s;
+
+    // Call cleanup callbacks.
+    Cleanable::Reset();
 
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
