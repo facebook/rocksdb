@@ -252,8 +252,6 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
       // should be disabled
       return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
-    } else if (seq_per_batch_) {
-      currentStatus_ = Status::NotFound("Unexpected failures!");
     }
   }
 
