@@ -83,7 +83,7 @@ inline uint32_t GetCompressFormatForVersion(
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 2;
+  return version <= 3;
 }
 
 // Footer encapsulates the fixed information stored at the tail
