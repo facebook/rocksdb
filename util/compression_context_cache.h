@@ -11,9 +11,9 @@
 // This helps with Random Read latencies and reduces CPU utilization
 // Caching is implemented using CoreLocal facility. Compression/Uncompression
 // instances are cached on a per core basis using CoreLocalArray. A borrowed
-// instance is atomically replaced with a sentinel value for the time of being used.
-// If it turns out that another thread is already makes use of the instance we still
-// create one on the heap which is later is destroyed.
+// instance is atomically replaced with a sentinel value for the time of being
+// used. If it turns out that another thread is already makes use of the
+// instance we still create one on the heap which is later is destroyed.
 
 #pragma once
 
@@ -23,7 +23,7 @@ namespace rocksdb {
 class ZSTDUncompressCachedData;
 
 class CompressionContextCache {
-public:
+ public:
   // Singleton
   static CompressionContextCache* Instance();
   static void InitSingleton();
@@ -33,13 +33,13 @@ public:
   ZSTDUncompressCachedData GetCachedZSTDUncompressData();
   void ReturnCachedZSTDUncompressData(int64_t idx);
 
-private:
+ private:
   // Singleton
-   CompressionContextCache();
+  CompressionContextCache();
   ~CompressionContextCache();
 
   class Rep;
   Rep* rep_;
 };
 
-}
+}  // namespace rocksdb

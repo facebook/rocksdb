@@ -26,7 +26,7 @@ void JemallocDeallocateForZSTD(void* /* opaque */, void* address) {
   je_free(address);
 }
 ZSTD_customMem GetJeZstdAllocationOverrides() {
-  return { JemallocAllocateForZSTD, JemallocDeallocateForZSTD, nullptr };
+  return {JemallocAllocateForZSTD, JemallocDeallocateForZSTD, nullptr};
 }
 } // namespace port
 } // namespace rocksdb
@@ -63,4 +63,3 @@ void operator delete[](void* p) {
     je_free(p);
   }
 }
-
