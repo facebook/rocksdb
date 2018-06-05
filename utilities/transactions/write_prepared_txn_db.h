@@ -363,6 +363,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual Status VerifyCFOptions(
       const ColumnFamilyOptions& cf_options) override;
 
+  virtual ReadCallback* GetReadCallback(const Snapshot* snapshot,
+                                        WritePreparedTxn* txn,
+                                        WritePreparedTxnReadCallback* populate);
+
+  Iterator* NewIteratorInternal(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family,
+                                WritePreparedTxn* txn);
+
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
@@ -604,24 +612,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Thread safety: since the handle is read-only object it is a const it is
   // safe to read it concurrently
   std::shared_ptr<std::map<uint32_t, ColumnFamilyHandle*>> handle_map_;
-};
-
-class WritePreparedTxnReadCallback : public ReadCallback {
- public:
-  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                               SequenceNumber min_uncommitted)
-      : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
-
-  // Will be called to see if the seq number accepted; if not it moves on to the
-  // next seq number.
-  inline virtual bool IsCommitted(SequenceNumber seq) override {
-    return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
-  }
-
- private:
-  WritePreparedTxnDB* db_;
-  SequenceNumber snapshot_;
-  SequenceNumber min_uncommitted_;
 };
 
 class AddPreparedCallback : public PreReleaseCallback {

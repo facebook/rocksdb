@@ -32,7 +32,33 @@
 
 namespace rocksdb {
 
+class WritePreparedTxn;
+class WriteUnpreparedTxn;
 class WritePreparedTxnDB;
+
+class WritePreparedTxnReadCallback : public ReadCallback {
+ public:
+  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
+                               SequenceNumber min_uncommitted)
+      : txn_(nullptr),
+        db_(db),
+        snapshot_(snapshot),
+        min_uncommitted_(min_uncommitted) {}
+
+  // Will be called to see if the seq number accepted; if not it moves on to the
+  // next seq number.
+  virtual bool IsCommitted(SequenceNumber seq) override;
+
+  virtual SequenceNumber MaxVisibleSequenceNumber() override;
+
+ protected:
+  friend class WriteUnpreparedTxnDB;
+
+  WriteUnpreparedTxn* txn_;
+  WritePreparedTxnDB* db_;
+  SequenceNumber snapshot_;
+  SequenceNumber min_uncommitted_;
+};
 
 // This impl could write to DB also uncommitted data and then later tell apart
 // committed data from uncommitted data. Uncommitted data could be after the
@@ -101,6 +127,8 @@ class WritePreparedTxn : public PessimisticTransaction {
   WritePreparedTxnDB* wpt_db_;
   // Number of sub-batches in prepare
   size_t prepare_batch_cnt_ = 0;
+
+  WritePreparedTxnReadCallback callback_;
 };
 
 }  // namespace rocksdb

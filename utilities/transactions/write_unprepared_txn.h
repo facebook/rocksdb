@@ -8,12 +8,34 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_prepared_txn.h"
+#include "utilities/transactions/write_unprepared_txn_db.h"
 
 namespace rocksdb {
 
-class WriteUnpreparedTxn : public WritePreparedTxn {
-  using WritePreparedTxn::WritePreparedTxn;
+class WriteUnpreparedTxnDB;
 
+class WriteUnpreparedTxn : public WritePreparedTxn {
+ public:
+  WriteUnpreparedTxn(WriteUnpreparedTxnDB* db,
+                     const WriteOptions& write_options,
+                     const TransactionOptions& txn_options);
+
+  virtual ~WriteUnpreparedTxn() {}
+
+  using Transaction::GetIterator;
+  virtual Iterator* GetIterator(const ReadOptions& options) override;
+  virtual Iterator* GetIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family) override;
+
+  const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
+
+ private:
+  friend class WriteUnpreparedTransactionTest_ReadYourOwnWrite_Test;
+
+  WriteUnpreparedTxnDB* wupt_db_;
+
+  // List of unprep_seq sequence numbers that we have already written to DB.
+  std::map<SequenceNumber, size_t> unprep_seqs_;
 };
 
 }  // namespace rocksdb

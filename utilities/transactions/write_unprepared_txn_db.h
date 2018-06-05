@@ -11,16 +11,28 @@
 #endif
 
 #include "utilities/transactions/write_prepared_txn_db.h"
-
 #include "utilities/transactions/write_unprepared_txn.h"
 
 namespace rocksdb {
 
+class WriteUnpreparedTxn;
+
 class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
+ public:
   using WritePreparedTxnDB::WritePreparedTxnDB;
 
   Transaction* BeginTransaction(const WriteOptions& write_options, const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
+
+  using WritePreparedTxnDB::NewIterator;
+  Iterator* NewIterator(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        WriteUnpreparedTxn* txn);
+
+ protected:
+  virtual ReadCallback* GetReadCallback(
+      const Snapshot* snapshot, WritePreparedTxn* txn,
+      WritePreparedTxnReadCallback* populate) override;
 };
 
 }  //  namespace rocksdb

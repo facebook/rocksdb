@@ -24,6 +24,8 @@ class TestReadCallback : public ReadCallback {
     return snapshot_checker_->IsInSnapshot(seq, snapshot_seq_);
   }
 
+  SequenceNumber MaxVisibleSequenceNumber() override { return 0; }
+
  private:
   SnapshotChecker* snapshot_checker_;
   SequenceNumber snapshot_seq_;

@@ -259,6 +259,8 @@ class DBIter final: public Iterator {
   void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence);
+  bool CanReseekToSkip();
+  SequenceNumber MaxVisibleSequenceNumber();
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -578,7 +580,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
     // If we have sequentially iterated via numerous equal keys, then it's
     // better to seek so that we can avoid too many key comparisons.
-    if (num_skipped > max_skip_) {
+    if (num_skipped > max_skip_ && CanReseekToSkip()) {
       num_skipped = 0;
       std::string last_key;
       if (skipping) {
@@ -895,7 +897,7 @@ bool DBIter::FindValueForCurrentKey() {
     // This user key has lots of entries.
     // We're going from old to new, and it's taking too long. Let's do a Seek()
     // and go from new to old. This helps when a key was overwritten many times.
-    if (num_skipped >= max_skip_) {
+    if (num_skipped >= max_skip_ && CanReseekToSkip()) {
       return FindValueForCurrentKeyUsingSeek();
     }
 
@@ -1194,7 +1196,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
     }
 
-    if (num_skipped >= max_skip_) {
+    if (num_skipped >= max_skip_ && CanReseekToSkip()) {
       num_skipped = 0;
       IterKey last_key;
       last_key.SetInternalKey(ParsedInternalKey(
@@ -1234,8 +1236,21 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
 }
 
 bool DBIter::IsVisible(SequenceNumber sequence) {
-  return sequence <= sequence_ &&
+  return sequence <= MaxVisibleSequenceNumber() &&
          (read_callback_ == nullptr || read_callback_->IsCommitted(sequence));
+}
+
+bool DBIter::CanReseekToSkip() {
+  return read_callback_ == nullptr ||
+         read_callback_->MaxVisibleSequenceNumber() == 0;
+}
+
+SequenceNumber DBIter::MaxVisibleSequenceNumber() {
+  if (read_callback_ == nullptr) {
+    return sequence_;
+  }
+
+  return std::max(sequence_, read_callback_->MaxVisibleSequenceNumber());
 }
 
 void DBIter::Seek(const Slice& target) {
@@ -1243,14 +1258,16 @@ void DBIter::Seek(const Slice& target) {
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
+
+  SequenceNumber seq = MaxVisibleSequenceNumber();
   saved_key_.Clear();
-  saved_key_.SetInternalKey(target, sequence_);
+  saved_key_.SetInternalKey(target, seq);
 
   if (iterate_lower_bound_ != nullptr &&
       user_comparator_->Compare(saved_key_.GetUserKey(),
                                 *iterate_lower_bound_) < 0) {
     saved_key_.Clear();
-    saved_key_.SetInternalKey(*iterate_lower_bound_, sequence_);
+    saved_key_.SetInternalKey(*iterate_lower_bound_, seq);
   }
 
   {

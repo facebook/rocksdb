@@ -11,18 +11,36 @@
 
 #include "utilities/transactions/write_unprepared_txn_db.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 
 namespace rocksdb {
 
 Transaction* WriteUnpreparedTxnDB::BeginTransaction(
-const WriteOptions& write_options, const TransactionOptions& txn_options,
-Transaction* old_txn) {
+    const WriteOptions& write_options, const TransactionOptions& txn_options,
+    Transaction* old_txn) {
   if (old_txn != nullptr) {
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
     return new WriteUnpreparedTxn(this, write_options, txn_options);
   }
+}
+
+Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
+                                            ColumnFamilyHandle* column_family,
+                                            WriteUnpreparedTxn* txn) {
+  return WritePreparedTxnDB::NewIteratorInternal(options, column_family, txn);
+}
+
+ReadCallback* WriteUnpreparedTxnDB::GetReadCallback(
+    const Snapshot* snapshot, WritePreparedTxn* txn,
+    WritePreparedTxnReadCallback* populate) {
+  auto callback =
+      static_cast_with_check<WritePreparedTxnReadCallback, ReadCallback>(
+          WritePreparedTxnDB::GetReadCallback(snapshot, txn, populate));
+  callback->txn_ =
+      static_cast_with_check<WriteUnpreparedTxn, WritePreparedTxn>(txn);
+  return callback;
 }
 
 }  //  namespace rocksdb

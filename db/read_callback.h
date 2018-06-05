@@ -16,6 +16,15 @@ class ReadCallback {
   // Will be called to see if the seq number accepted; if not it moves on to the
   // next seq number.
   virtual bool IsCommitted(SequenceNumber seq) = 0;
+
+  // This is called to determine the maximum visible sequence number for the
+  // current transaction for read-your-own-write semantics. This is so that
+  // for write unprepared, we will not skip keys that are written by the
+  // current transaction with the seek to snapshot optimization.
+  //
+  // For other uses, this returns zero, meaning that the current snapshot
+  // sequence number is the maximum visible sequence number.
+  virtual SequenceNumber MaxVisibleSequenceNumber() = 0;
 };
 
 }  //  namespace rocksdb

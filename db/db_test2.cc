@@ -2426,6 +2426,8 @@ TEST_F(DBTest2, ReadCallbackTest) {
       return seq <= snapshot_;
     }
 
+    SequenceNumber MaxVisibleSequenceNumber() override { return 0; }
+
    private:
     SequenceNumber snapshot_;
   };
