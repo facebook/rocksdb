@@ -173,8 +173,7 @@ void ColumnAwareEncodingReader::DecodeBlocksFromRowFormat(
         (CompressionType)slice_final_with_bit[slice_final_with_bit.size() - 1];
     if (type != kNoCompression) {
       UncompressionContext uncompression_ctx(type);
-      UncompressBlockContents(uncompression_ctx,
-                              slice_final_with_bit.c_str(),
+      UncompressBlockContents(uncompression_ctx, slice_final_with_bit.c_str(),
                               slice_final_with_bit.size() - 1, &contents,
                               format_version, ioptions);
       decoded_content = std::string(contents.data.data(), contents.data.size());
@@ -247,9 +246,8 @@ void CompressDataBlock(const std::string& output_content, Slice* slice_final,
                        CompressionType* type, std::string* compressed_output) {
   CompressionContext compression_ctx(*type);
   uint32_t format_version = 2;  // hard-coded version
-  *slice_final =
-      CompressBlock(output_content, compression_ctx, type, format_version,
-                    compressed_output);
+  *slice_final = CompressBlock(output_content, compression_ctx, type,
+                               format_version, compressed_output);
 }
 
 }  // namespace

@@ -12,6 +12,7 @@
 #include <rocksdb/env.h>
 #include "port/win/env_win.h"
 #include "util/compression_context_cache.h"
+#include "util/sync_point.h"
 #include "util/thread_local.h"
 
 namespace rocksdb {
@@ -32,9 +33,9 @@ Env* Env::Default() {
   using namespace port;
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
+  INIT_SYNC_POINT_SINGLETONS();
   std::call_once(winenv_once_flag, []() { envptr = new WinEnv(); });
   return envptr;
 }
 
 }
-

@@ -260,7 +260,6 @@ class ComparatorDBTest
   DB* db_;
   Options last_options_;
   std::unique_ptr<const Comparator> comparator_guard;
-  uint32_t format_;
 
  public:
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {

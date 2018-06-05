@@ -103,8 +103,7 @@ bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
 }  // namespace
 
 // format_version is the block format as defined in include/rocksdb/table.h
-Slice CompressBlock(const Slice& raw,
-                    const CompressionContext& compression_ctx,
+Slice CompressBlock(const Slice& raw, const CompressionContext& compression_ctx,
                     CompressionType* type, uint32_t format_version,
                     std::string* compressed_output) {
   *type = compression_ctx.type();
@@ -262,8 +261,8 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string last_key;
   // Compression dictionary or nullptr
-  const std::string*  compression_dict;
-  CompressionContext  compression_ctx;
+  const std::string* compression_dict;
+  CompressionContext compression_ctx;
   std::unique_ptr<UncompressionContext> verify_ctx;
   TableProperties props;
 
@@ -343,15 +342,14 @@ struct BlockBasedTableBuilder::Rep {
             _moptions.prefix_extractor != nullptr));
     if (table_options.verify_compression) {
       verify_ctx.reset(new UncompressionContext(UncompressionContext::NoCache(),
-        compression_ctx.type()));
+                                                compression_ctx.type()));
     }
   }
 
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
-  ~Rep() {
-  }
+  ~Rep() {}
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
@@ -513,9 +511,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
       }
     }
 
-    block_contents = CompressBlock(raw_block_contents, r->compression_ctx,
-                                  &type, r->table_options.format_version,
-                                  &r->compressed_output);
+    block_contents =
+        CompressBlock(raw_block_contents, r->compression_ctx, &type,
+                      r->table_options.format_version, &r->compressed_output);
 
     // Some of the compression algorithms are known to be unreliable. If
     // the verify_compression flag is set then try to de-compress the
@@ -523,10 +521,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     if (type != kNoCompression && r->table_options.verify_compression) {
       // Retrieve the uncompressed contents into a new buffer
       BlockContents contents;
-      Status stat = UncompressBlockContentsForCompressionType(*r->verify_ctx,
-          block_contents.data(), block_contents.size(), &contents,
-          r->table_options.format_version,
-          r->ioptions);
+      Status stat = UncompressBlockContentsForCompressionType(
+          *r->verify_ctx, block_contents.data(), block_contents.size(),
+          &contents, r->table_options.format_version, r->ioptions);
 
       if (stat.ok()) {
         bool compressed_ok = contents.data.compare(raw_block_contents) == 0;
@@ -759,7 +756,8 @@ Status BlockBasedTableBuilder::Finish() {
       r->props.merge_operator_name = r->ioptions.merge_operator != nullptr
                                          ? r->ioptions.merge_operator->Name()
                                          : "nullptr";
-      r->props.compression_name = CompressionTypeToString(r->compression_ctx.type());
+      r->props.compression_name =
+          CompressionTypeToString(r->compression_ctx.type());
       r->props.prefix_extractor_name =
           r->moptions.prefix_extractor != nullptr
               ? r->moptions.prefix_extractor->Name()
