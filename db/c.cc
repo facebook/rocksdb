@@ -93,6 +93,7 @@ using rocksdb::BackupInfo;
 using rocksdb::BackupID;
 using rocksdb::RestoreOptions;
 using rocksdb::CompactRangeOptions;
+using rocksdb::BottommostLevelCompaction;
 using rocksdb::RateLimiter;
 using rocksdb::NewGenericRateLimiter;
 using rocksdb::PinnableSlice;
@@ -3109,6 +3110,11 @@ void rocksdb_compactoptions_destroy(rocksdb_compactoptions_t* opt) {
   delete opt;
 }
 
+void rocksdb_compactoptions_set_bottommost_level_compaction(
+    rocksdb_compactoptions_t* opt, unsigned char v) {
+  opt->rep.bottommost_level_compaction = static_cast<BottommostLevelCompaction>(v);
+}
+
 void rocksdb_compactoptions_set_exclusive_manual_compaction(
     rocksdb_compactoptions_t* opt, unsigned char v) {
   opt->rep.exclusive_manual_compaction = v;
@@ -3256,6 +3262,11 @@ void rocksdb_sstfilewriter_delete(rocksdb_sstfilewriter_t* writer,
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
                                   char** errptr) {
   SaveError(errptr, writer->rep->Finish(nullptr));
+}
+
+void rocksdb_sstfilewriter_file_size(rocksdb_sstfilewriter_t* writer,
+                                  uint64_t* file_size) {
+  *file_size = writer->rep->FileSize();
 }
 
 void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {

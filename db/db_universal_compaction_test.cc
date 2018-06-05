@@ -662,7 +662,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
 }
 
-
+#ifndef ROCKSDB_VALGRIND_RUN
 class DBTestUniversalCompactionMultiLevels
     : public DBTestUniversalCompactionBase {
  public:
@@ -698,6 +698,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
     ASSERT_EQ(Get(1, Key(i % num_keys)), Key(i));
   }
 }
+
 // Tests universal compaction with trivial move enabled
 TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   int32_t trivial_move = 0;
@@ -940,6 +941,7 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionParallel,
                         DBTestUniversalCompactionParallel,
                         ::testing::Combine(::testing::Values(1, 10),
                                            ::testing::Values(false)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options = CurrentOptions();
@@ -1155,6 +1157,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio2) {
   ASSERT_LT(TotalSize(), 120000U * 12 * 0.8 + 120000 * 2);
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 // Test that checks trivial move in universal compaction
 TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   int32_t trivial_move = 0;
@@ -1247,6 +1250,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   Options options = CurrentOptions();

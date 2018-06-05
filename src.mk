@@ -129,6 +129,7 @@ LIB_SOURCES =                                                   \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
+  util/compression_context_cache.cc                             \
   util/concurrent_arena.cc                                      \
   util/crc32c.cc                                                \
   util/delete_scheduler.cc                                      \
@@ -208,6 +209,8 @@ LIB_SOURCES =                                                   \
   utilities/transactions/transaction_util.cc                    \
   utilities/transactions/write_prepared_txn.cc                  \
   utilities/transactions/write_prepared_txn_db.cc               \
+  utilities/transactions/write_unprepared_txn.cc                \
+  utilities/transactions/write_unprepared_txn_db.cc             \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
@@ -395,6 +398,7 @@ MAIN_SOURCES =                                                          \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/write_prepared_transaction_test.cc             \
+  utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 

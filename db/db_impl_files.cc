@@ -12,6 +12,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include <set>
 #include <unordered_set>
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
@@ -99,10 +100,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   if (doing_the_full_scan) {
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
         dbname_);
-    std::vector<std::string> paths;
+    std::set<std::string> paths;
     for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
          path_id++) {
-      paths.emplace_back(immutable_db_options_.db_paths[path_id].path);
+      paths.insert(immutable_db_options_.db_paths[path_id].path);
     }
 
     // Note that if cf_paths is not specified in the ColumnFamilyOptions
@@ -113,7 +114,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       for (size_t path_id = 0; path_id < cfd->ioptions()->cf_paths.size();
            path_id++) {
-        paths.emplace_back(cfd->ioptions()->cf_paths[path_id].path);
+        auto& path = cfd->ioptions()->cf_paths[path_id].path;
+
+        if (paths.find(path) == paths.end()) {
+          paths.insert(path);
+        }
       }
     }
 

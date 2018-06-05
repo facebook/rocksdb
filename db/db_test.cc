@@ -2561,6 +2561,7 @@ class ModelDB : public DB {
   std::string name_ = "";
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 static std::string RandomKey(Random* rnd, int minimum = 0) {
   int len;
   do {
@@ -2717,6 +2718,7 @@ TEST_P(DBTestRandomized, Randomized) {
   if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
   if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index

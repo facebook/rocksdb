@@ -200,6 +200,7 @@ cpp_library(
         "util/coding.cc",
         "util/compaction_job_stats_impl.cc",
         "util/comparator.cc",
+        "util/compression_context_cache.cc",
         "util/concurrent_arena.cc",
         "util/crc32c.cc",
         "util/delete_scheduler.cc",
@@ -280,6 +281,8 @@ cpp_library(
         "utilities/transactions/transaction_util.cc",
         "utilities/transactions/write_prepared_txn.cc",
         "utilities/transactions/write_prepared_txn_db.cc",
+        "utilities/transactions/write_unprepared_txn.cc",
+        "utilities/transactions/write_unprepared_txn_db.cc",
         "utilities/ttl/db_ttl_impl.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
@@ -1038,6 +1041,11 @@ ROCKS_TESTS = [
     [
         "write_prepared_transaction_test",
         "utilities/transactions/write_prepared_transaction_test.cc",
+        "parallel",
+    ],
+    [
+        "write_unprepared_transaction_test",
+        "utilities/transactions/write_unprepared_transaction_test.cc",
         "parallel",
     ],
 ]

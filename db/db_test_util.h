@@ -694,13 +694,20 @@ class DBTestBase : public testing::Test {
     kConcurrentSkipList = 29,
     kPipelinedWrite = 30,
     kConcurrentWALWrites = 31,
-    kEnd = 32,
-    kDirectIO = 33,
-    kLevelSubcompactions = 34,
-    kUniversalSubcompactions = 35,
-    kBlockBasedTableWithIndexRestartInterval = 36,
-    kBlockBasedTableWithPartitionedIndex = 37,
-    kPartitionedFilterWithNewTableReaderForCompactions = 38,
+    kDirectIO,
+    kLevelSubcompactions,
+    kBlockBasedTableWithIndexRestartInterval,
+    kBlockBasedTableWithPartitionedIndex,
+    kBlockBasedTableWithPartitionedIndexFormat3,
+    kPartitionedFilterWithNewTableReaderForCompactions,
+
+    // This must be the last line
+    kEnd,
+
+    // TODO: This option although been there for a while was disable due to a
+    // mistake. Enabling it makes somem tests to fail. We should enable it and
+    // fix the unit tests.
+    kUniversalSubcompactions,
   };
 
  public:

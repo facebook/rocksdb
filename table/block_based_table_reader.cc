@@ -176,9 +176,8 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 // For hash based index, return true if prefix_extractor and
 // prefix_extractor_block mismatch, false otherwise. This flag will be used
 // as total_order_seek via NewIndexIterator
-bool PrefixExtractorChanged(
-    std::shared_ptr<const TableProperties> table_properties,
-    const SliceTransform* prefix_extractor) {
+bool PrefixExtractorChanged(const TableProperties* table_properties,
+                            const SliceTransform* prefix_extractor) {
   // BlockBasedTableOptions::kHashSearch requires prefix_extractor to be set.
   // Turn off hash index in prefix_extractor is not set; if  prefix_extractor
   // is set but prefix_extractor_block is not set, also disable hash index
@@ -912,8 +911,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       bool prefix_extractor_changed = false;
       // check prefix_extractor match only if hash based index is used
       if (rep->index_type == BlockBasedTableOptions::kHashSearch) {
-        prefix_extractor_changed =
-            PrefixExtractorChanged(rep->table_properties, prefix_extractor);
+        prefix_extractor_changed = PrefixExtractorChanged(
+            rep->table_properties.get(), prefix_extractor);
       }
       unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
           ReadOptions(), prefix_extractor_changed, nullptr, &index_entry));
@@ -1103,9 +1102,12 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
-  s = UncompressBlockContents(compressed_block->data(),
+  UncompressionContext uncompresssion_ctx(compressed_block->compression_type(),
+    compression_dict);
+  s = UncompressBlockContents(uncompresssion_ctx,
+                              compressed_block->data(),
                               compressed_block->size(), &contents,
-                              format_version, compression_dict,
+                              format_version,
                               ioptions);
 
   // Insert uncompressed block into block cache
@@ -1181,8 +1183,10 @@ Status BlockBasedTable::PutDataBlockToCache(
   BlockContents contents;
   Statistics* statistics = ioptions.statistics;
   if (raw_block->compression_type() != kNoCompression) {
-    s = UncompressBlockContents(raw_block->data(), raw_block->size(), &contents,
-                                format_version, compression_dict, ioptions);
+    UncompressionContext uncompression_ctx(raw_block->compression_type(), compression_dict);
+    s = UncompressBlockContents(uncompression_ctx, raw_block->data(),
+                                raw_block->size(), &contents,
+                                format_version, ioptions);
   }
   if (!s.ok()) {
     delete raw_block;
@@ -1575,11 +1579,12 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
     {
       StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
                    READ_BLOCK_GET_MICROS);
-      s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
-                            rep->footer, ro, handle, &block_value, rep->ioptions,
-                            rep->blocks_maybe_compressed, compression_dict,
-                            rep->persistent_cache_options, rep->global_seqno,
-                            rep->table_options.read_amp_bytes_per_bit);
+      s = ReadBlockFromFile(
+          rep->file.get(), nullptr /* prefetch_buffer */, rep->footer, ro,
+          handle, &block_value, rep->ioptions, rep->blocks_maybe_compressed,
+          compression_dict, rep->persistent_cache_options,
+          is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
+          rep->table_options.read_amp_bytes_per_bit);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1678,7 +1683,8 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
             &raw_block, rep->ioptions,
             block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
-            compression_dict, rep->persistent_cache_options, rep->global_seqno,
+            compression_dict, rep->persistent_cache_options,
+            is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
             rep->table_options.read_amp_bytes_per_bit);
       }
 
@@ -2060,7 +2066,7 @@ InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
     Arena* arena, bool skip_filters) {
   bool prefix_extractor_changed =
-      PrefixExtractorChanged(rep_->table_properties, prefix_extractor);
+      PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
@@ -2168,8 +2174,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
     bool prefix_extractor_changed = false;
     if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
-      prefix_extractor_changed =
-          PrefixExtractorChanged(rep_->table_properties, prefix_extractor);
+      prefix_extractor_changed = PrefixExtractorChanged(
+          rep_->table_properties.get(), prefix_extractor);
     }
     auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
                                   &iiter_on_stack, /* index_entry */ nullptr,
@@ -2222,8 +2228,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             s = Status::Corruption(Slice());
           }
 
-          if (!get_context->SaveValue(parsed_key, biter.value(), &matched,
-                                      &biter)) {
+          if (!get_context->SaveValue(
+                  parsed_key, biter.value(), &matched,
+                  biter.IsValuePinned() ? &biter : nullptr)) {
             done = true;
             break;
           }
