@@ -219,9 +219,13 @@ DEFINE_int32(level0_stop_writes_trigger,
              rocksdb::Options().level0_stop_writes_trigger,
              "Number of files in level-0 that will trigger put stop.");
 
-DEFINE_int32(block_size,
-             static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
+DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
              "Number of bytes in a block.");
+
+DEFINE_int32(
+    format_version,
+    static_cast<int32_t>(rocksdb::BlockBasedTableOptions().format_version),
+    "Format version of SST files.");
 
 DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
@@ -2480,6 +2484,7 @@ class StressTest {
   void PrintEnv() const {
     fprintf(stdout, "RocksDB version           : %d.%d\n", kMajorVersion,
             kMinorVersion);
+    fprintf(stdout, "Format version            : %d\n", FLAGS_format_version);
     fprintf(stdout, "TransactionDB             : %s\n",
             FLAGS_use_txn ? "true" : "false");
     fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
@@ -2563,7 +2568,8 @@ class StressTest {
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.checksum = FLAGS_checksum_type_e;
       block_based_options.block_size = FLAGS_block_size;
-      block_based_options.format_version = 2;
+      block_based_options.format_version =
+          static_cast<uint32_t>(FLAGS_format_version);
       block_based_options.filter_policy = filter_policy_;
       options_.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));

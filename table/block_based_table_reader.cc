@@ -176,9 +176,8 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 // For hash based index, return true if prefix_extractor and
 // prefix_extractor_block mismatch, false otherwise. This flag will be used
 // as total_order_seek via NewIndexIterator
-bool PrefixExtractorChanged(
-    const TableProperties* table_properties,
-    const SliceTransform* prefix_extractor) {
+bool PrefixExtractorChanged(const TableProperties* table_properties,
+                            const SliceTransform* prefix_extractor) {
   // BlockBasedTableOptions::kHashSearch requires prefix_extractor to be set.
   // Turn off hash index in prefix_extractor is not set; if  prefix_extractor
   // is set but prefix_extractor_block is not set, also disable hash index
@@ -912,9 +911,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       bool prefix_extractor_changed = false;
       // check prefix_extractor match only if hash based index is used
       if (rep->index_type == BlockBasedTableOptions::kHashSearch) {
-        prefix_extractor_changed =
-            PrefixExtractorChanged(rep->table_properties.get(),
-                                   prefix_extractor);
+        prefix_extractor_changed = PrefixExtractorChanged(
+            rep->table_properties.get(), prefix_extractor);
       }
       unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
           ReadOptions(), prefix_extractor_changed, nullptr, &index_entry));
@@ -2176,9 +2174,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
     bool prefix_extractor_changed = false;
     if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
-      prefix_extractor_changed =
-          PrefixExtractorChanged(rep_->table_properties.get(),
-                                 prefix_extractor);
+      prefix_extractor_changed = PrefixExtractorChanged(
+          rep_->table_properties.get(), prefix_extractor);
     }
     auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
                                   &iiter_on_stack, /* index_entry */ nullptr,
