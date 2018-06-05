@@ -249,8 +249,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           index_block_->NewIterator(icomparator_,
                                     icomparator_->user_comparator(), nullptr,
                                     true, nullptr, index_key_includes_seq_),
-          false, true, /* prefix_extractor */ nullptr,
-          /*table_prefix_extractor*/ nullptr, kIsIndex,
+          false, true, /* prefix_extractor */ nullptr, kIsIndex,
           index_key_includes_seq_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
@@ -825,6 +824,13 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
                     "Cannot find Properties block from file.");
   }
+#ifndef ROCKSDB_LITE
+  if (rep->table_properties) {
+    ParseSliceTransform(rep->table_properties->prefix_extractor_name,
+                        &(rep->table_prefix_extractor));
+
+  }
+#endif  // ROCKSDB_LITE
 
   // Read the compression dictionary meta block
   bool found_compression_dict;
@@ -1787,8 +1793,8 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(
     const Slice& internal_key, const ReadOptions& read_options,
-    const bool prefix_extractor_changed, const SliceTransform* prefix_extractor,
-    std::shared_ptr<const SliceTransform> table_prefix_extractor) {
+    const bool prefix_extractor_changed,
+    const SliceTransform* prefix_extractor) {
   if (!rep_->filter_policy) {
     return true;
   }
@@ -1803,10 +1809,13 @@ bool BlockBasedTable::PrefixMayMatch(
     // Try to reuse the bloom filter in the SST table if prefix_extractor in
     // mutable_cf_options has changed. If range [user_key, upper_bound) all
     // share the same prefix then we may still be able to use the bloom filter.
-    if (read_options.iterate_upper_bound != nullptr && table_prefix_extractor) {
+    if (read_options.iterate_upper_bound != nullptr &&
+        rep_->table_prefix_extractor) {
       auto upper_bound = *(read_options.iterate_upper_bound);
-      Slice user_key_xform = table_prefix_extractor->Transform(user_key);
-      Slice upper_bound_xform = table_prefix_extractor->Transform(upper_bound);
+      Slice user_key_xform =
+          rep_->table_prefix_extractor->Transform(user_key);
+      Slice upper_bound_xform =
+          rep_->table_prefix_extractor->Transform(upper_bound);
       // first check if user_key and upper_bound all share the same prefix
       if (user_key_xform.compare(upper_bound_xform) != 0) {
         auto& comparator = rep_->internal_comparator;
@@ -1819,7 +1828,7 @@ bool BlockBasedTable::PrefixMayMatch(
           // fprintf(stdout, "BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
           // "%s, upper_bound_xform = %s transformed into different prefix, not "
           // "possible\n",
-          //         table_prefix_extractor->Name(),
+          //         rep_->table_prefix_extractor->Name(),
           //         user_key.ToString().c_str(),
           //         upper_bound.ToString().c_str(),
           //         user_key_xform.ToString().c_str(),
@@ -2139,14 +2148,6 @@ InternalIterator* BlockBasedTable::NewIterator(
   bool prefix_extractor_changed =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
-  std::shared_ptr<const SliceTransform> table_prefix_extractor;
-  // TODO (Zhongyi): figure out performance impact of copying a shared_ptr here
-  #ifndef ROCKSDB_LITE
-  if (prefix_extractor_changed) {
-    ParseSliceTransform(rep_->table_properties->prefix_extractor_name,
-                        &table_prefix_extractor);
-  }
-  #endif  // ROCKSDB_LITE
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
@@ -2156,8 +2157,8 @@ InternalIterator* BlockBasedTable::NewIterator(
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, prefix_extractor, table_prefix_extractor,
-        kIsNotIndex, true /*key_includes_seq*/, for_compaction);
+        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
+        true /*key_includes_seq*/, for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
@@ -2165,8 +2166,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, prefix_extractor, table_prefix_extractor,
-        kIsNotIndex, true /*key_includes_seq*/, for_compaction);
+        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
+        true /*key_includes_seq*/, for_compaction);
   }
 }
 
