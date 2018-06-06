@@ -909,8 +909,9 @@ TEST_F(DBSSTTest, StoppingManualCompactionsWorks) {
 
   int compactions_stopped = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Inprogress", [&](void* /*arg*/) {
-      dbfull()->EnableManualCompaction(false, false);
+      "CompactionJob::Run():Inprogress", [&](void* arg) {
+      auto stopping_manual_compaction = static_cast<std::atomic<bool> *>(arg);
+      stopping_manual_compaction->store(true, std::memory_order_release);
       compactions_stopped += 1;
       });
 
@@ -954,6 +955,10 @@ TEST_F(DBSSTTest, StoppingManualCompactionsWorks) {
   ASSERT_EQ(compactions_stopped, 2);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBSSTTest, StoppingManualCompactionsDuring) {
+
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
