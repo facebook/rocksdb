@@ -1657,12 +1657,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   CompactionJobStats compaction_job_stats;
   Status status = bg_error_;
-  if (status.ok() &&
-      stopping_manual_compaction_.load(std::memory_order_acquire)) {
-    status = Status::ManualCompactionDisabled();
-  }
+
   if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
     status = Status::ShutdownInProgress();
+  }
+
+  if (status.ok() && is_manual &&
+      stopping_manual_compaction_.load(std::memory_order_acquire)) {
+    status = Status::ManualCompactionDisabled();
   }
 
   if (!status.ok()) {
