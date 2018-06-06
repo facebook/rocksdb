@@ -3,8 +3,8 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-from advisor.db_log_parser import DataSource
-from advisor.ini_parser import IniParser
+from db_log_parser import DataSource
+from ini_parser import IniParser
 
 
 class OptionsSpecParser(IniParser):
@@ -34,10 +34,10 @@ class DatabaseOptions(DataSource):
     def __init__(self, rocksdb_options):
         super().__init__(DataSource.Type.DB_OPTIONS)
         self.options_path = rocksdb_options
-        # Load the options from the given file to a dictionary.
-        self.load_from_source()
         self.options_dict = None
         self.column_families = None
+        # Load the options from the given file to a dictionary.
+        self.load_from_source()
 
     def load_from_source(self):
         self.options_dict = {}
@@ -77,15 +77,13 @@ class DatabaseOptions(DataSource):
             # family name needs to be prepended in order to create the full
             # option name as parsed from the options file.
             incomplete_option_ix = []
-            ix = 0
             options = []
-            for option in cond.options:
+            for ix, option in enumerate(cond.options):
                 if option in self.options_dict.keys():
                     options.append(self.options_dict[option])
                 else:
                     incomplete_option_ix.append(ix)
                     options.append(0)
-                ix += 1
 
             # if all the options were present as is:
             if not incomplete_option_ix:
