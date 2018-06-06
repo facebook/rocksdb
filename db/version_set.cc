@@ -2684,7 +2684,6 @@ VersionSet::~VersionSet() {
   // VersionSet
   Cache* table_cache = column_family_set_->get_table_cache();
   table_cache->ApplyToAllCacheEntries(&CloseTables, false /* thread_safe */);
-  column_family_set_.reset();
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
       table_cache->Release(file.metadata->table_reader_handle);
@@ -2692,6 +2691,10 @@ VersionSet::~VersionSet() {
     }
     file.DeleteMetadata();
   }
+  // This should be after the cache is emptied above as destructor of some cache
+  // entries might depend on cf. For example we do not copy the comaprator from
+  // cf to other objects and just pass the reference.
+  column_family_set_.reset();
   obsolete_files_.clear();
 }
 
