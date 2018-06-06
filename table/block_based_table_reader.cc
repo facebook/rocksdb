@@ -237,16 +237,18 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       return NewTwoLevelIterator(
           new BlockBasedTable::PartitionedIndexIteratorState(
               table_, &partition_map_, index_key_includes_seq_),
-          index_block_->NewIterator(
-              icomparator_, icomparator_->user_comparator(), nullptr, true));
+          index_block_->NewIterator(icomparator_,
+                                    icomparator_->user_comparator(), nullptr,
+                                    true, nullptr, index_key_includes_seq_));
     } else {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
       bool kIsIndex = true;
       return new BlockBasedTableIterator(
           table_, ro, *icomparator_,
-          index_block_->NewIterator(
-              icomparator_, icomparator_->user_comparator(), nullptr, true),
+          index_block_->NewIterator(icomparator_,
+                                    icomparator_->user_comparator(), nullptr,
+                                    true, nullptr, index_key_includes_seq_),
           false,
           /* prefix_extractor */ nullptr, kIsIndex, index_key_includes_seq_);
     }
@@ -262,7 +264,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     BlockIter biter;
     BlockHandle handle;
     index_block_->NewIterator(icomparator_, icomparator_->user_comparator(),
-                              &biter, true);
+                              &biter, true, nullptr, index_key_includes_seq_);
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
@@ -1308,7 +1310,9 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
       return new PartitionedFilterBlockReader(
           rep->prefix_filtering ? prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), nullptr,
-          rep->ioptions.statistics, rep->internal_comparator, this);
+          rep->ioptions.statistics, rep->internal_comparator, this,
+          rep_->table_properties == nullptr ||
+              !rep_->table_properties->index_key_is_user_key);
     }
 
     case Rep::FilterType::kBlockFilter:
