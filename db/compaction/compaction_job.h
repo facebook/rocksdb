@@ -75,7 +75,8 @@ class CompactionJob {
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       bool paranoid_file_checks, bool measure_io_stats,
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
-      Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback);
+      Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback,
+      const std::atomic<bool>* stopping_manual_compaction = nullptr);
 
   ~CompactionJob();
 
@@ -154,6 +155,7 @@ class CompactionJob {
   EnvOptions env_options_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
+  const std::atomic<bool>* stopping_manual_compaction_;
   const SequenceNumber preserve_deletes_seqnum_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;

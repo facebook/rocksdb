@@ -1012,7 +1012,8 @@ Status DBImpl::CompactFilesImpl(
       immutable_db_options_.max_subcompactions <= 1 &&
               c->mutable_cf_options()->snap_refresh_nanos > 0
           ? &fetch_callback
-          : nullptr);
+          : nullptr,
+      &stopping_manual_compaction_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1767,6 +1768,9 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
       if (shutting_down_.load(std::memory_order_acquire)) {
         return Status::ShutdownInProgress();
       }
+      if (stopping_manual_compaction_.load(std::memory_order_acquire)) {
+        return Status::ManualCompactionDisabled();
+      }
 
       uint64_t earliest_memtable_id =
           std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
@@ -1877,6 +1881,24 @@ Status DBImpl::EnableAutoCompaction(
   }
 
   return s;
+}
+
+Status DBImpl::EnableManualCompaction(
+    bool enable, bool wait_pending_manual_compaction) {
+  if (enable) {
+    stopping_manual_compaction_.store(false, std::memory_order_release);
+  }
+  else {
+    stopping_manual_compaction_.store(true, std::memory_order_release);
+    if (wait_pending_manual_compaction) {
+      InstrumentedMutexLock l(&mutex_);
+      while (HasPendingManualCompaction()) {
+        bg_cv_.Wait();
+      }
+    }
+  }
+
+  return Status::OK();
 }
 
 void DBImpl::MaybeScheduleFlushOrCompaction() {
@@ -2319,6 +2341,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
     } else if (!s.ok() && !s.IsShutdownInProgress() &&
+               !s.IsManualCompactionDisabled() &&
                !s.IsColumnFamilyDropped()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -2427,6 +2450,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
+    } else if (stopping_manual_compaction_.load(std::memory_order_acquire)) {
+      status = status::ManualCompactionDisabled();
     }
   } else {
     status = error_handler_.GetBGError();
@@ -2744,7 +2769,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         immutable_db_options_.max_subcompactions <= 1 &&
                 c->mutable_cf_options()->snap_refresh_nanos > 0
             ? &fetch_callback
-            : nullptr);
+            : nullptr, is_manual ? &stopping_manual_compaction_ : nullptr);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -2784,7 +2809,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                 compaction_job_stats, job_context->job_id);
   }
 
-  if (status.ok() || status.IsCompactionTooLarge()) {
+  if (status.ok() || status.IsCompactionTooLarge() ||
+      status.IsManualCompactionDisabled()) {
     // Done
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down

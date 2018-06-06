@@ -271,6 +271,11 @@ class StackableDB : public DB {
     return db_->EnableAutoCompaction(column_family_handles);
   }
 
+  virtual Status EnableManualCompaction(
+      bool enable, bool wait_for_manual_compaction) override {
+    return db_->EnableManualCompaction(enable, wait_for_manual_compaction);
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
