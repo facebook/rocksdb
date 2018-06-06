@@ -804,7 +804,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       stopping_manual_compaction_);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
-  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():StoppingManualCompaction",
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():StoppingManualCompaction:0",
       &stopping_manual_compaction_);
 
   Slice* start = sub_compact->start;
@@ -999,7 +999,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   RecordCompactionIOStats();
 
   if (status.ok() && (stopping_manual_compaction_ &&
-        stopping_manual_compaction_->load(std::memory_order_relaxed))) {
+        stopping_manual_compaction_->load(std::memory_order_acquire))) {
     status = Status::ManualCompactionDisabled(
         "The runnig manual compaction is being stopped by client");
   }
