@@ -1059,6 +1059,12 @@ Status DBImpl::CompactFilesImpl(
     // Done
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
+  } else if (status.IsManualCompactionDisabled()) {
+    // Don't report stopping manual compaction as error
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Stopping manual compaction",
+                   c->column_family_data()->GetName().c_str(),
+                   job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",

@@ -872,7 +872,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       stopping_manual_compaction_);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
-  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():StoppingManualCompaction:0",
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():StoppingManualCompaction",
       (void *)stopping_manual_compaction_);
 
   Slice* start = sub_compact->start;
