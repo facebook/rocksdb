@@ -203,7 +203,9 @@ size_t PartitionedIndexBuilder::EstimateTopLevelIndexSize(
     uint64_t size = it->value->EstimatedSize();
     BlockHandle tmp_block_handle(offset, size);
     tmp_block_handle.EncodeTo(&tmp_handle_encoding);
-    tmp_builder.Add(it->key, tmp_handle_encoding);
+    tmp_builder.Add(
+        seperator_is_key_plus_seq_ ? it->key : ExtractUserKey(it->key),
+        tmp_handle_encoding);
     offset += size;
   }
   return tmp_builder.CurrentSizeEstimate();
