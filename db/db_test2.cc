@@ -2402,7 +2402,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBTest2, StoppingManualCompactionsWorks) {
+TEST_F(DBTest2, StoppingManualCompactionsWorks1) {
   Options options = CurrentOptions();
   options.statistics = CreateDBStatistics();
 
@@ -2422,19 +2422,18 @@ TEST_F(DBTest2, StoppingManualCompactionsWorks) {
   }
   ASSERT_OK(Flush());
 
-  int compactions_stopped = 0;
+  int manual_compactions_stopped = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():StoppingManualCompaction:0", [&](void* arg) {
+      "CompactionJob::Run():StoppingManualCompaction", [&](void* arg) {
       auto stopping_manual_compaction = static_cast<std::atomic<bool> *>(arg);
       stopping_manual_compaction->store(true, std::memory_order_release);
-      compactions_stopped += 1;
+      manual_compactions_stopped += 1;
       ASSERT_TRUE(stopping_manual_compaction->load(std::memory_order_acquire));
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<std::string> files_before_compact, files_after_compact;
-
   // Remember file name before compaction is triggered
   std::vector<LiveFileMetaData> files_meta;
   dbfull()->GetLiveFilesMetaData(&files_meta);
@@ -2457,7 +2456,7 @@ TEST_F(DBTest2, StoppingManualCompactionsWorks) {
 
   // Like nothing happened
   ASSERT_EQ(files_before_compact, files_after_compact);
-  ASSERT_EQ(compactions_stopped, 1);
+  ASSERT_EQ(manual_compactions_stopped, 1);
 
   // Now make sure CompactFiles also gets stopped
   dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
@@ -2473,7 +2472,82 @@ TEST_F(DBTest2, StoppingManualCompactionsWorks) {
   }
 
   ASSERT_EQ(files_before_compact, files_after_compact);
-  ASSERT_EQ(compactions_stopped, 2);
+  ASSERT_EQ(manual_compactions_stopped, 2);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, StoppingManualCompactionsWorks2) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  for (int i = 0; i < options.num_levels; i++) {
+    for (int j = 0; j < options.num_levels-i+1; j++) {
+      for (int k = 0; k < 100; k++) {
+        ASSERT_OK(Put(Key(k+j*100), RandomString(&rnd, 50)));
+      }
+      Flush();
+    }
+
+    for (int l = 1; l < options.num_levels-i; l++) {
+      MoveFilesToLevel(l);
+    }
+  }
+
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  int run_manual_compactions = 0;
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():StoppingManualCompaction", [&](void* /*arg*/) {
+      run_manual_compactions += 1;
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions compact_options;
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_EQ(run_manual_compactions, 6);
+
+  // rebuild the database, run manual compaction, during
+  // the process, invoke stop manual compaction
+  DestroyAndReopen(options);
+  for (int i = 0; i < options.num_levels; i++) {
+    for (int j = 0; j < options.num_levels-i+1; j++) {
+      for (int k = 0; k < 100; k++) {
+        ASSERT_OK(Put(Key(k+j*100), RandomString(&rnd, 50)));
+      }
+      Flush();
+    }
+
+    for (int l = 1; l < options.num_levels-i; l++) {
+      MoveFilesToLevel(l);
+    }
+  }
+
+  port::Thread bg_thread;
+  run_manual_compactions = 0;
+  auto stop_manual_compaction = [&](){
+    dbfull()->EnableManualCompaction(false, true);
+    ASSERT_EQ(run_manual_compactions, 1);
+  };
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction()::1", [&](void * /*arg*/) {
+      bg_thread = port::Thread(stop_manual_compaction);
+      });
+
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  bg_thread.join();
+
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,2,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
