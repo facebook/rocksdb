@@ -909,10 +909,11 @@ TEST_F(DBSSTTest, StoppingManualCompactionsWorks) {
 
   int compactions_stopped = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Inprogress", [&](void* arg) {
+      "CompactionJob::Run():StoppingManualCompaction:0", [&](void* arg) {
       auto stopping_manual_compaction = static_cast<std::atomic<bool> *>(arg);
       stopping_manual_compaction->store(true, std::memory_order_release);
       compactions_stopped += 1;
+      ASSERT_TRUE(stopping_manual_compaction->load(std::memory_order_acquire));
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -942,6 +943,7 @@ TEST_F(DBSSTTest, StoppingManualCompactionsWorks) {
   // Like nothing happened
   ASSERT_EQ(files_before_compact, files_after_compact);
   ASSERT_EQ(compactions_stopped, 1);
+  assert(false);
 
   // Now make sure CompactFiles also gets stopped
   auto l0_files_before_compact = collector->GetFlushedFiles();
@@ -955,10 +957,6 @@ TEST_F(DBSSTTest, StoppingManualCompactionsWorks) {
   ASSERT_EQ(compactions_stopped, 2);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-}
-
-TEST_F(DBSSTTest, StoppingManualCompactionsDuring) {
-
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {

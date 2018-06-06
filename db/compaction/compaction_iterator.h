@@ -285,7 +285,7 @@ class CompactionIterator {
 
   bool IsStoppingManualCompaction() {
     return stopping_manual_compaction_ &&
-      stopping_manual_compaction_->load(std::memory_order_relaxed);
+      stopping_manual_compaction_->load(std::memory_order_acquire);
   }
 };
 }  // namespace rocksdb
