@@ -4,74 +4,82 @@
 # fbcode settings.  It uses the latest g++ compiler and also
 # uses jemalloc
 
-TOOLCHAIN_REV=53dc1fe83f84e9145b9ffb81b81aa7f6a49c87cc
-CENTOS_VERSION=`rpm -q --qf "%{VERSION}" $(rpm -q --whatprovides redhat-release)`
-if [ "$CENTOS_VERSION" = "6" ]; then
-  TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos6-native"
-else
-  TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
-fi
-TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.8.1-glibc-2.17"
+GCC_BASE=/mnt/gvfs/third-party2/gcc/8219ec1bcedf8ad9da05e121e193364de2cc4f61/5.x/centos6-native/c447969
+CLANG_BASE=/mnt/gvfs/third-party2/llvm-fb/64d8d58e3d84f8bde7a029763d4f5baf39d0d5b9/stable/centos6-native/6aaf4de
+LIBGCC_BASE=/mnt/gvfs/third-party2/libgcc/ba9be983c81de7299b59fe71950c664a84dcb5f8/5.x/gcc-5-glibc-2.23/339d858
+GLIBC_BASE=/mnt/gvfs/third-party2/glibc/f20197cf3d4bd50339c9777aaa0b2ccadad9e2cb/2.23/gcc-5-glibc-2.23/ca1d1c0
+SNAPPY_BASE=/mnt/gvfs/third-party2/snappy/6427ce8c7496e4ab06c2da81543b94c0de8be3d0/1.1.3/gcc-5-glibc-2.23/9bc6787
+ZLIB_BASE=/mnt/gvfs/third-party2/zlib/8f1e8b867d26efef93eac2fabbdb2e1d512665d7/1.2.8/gcc-5-glibc-2.23/9bc6787
+BZIP2_BASE=/mnt/gvfs/third-party2/bzip2/70471c0571559fe0af7db6d7e8860b93a7eadfe1/1.0.6/gcc-5-glibc-2.23/9bc6787
+LZ4_BASE=/mnt/gvfs/third-party2/lz4/453c89d6f0e68cdf1c151c769197fabedad9cac8/r131/gcc-5-glibc-2.23/9bc6787
+ZSTD_BASE=/mnt/gvfs/third-party2/zstd/00a40fa5f8bd2cd0622f2e868552793aef37ccf4/1.3.0/gcc-5-glibc-2.23/03859b5
+GFLAGS_BASE=/mnt/gvfs/third-party2/gflags/47eef08f9acb77de982fbda6047c26d330739538/2.2.0/gcc-5-glibc-2.23/9bc6787
+JEMALLOC_BASE=/mnt/gvfs/third-party2/jemalloc/4414ddc78df8008b35cc4adac23590ad29148584/master/gcc-5-glibc-2.23/d506c82
+NUMA_BASE=/mnt/gvfs/third-party2/numa/9d7ae2693d05d62f9a579cb21e6b717cf257a75d/2.0.11/gcc-5-glibc-2.23/9bc6787
+LIBUNWIND_BASE=/mnt/gvfs/third-party2/libunwind/2b2dd58e3a52ccf2c1d827def59e5f740de0ad15/1.2/gcc-5-glibc-2.23/b443de1
+TBB_BASE=/mnt/gvfs/third-party2/tbb/379addf7ab2468a2b4293b47456cfcd1c9cb318d/4.3/gcc-5-glibc-2.23/9bc6787
+KERNEL_HEADERS_BASE=/mnt/gvfs/third-party2/kernel-headers/3f68f5fe65a85b7c2d3e66852268fbd1efdb3151/4.0.9-36_fbk5_2933_gd092e3f/gcc-5-glibc-2.23/da39a3e
+BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/b9fab0aec99d9c36408e810b2677e91c12807afd/2.28/centos6-native/da39a3e
+VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/423431d61786b20bcc3bde8972901130cb29e6b3/3.11.0/gcc-5-glibc-2.23/9bc6787
+LUA_BASE=/mnt/gvfs/third-party2/lua/3b0bb3bd9a0f690a069c479fcc0f7424fc7456d2/5.2.3/gcc-5-glibc-2.23/65372bd
 
-# location of libhdfs libraries
-if test "$USE_HDFS"; then
-  JAVA_HOME="/usr/local/jdk-6u22-64"
-  JINCLUDE="-I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
-  GLIBC_RUNTIME_PATH="/usr/local/fbcode/gcc-4.8.1-glibc-2.17"
-  HDFSLIB=" -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64 "
-  HDFSLIB+=" -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib "
-  HDFSLIB+=" -ldl -lverify -ljava -ljvm "
-fi
 
 # location of libgcc
-LIBGCC_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.8.1/8aac7fc/include"
-LIBGCC_LIBS=" -L $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.8.1/8aac7fc/libs"
+LIBGCC_INCLUDE=" -I $LIBGCC_BASE/include"
+LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
 # location of glibc
-GLIBC_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/glibc/glibc-2.17/99df8fc/include"
-GLIBC_LIBS=" -L $TOOLCHAIN_LIB_BASE/glibc/glibc-2.17/99df8fc/lib"
+GLIBC_INCLUDE=" -I $GLIBC_BASE/include"
+GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 
 # location of snappy headers and libraries
-SNAPPY_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/43d84e2/include"
-SNAPPY_LIBS=" $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/43d84e2/lib/libsnappy.a"
+SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
+SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy.a"
 
 # location of zlib headers and libraries
-ZLIB_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/zlib/zlib-1.2.5/c3f970a/include"
-ZLIB_LIBS=" $TOOLCHAIN_LIB_BASE/zlib/zlib-1.2.5/c3f970a/lib/libz.a"
+ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
+ZLIB_LIBS=" $ZLIB_BASE/lib/libz.a"
+
 
 # location of bzip headers and libraries
-BZIP_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/bzip2/bzip2-1.0.6/c3f970a/include"
-BZIP_LIBS=" $TOOLCHAIN_LIB_BASE/bzip2/bzip2-1.0.6/c3f970a/lib/libbz2.a"
+BZIP_INCLUDE=" -I $BZIP2_BASE/include"
+BZIP_LIBS=" $BZIP2_BASE/lib/libbz2.a"
+
+LZ4_INCLUDE=" -I $LZ4_BASE/include/"
+LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
+
 
 # location of gflags headers and libraries
-GFLAGS_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/gflags/gflags-1.6/c3f970a/include"
-GFLAGS_LIBS=" $TOOLCHAIN_LIB_BASE/gflags/gflags-1.6/c3f970a/lib/libgflags.a"
+GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
+GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags.a"
 
 # location of jemalloc
-JEMALLOC_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-3.4.1/4d53c6f/include/"
-JEMALLOC_LIB=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-3.4.1/4d53c6f/lib/libjemalloc.a"
+JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
+JEMALLOC_LIB=" -Wl,--whole-archive  $JEMALLOC_BASE/lib/libjemalloc.a"
 
 # use Intel SSE support for checksum calculations
 export USE_SSE=" -msse -msse4.2 "
 
-CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.8.1/cc6c9dc/bin/gcc"
-CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.8.1/cc6c9dc/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $GFLAGS_INCLUDE"
-AR=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ar
-RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
+CC="$GCC_BASE/bin/gcc"
+CXX="$GCC_BASE/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_INCLUDE"
+AR="$BINUTILS_BASE/bin/ar"
+RANLIB="$BINUTILS_BASE/bin/ranlib"
 
-CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/gold -m64 -mtune=generic"
+CFLAGS="-B$BINUTILS/bin/gold -m64 -mtune=generic"
 CFLAGS+=" $LIBGCC_INCLUDE $GLIBC_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_ATOMIC_PRESENT -DROCKSDB_FALLOCATE_PRESENT"
 CFLAGS+=" -DSNAPPY -DGFLAGS -DZLIB -DBZIP2"
 
-EXEC_LDFLAGS="-Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"
-EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-1.0.1/675d945/lib/libunwind.a"
+EXEC_LDFLAGS+=" -B$BINUTILS_BASE/bin/gold"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-5-glibc-2.23/lib/ld.so"
+EXEC_LDFLAGS+=" $LIBUNWIND"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-5-glibc-2.23/lib"
 EXEC_LDFLAGS+=" $HDFSLIB $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $GFLAGS_LIBS"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS "
 
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $GFLAGS_LIBS"
 
-VALGRIND_VER="$TOOLCHAIN_LIB_BASE/valgrind/valgrind-3.8.1/c3f970a/bin/"
+VALGRIND_VER="$VALGRIND_BASE/bin/"
 
 export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE
