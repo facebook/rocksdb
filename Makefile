@@ -124,7 +124,7 @@ all: $(LIBRARY) $(PROGRAMS)
 
 release:
 	$(MAKE) clean
-	OPT=-DNDEBUG $(MAKE) -j32
+	OPT=-DNDEBUG $(MAKE) $(LIBRARY) $(TOOLS) db_bench -j32
 
 coverage:
 	$(MAKE) clean
