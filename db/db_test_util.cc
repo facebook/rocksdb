@@ -454,7 +454,6 @@ Options DBTestBase::GetOptions(
       // super-set of simple indexes, we are also using kTwoLevelIndexSearch to
       // test this format.
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-      options.prefix_extractor.reset(NewNoopTransform());
       // The top-level index in partition filters are also affected by format 3.
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
       table_options.partition_filters = true;
