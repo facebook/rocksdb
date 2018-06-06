@@ -1,3 +1,8 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from enum import Enum
 
 
@@ -19,6 +24,8 @@ class IniParser:
 
     @staticmethod
     def is_section_header(line):
+        # A section header looks like: [Rule "my-new-rule"]. Essentially,
+        # a line that is in square-brackets.
         line = line.strip()
         if line.startswith('[') and line.endswith(']'):
             return True
@@ -26,9 +33,11 @@ class IniParser:
 
     @staticmethod
     def get_section_name(line):
+        # For a section header: [Rule "my-new-rule"], this method will return
+        # "my-new-rule".
         token_list = line.strip()[1:-1].split('"')
         if len(token_list) < 3:
-            error = 'section header be like: [<section_type> "<section_name>"]'
+            error = 'needed section header: [<section_type> "<section_name>"]'
             raise ValueError('Parsing error: ' + error + '\n' + line)
         return token_list[1]
 

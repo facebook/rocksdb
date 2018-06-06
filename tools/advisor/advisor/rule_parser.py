@@ -1,18 +1,14 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from abc import ABC, abstractmethod
 import argparse
 from advisor.db_log_parser import DatabaseLogs, DataSource
 from advisor.db_options_parser import DatabaseOptions
 from enum import Enum
 from advisor.ini_parser import IniParser
-
-
-# TODO:
-# * tie all this up with the Options and LOG accessor
-# * turn rules ON or OFF based on the data sources fed in the command-line
-# * do we need to encode the reason in each suggestion
-# * make use of current Options of the database while providing suggestions
-# * make use of scope in the LogCondition
-# * what if a condition can have more than one trigger
 
 
 class Section(ABC):
@@ -35,6 +31,10 @@ class Rule(Section):
         self.suggestions = None
 
     def set_parameter(self, key, value):
+        # If the Rule is associated with a single suggestion/condition, then
+        # value will be a string and not a list. Hence, convert it to a single
+        # element list before storing it in self.suggestions or
+        # self.conditions.
         if key == 'conditions':
             if isinstance(value, str):
                 self.conditions = [value]

@@ -1,3 +1,8 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from abc import ABC, abstractmethod
 import glob
 import re
@@ -26,9 +31,7 @@ class Log:
         # The assumption is that a new log will start with a date printed in
         # the below regex format.
         date_regex = '\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}'
-        if not re.match(date_regex, log_line):
-            return False
-        return True
+        return re.match(date_regex, log_line)
 
     def __init__(self, log_line):
         token_list = log_line.strip().split()
@@ -83,6 +86,7 @@ class DatabaseLogs(DataSource):
                             )
                         new_log = Log(line)
                     else:
+                        # To account for logs split into multiple lines
                         new_log.append_message(line)
             # Check for the last log in the file.
             if new_log and conditions:
