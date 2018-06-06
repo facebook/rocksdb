@@ -73,7 +73,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
   explicit PartitionedFilterBlockReader(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       BlockContents&& contents, FilterBitsReader* filter_bits_reader,
-      Statistics* stats, const InternalKeyComparator& comparator,
+      Statistics* stats, const InternalKeyComparator comparator,
       const BlockBasedTable* table, const bool index_key_includes_seq);
   virtual ~PartitionedFilterBlockReader();
 
@@ -98,7 +98,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;
-  const InternalKeyComparator& comparator_;
+  const InternalKeyComparator comparator_;
   const BlockBasedTable* table_;
   const bool index_key_includes_seq_;
   std::unordered_map<uint64_t,

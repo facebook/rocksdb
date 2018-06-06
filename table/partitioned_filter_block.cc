@@ -100,7 +100,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     const SliceTransform* prefix_extractor, bool _whole_key_filtering,
     BlockContents&& contents, FilterBitsReader* /*filter_bits_reader*/,
-    Statistics* stats, const InternalKeyComparator& comparator,
+    Statistics* stats, const InternalKeyComparator comparator,
     const BlockBasedTable* table, const bool index_key_includes_seq)
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
       prefix_extractor_(prefix_extractor),
