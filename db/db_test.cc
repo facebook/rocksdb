@@ -2429,6 +2429,11 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  Status EnableManualCompaction(
+      bool /*enable*/, bool /*wait_for_manual_compaction = true*/) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* /*column_family*/) override {
     return 1;
