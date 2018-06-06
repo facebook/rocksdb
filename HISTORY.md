@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.13.3 (6/6/2018)
+### Bug Fixes
+* Fix assertion when reading bloom filter of SST files containing range deletions but no data
+
 ## 5.13.2 (5/25/2018)
 ### Public API Change
 * Introduced `CompressionOptions::kDefaultCompressionLevel`, which is a generic way to tell RocksDB to use the compression library's default level. It is now the default value for `CompressionOptions::level`. Previously the level defaulted to -1, which gave poor compression ratios in ZSTD.
