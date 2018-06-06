@@ -66,6 +66,8 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
     : IndexBuilder(comparator),
       index_block_builder_(table_opt.index_block_restart_interval,
                            table_opt.format_version),
+      index_block_builder_without_seq_(table_opt.index_block_restart_interval,
+                                       table_opt.format_version),
       sub_index_builder_(nullptr),
       table_opt_(table_opt),
       seperator_is_key_plus_seq_(false) {}
@@ -149,11 +151,20 @@ Status PartitionedIndexBuilder::Finish(
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     index_block_builder_.Add(last_entry.key, handle_encoding);
+    if (!seperator_is_key_plus_seq_) {
+      index_block_builder_without_seq_.Add(ExtractUserKey(last_entry.key),
+                                           handle_encoding);
+    }
     entries_.pop_front();
   }
   // If there is no sub_index left, then return the 2nd level index.
   if (UNLIKELY(entries_.empty())) {
-    index_blocks->index_block_contents = index_block_builder_.Finish();
+    if (seperator_is_key_plus_seq_) {
+      index_blocks->index_block_contents = index_block_builder_.Finish();
+    } else {
+      index_blocks->index_block_contents =
+          index_block_builder_without_seq_.Finish();
+    }
     return Status::OK();
   } else {
     // Finish the next partition index in line and Incomplete() to indicate we
@@ -192,7 +203,9 @@ size_t PartitionedIndexBuilder::EstimateTopLevelIndexSize(
     uint64_t size = it->value->EstimatedSize();
     BlockHandle tmp_block_handle(offset, size);
     tmp_block_handle.EncodeTo(&tmp_handle_encoding);
-    tmp_builder.Add(it->key, tmp_handle_encoding);
+    tmp_builder.Add(
+        seperator_is_key_plus_seq_ ? it->key : ExtractUserKey(it->key),
+        tmp_handle_encoding);
     offset += size;
   }
   return tmp_builder.CurrentSizeEstimate();
