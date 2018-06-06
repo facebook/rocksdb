@@ -683,7 +683,7 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      nullptr,    // Here we pass a nullptr for CompactionJobStats because
+      nullptr,   // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
                  // returned.  The idea of not triggering OnCompationCompleted()
@@ -737,6 +737,12 @@ Status DBImpl::CompactFilesImpl(
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
+  } else if (status.IsManualCompactionDisabled()) {
+    // Don't report stopping manual compaction as error
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Stopping manual compaction",
+                   c->column_family_data()->GetName().c_str(),
+                   job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
