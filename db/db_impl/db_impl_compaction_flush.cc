@@ -2462,6 +2462,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     unscheduled_compactions_++;
   }
 
+  if (status.ok() && is_manual &&
+      stopping_manual_compaction_.load(std::memory_order_acquire)) {
+    status = Status::ManualCompactionDisabled();
+  }
+
   if (!status.ok()) {
     if (is_manual) {
       manual_compaction->status = status;
