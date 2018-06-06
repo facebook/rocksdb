@@ -2402,6 +2402,82 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, StoppingManualCompactionsWorks) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  // Generate a file containing 10 keys.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  // Generate another file to trigger compaction.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  int compactions_stopped = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():StoppingManualCompaction:0", [&](void* arg) {
+      auto stopping_manual_compaction = static_cast<std::atomic<bool> *>(arg);
+      stopping_manual_compaction->store(true, std::memory_order_release);
+      compactions_stopped += 1;
+      ASSERT_TRUE(stopping_manual_compaction->load(std::memory_order_acquire));
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files_before_compact, files_after_compact;
+
+  // Remember file name before compaction is triggered
+  std::vector<LiveFileMetaData> files_meta;
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_before_compact.push_back(file.name);
+  }
+
+  // OK, now trigger a manual compaction
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  // Wait for compactions to get scheduled and stopped
+  dbfull()->TEST_WaitForCompact(true);
+
+  // Get file names after compaction is stopped
+  files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_after_compact.push_back(file.name);
+  }
+
+  // Like nothing happened
+  ASSERT_EQ(files_before_compact, files_after_compact);
+  ASSERT_EQ(compactions_stopped, 1);
+
+  // Now make sure CompactFiles also gets stopped
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
+
+  // Wait for manual compaction to get scheduled and finish
+  dbfull()->TEST_WaitForCompact(true);
+
+  files_meta.clear();
+  files_after_compact.clear();
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_after_compact.push_back(file.name);
+  }
+
+  ASSERT_EQ(files_before_compact, files_after_compact);
+  ASSERT_EQ(compactions_stopped, 2);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, OptimizeForPointLookup) {
   Options options = CurrentOptions();
   Close();
