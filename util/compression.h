@@ -140,7 +140,7 @@ class CompressionContext {
 #if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
   ZSTD_CCtx* zstd_ctx_ = nullptr;
   void CreateNativeContext() {
-    if (type_ == kZSTD) {
+    if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
 #ifdef ROCKSDB_ZSTD_CUSTOM_MEM
       zstd_ctx_ =
           ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
@@ -158,7 +158,7 @@ class CompressionContext {
  public:
   // callable inside ZSTD_Compress
   ZSTD_CCtx* ZSTDPreallocCtx() const {
-    assert(type_ == kZSTD);
+    assert(type_ == kZSTD || type_ == kZSTDNotFinalCompression);
     return zstd_ctx_;
   }
 #else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
@@ -201,13 +201,14 @@ class UncompressionContext {
       : UncompressionContext(comp_type, Slice()) {}
   UncompressionContext(CompressionType comp_type, const Slice& comp_dict)
       : type_(comp_type), dict_(comp_dict) {
-    if (type_ == kZSTD) {
+    if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
       ctx_cache_ = CompressionContextCache::Instance();
       uncomp_cached_data_ = ctx_cache_->GetCachedZSTDUncompressData();
     }
   }
   ~UncompressionContext() {
-    if (type_ == kZSTD && uncomp_cached_data_.GetCacheIndex() != -1) {
+    if ((type_ == kZSTD || type_ == kZSTDNotFinalCompression) &&
+        uncomp_cached_data_.GetCacheIndex() != -1) {
       assert(ctx_cache_ != nullptr);
       ctx_cache_->ReturnCachedZSTDUncompressData(
           uncomp_cached_data_.GetCacheIndex());
