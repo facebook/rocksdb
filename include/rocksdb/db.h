@@ -621,6 +621,10 @@ class DB {
     // "rocksdb.block-cache-pinned-usage" - returns the memory size for the
     //      entries being pinned.
     static const std::string kBlockCachePinnedUsage;
+
+    // "rocksdb.immutable_db_options_statistic" - returns the statistic
+    //      of immutable db options
+    static const std::string kImmutableDBOptionStatistic;
   };
 #endif /* ROCKSDB_LITE */
 

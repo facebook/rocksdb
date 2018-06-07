@@ -1845,6 +1845,13 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     InstrumentedMutexLock l(&mutex_);
     return cfd->internal_stats()->GetStringProperty(*property_info, property,
                                                     value);
+  } else if (property_info->is_immutable_db_statistic) {
+    assert(value != nullptr);
+    auto dbstats = immutable_db_options_.statistics.get();
+    if (!dbstats) {
+      return false;
+    }
+    *value = dbstats->ToString();
   }
   // Shouldn't reach here since exactly one of handle_string and handle_int
   // should be non-nullptr.

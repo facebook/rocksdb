@@ -252,8 +252,9 @@ TEST_F(DBPropertiesTest, ValidatePropertyInfo) {
     ASSERT_TRUE(ppt_name_and_info.first.empty() ||
                 !isdigit(ppt_name_and_info.first.back()));
 
-    ASSERT_TRUE((ppt_name_and_info.second.handle_string == nullptr) !=
-                (ppt_name_and_info.second.handle_int == nullptr));
+    ASSERT_TRUE(((ppt_name_and_info.second.handle_string == nullptr) !=
+                 (ppt_name_and_info.second.handle_int == nullptr)) ||
+                (ppt_name_and_info.second.is_immutable_db_statistic == true));
   }
 }
 
