@@ -2544,7 +2544,10 @@ TEST_F(DBTest2, StoppingManualCompactionsWorks2) {
 
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
   // bg_thread will wait comapct range to finish
-  bg_thread.join();
+  if (bg_thread.joinable()) {
+    bg_thread.join();
+  }
+
 
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,2,4,5,6,7,8", FilesPerLevel());
