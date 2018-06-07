@@ -2812,7 +2812,8 @@ class BatchedOpsStressTest : public StressTest {
       const std::vector<int64_t>& /* rand_keys */,
       std::unique_ptr<MutexLock>& /* lock */) {
     assert(false);
-    return Status::OK();
+    return Status::NotSupported("BatchedOpsStressTest does not support "
+        "TestDeleteRange");
   }
 
   // Given a key K, this gets values for "0"+K, "1"+K,..."9"+K
