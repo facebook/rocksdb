@@ -3397,7 +3397,8 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   bbto.block_size = 4000;
   bbto.block_align = true;
 
-  const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
+  const std::string kDBPath =
+      test::TmpDir() + "/block_based_table_bad_options_test";
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyDB(kDBPath, options);
   rocksdb::DB* db;
