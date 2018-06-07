@@ -2565,7 +2565,7 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     auto shared = thread->shared;
-    int max_key = shared->GetMaxKey();
+    int64_t max_key = shared->GetMaxKey();
 
     // OPERATION delete
     // If the chosen key does not allow overwrite and it does not exist,
@@ -2810,7 +2810,11 @@ class BatchedOpsStressTest : public StressTest {
       WriteOptions& /* write_opts */,
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) { assert(false); }
+      std::unique_ptr<MutexLock>& /* lock */) {
+    assert(false);
+    return Status::NotSupported("BatchedOpsStressTest does not support "
+        "TestDeleteRange");
+  }
 
   // Given a key K, this gets values for "0"+K, "1"+K,..."9"+K
   // in the same snapshot, and verifies that all the values are of the form
