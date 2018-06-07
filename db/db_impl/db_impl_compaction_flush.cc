@@ -2365,6 +2365,12 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       LogFlush(immutable_db_options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
+    } else if (s.IsManualCompactionDisabled()) {
+      ManualCompactionState *m = prepicked_compaction->manual_compaction_state;
+      assert(m);
+      ROCKS_LOG_BUFFER(&log_buffer, "[%s] [JOB %d] Stopping manual compaction",
+                       m->cfd->GetName().c_str(),
+                       job_context.job_id);
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
