@@ -2217,6 +2217,7 @@ TEST_F(DBTest2, StoppingManualCompactionsWorks2) {
       });
 
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  // bg_thread will wait comapct range to finish
   bg_thread.join();
 
 #ifndef ROCKSDB_LITE
