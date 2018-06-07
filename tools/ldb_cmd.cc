@@ -1286,8 +1286,9 @@ void InternalDumpCommand::DoCommand() {
   if(count_delim_) {
     fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
             rtype2.c_str(), c, s2);
-  } else
+  } else {
     fprintf(stdout, "Internal keys in range: %lld\n", count);
+  }
 }
 
 const std::string DBDumperCommand::ARG_COUNT_ONLY = "count_only";
