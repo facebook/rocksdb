@@ -413,7 +413,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleIsFileDeletionsEnabled, nullptr,
           nullptr}},
         {DB::Properties::kNumSnapshots,
-         {false, nullptr, &InternalStats::HandleNumSnapshots, nullptr, nullptr}},
+         {false, nullptr, &InternalStats::HandleNumSnapshots, nullptr,
+          nullptr}},
         {DB::Properties::kOldestSnapshotTime,
          {false, nullptr, &InternalStats::HandleOldestSnapshotTime, nullptr,
           nullptr}},
@@ -465,7 +466,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
           nullptr}},
         {DB::Properties::kDBStatisticsInOptions,
-         {false, nullptr, nullptr, nullptr, &DBImpl::HandleImmutableOptionStatistics}},
+         {false, nullptr, nullptr, nullptr,
+          &DBImpl::HandleImmutableOptionStatistics}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {

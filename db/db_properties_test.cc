@@ -253,9 +253,9 @@ TEST_F(DBPropertiesTest, ValidatePropertyInfo) {
                 !isdigit(ppt_name_and_info.first.back()));
 
     int count = 0;
-    count += (ppt_name_and_info.second.handle_string == nullptr)? 0 : 1;
-    count += (ppt_name_and_info.second.handle_int == nullptr)? 0 : 1;
-    count += (ppt_name_and_info.second.handle_string_dbimpl == nullptr)? 0 : 1;
+    count += (ppt_name_and_info.second.handle_string == nullptr) ? 0 : 1;
+    count += (ppt_name_and_info.second.handle_int == nullptr) ? 0 : 1;
+    count += (ppt_name_and_info.second.handle_string_dbimpl == nullptr) ? 0 : 1;
     ASSERT_TRUE(count == 1);
   }
 }
