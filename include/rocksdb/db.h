@@ -622,9 +622,9 @@ class DB {
     //      entries being pinned.
     static const std::string kBlockCachePinnedUsage;
 
-    // "rocksdb.immutable_db_options_statistic" - returns the statistic
-    //      of immutable db options
-    static const std::string kImmutableDBOptionStatistic;
+    // "rocksdb.db_statistics_in_options" - returns multi-line string
+    //      containing the statistics of the db in options
+    static const std::string kDBStatisticsInOptions;
   };
 #endif /* ROCKSDB_LITE */
 

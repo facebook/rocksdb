@@ -46,7 +46,10 @@ struct DBPropertyInfo {
   // @param props Map of general properties to populate
   bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
 
-  bool is_immutable_db_statistic;
+  // handle the private or protected property info of DB
+  // @param value Value-result argument for storing the property's string value
+  // @param suffix Argument portion of the property.
+  bool (DBImpl::*handle_string_dbimpl)(std::string *value);
 };
 
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
