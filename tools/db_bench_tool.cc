@@ -1947,36 +1947,36 @@ class Benchmark {
   }
 
   inline bool CompressSlice(const CompressionContext& compression_ctx,
-                          const Slice& input, std::string* compressed) {
+                            const Slice& input, std::string* compressed) {
     bool ok = true;
     switch (FLAGS_compression_type_e) {
       case rocksdb::kSnappyCompression:
-        ok = Snappy_Compress(compression_ctx, input.data(),
-                             input.size(), compressed);
+        ok = Snappy_Compress(compression_ctx, input.data(), input.size(),
+                             compressed);
         break;
       case rocksdb::kZlibCompression:
-        ok = Zlib_Compress(compression_ctx, 2, input.data(),
-                           input.size(), compressed);
+        ok = Zlib_Compress(compression_ctx, 2, input.data(), input.size(),
+                           compressed);
         break;
       case rocksdb::kBZip2Compression:
-        ok = BZip2_Compress(compression_ctx, 2, input.data(),
-                            input.size(), compressed);
+        ok = BZip2_Compress(compression_ctx, 2, input.data(), input.size(),
+                            compressed);
         break;
       case rocksdb::kLZ4Compression:
-        ok = LZ4_Compress(compression_ctx, 2, input.data(),
-                          input.size(), compressed);
+        ok = LZ4_Compress(compression_ctx, 2, input.data(), input.size(),
+                          compressed);
         break;
       case rocksdb::kLZ4HCCompression:
-        ok = LZ4HC_Compress(compression_ctx, 2, input.data(),
-                            input.size(), compressed);
+        ok = LZ4HC_Compress(compression_ctx, 2, input.data(), input.size(),
+                            compressed);
         break;
       case rocksdb::kXpressCompression:
         ok = XPRESS_Compress(input.data(),
           input.size(), compressed);
         break;
       case rocksdb::kZSTD:
-        ok = ZSTD_Compress(compression_ctx, input.data(),
-                            input.size(), compressed);
+        ok = ZSTD_Compress(compression_ctx, input.data(), input.size(),
+                           compressed);
         break;
       default:
         ok = false;
@@ -2058,8 +2058,10 @@ class Benchmark {
       const int len = FLAGS_block_size;
       std::string input_str(len, 'y');
       std::string compressed;
-      CompressionContext compression_ctx(FLAGS_compression_type_e, Options().compression_opts);
-      bool result = CompressSlice(compression_ctx, Slice(input_str), &compressed);
+      CompressionContext compression_ctx(FLAGS_compression_type_e,
+                                         Options().compression_opts);
+      bool result =
+          CompressSlice(compression_ctx, Slice(input_str), &compressed);
 
       if (!result) {
         fprintf(stdout, "WARNING: %s compression is not enabled\n",
@@ -2851,8 +2853,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t produced = 0;
     bool ok = true;
     std::string compressed;
-    CompressionContext compression_ctx(FLAGS_compression_type_e, 
-      Options().compression_opts);
+    CompressionContext compression_ctx(FLAGS_compression_type_e,
+                                       Options().compression_opts);
 
     // Compress 1G
     while (ok && bytes < int64_t(1) << 30) {
@@ -2881,7 +2883,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
     CompressionContext compression_ctx(FLAGS_compression_type_e,
-      Options().compression_opts);
+                                       Options().compression_opts);
 
     bool ok = CompressSlice(compression_ctx, input, &compressed);
     int64_t bytes = 0;
@@ -2904,8 +2906,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       case rocksdb::kZlibCompression:
         uncompressed = Zlib_Uncompress(uncompression_ctx, compressed.data(),
-                                       compressed.size(),
-                                       &decompress_size, 2);
+                                       compressed.size(), &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kBZip2Compression:
@@ -2915,14 +2916,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         break;
       case rocksdb::kLZ4Compression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
-                                      compressed.size(),
-                                      &decompress_size, 2);
+                                      compressed.size(), &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4HCCompression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
-                                      compressed.size(),
-                                      &decompress_size, 2);
+                                      compressed.size(), &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kXpressCompression:
@@ -2932,8 +2931,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         break;
       case rocksdb::kZSTD:
         uncompressed = ZSTD_Uncompress(uncompression_ctx, compressed.data(),
-                                       compressed.size(),
-                                       &decompress_size);
+                                       compressed.size(), &decompress_size);
         ok = uncompressed != nullptr;
         break;
       default:

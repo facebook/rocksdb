@@ -41,6 +41,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  private:
   // Filter data
   BlockBuilder index_on_filter_block_builder_;  // top-level index builder
+  BlockBuilder
+      index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
     std::string key;
     Slice filter;
@@ -68,13 +70,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 class PartitionedFilterBlockReader : public FilterBlockReader,
                                      public Cleanable {
  public:
-  explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
-                                        bool whole_key_filtering,
-                                        BlockContents&& contents,
-                                        FilterBitsReader* filter_bits_reader,
-                                        Statistics* stats,
-                                        const Comparator& comparator,
-                                        const BlockBasedTable* table);
+  explicit PartitionedFilterBlockReader(
+      const SliceTransform* prefix_extractor, bool whole_key_filtering,
+      BlockContents&& contents, FilterBitsReader* filter_bits_reader,
+      Statistics* stats, const InternalKeyComparator comparator,
+      const BlockBasedTable* table, const bool index_key_includes_seq);
   virtual ~PartitionedFilterBlockReader();
 
   virtual bool IsBlockBased() override { return false; }
@@ -98,8 +98,9 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;
-  const Comparator& comparator_;
+  const InternalKeyComparator comparator_;
   const BlockBasedTable* table_;
+  const bool index_key_includes_seq_;
   std::unordered_map<uint64_t,
                      BlockBasedTable::CachableEntry<FilterBlockReader>>
       filter_map_;

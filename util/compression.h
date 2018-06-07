@@ -56,34 +56,32 @@ ZSTD_customMem GetJeZstdAllocationOverrides();
 // If, in the future we have more than one native context to
 // cache we can arrange this as a tuple
 class ZSTDUncompressCachedData {
-public:
+ public:
   using ZSTDNativeContext = ZSTD_DCtx*;
-  ZSTDUncompressCachedData()  {}
+  ZSTDUncompressCachedData() {}
   // Init from cache
   ZSTDUncompressCachedData(const ZSTDUncompressCachedData& o) = delete;
   ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
-  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) ROCKSDB_NOEXCEPT :
-    ZSTDUncompressCachedData() {
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) ROCKSDB_NOEXCEPT
+      : ZSTDUncompressCachedData() {
     *this = std::move(o);
   }
-  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o) ROCKSDB_NOEXCEPT {
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o)
+      ROCKSDB_NOEXCEPT {
     assert(zstd_ctx_ == nullptr);
-    std::swap(zstd_ctx_,o.zstd_ctx_);
-    std::swap(cache_idx_,o.cache_idx_);
+    std::swap(zstd_ctx_, o.zstd_ctx_);
+    std::swap(cache_idx_, o.cache_idx_);
     return *this;
   }
-  ZSTDNativeContext Get() const {
-    return zstd_ctx_;
-  }
-  int64_t GetCacheIndex() const {
-    return cache_idx_;
-  }
+  ZSTDNativeContext Get() const { return zstd_ctx_; }
+  int64_t GetCacheIndex() const { return cache_idx_; }
   void CreateIfNeeded() {
     if (zstd_ctx_ == nullptr) {
 #ifdef ROCKSDB_ZSTD_CUSTOM_MEM
-        zstd_ctx_ = ZSTD_createDCtx_advanced(port::GetJeZstdAllocationOverrides());
+      zstd_ctx_ =
+          ZSTD_createDCtx_advanced(port::GetJeZstdAllocationOverrides());
 #else   // ROCKSDB_ZSTD_CUSTOM_MEM
-        zstd_ctx_ = ZSTD_createDCtx();
+      zstd_ctx_ = ZSTD_createDCtx();
 #endif  // ROCKSDB_ZSTD_CUSTOM_MEM
       cache_idx_ = -1;
     }
@@ -97,31 +95,30 @@ public:
       ZSTD_freeDCtx(zstd_ctx_);
     }
   }
-private:
-  ZSTDNativeContext zstd_ctx_  = nullptr;
-  int64_t       cache_idx_ = -1; // -1 means this instance owns the context
+
+ private:
+  ZSTDNativeContext zstd_ctx_ = nullptr;
+  int64_t cache_idx_ = -1;  // -1 means this instance owns the context
 };
-#endif // (ZSTD_VERSION_NUMBER >= 500)
+#endif  // (ZSTD_VERSION_NUMBER >= 500)
 }  // namespace rocksdb
 #endif  // ZSTD
 
 #if !(defined ZSTD) || !(ZSTD_VERSION_NUMBER >= 500)
 namespace rocksdb {
 class ZSTDUncompressCachedData {
-  void* padding; // unused
-public:
+  void* padding;  // unused
+ public:
   using ZSTDNativeContext = void*;
   ZSTDUncompressCachedData() {}
   ZSTDUncompressCachedData(const ZSTDUncompressCachedData&) {}
   ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
-  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&) ROCKSDB_NOEXCEPT = default;
-  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&) ROCKSDB_NOEXCEPT = default;
-  ZSTDNativeContext Get() const {
-    return nullptr;
-  }
-  int64_t GetCacheIndex() const {
-    return -1;
-  }
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&)
+      ROCKSDB_NOEXCEPT = default;
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&)
+      ROCKSDB_NOEXCEPT = default;
+  ZSTDNativeContext Get() const { return nullptr; }
+  int64_t GetCacheIndex() const { return -1; }
   void CreateIfNeeded() {}
   void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
 };
@@ -136,18 +133,19 @@ namespace rocksdb {
 
 // Instantiate this class and pass it to the uncompression API below
 class CompressionContext {
-private:
-  const CompressionType    type_;
+ private:
+  const CompressionType type_;
   const CompressionOptions opts_;
-  Slice                    dict_;
+  Slice dict_;
 #if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
-  ZSTD_CCtx*               zstd_ctx_ = nullptr;
+  ZSTD_CCtx* zstd_ctx_ = nullptr;
   void CreateNativeContext() {
     if (type_ == kZSTD) {
 #ifdef ROCKSDB_ZSTD_CUSTOM_MEM
-        zstd_ctx_ = ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
+      zstd_ctx_ =
+          ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
 #else   // ROCKSDB_ZSTD_CUSTOM_MEM
-        zstd_ctx_ = ZSTD_createCCtx();
+      zstd_ctx_ = ZSTD_createCCtx();
 #endif  // ROCKSDB_ZSTD_CUSTOM_MEM
     }
   }
@@ -156,79 +154,63 @@ private:
       ZSTD_freeCCtx(zstd_ctx_);
     }
   }
-public:
+
+ public:
   // callable inside ZSTD_Compress
-  ZSTD_CCtx * ZSTDPreallocCtx() const {
+  ZSTD_CCtx* ZSTDPreallocCtx() const {
     assert(type_ == kZSTD);
     return zstd_ctx_;
   }
-#else // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
-private:
+#else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
+ private:
   void CreateNativeContext() {}
   void DestroyNativeContext() {}
-#endif //ZSTD && (ZSTD_VERSION_NUMBER >= 500)
-public:
-  explicit CompressionContext(CompressionType comp_type) :
-    type_(comp_type) {
+#endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
+ public:
+  explicit CompressionContext(CompressionType comp_type) : type_(comp_type) {
     CreateNativeContext();
   }
-  CompressionContext(CompressionType comp_type,
-    const CompressionOptions& opts,
-    const Slice& comp_dict = Slice()) :
-    type_(comp_type),
-    opts_(opts),
-    dict_(comp_dict) {
+  CompressionContext(CompressionType comp_type, const CompressionOptions& opts,
+                     const Slice& comp_dict = Slice())
+      : type_(comp_type), opts_(opts), dict_(comp_dict) {
     CreateNativeContext();
   }
-  ~CompressionContext() {
-    DestroyNativeContext();
-  }
+  ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;
   CompressionContext& operator=(const CompressionContext&) = delete;
 
-  const CompressionOptions& options() const {
-    return opts_;
-  }
-  CompressionType type() const {
-    return type_;
-  }
-  const Slice& dict() const {
-    return dict_;
-  }
-  Slice& dict() {
-    return dict_;
-  }
+  const CompressionOptions& options() const { return opts_; }
+  CompressionType type() const { return type_; }
+  const Slice& dict() const { return dict_; }
+  Slice& dict() { return dict_; }
 };
 
 // Instantiate this class and pass it to the uncompression API below
 class UncompressionContext {
-private:
-  CompressionType          type_;
-  Slice                    dict_;
+ private:
+  CompressionType type_;
+  Slice dict_;
   CompressionContextCache* ctx_cache_ = nullptr;
   ZSTDUncompressCachedData uncomp_cached_data_;
-public:
+
+ public:
   struct NoCache {};
   // Do not use context cache, used by TableBuilder
-  UncompressionContext(NoCache, CompressionType comp_type) :
-   type_(comp_type) {
-  }
-  explicit UncompressionContext(CompressionType comp_type) :
-    UncompressionContext(comp_type, Slice()) {
-  }
-  UncompressionContext(CompressionType comp_type, const Slice& comp_dict)  :
-    type_(comp_type), dict_(comp_dict) {
+  UncompressionContext(NoCache, CompressionType comp_type) : type_(comp_type) {}
+  explicit UncompressionContext(CompressionType comp_type)
+      : UncompressionContext(comp_type, Slice()) {}
+  UncompressionContext(CompressionType comp_type, const Slice& comp_dict)
+      : type_(comp_type), dict_(comp_dict) {
     if (type_ == kZSTD) {
       ctx_cache_ = CompressionContextCache::Instance();
       uncomp_cached_data_ = ctx_cache_->GetCachedZSTDUncompressData();
     }
   }
   ~UncompressionContext() {
-    if (type_ == kZSTD &&
-      uncomp_cached_data_.GetCacheIndex() != -1) {
+    if (type_ == kZSTD && uncomp_cached_data_.GetCacheIndex() != -1) {
       assert(ctx_cache_ != nullptr);
       ctx_cache_->ReturnCachedZSTDUncompressData(
-        uncomp_cached_data_.GetCacheIndex());
+          uncomp_cached_data_.GetCacheIndex());
     }
   }
   UncompressionContext(const UncompressionContext&) = delete;
@@ -237,15 +219,9 @@ public:
   ZSTDUncompressCachedData::ZSTDNativeContext GetZSTDContext() const {
     return uncomp_cached_data_.Get();
   }
-  CompressionType type()  const {
-    return type_;
-  }
-  const Slice& dict() const {
-    return dict_;
-  }
-  Slice& dict() {
-    return dict_;
-  }
+  CompressionType type() const { return type_; }
+  const Slice& dict() const { return dict_; }
+  Slice& dict() { return dict_; }
 };
 
 inline bool Snappy_Supported() {
@@ -471,9 +447,9 @@ inline bool Zlib_Compress(const CompressionContext& ctx,
 
   if (ctx.dict().size()) {
     // Initialize the compression library's dictionary
-    st = deflateSetDictionary(
-        &_stream, reinterpret_cast<const Bytef*>(ctx.dict().data()),
-        static_cast<unsigned int>(ctx.dict().size()));
+    st = deflateSetDictionary(&_stream,
+                              reinterpret_cast<const Bytef*>(ctx.dict().data()),
+                              static_cast<unsigned int>(ctx.dict().size()));
     if (st != Z_OK) {
       deflateEnd(&_stream);
       return false;
@@ -516,8 +492,8 @@ inline bool Zlib_Compress(const CompressionContext& ctx,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char* Zlib_Uncompress(const UncompressionContext& ctx, const char* input_data,
-                             size_t input_length,
+inline char* Zlib_Uncompress(const UncompressionContext& ctx,
+                             const char* input_data, size_t input_length,
                              int* decompress_size,
                              uint32_t compress_format_version,
                              int windowBits = -14) {
@@ -551,9 +527,9 @@ inline char* Zlib_Uncompress(const UncompressionContext& ctx, const char* input_
 
   if (ctx.dict().size()) {
     // Initialize the compression library's dictionary
-    st = inflateSetDictionary(
-        &_stream, reinterpret_cast<const Bytef*>(ctx.dict().data()),
-        static_cast<unsigned int>(ctx.dict().size()));
+    st = inflateSetDictionary(&_stream,
+                              reinterpret_cast<const Bytef*>(ctx.dict().data()),
+                              static_cast<unsigned int>(ctx.dict().size()));
     if (st != Z_OK) {
       return nullptr;
     }
@@ -835,8 +811,8 @@ inline bool LZ4_Compress(const CompressionContext& ctx,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char* LZ4_Uncompress(const UncompressionContext& ctx, const char* input_data,
-                            size_t input_length,
+inline char* LZ4_Uncompress(const UncompressionContext& ctx,
+                            const char* input_data, size_t input_length,
                             int* decompress_size,
                             uint32_t compress_format_version) {
 #ifdef LZ4
@@ -1026,9 +1002,9 @@ inline bool ZSTD_Compress(const CompressionContext& ctx, const char* input,
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
   ZSTD_CCtx* context = ctx.ZSTDPreallocCtx();
   assert(context != nullptr);
-  outlen = ZSTD_compress_usingDict(
-      context, &(*output)[output_header_len], compressBound, input, length,
-      ctx.dict().data(), ctx.dict().size(), level);
+  outlen = ZSTD_compress_usingDict(context, &(*output)[output_header_len],
+                                   compressBound, input, length,
+                                   ctx.dict().data(), ctx.dict().size(), level);
 #else   // up to v0.4.x
   outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,
                          length, level);
@@ -1049,8 +1025,8 @@ inline bool ZSTD_Compress(const CompressionContext& ctx, const char* input,
 
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char* ZSTD_Uncompress(const UncompressionContext& ctx, const char* input_data,
-                             size_t input_length,
+inline char* ZSTD_Uncompress(const UncompressionContext& ctx,
+                             const char* input_data, size_t input_length,
                              int* decompress_size) {
 #ifdef ZSTD
   uint32_t output_len = 0;
@@ -1065,8 +1041,8 @@ inline char* ZSTD_Uncompress(const UncompressionContext& ctx, const char* input_
   ZSTD_DCtx* context = ctx.GetZSTDContext();
   assert(context != nullptr);
   actual_output_length = ZSTD_decompress_usingDict(
-      context, output, output_len, input_data, input_length,
-      ctx.dict().data(), ctx.dict().size());
+      context, output, output_len, input_data, input_length, ctx.dict().data(),
+      ctx.dict().size());
 #else   // up to v0.4.x
   actual_output_length =
       ZSTD_decompress(output, output_len, input_data, input_length);

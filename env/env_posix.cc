@@ -49,6 +49,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
+#include "util/compression_context_cache.h"
 #include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -1057,6 +1058,7 @@ Env* Env::Default() {
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
   ThreadLocalPtr::InitSingletons();
+  CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
   static PosixEnv default_env;
   return &default_env;
