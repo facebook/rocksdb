@@ -54,6 +54,8 @@ class BlockHandle {
 
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
+  Status DecodeSizeFrom(uint64_t offset, Slice* input);
+  void EncodeSizeTo(std::string* dst) const;
 
   // Return a string that contains the copy of handle.
   std::string ToString(bool hex = true) const;
@@ -90,7 +92,7 @@ inline uint32_t GetCompressFormatForVersion(
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 3;
+  return version <= 4;
 }
 
 // Footer encapsulates the fixed information stored at the tail

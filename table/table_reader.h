@@ -21,7 +21,6 @@ class Arena;
 struct ReadOptions;
 struct TableProperties;
 class GetContext;
-class InternalIterator;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from

@@ -70,6 +70,13 @@ extern Slice GetSliceUntil(Slice* slice, char delimiter);
 // [p..limit-1]
 extern const char* GetVarint32Ptr(const char* p,const char* limit, uint32_t* v);
 extern const char* GetVarint64Ptr(const char* p,const char* limit, uint64_t* v);
+inline const char* GetVarsignedint64Ptr(const char* p, const char* limit, int64_t* value) {
+  uint64_t u = 0;
+  auto ret = GetVarint64Ptr(p, limit, &u);
+  *value = u % 2 == 0 ? u / 2 : u / 2 * -1;
+  return ret;
+}
+
 
 // Returns the length of the varint32 or varint64 encoding of "v"
 extern int VarintLength(uint64_t v);
@@ -251,6 +258,15 @@ inline char* EncodeVarint64(char* dst, uint64_t v) {
 inline void PutVarint64(std::string* dst, uint64_t v) {
   char buf[10];
   char* ptr = EncodeVarint64(buf, v);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
+inline void PutVarsignedint64(std::string* dst, int64_t v) {
+  char buf[10];
+  // Shift the absolute number right for one bit. Then use the least significant
+  // bit to indicate the sign.
+  char* ptr =
+      v >= 0 ? EncodeVarint64(buf, v * 2) : EncodeVarint64(buf, v * -1 * 2 + 1);
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 

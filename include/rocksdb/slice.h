@@ -117,6 +117,8 @@ class Slice {
   const char* data_;
   size_t size_;
 
+  inline void UpdateSize(size_t size) { size_ = size; }
+
   // Intentionally copyable
 };
 
