@@ -312,7 +312,8 @@ CompactionJob::CompactionJob(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
-    const std::string& dbname, CompactionJobStats* compaction_job_stats)
+    const std::string& dbname, CompactionJobStats* compaction_job_stats,
+    const std::atomic<bool>* stopping_manual_compaction)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -325,6 +326,7 @@ CompactionJob::CompactionJob(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
+      stopping_manual_compaction_(stopping_manual_compaction),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
@@ -798,9 +800,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
       snapshot_checker_, compact_->compaction->level(),
-      db_options_.statistics.get(), shutting_down_);
+      db_options_.statistics.get(), shutting_down_,
+      stopping_manual_compaction_);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():StoppingManualCompaction",
+      (void *)stopping_manual_compaction_);
 
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
@@ -818,7 +823,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, false, range_del_agg.get(),
       sub_compact->compaction, compaction_filter, shutting_down_,
-      preserve_deletes_seqnum_));
+      preserve_deletes_seqnum_, stopping_manual_compaction_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -993,6 +998,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
   RecordCompactionIOStats();
 
+  if (status.ok() && (stopping_manual_compaction_ &&
+        stopping_manual_compaction_->load(std::memory_order_acquire))) {
+    status = Status::ManualCompactionDisabled(
+        "The runnig manual compaction is being stopped by client");
+  }
   if (status.ok() &&
       (shutting_down_->load(std::memory_order_relaxed) || cfd->IsDropped())) {
     status = Status::ShutdownInProgress(

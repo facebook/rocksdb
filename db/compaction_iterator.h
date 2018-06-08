@@ -68,7 +68,8 @@ class CompactionIterator {
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0);
+                     const SequenceNumber preserve_deletes_seqnum = 0,
+                     const std::atomic<bool>* stopping_manual_compaction = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -81,7 +82,8 @@ class CompactionIterator {
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0);
+                     const SequenceNumber preserve_deletes_seqnum = 0,
+                     const std::atomic<bool>* stopping_manual_compaction = nullptr);
 
   ~CompactionIterator();
 
@@ -144,6 +146,7 @@ class CompactionIterator {
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
+  const std::atomic<bool>* stopping_manual_compaction_;
   const SequenceNumber preserve_deletes_seqnum_;
   bool bottommost_level_;
   bool valid_ = false;
@@ -207,6 +210,11 @@ class CompactionIterator {
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
+  }
+
+  bool IsStoppingManualCompaction() {
+    return stopping_manual_compaction_ &&
+      stopping_manual_compaction_->load(std::memory_order_acquire);
   }
 };
 }  // namespace rocksdb

@@ -20,14 +20,16 @@ CompactionIterator::CompactionIterator(
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum)
+    const SequenceNumber preserve_deletes_seqnum,
+    const std::atomic<bool>* stopping_manual_compaction)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
           expect_valid_internal_key, range_del_agg,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
-          compaction_filter, shutting_down, preserve_deletes_seqnum) {}
+          compaction_filter, shutting_down, preserve_deletes_seqnum,
+          stopping_manual_compaction) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -38,7 +40,8 @@ CompactionIterator::CompactionIterator(
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum)
+    const SequenceNumber preserve_deletes_seqnum,
+    const std::atomic<bool>* stopping_manual_compaction)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -51,6 +54,7 @@ CompactionIterator::CompactionIterator(
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
+      stopping_manual_compaction_(stopping_manual_compaction),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       ignore_snapshots_(false),
       current_user_key_sequence_(0),
@@ -210,7 +214,7 @@ void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
 
-  while (!valid_ && input_->Valid() && !IsShuttingDown()) {
+  while (!valid_ && input_->Valid() && !IsStoppingManualCompaction() && !IsShuttingDown()) {
     key_ = input_->key();
     value_ = input_->value();
     iter_stats_.num_input_records++;
@@ -564,6 +568,10 @@ void CompactionIterator::NextFromInput() {
     if (need_skip) {
       input_->Seek(skip_until);
     }
+  }
+
+  if (!valid_ && IsStoppingManualCompaction()) {
+    status_ = Status::ManualCompactionDisabled();
   }
 
   if (!valid_ && IsShuttingDown()) {

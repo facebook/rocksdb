@@ -59,7 +59,8 @@ class Status {
     kBusy = 11,
     kExpired = 12,
     kTryAgain = 13,
-    kCompactionTooLarge = 14
+    kCompactionTooLarge = 14,
+    kManualCompactionDisabled = 15
   };
 
   Code code() const { return code_; }
@@ -181,6 +182,13 @@ class Status {
     return Status(kAborted, kMemoryLimit, msg, msg2);
   }
 
+  static Status ManualCompactionDisabled(SubCode msg = kNone) {
+    return Status(kManualCompactionDisabled, msg);
+  }
+  static Status ManualCompactionDisabled(const Slice& msg,
+                                         const Slice& msg2 = Slice()) {
+    return Status(kManualCompactionDisabled, msg, msg2);
+  }
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -247,6 +255,10 @@ class Status {
   // of a write batch) in order to avoid out of memory exceptions.
   bool IsMemoryLimit() const {
     return (code() == kAborted) && (subcode() == kMemoryLimit);
+  }
+
+  bool IsManualCompactionDisabled() const {
+    return code() == kManualCompactionDisabled;
   }
 
   // Return a string representation of this status suitable for printing.

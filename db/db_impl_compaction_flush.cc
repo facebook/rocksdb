@@ -361,6 +361,11 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         return Status::ShutdownInProgress();
       }
 
+      if (stopping_manual_compaction_ &&
+          stopping_manual_compaction_.load(std::memory_order_acquire)) {
+        return Status::ManualCompactionDisabled();
+      }
+
       uint64_t earliest_memtable_id =
           std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
       if (earliest_memtable_id > orig_active_memtable_id) {
@@ -678,7 +683,7 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      nullptr);  // Here we pass a nullptr for CompactionJobStats because
+      nullptr,   // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
                  // returned.  The idea of not triggering OnCompationCompleted()
@@ -691,6 +696,7 @@ Status DBImpl::CompactFilesImpl(
                  // support for CompactFiles, we should have CompactFiles API
                  // pass a pointer of CompactionJobStats as the out-value
                  // instead of using EventListener.
+      &stopping_manual_compaction_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -731,6 +737,12 @@ Status DBImpl::CompactFilesImpl(
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
+  } else if (status.IsManualCompactionDisabled()) {
+    // Don't report stopping manual compaction as error
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Stopping manual compaction",
+                   c->column_family_data()->GetName().c_str(),
+                   job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
@@ -1183,6 +1195,24 @@ Status DBImpl::EnableAutoCompaction(
   return s;
 }
 
+Status DBImpl::EnableManualCompaction(
+    bool enable, bool wait_pending_manual_compaction) {
+  if (enable) {
+    stopping_manual_compaction_.store(false, std::memory_order_release);
+  }
+  else {
+    stopping_manual_compaction_.store(true, std::memory_order_release);
+    if (wait_pending_manual_compaction) {
+      InstrumentedMutexLock l(&mutex_);
+      while (HasPendingManualCompaction()) {
+        bg_cv_.Wait();
+      }
+    }
+  }
+
+  return Status::OK();
+}
+
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   if (!opened_successfully_) {
@@ -1529,7 +1559,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
                                     prepicked_compaction);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
-    if (!s.ok() && !s.IsShutdownInProgress()) {
+    if (!s.ok() && !s.IsShutdownInProgress() &&
+        !s.IsManualCompactionDisabled()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
       // chew up resources for failed compactions for the duration of
@@ -1546,6 +1577,12 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       LogFlush(immutable_db_options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
+    } else if (s.IsManualCompactionDisabled()) {
+      ManualCompactionState *m = prepicked_compaction->manual_compaction_state;
+      assert(m);
+      ROCKS_LOG_BUFFER(&log_buffer, "[%s] [JOB %d] Stopping manual compaction",
+                       m->cfd->GetName().c_str(),
+                       job_context.job_id);
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -1632,8 +1669,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   CompactionJobStats compaction_job_stats;
   Status status = bg_error_;
+
   if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
     status = Status::ShutdownInProgress();
+  }
+
+  if (status.ok() && is_manual &&
+      stopping_manual_compaction_.load(std::memory_order_acquire)) {
+    status = Status::ManualCompactionDisabled();
   }
 
   if (!status.ok()) {
@@ -1909,7 +1952,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         snapshot_checker, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
-        &compaction_job_stats);
+        &compaction_job_stats,
+        is_manual ? &stopping_manual_compaction_ : nullptr);
     compaction_job.Prepare();
 
     mutex_.Unlock();
@@ -1944,7 +1988,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   // this will unref its input_version and column_family_data
   c.reset();
 
-  if (status.ok() || status.IsCompactionTooLarge()) {
+  if (status.ok() || status.IsCompactionTooLarge() ||
+      status.IsManualCompactionDisabled()) {
     // Done
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
