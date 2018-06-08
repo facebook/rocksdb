@@ -93,6 +93,9 @@ struct SstFileMetaData {
   std::string largestkey;      // Largest user defined key in the file.
   uint64_t num_reads_sampled;  // How many times the file is read.
   bool being_compacted;  // true if the file is currently being compacted.
+
+  uint64_t num_entries;
+  uint64_t num_deletions;
 };
 
 // The full set of metadata associated with each SST file.
