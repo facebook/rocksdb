@@ -65,6 +65,31 @@ class UncollapsedRangeDelMap : public RangeDelMap {
     return false;
   }
 
+  bool ShouldDeleteRange(const Slice& start, const Slice& end,
+                         SequenceNumber seqno) {
+    // Unimplemented, though the lack of implementation only affects
+    // performance (not correctness) for sstable ingestion. Normal read
+    // operations use a CollapsedRangeDelMap.
+    //
+    // TODO(peter): This is called from
+    // Version::OverlapWithLevelIterator. That method needs to be tested in
+    // the presence of range tombstones.
+    (void)start;
+    (void)end;
+    (void)seqno;
+    return false;
+  }
+
+  RangeTombstone GetTombstone(const Slice& user_key, SequenceNumber seqno) {
+    // Unimplemented because the only client of this method, iteration, uses
+    // collapsed maps.
+    (void)user_key;
+    (void)seqno;
+    fprintf(stderr, "UncollapsedRangeDelMap::GetTombstone unimplemented");
+    abort();
+    return RangeTombstone(Slice(), Slice(), 0);
+  }
+
   bool IsRangeOverlapped(const Slice& start, const Slice& end) {
     for (const auto& tombstone : rep_) {
       if (ucmp_->Compare(start, tombstone.end_key_) < 0 &&
@@ -222,6 +247,60 @@ class CollapsedRangeDelMap : public RangeDelMap {
     assert(std::next(iter_) == rep_.end() ||
            ucmp_->Compare(parsed.user_key, std::next(iter_)->first) < 0);
     return parsed.sequence < iter_->second;
+  }
+
+  bool ShouldDeleteRange(const Slice& start, const Slice& end,
+                         SequenceNumber seqno) {
+    ParsedInternalKey parsed_start;
+    if (!ParseInternalKey(start, &parsed_start)) {
+      assert(false);
+    }
+    ParsedInternalKey parsed_end;
+    if (!ParseInternalKey(end, &parsed_end)) {
+      assert(false);
+    }
+    if (ucmp_->Compare(parsed_start.user_key, parsed_end.user_key) > 0) {
+      return false;
+    }
+
+    auto iter = rep_.upper_bound(parsed_start.user_key);
+    if (iter == rep_.begin()) {
+      // before start of deletion intervals
+      return false;
+    }
+    --iter;
+    if (ucmp_->Compare(parsed_start.user_key, iter->first) < 0) {
+      return false;
+    }
+    // Loop looking for a tombstone that is older than the range
+    // sequence number, or we determine that our range is completely
+    // covered by newer tombstones.
+    for (; iter != rep_.end(); ++iter) {
+      if (ucmp_->Compare(parsed_end.user_key, iter->first) < 0) {
+        return true;
+      }
+      if (seqno >= iter->second) {
+        // Tombstone is older than range sequence number.
+        return false;
+      }
+    }
+    return false;
+  }
+
+  RangeTombstone GetTombstone(const Slice& user_key, SequenceNumber seqno) {
+    auto iter = rep_.upper_bound(user_key);
+    if (iter == rep_.begin()) {
+      // before start of deletion intervals
+      return RangeTombstone(Slice(), iter->first, 0);
+    }
+    auto prev = iter;
+    --prev;
+    if (iter == rep_.end()) {
+      // after end of deletion intervals
+      return RangeTombstone(prev->first, Slice(), 0);
+    }
+    return RangeTombstone(prev->first, iter->first,
+                          prev->second >= seqno ? prev->second : 0);
   }
 
   bool IsRangeOverlapped(const Slice&, const Slice&) {
@@ -414,51 +493,23 @@ bool RangeDelAggregator::ShouldDeleteRange(
   if (rep_ == nullptr) {
     return false;
   }
-  if (!collapse_deletions_) {
-    // Only supported in collapse deletions mode.
+  auto& tombstone_map = GetRangeDelMap(seqno);
+  if (tombstone_map.IsEmpty()) {
     return false;
   }
+  return tombstone_map.ShouldDeleteRange(start, end, seqno);
+}
 
-  ParsedInternalKey parsed_start;
-  if (!ParseInternalKey(start, &parsed_start)) {
-    assert(false);
+RangeTombstone RangeDelAggregator::GetTombstone(const Slice& user_key,
+                                                SequenceNumber seqno) {
+  if (rep_ == nullptr) {
+    return RangeTombstone(Slice(), Slice(), 0);
   }
-  ParsedInternalKey parsed_end;
-  if (!ParseInternalKey(end, &parsed_end)) {
-    assert(false);
+  auto& tombstone_map = GetRangeDelMap(seqno);
+  if (tombstone_map.IsEmpty()) {
+    return RangeTombstone(Slice(), Slice(), 0);
   }
-  if (icmp_.user_comparator()->Compare(parsed_start.user_key, parsed_end.user_key) > 0) {
-    return false;
-  }
-
-  auto& positional_tombstone_map = GetPositionalTombstoneMap(seqno);
-  const auto& tombstone_map = positional_tombstone_map.raw_map;
-  if (tombstone_map.empty()) {
-    return false;
-  }
-
-  auto iter = tombstone_map.upper_bound(parsed_start.user_key);
-  if (iter == tombstone_map.begin()) {
-    // before start of deletion intervals
-    return false;
-  }
-  --iter;
-  if (icmp_.user_comparator()->Compare(parsed_start.user_key, iter->first) < 0) {
-    return false;
-  }
-  // Loop looking for a tombstone that is older than the range
-  // sequence number, or we determine that our range is completely
-  // covered by newer tombstones.
-  for (; iter != tombstone_map.end(); ++iter) {
-    if (icmp_.user_comparator()->Compare(parsed_end.user_key, iter->first) < 0) {
-      return true;
-    }
-    if (seqno >= iter->second.seq_) {
-      // Tombstone is older than range sequence number.
-      return false;
-    }
-  }
-  return false;
+  return tombstone_map.GetTombstone(user_key, seqno);
 }
 
 bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,

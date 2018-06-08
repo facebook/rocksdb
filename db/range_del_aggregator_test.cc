@@ -141,7 +141,6 @@ void VerifyRangeDels(
 
 bool ShouldDeleteRange(const std::vector<RangeTombstone>& range_dels,
                        const ExpectedRange& expected_range) {
-  auto icmp = InternalKeyComparator(BytewiseComparator());
   RangeDelAggregator range_del_agg(icmp, {} /* snapshots */, true);
   std::vector<std::string> keys, values;
   for (const auto& range_del : range_dels) {
@@ -157,6 +156,26 @@ bool ShouldDeleteRange(const std::vector<RangeTombstone>& range_dels,
   AppendInternalKey(&begin, {expected_range.begin, expected_range.seq, kTypeValue});
   AppendInternalKey(&end, {expected_range.end, expected_range.seq, kTypeValue});
   return range_del_agg.ShouldDeleteRange(begin, end, expected_range.seq);
+}
+
+void VerifyGetTombstone(const std::vector<RangeTombstone>& range_dels,
+                        const ExpectedPoint& expected_point,
+                        const RangeTombstone& expected_tombstone) {
+  RangeDelAggregator range_del_agg(icmp, {} /* snapshots */, true);
+  std::vector<std::string> keys, values;
+  for (const auto& range_del : range_dels) {
+    auto key_and_value = range_del.Serialize();
+    keys.push_back(key_and_value.first.Encode().ToString());
+    values.push_back(key_and_value.second.ToString());
+  }
+  std::unique_ptr<test::VectorIterator> range_del_iter(
+      new test::VectorIterator(keys, values));
+  range_del_agg.AddTombstones(std::move(range_del_iter));
+
+  auto tombstone = range_del_agg.GetTombstone(expected_point.begin, expected_point.seq);
+  ASSERT_EQ(expected_tombstone.start_key_.ToString(), tombstone.start_key_.ToString());
+  ASSERT_EQ(expected_tombstone.end_key_.ToString(), tombstone.end_key_.ToString());
+  ASSERT_EQ(expected_tombstone.seq_, tombstone.seq_);
 }
 
 }  // anonymous namespace
@@ -360,6 +379,41 @@ TEST_F(RangeDelAggregatorTest, ShouldDeleteRange) {
   ASSERT_FALSE(ShouldDeleteRange(
       {{"a", "b", 10}, {"c", "e", 20}},
       {"c", "d", 20}));
+}
+
+TEST_F(RangeDelAggregatorTest, GetTombstone) {
+  VerifyGetTombstone(
+      {{"b", "d", 10}},
+      {"b", 9},
+      {"b", "d", 10});
+  VerifyGetTombstone(
+      {{"b", "d", 10}},
+      {"b", 20},
+      {"b", "d", 0});
+  VerifyGetTombstone(
+      {{"b", "d", 10}},
+      {"a", 9},
+      {"", "b", 0});
+  VerifyGetTombstone(
+      {{"b", "d", 10}},
+      {"d", 9},
+      {"d", "", 0});
+  VerifyGetTombstone(
+      {{"a", "c", 10}, {"e", "h", 20}},
+      {"d", 9},
+      {"c", "e", 0});
+  VerifyGetTombstone(
+      {{"a", "c", 10}, {"e", "h", 20}},
+      {"b", 9},
+      {"a", "c", 10});
+  VerifyGetTombstone(
+      {{"a", "c", 10}, {"e", "h", 20}},
+      {"e", 9},
+      {"e", "h", 20});
+  VerifyGetTombstone(
+      {{"a", "c", 10}, {"e", "h", 20}},
+      {"e", 9},
+      {"e", "h", 20});
 }
 
 }  // namespace rocksdb
