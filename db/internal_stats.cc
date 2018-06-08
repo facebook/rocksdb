@@ -333,7 +333,7 @@ const std::string DB::Properties::kBlockCacheUsage =
     rocksdb_prefix + block_cache_usage;
 const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
-const std::string DB::Properties::kDBStatisticsInOptions =
+const std::string DB::Properties::kStatistics =
     rocksdb_prefix + db_statistics_in_options;
 
 const std::unordered_map<std::string, DBPropertyInfo>
@@ -465,7 +465,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kBlockCachePinnedUsage,
          {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
           nullptr}},
-        {DB::Properties::kDBStatisticsInOptions,
+        {DB::Properties::kStatistics,
          {false, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleDBStatisticsInOptions}},
 };
