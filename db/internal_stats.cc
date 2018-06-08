@@ -467,7 +467,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kDBStatisticsInOptions,
          {false, nullptr, nullptr, nullptr,
-          &DBImpl::HandleImmutableOptionStatistics}},
+          &DBImpl::GetPropertyHandleDBStatisticsInOptions}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
