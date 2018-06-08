@@ -807,6 +807,32 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, IteratorCoveredSst) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // TODO(peter): generate multiple sstables with some being covered
+  // by tombstones and some that aren't.
+  db_->Put(WriteOptions(), "key", "val");
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+
+  ReadOptions read_opts;
+  auto* iter = db_->NewIterator(read_opts);
+
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ++count;
+  }
+  delete iter;
+
+  ASSERT_EQ(0, count);
+  // Note that the statistics are updated when the iter is deleted.
+  ASSERT_EQ(0, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+}
+
 #ifndef ROCKSDB_UBSAN_RUN
 TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   db_->Put(WriteOptions(), "key", "val");

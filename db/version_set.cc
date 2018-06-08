@@ -543,6 +543,14 @@ class LevelIterator final : public InternalIterator {
   InternalIterator* NewFileIterator() {
     assert(file_index_ < flevel_->num_files);
     auto file_meta = flevel_->files[file_index_];
+    // Check to see if every key in the sstable is covered by a range
+    // tombstone. SkipEmptyFile{Forward,Backward} will take care of
+    // skipping over an "empty" file if we return null.
+    if (range_del_agg_->ShouldDeleteRange(file_meta.smallest_key, file_meta.largest_key,
+                                          file_meta.file_metadata->largest_seqno)) {
+      return nullptr;
+    }
+
     if (should_sample_) {
       sample_file_read_inc(file_meta.file_metadata);
     }
@@ -593,8 +601,8 @@ void LevelIterator::SeekForPrev(const Slice& target) {
   InitFileIterator(new_file_index);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekForPrev(target);
-    SkipEmptyFileBackward();
   }
+  SkipEmptyFileBackward();
 }
 
 void LevelIterator::SeekToFirst() {
