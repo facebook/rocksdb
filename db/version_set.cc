@@ -4140,6 +4140,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.largestkey = file->largest.user_key().ToString();
         filemetadata.smallest_seqno = file->smallest_seqno;
         filemetadata.largest_seqno = file->largest_seqno;
+        filemetadata.num_entries = file->num_entries;
+        filemetadata.num_deletions = file->num_deletions;
         metadata->push_back(filemetadata);
       }
     }
