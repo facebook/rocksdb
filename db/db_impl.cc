@@ -1918,7 +1918,7 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
   }
 }
 
-bool DBImpl::GetPropertyHandleDBStatisticsInOptions(std::string* value) {
+bool DBImpl::GetPropertyHandleOptionsStatistics(std::string* value) {
   assert(value != nullptr);
   Statistics* statistics = immutable_db_options_.statistics.get();
   if (!statistics) {

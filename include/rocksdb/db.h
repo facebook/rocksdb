@@ -622,8 +622,8 @@ class DB {
     //      entries being pinned.
     static const std::string kBlockCachePinnedUsage;
 
-    // "rocksdb.db_statistics_in_options" - returns multi-line string
-    //      containing the statistics of the db in options
+    // "rocksdb.options-statistics" - returns multi-line string
+    //      containing options.statistics
     static const std::string kStatistics;
   };
 #endif /* ROCKSDB_LITE */

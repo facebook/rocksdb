@@ -249,7 +249,7 @@ static const std::string estimate_oldest_key_time = "estimate-oldest-key-time";
 static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
-static const std::string db_statistics_in_options = "db-statistics-in-options";
+static const std::string options_statistics = "options-statistics";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -334,7 +334,7 @@ const std::string DB::Properties::kBlockCacheUsage =
 const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
 const std::string DB::Properties::kStatistics =
-    rocksdb_prefix + db_statistics_in_options;
+    rocksdb_prefix + options_statistics;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -467,7 +467,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kStatistics,
          {false, nullptr, nullptr, nullptr,
-          &DBImpl::GetPropertyHandleDBStatisticsInOptions}},
+          &DBImpl::GetPropertyHandleOptionsStatistics}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {

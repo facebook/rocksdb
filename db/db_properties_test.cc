@@ -378,7 +378,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
   // Test for getting immutable_db_options_.statistics
   ASSERT_TRUE(dbfull()->GetProperty(dbfull()->DefaultColumnFamily(),
-                                    "rocksdb.db-statistics-in-options", &prop));
+                                    "rocksdb.options-statistics", &prop));
   ASSERT_NE(std::string::npos, prop.find("rocksdb.block.cache.miss"));
   ASSERT_EQ(std::string::npos, prop.find("rocksdb.db.f.micros"));
 
