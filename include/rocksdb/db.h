@@ -624,7 +624,7 @@ class DB {
 
     // "rocksdb.options-statistics" - returns multi-line string
     //      containing options.statistics
-    static const std::string kStatistics;
+    static const std::string kOptionsStatistics;
   };
 #endif /* ROCKSDB_LITE */
 
