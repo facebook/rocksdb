@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "table/meta_blocks.h"
 
-#include <limits>
 #include <map>
 #include <string>
 
@@ -43,7 +42,8 @@ Slice MetaIndexBuilder::Finish() {
 // object, so there's no need for restart points. Thus we set the restart
 // interval to infinity to save space.
 PropertyBlockBuilder::PropertyBlockBuilder()
-    : properties_block_(new BlockBuilder(INT_MAX /* restart interval */)) {}
+    : properties_block_(
+          new BlockBuilder(port::kMaxInt32 /* restart interval */)) {}
 
 void PropertyBlockBuilder::Add(const std::string& name,
                                const std::string& val) {
