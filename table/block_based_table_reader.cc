@@ -828,7 +828,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   if (rep->table_properties) {
     ParseSliceTransform(rep->table_properties->prefix_extractor_name,
                         &(rep->table_prefix_extractor));
-
   }
 #endif  // ROCKSDB_LITE
 
@@ -1791,10 +1790,10 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // Otherwise, this method guarantees no I/O will be incurred.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
-bool BlockBasedTable::PrefixMayMatch(
-    const Slice& internal_key, const ReadOptions& read_options,
-    const bool prefix_extractor_changed,
-    const SliceTransform* prefix_extractor) {
+bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
+                                     const ReadOptions& read_options,
+                                     const bool prefix_extractor_changed,
+                                     const SliceTransform* prefix_extractor) {
   if (!rep_->filter_policy) {
     return true;
   }
@@ -1811,26 +1810,34 @@ bool BlockBasedTable::PrefixMayMatch(
     // share the same prefix then we may still be able to use the bloom filter.
     if (read_options.iterate_upper_bound != nullptr &&
         rep_->table_prefix_extractor) {
-      auto upper_bound = *(read_options.iterate_upper_bound);
-      Slice user_key_xform =
-          rep_->table_prefix_extractor->Transform(user_key);
-      Slice upper_bound_xform =
-          rep_->table_prefix_extractor->Transform(upper_bound);
+      if (!rep_->table_prefix_extractor->InDomain(user_key) ||
+          !rep_->table_prefix_extractor->InDomain(
+              *read_options.iterate_upper_bound)) {
+        return true;
+      }
+      Slice user_key_xform = rep_->table_prefix_extractor->Transform(user_key);
+      Slice upper_bound_xform = rep_->table_prefix_extractor->Transform(
+          *read_options.iterate_upper_bound);
       // first check if user_key and upper_bound all share the same prefix
       if (user_key_xform.compare(upper_bound_xform) != 0) {
         auto& comparator = rep_->internal_comparator;
         // second check if user_key's prefix is the immediate predecessor of
         // upper_bound and have the same length. If so, we know for sure all
         // keys in the range [user_key, upper_bound) share the same prefix.
-        if (!comparator.IsSameLengthImmediateSuccessor(
-              user_key_xform.ToString(), upper_bound.ToString())) {
+        // Also need to make sure upper_bound are full length to ensure
+        // correctness
+        if (read_options.iterate_upper_bound->size() !=
+                rep_->table_prefix_extractor->FullLength() ||
+            !comparator.IsSameLengthImmediateSuccessor(
+                user_key_xform.ToString(),
+                read_options.iterate_upper_bound->ToString())) {
           // TODO(Zhongyi): delete debug code before merging
           // fprintf(stdout, "BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
           // "%s, upper_bound_xform = %s transformed into different prefix, not "
           // "possible\n",
           //         rep_->table_prefix_extractor->Name(),
           //         user_key.ToString().c_str(),
-          //         upper_bound.ToString().c_str(),
+          //         read_options.iterate_upper_bound->ToString().c_str(),
           //         user_key_xform.ToString().c_str(),
           //         upper_bound_xform.ToString().c_str());
           return true;

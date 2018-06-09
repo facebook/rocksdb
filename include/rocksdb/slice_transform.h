@@ -60,6 +60,11 @@ class SliceTransform {
   // This is currently not used and remains here for backward compatibility.
   virtual bool InRange(const Slice& /*dst*/) const { return false; }
 
+  // Some SliceTransform will have a full length which can be used to
+  // determine if two keys are consecuitive. Can be disabled by always
+  // returning 0
+  virtual size_t FullLength() const { return 0; }
+
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.
   //
   // This function is not used by RocksDB, but for users. If users pass

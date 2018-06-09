@@ -47,6 +47,8 @@ class FixedPrefixTransform : public SliceTransform {
     return (dst.size() == prefix_len_);
   }
 
+  virtual size_t FullLength() const override { return prefix_len_; }
+
   virtual bool SameResultWhenAppended(const Slice& prefix) const override {
     return InDomain(prefix);
   }
@@ -79,6 +81,8 @@ class CappedPrefixTransform : public SliceTransform {
   virtual bool InRange(const Slice& dst) const override {
     return (dst.size() <= cap_len_);
   }
+
+  virtual size_t FullLength() const override { return cap_len_; }
 
   virtual bool SameResultWhenAppended(const Slice& prefix) const override {
     return prefix.size() >= cap_len_;

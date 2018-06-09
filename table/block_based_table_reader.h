@@ -94,10 +94,10 @@ class BlockBasedTable : public TableReader {
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1);
 
-  bool PrefixMayMatch(
-      const Slice& internal_key, const ReadOptions& read_options,
-      const bool prefix_extractor_changed,
-      const SliceTransform* prefix_extractor);
+  bool PrefixMayMatch(const Slice& internal_key,
+                      const ReadOptions& read_options,
+                      const bool prefix_extractor_changed,
+                      const SliceTransform* prefix_extractor);
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -514,13 +514,6 @@ struct BlockBasedTable::Rep {
 
 class BlockBasedTableIterator : public InternalIterator {
  public:
-  BlockBasedTableIterator(BlockBasedTable* table,
-                          const ReadOptions& read_options,
-                          const InternalKeyComparator& icomp,
-                          InternalIterator* index_iter, bool check_filter,
-                          const SliceTransform* prefix_extractor, bool is_index,
-                          bool key_includes_seq = true,
-                          bool for_compaction = false)
   BlockBasedTableIterator(
       BlockBasedTable* table, const ReadOptions& read_options,
       const InternalKeyComparator& icomp, InternalIterator* index_iter,
