@@ -623,7 +623,7 @@ class DB {
     static const std::string kBlockCachePinnedUsage;
 
     // "rocksdb.options-statistics" - returns multi-line string
-    //      containing options.statistics
+    //      of options.statistics
     static const std::string kOptionsStatistics;
   };
 #endif /* ROCKSDB_LITE */
