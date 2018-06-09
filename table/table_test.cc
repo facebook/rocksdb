@@ -37,6 +37,7 @@
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
+#include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -3388,6 +3389,99 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   expected_key--;
   ASSERT_EQ(expected_key, 10000);
   table_reader.reset();
+}
+
+TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
+  BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
+  bbto.block_align = true;
+  test::StringSink* sink = new test::StringSink();
+  unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
+
+  Options options;
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::string column_family_name;
+
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kNoCompression,
+                          CompressionOptions(), nullptr /* compression_dict */,
+                          false /* skip_filters */, column_family_name, -1),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      file_writer.get()));
+
+  for (int i = 1; i <= 10000; ++i) {
+    std::ostringstream ostr;
+    ostr << std::setfill('0') << std::setw(5) << i;
+    std::string key = ostr.str();
+    std::string value = "val";
+    InternalKey ik(key, 0, kTypeValue);
+
+    builder->Add(ik.Encode(), value);
+  }
+  ASSERT_OK(builder->Finish());
+  file_writer->Flush();
+
+  test::RandomRWStringSink ss_rw(sink);
+  unique_ptr<RandomAccessFileReader> file_reader(
+      test::GetRandomAccessFileReader(
+          new test::StringSource(ss_rw.contents(), 73342, true)));
+
+  {
+    RandomAccessFileReader* file = file_reader.get();
+    uint64_t file_size = ss_rw.contents().size();
+
+    Footer footer;
+    ASSERT_OK(ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
+                                 &footer, kBlockBasedTableMagicNumber));
+
+    auto BlockFetchHelper = [&](const BlockHandle& handle,
+                                BlockContents* contents) {
+      ReadOptions read_options;
+      read_options.verify_checksums = false;
+      Slice compression_dict;
+      PersistentCacheOptions cache_options;
+
+      BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
+                                 read_options, handle, contents, ioptions,
+                                 false /* decompress */, compression_dict,
+                                 cache_options);
+
+      ASSERT_OK(block_fetcher.ReadBlockContents());
+    };
+
+    // -- Read metaindex block
+    auto metaindex_handle = footer.metaindex_handle();
+    BlockContents metaindex_contents;
+
+    BlockFetchHelper(metaindex_handle, &metaindex_contents);
+    Block metaindex_block(std::move(metaindex_contents),
+                          kDisableGlobalSequenceNumber);
+
+    std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewIterator(
+        BytewiseComparator(), BytewiseComparator()));
+    bool found_properties_block = true;
+    ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
+    ASSERT_TRUE(found_properties_block);
+
+    // -- Read properties block
+    Slice v = meta_iter->value();
+    BlockHandle properties_handle;
+    ASSERT_OK(properties_handle.DecodeFrom(&v));
+    BlockContents properties_contents;
+
+    BlockFetchHelper(properties_handle, &properties_contents);
+    Block properties_block(std::move(properties_contents),
+                           kDisableGlobalSequenceNumber);
+
+    ASSERT_EQ(properties_block.NumRestarts(), 1);
+  }
 }
 
 TEST_P(BlockBasedTableTest, BadOptions) {
