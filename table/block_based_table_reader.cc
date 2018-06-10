@@ -2209,7 +2209,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       } else {
         BlockIter biter;
         NewDataBlockIterator(rep_, read_options, iiter->value(), &biter, false,
-                             get_context);
+                             true /* key_includes_seq */, get_context);
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter.status().IsIncomplete()) {
