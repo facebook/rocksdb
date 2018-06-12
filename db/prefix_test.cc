@@ -836,8 +836,8 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     DestroyDB(kDbName, Options());
     auto db = OpenDb();
     WriteOptions write_options;
-    ReadOptions read_options;
-    read_options.iterate_upper_bound = &upper_bound;
+    ReadOptions read_options_;
+    read_options_.iterate_upper_bound = &upper_bound;
     PutKey(db.get(), write_options, TestKey(1, 2), "v12");
     PutKey(db.get(), write_options, TestKey(1, 4), "v14");
     db->Flush(FlushOptions());
@@ -848,7 +848,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     PutKey(db.get(), write_options, TestKey(2, 2), "v22");
     db->Flush(FlushOptions());
     reinterpret_cast<DBImpl*>(db.get())->TEST_WaitForFlushMemTable();
-    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options_));
     iter->SeekToLast();
     ASSERT_EQ(iter->value(), v14);
   }
@@ -856,8 +856,8 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     DestroyDB(kDbName, Options());
     auto db = OpenDb();
     WriteOptions write_options;
-    ReadOptions read_options;
-    read_options.iterate_upper_bound = &upper_bound;
+    ReadOptions read_options_;
+    read_options_.iterate_upper_bound = &upper_bound;
     PutKey(db.get(), write_options, TestKey(1, 2), "v12");
     PutKey(db.get(), write_options, TestKey(1, 4), "v14");
     PutKey(db.get(), write_options, TestKey(3, 3), "v33");
@@ -868,7 +868,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     PutKey(db.get(), write_options, TestKey(1, 3), "v13");
     db->Flush(FlushOptions());
     reinterpret_cast<DBImpl*>(db.get())->TEST_WaitForFlushMemTable();
-    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options_));
     iter->SeekToLast();
     ASSERT_EQ(iter->value(), v14);
   }
