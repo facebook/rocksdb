@@ -2423,12 +2423,12 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
   }
   set_l0_delay_trigger_count(num_l0_count);
 
-  level_max_bytes_.resize(ioptions.num_levels);
+  level_max_bytes_.resize(options.num_levels);
   if (!ioptions.level_compaction_dynamic_level_bytes) {
     base_level_ = (ioptions.compaction_style == kCompactionStyleLevel) ? 1 : -1;
 
     // Calculate for static bytes base case
-    for (int i = 0; i < ioptions.num_levels; ++i) {
+    for (int i = 0; i < options.num_levels; ++i) {
       if (i == 0 && ioptions.compaction_style == kCompactionStyleUniversal) {
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       } else if (i > 1) {
@@ -3469,7 +3469,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         int new_levels) {
   if (new_levels <= 1) {
     return Status::InvalidArgument(
-        "Number of levels needs to be bigger than 1");
+          "Number of levels needs to be bigger than 1");
   }
 
   ImmutableDBOptions db_options(*options);
@@ -3525,7 +3525,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   // avoid SIGSEGV in WriteSnapshot()
   // however, all levels bigger or equal to new_levels will be empty
   std::vector<FileMetaData*>* new_files_list =
-      new std::vector<FileMetaData*>[current_levels];
+          new std::vector<FileMetaData*>[current_levels];
   for (int i = 0; i < new_levels - 1; i++) {
     new_files_list[i] = vstorage->LevelFiles(i);
   }

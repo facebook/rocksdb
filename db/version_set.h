@@ -282,6 +282,28 @@ class VersionStorageInfo {
     return files_by_compaction_pri_[level];
   }
 
+  // The method requires the new Level files to have been copied over the
+  // old Level files data
+  Status ReplaceFilesAndUpdateNumberOfLevels(std::vector<FileMetaData*>* new_files_list,
+                                            int num_levels) {
+    if(new_files_list == nullptr) {
+      char msg[255];
+      snprintf(msg, sizeof(msg),
+               "Null new files list passed");
+      return Status::InvalidArgument(msg);
+    }
+
+    if(!(files_->empty())) {
+      delete[] files_;
+    }
+
+    files_ = new_files_list;
+
+    num_levels_ = num_levels;
+
+    return Status::OK();
+  }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForCompaction()

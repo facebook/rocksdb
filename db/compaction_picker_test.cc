@@ -52,7 +52,7 @@ class CompactionPickerTest : public testing::Test {
         icmp_(ucmp_),
         ioptions_(options_),
         mutable_cf_options_(options_),
-        level_compaction_picker(ioptions_, &icmp_),
+        level_compaction_picker(ioptions_, mutable_cf_options_, &icmp_),
         cf_name_("dummy"),
         log_buffer_(InfoLogLevel::INFO_LEVEL, &logger_),
         file_num_(1),
@@ -254,7 +254,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionLevel) {
 }
 
 TEST_F(CompactionPickerTest, Level0TriggerDynamic) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
@@ -276,7 +276,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic) {
 }
 
 TEST_F(CompactionPickerTest, Level0TriggerDynamic2) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
@@ -300,7 +300,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic2) {
 }
 
 TEST_F(CompactionPickerTest, Level0TriggerDynamic3) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
@@ -325,7 +325,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic3) {
 }
 
 TEST_F(CompactionPickerTest, Level0TriggerDynamic4) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
@@ -358,7 +358,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic4) {
 }
 
 TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
   ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
@@ -390,7 +390,7 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
 TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
   NewVersionStorage(1, kCompactionStyleUniversal);
   UniversalCompactionPicker universal_compaction_picker(
-      ioptions_, &icmp_);
+      ioptions_, mutable_cf_options_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
@@ -413,8 +413,8 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   const uint64_t kFileSize = 100000;
   NewVersionStorage(1, kCompactionStyleUniversal);
   ioptions_.allow_ingest_behind = true;
-  ioptions_.num_levels = 3;
-  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  mutable_cf_options_.num_levels = 3;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, mutable_cf_options_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
@@ -448,7 +448,7 @@ TEST_F(CompactionPickerTest, CannotTrivialMoveUniversal) {
 
   mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
   NewVersionStorage(1, kCompactionStyleUniversal);
-  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, mutable_cf_options_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
@@ -479,7 +479,7 @@ TEST_F(CompactionPickerTest, AllowsTrivialMoveUniversal) {
   const uint64_t kFileSize = 100000;
 
   mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
-  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, mutable_cf_options_, &icmp_);
 
   NewVersionStorage(3, kCompactionStyleUniversal);
 
@@ -507,7 +507,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 
   fifo_options_.max_table_files_size = kMaxSize;
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+  FIFOCompactionPicker fifo_compaction_picker(ioptions_, mutable_cf_options_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), false);
@@ -618,7 +618,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping3) {
 // This test exhibits the bug where we don't properly reset parent_index in
 // PickCompaction()
 TEST_F(CompactionPickerTest, ParentIndexResetBug) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
   NewVersionStorage(num_levels, kCompactionStyleLevel);
@@ -1035,7 +1035,7 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri3) {
 }
 
 TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded1) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.level0_file_num_compaction_trigger = 4;
   mutable_cf_options_.max_bytes_for_level_base = 1000;
@@ -1068,7 +1068,7 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded1) {
 }
 
 TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded2) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.level0_file_num_compaction_trigger = 3;
   mutable_cf_options_.max_bytes_for_level_base = 1000;
@@ -1095,7 +1095,7 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded2) {
 }
 
 TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded3) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.level0_file_num_compaction_trigger = 3;
   mutable_cf_options_.max_bytes_for_level_base = 1000;
@@ -1118,7 +1118,7 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded3) {
 }
 
 TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
-  int num_levels = ioptions_.num_levels;
+  int num_levels = mutable_cf_options_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.level0_file_num_compaction_trigger = 3;
   mutable_cf_options_.max_bytes_for_level_base = 1000;

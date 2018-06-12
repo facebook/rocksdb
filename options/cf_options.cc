@@ -64,7 +64,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           db_options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
           db_options.new_table_reader_for_compaction_inputs),
-      num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
       allow_ingest_behind(db_options.allow_ingest_behind),
@@ -106,10 +105,10 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
   }
 }
 
-void MutableCFOptions::RefreshDerivedOptions(int num_levels,
+void MutableCFOptions::RefreshDerivedOptions(int num_levels_input,
                                              CompactionStyle compaction_style) {
-  max_file_size.resize(num_levels);
-  for (int i = 0; i < num_levels; ++i) {
+  max_file_size.resize(num_levels_input);
+  for (int i = 0; i < num_levels_input; ++i) {
     if (i == 0 && compaction_style == kCompactionStyleUniversal) {
       max_file_size[i] = ULLONG_MAX;
     } else if (i > 1) {
@@ -139,6 +138,7 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                    max_successive_merges: %" ROCKSDB_PRIszt,
                  max_successive_merges);
+  ROCKS_LOG_HEADER(log, "            num_levels: %d", num_levels);
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);

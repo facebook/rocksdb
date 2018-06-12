@@ -97,8 +97,6 @@ struct ImmutableCFOptions {
 
   bool new_table_reader_for_compaction_inputs;
 
-  int num_levels;
-
   bool optimize_filters_for_hits;
 
   bool force_consistency_checks;
@@ -155,7 +153,8 @@ struct MutableCFOptions {
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
-        compression(options.compression) {
+        compression(options.compression),
+        num_levels(options.num_levels) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -191,7 +190,7 @@ struct MutableCFOptions {
   void RefreshDerivedOptions(int num_levels, CompactionStyle compaction_style);
 
   void RefreshDerivedOptions(const ImmutableCFOptions& ioptions) {
-    RefreshDerivedOptions(ioptions.num_levels, ioptions.compaction_style);
+    RefreshDerivedOptions(num_levels, ioptions.compaction_style);
   }
 
   int MaxBytesMultiplerAdditional(int level) const {
@@ -239,6 +238,8 @@ struct MutableCFOptions {
   // Derived options
   // Per-level target file size.
   std::vector<uint64_t> max_file_size;
+
+  int num_levels;
 };
 
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);

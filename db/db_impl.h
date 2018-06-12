@@ -273,6 +273,10 @@ class DBImpl : public DB {
   Status PromoteL0(ColumnFamilyHandle* column_family,
                    int target_level) override;
 
+  Status ValidateAndProcessCompactionLevelsUpdate(ColumnFamilyHandle* column_family,
+                                                  VersionStorageInfo* vstorage,
+                                                  int new_levels);
+
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
   virtual Status WriteWithCallback(const WriteOptions& write_options,

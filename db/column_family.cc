@@ -94,6 +94,19 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
 }
 
+Status ColumnFamilyHandleImpl::ValidateAndProcessCompactionLevelsUpdate(VersionStorageInfo* vstorage,
+                                                                        ColumnFamilyHandle* column_family,
+                                                                        int new_levels) {
+  if(column_family == nullptr) {
+    char msg[255];
+    snprintf(msg, sizeof(msg),
+             "Null ColumnFamilyHandle during number of Compation Levels update");
+    return Status::InvalidArgument(msg);
+  }
+
+    return db_->ValidateAndProcessCompactionLevelsUpdate(column_family, vstorage, new_levels);
+}
+
 void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -440,21 +453,21 @@ ColumnFamilyData::ColumnFamilyData(
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
     internal_stats_.reset(
-        new InternalStats(ioptions_.num_levels, db_options.env, this));
+        new InternalStats(mutable_cf_options_.num_levels, db_options.env, this));
     table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
-          new LevelCompactionPicker(ioptions_, &internal_comparator_));
+          new LevelCompactionPicker(ioptions_, mutable_cf_options_, &internal_comparator_));
 #ifndef ROCKSDB_LITE
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
-          new UniversalCompactionPicker(ioptions_, &internal_comparator_));
+          new UniversalCompactionPicker(ioptions_, mutable_cf_options_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
-          new FIFOCompactionPicker(ioptions_, &internal_comparator_));
+          new FIFOCompactionPicker(ioptions_, mutable_cf_options_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
       compaction_picker_.reset(new NullCompactionPicker(
-          ioptions_, &internal_comparator_));
+          ioptions_, mutable_cf_options_, &internal_comparator_));
       ROCKS_LOG_WARN(ioptions_.info_log,
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
@@ -466,7 +479,7 @@ ColumnFamilyData::ColumnFamilyData(
                       "Column family %s will use kCompactionStyleLevel.\n",
                       ioptions_.compaction_style, GetName().c_str());
       compaction_picker_.reset(
-          new LevelCompactionPicker(ioptions_, &internal_comparator_));
+          new LevelCompactionPicker(ioptions_, mutable_cf_options_, &internal_comparator_));
     }
 
     if (column_family_set_->NumberOfColumnFamilies() < 10) {
@@ -1151,12 +1164,22 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
 
 #ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
+      ColumnFamilyHandle* column_family,
       const std::unordered_map<std::string, std::string>& options_map) {
   MutableCFOptions new_mutable_cf_options;
   Status s =
       GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
                                    ioptions_.info_log, &new_mutable_cf_options);
+
   if (s.ok()) {
+    if (new_mutable_cf_options.num_levels !=
+        mutable_cf_options_.num_levels) {
+      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+      s = cfh->ValidateAndProcessCompactionLevelsUpdate(current()->storage_info(),
+                                                    column_family,
+                                                    new_mutable_cf_options.num_levels);
+    }
+
     mutable_cf_options_ = new_mutable_cf_options;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   }

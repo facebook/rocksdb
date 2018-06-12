@@ -556,8 +556,8 @@ Status DBImpl::SetOptions(
   WriteThread::Writer w;
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
+    s = cfd->SetOptions(column_family, options_map);
     InstrumentedMutexLock l(&mutex_);
-    s = cfd->SetOptions(options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
       // Append new version to recompute compaction score.

@@ -1017,7 +1017,6 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:0");
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:1");
   InstrumentedMutexLock l(&mutex_);
-
   // When a manual compaction arrives, temporarily disable scheduling of
   // non-manual compactions and wait until the number of scheduled compaction
   // jobs drops to zero. This is needed to ensure that this manual compaction
@@ -1240,6 +1239,76 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                    &DBImpl::UnscheduleCallback);
   }
+}
+
+Status DBImpl::ValidateAndProcessCompactionLevelsUpdate(ColumnFamilyHandle* column_family,
+                                                        VersionStorageInfo* vstorage,
+                                                        int new_levels) {
+   if (new_levels <= 1) {
+    return Status::InvalidArgument(
+            "Number of levels needs to be bigger than 1");
+  }
+
+  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  int old_levels = vstorage->num_levels();
+  std::vector<FileMetaData *> *new_files_list;
+
+  if(new_levels < old_levels) {
+    // Compact the whole DB to put all files to the highest level.
+    CompactRange(CompactRangeOptions(), column_family, nullptr, nullptr);
+
+    // Make sure there are file only on one level from
+    // (new_levels-1) to (old_levels-1)
+    int first_nonempty_level = -1;
+    for (int i = new_levels - 1; i < old_levels; i++) {
+      int file_num = vstorage->NumLevelFiles(i);
+      if (file_num != 0) {
+        if (first_nonempty_level < 0) {
+          first_nonempty_level = i;
+        } else {
+          // Cannot reduce the number of levels
+          ROCKS_LOG_INFO(
+                  immutable_db_options_.info_log,
+                  "Cannot decrease number of levels since there are more than one non empty levels");
+          return Status::OK();
+        }
+      }
+    }
+
+    new_files_list =
+            new std::vector<FileMetaData*>[old_levels];
+    for (int i = 0; i < new_levels - 1; i++) {
+      new_files_list[i] = vstorage->LevelFiles(i);
+    }
+
+    if (first_nonempty_level > 0) {
+      new_files_list[new_levels - 1] = vstorage->LevelFiles(first_nonempty_level);
+    }
+  }
+  else {
+
+      new_files_list =
+              new std::vector<FileMetaData*>[new_levels];
+      for (int i = 0; i < old_levels - 1; i++) {
+          new_files_list[i] = vstorage->LevelFiles(i);
+      }
+  }
+
+  Status s = vstorage->ReplaceFilesAndUpdateNumberOfLevels(new_files_list, new_levels);
+  if(s.OK() != Status::OK()) {
+      return s;
+  }
+
+  // We need to set the number of new levels manually since the value update has not happened yet
+  auto mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+  mutable_cf_options.num_levels = new_levels;
+
+  vstorage->CalculateBaseBytes(*cfd->ioptions(), mutable_cf_options);
+  vstorage->ComputeCompactionScore(
+          *cfd->ioptions(),
+          mutable_cf_options);
+
+  return Status::OK();
 }
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
@@ -1991,7 +2060,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // Universal and FIFO compactions should always compact the whole range
       assert(m->cfd->ioptions()->compaction_style !=
                  kCompactionStyleUniversal ||
-             m->cfd->ioptions()->num_levels > 1);
+             m->cfd->GetCurrentMutableCFOptions()->num_levels > 1);
       assert(m->cfd->ioptions()->compaction_style != kCompactionStyleFIFO);
       m->tmp_storage = *m->manual_end;
       m->begin = &m->tmp_storage;

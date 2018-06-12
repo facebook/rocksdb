@@ -32,6 +32,7 @@ struct CompactionInputFiles;
 class CompactionPicker {
  public:
   CompactionPicker(const ImmutableCFOptions& ioptions,
+                   const MutableCFOptions& mutable_cf_options,
                    const InternalKeyComparator* icmp);
   virtual ~CompactionPicker();
 
@@ -137,7 +138,7 @@ class CompactionPicker {
   void GetRange(const std::vector<CompactionInputFiles>& inputs,
                 InternalKey* smallest, InternalKey* largest) const;
 
-  int NumberLevels() const { return ioptions_.num_levels; }
+  int NumberLevels() const { return mutable_cf_options_.num_levels; }
 
   // Add more files to the inputs on "level" to make sure that
   // no newer version of a key is compacted to "level+1" while leaving an older
@@ -199,6 +200,7 @@ class CompactionPicker {
 
  protected:
   const ImmutableCFOptions& ioptions_;
+  const MutableCFOptions mutable_cf_options_;
 
 // A helper function to SanitizeCompactionInputFiles() that
 // sanitizes "input_files" by adding necessary files.
@@ -222,8 +224,9 @@ class CompactionPicker {
 class LevelCompactionPicker : public CompactionPicker {
  public:
   LevelCompactionPicker(const ImmutableCFOptions& ioptions,
+                        const MutableCFOptions& mutable_cf_options,
                         const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(ioptions, mutable_cf_options, icmp) {}
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
@@ -237,8 +240,9 @@ class LevelCompactionPicker : public CompactionPicker {
 class FIFOCompactionPicker : public CompactionPicker {
  public:
   FIFOCompactionPicker(const ImmutableCFOptions& ioptions,
+                       const MutableCFOptions& mutable_cf_options,
                        const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(ioptions, mutable_cf_options, icmp) {}
 
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
@@ -273,8 +277,9 @@ class FIFOCompactionPicker : public CompactionPicker {
 class NullCompactionPicker : public CompactionPicker {
  public:
   NullCompactionPicker(const ImmutableCFOptions& ioptions,
+                       const MutableCFOptions& mutable_cf_options,
                        const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(ioptions, mutable_cf_options, icmp) {}
   virtual ~NullCompactionPicker() {}
 
   // Always return "nullptr"

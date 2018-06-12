@@ -151,7 +151,7 @@ class VersionBuilder::Rep {
     }
 #endif
     // make sure the files are sorted correctly
-    for (int level = 0; level < num_levels_; level++) {
+    for (int level = 0; level < vstorage->num_levels(); level++) {
       auto& level_files = vstorage->LevelFiles(level);
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];

@@ -63,6 +63,10 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
   virtual const Comparator* GetComparator() const override;
 
+  Status ValidateAndProcessCompactionLevelsUpdate(VersionStorageInfo* vstorage,
+                                                  ColumnFamilyHandle* column_family,
+                                                  int new_levels);
+
  private:
   ColumnFamilyData* cfd_;
   DBImpl* db_;
@@ -201,7 +205,7 @@ class ColumnFamilyData {
   bool IsDropped() const { return dropped_.load(std::memory_order_relaxed); }
 
   // thread-safe
-  int NumberLevels() const { return ioptions_.num_levels; }
+  int NumberLevels() const { return mutable_cf_options_.num_levels; }
 
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
@@ -235,7 +239,9 @@ class ColumnFamilyData {
 #ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
-      const std::unordered_map<std::string, std::string>& options_map);
+      ColumnFamilyHandle* column_family,
+      const std::unordered_map<std::string,
+          std::string>& options_map);
 #endif  // ROCKSDB_LITE
 
   InternalStats* internal_stats() { return internal_stats_.get(); }

@@ -117,6 +117,76 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
             GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[1])));
 }
 
+TEST_F(DBOptionsTest, TestNumberLevelsReduceDynamic) {
+  // GetOptions should be able to get latest option changed by SetOptions.
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.num_levels = 5;
+  Random rnd(228);
+  Reopen(options);
+  CreateColumnFamilies({"foo"}, options);
+  ReopenWithColumnFamilies({"default", "foo"}, options);
+  ASSERT_OK(
+          dbfull()->SetOptions({{"num_levels", "3"}}));
+  ASSERT_EQ(dbfull()->GetOptions().num_levels, 3);
+}
+
+TEST_F(DBOptionsTest, TestNumberLevelsWithDataReduceDynamic) {
+  const size_t kValueSize = 1024 * 1024;  // 1MB
+  const std::string kValue(kValueSize, 'v');
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.num_levels = 5;
+  Random rnd(228);
+  Reopen(options);
+  CreateColumnFamilies({"foo"}, options);
+  ReopenWithColumnFamilies({"default", "foo"}, options);
+
+  for (int i = 0; i < 40; i++) {
+    Put(Key(i), kValue);
+  }
+  ASSERT_OK(
+          dbfull()->SetOptions({{"num_levels", "3"}}));
+  ASSERT_EQ(dbfull()->GetOptions().num_levels, 3);
+}
+
+TEST_F(DBOptionsTest, TestNumberLevelsIncreaseDynamic) {
+    // GetOptions should be able to get latest option changed by SetOptions.
+    Options options;
+    options.create_if_missing = true;
+    options.env = env_;
+    options.num_levels = 3;
+    Random rnd(228);
+    Reopen(options);
+    CreateColumnFamilies({"foo"}, options);
+    ReopenWithColumnFamilies({"default", "foo"}, options);
+    ASSERT_OK(
+            dbfull()->SetOptions({{"num_levels", "5"}}));
+    ASSERT_EQ(dbfull()->GetOptions().num_levels, 5);
+}
+
+TEST_F(DBOptionsTest, TestNumberLevelsWithDataIncreaseDynamic) {
+    const size_t kValueSize = 1024 * 1024;  // 1MB
+    const std::string kValue(kValueSize, 'v');
+    Options options;
+    options.create_if_missing = true;
+    options.env = env_;
+    options.num_levels = 3;
+    Random rnd(228);
+    Reopen(options);
+    CreateColumnFamilies({"foo"}, options);
+    ReopenWithColumnFamilies({"default", "foo"}, options);
+
+    for (int i = 0; i < 40; i++) {
+        Put(Key(i), kValue);
+    }
+    ASSERT_OK(
+            dbfull()->SetOptions({{"num_levels", "5"}}));
+    ASSERT_EQ(dbfull()->GetOptions().num_levels, 5);
+}
+
 TEST_F(DBOptionsTest, SetBytesPerSync) {
   const size_t kValueSize = 1024 * 1024;  // 1MB
   Options options;

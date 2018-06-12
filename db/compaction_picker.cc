@@ -111,8 +111,9 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
 }
 
 CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
+                                   const MutableCFOptions& mutable_cf_options,
                                    const InternalKeyComparator* icmp)
-    : ioptions_(ioptions), icmp_(icmp) {}
+    : ioptions_(ioptions), mutable_cf_options_(mutable_cf_options), icmp_(icmp) {}
 
 CompactionPicker::~CompactionPicker() {}
 

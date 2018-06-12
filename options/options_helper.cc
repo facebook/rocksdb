@@ -175,6 +175,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
   }
 
+  cf_opts.num_levels = mutable_cf_options.num_levels;
+
   cf_opts.compaction_options_fifo = mutable_cf_options.compaction_options_fifo;
   cf_opts.compaction_options_universal =
       mutable_cf_options.compaction_options_universal;
@@ -1709,7 +1711,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
         {"num_levels",
          {offset_of(&ColumnFamilyOptions::num_levels), OptionType::kInt,
-          OptionVerificationType::kNormal, false, 0}},
+          OptionVerificationType::kNormal, true,
+                 offsetof(struct MutableCFOptions, num_levels)}},
         {"source_compaction_factor",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated, true, 0}},
         {"target_file_size_multiplier",
