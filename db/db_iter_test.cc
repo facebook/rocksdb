@@ -36,7 +36,9 @@ class TestIterator : public InternalIterator {
         valid_(false),
         sequence_number_(0),
         iter_(0),
-        cmp(comparator) {}
+        cmp(comparator) {
+    data_.reserve(16);
+  }
 
   void AddPut(std::string argkey, std::string argvalue) {
     Add(argkey, kTypeValue, argvalue);
@@ -2605,7 +2607,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   // MergeIterator::Prev() realized the mem table iterator is at its end
   // and before an SeekToLast() is called.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "MergeIterator::Prev:BeforeSeekToLast",
+      "MergeIterator::Prev:BeforePrev",
       [&](void* /*arg*/) { internal_iter2_->Add("z", kTypeValue, "7", 12u); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -2641,7 +2643,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
   // mem table after MergeIterator::Prev() realized the mem tableiterator is at
   // its end and before an SeekToLast() is called.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "MergeIterator::Prev:BeforeSeekToLast", [&](void* /*arg*/) {
+      "MergeIterator::Prev:BeforePrev", [&](void* /*arg*/) {
         internal_iter2_->Add("z", kTypeValue, "7", 12u);
         internal_iter2_->Add("z", kTypeValue, "7", 11u);
       });
@@ -2679,7 +2681,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
   // mem table after MergeIterator::Prev() realized the mem table iterator is at
   // its end and before an SeekToLast() is called.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "MergeIterator::Prev:BeforeSeekToLast", [&](void* /*arg*/) {
+      "MergeIterator::Prev:BeforePrev", [&](void* /*arg*/) {
         internal_iter2_->Add("z", kTypeValue, "7", 16u, true);
         internal_iter2_->Add("z", kTypeValue, "7", 15u, true);
         internal_iter2_->Add("z", kTypeValue, "7", 14u, true);

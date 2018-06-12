@@ -228,28 +228,12 @@ class MergingIterator : public InternalIterator {
       Slice target = key();
       for (auto& child : children_) {
         if (&child != current_) {
-          if (!prefix_seek_mode_) {
-            child.Seek(target);
-            if (child.Valid()) {
-              // Child is at first entry >= key().  Step back one to be < key()
-              TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev",
-                                       &child);
-              assert(child.status().ok());
-              child.Prev();
-            } else {
-              // Child has no entries >= key().  Position at last entry.
-              TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
-              considerStatus(child.status());
-              child.SeekToLast();
-            }
+          child.SeekForPrev(target);
+          TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
+          considerStatus(child.status());
+          if (child.Valid() && comparator_->Equal(target, child.key())) {
+            child.Prev();
             considerStatus(child.status());
-          } else {
-            child.SeekForPrev(target);
-            considerStatus(child.status());
-            if (child.Valid() && comparator_->Equal(target, child.key())) {
-              child.Prev();
-              considerStatus(child.status());
-            }
           }
         }
         if (child.Valid()) {
