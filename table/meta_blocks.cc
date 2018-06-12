@@ -38,8 +38,12 @@ Slice MetaIndexBuilder::Finish() {
   return meta_index_block_->Finish();
 }
 
+// Property block will be read sequentially and cached in a heap located
+// object, so there's no need for restart points. Thus we set the restart
+// interval to infinity to save space.
 PropertyBlockBuilder::PropertyBlockBuilder()
-    : properties_block_(new BlockBuilder(1 /* restart interval */)) {}
+    : properties_block_(
+          new BlockBuilder(port::kMaxInt32 /* restart interval */)) {}
 
 void PropertyBlockBuilder::Add(const std::string& name,
                                const std::string& val) {
