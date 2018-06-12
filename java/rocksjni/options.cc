@@ -2098,6 +2098,21 @@ void Java_org_rocksdb_Options_setBottommostCompressionOptions(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setCompressionOptions
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setCompressionOptions(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    jlong jcompression_options_handle) {
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* compression_options =
+      reinterpret_cast<rocksdb::CompressionOptions*>(
+          jcompression_options_handle);
+  options->compression_opts = *compression_options;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setCompactionStyle
  * Signature: (JB)V
  */
