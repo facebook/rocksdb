@@ -913,12 +913,12 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   // testing iterate_upper_bound and forward iterator
   // to make sure it stops at bound
   {
-      ReadOptions ro;
+      ReadOptions roo;
       // iterate_upper_bound points beyond the last expected entry
       Slice prefix("foo2");
-      ro.iterate_upper_bound = &prefix;
+      roo.iterate_upper_bound = &prefix;
 
-      std::unique_ptr<Iterator> iter(NewIterator(ro));
+      std::unique_ptr<Iterator> iter(NewIterator(roo));
 
       iter->Seek("foo");
 
@@ -935,12 +935,12 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   }
   // Testing SeekToLast with iterate_upper_bound set
   {
-      ReadOptions ro;
+      ReadOptions roo;
 
       Slice prefix("foo");
-      ro.iterate_upper_bound = &prefix;
+      roo.iterate_upper_bound = &prefix;
 
-      std::unique_ptr<Iterator> iter(NewIterator(ro));
+      std::unique_ptr<Iterator> iter(NewIterator(roo));
 
       iter->SeekToLast();
       ASSERT_TRUE(iter->Valid());
@@ -958,11 +958,11 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   // Seek target and iterate_upper_bound are not is same prefix
   // This should be an error
   {
-    ReadOptions ro;
+    ReadOptions roo;
     Slice upper_bound("g");
-    ro.iterate_upper_bound = &upper_bound;
+    roo.iterate_upper_bound = &upper_bound;
 
-    std::unique_ptr<Iterator> iter(NewIterator(ro));
+    std::unique_ptr<Iterator> iter(NewIterator(roo));
 
     iter->Seek("foo");
 
@@ -992,10 +992,10 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_OK(Delete("d"));
 
     // base case with no bound
-    ReadOptions ro;
-    ro.iterate_upper_bound = nullptr;
+    ReadOptions roo;
+    roo.iterate_upper_bound = nullptr;
 
-    std::unique_ptr<Iterator> iter(NewIterator(ro));
+    std::unique_ptr<Iterator> iter(NewIterator(roo));
 
     iter->Seek("b");
     ASSERT_TRUE(iter->Valid());
@@ -1013,9 +1013,9 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
 
     // now testing with iterate_bound
     Slice prefix("c");
-    ro.iterate_upper_bound = &prefix;
+    roo.iterate_upper_bound = &prefix;
 
-    iter.reset(NewIterator(ro));
+    iter.reset(NewIterator(roo));
 
     get_perf_context()->Reset();
 
@@ -1062,10 +1062,10 @@ TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
   ASSERT_OK(Flush());
 
   Slice ub("foo3");
-  ReadOptions ro;
-  ro.iterate_upper_bound = &ub;
+  ReadOptions roo;
+  roo.iterate_upper_bound = &ub;
 
-  std::unique_ptr<Iterator> iter(NewIterator(ro));
+  std::unique_ptr<Iterator> iter(NewIterator(roo));
 
   iter->Seek("foo");
   ASSERT_TRUE(iter->Valid());

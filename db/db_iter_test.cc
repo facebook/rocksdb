@@ -231,7 +231,7 @@ class DBIteratorTest : public testing::Test {
   DBIteratorTest() : env_(Env::Default()) {}
 };
 
-TEST_F(DBIteratorTest, DBIteratorPrevNext) {
+TEST_F(DBIteratorTest, DBIteratorPrevNextabc) {
     Options options;
     ImmutableCFOptions cf_options = ImmutableCFOptions(options);
     MutableCFOptions mutable_cf_options = MutableCFOptions(options);
@@ -246,9 +246,9 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
       internal_iter->AddPut("b", "val_b");
       internal_iter->Finish();
 
-      ReadOptions ro;
+      ReadOptions roo;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -279,9 +279,9 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
       internal_iter->AddPut("c", "val_c");
       internal_iter->Finish();
 
-      ReadOptions ro;
+      ReadOptions roo;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -304,11 +304,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("d");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -337,11 +337,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("z");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -373,11 +373,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("a");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -403,11 +403,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("c");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 7, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -441,11 +441,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("c");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 4, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -467,11 +467,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("a");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -490,11 +490,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("c");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -526,11 +526,11 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
       Slice prefix("c");
 
-      ReadOptions ro;
-      ro.iterate_upper_bound = &prefix;
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 7, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -558,9 +558,9 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
       internal_iter->AddPut("b", "val_b");
       internal_iter->Finish();
 
-      ReadOptions ro;
+      ReadOptions roo;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
 
@@ -601,9 +601,9 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
       internal_iter->AddPut("b", "val_b");
       internal_iter->Finish();
 
-      ReadOptions ro;
+      ReadOptions roo;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 2, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
       db_iter->SeekToLast();
@@ -633,9 +633,9 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
       internal_iter->AddPut("c", "val_c");
       internal_iter->Finish();
 
-      ReadOptions ro;
+      ReadOptions roo;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, 10, options.max_sequential_skip_in_iterations,
           nullptr /*read_callback*/));
       db_iter->SeekToLast();
