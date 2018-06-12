@@ -1008,11 +1008,14 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     // Merge all level zero files together since they may overlap
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
-      merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
-          read_options, soptions, cfd_->internal_comparator(), *file.file_metadata,
-          range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
-          cfd_->internal_stats()->GetFileReadHist(0), false, arena,
-          false /* skip_filters */, 0 /* level */));
+      if (!range_del_agg->ShouldDeleteRange(
+              file.smallest_key, file.largest_key, file.file_metadata->largest_seqno)) {
+        merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
+            read_options, soptions, cfd_->internal_comparator(), *file.file_metadata,
+            range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
+            cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+            false /* skip_filters */, 0 /* level */));
+      }
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
