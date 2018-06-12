@@ -2083,16 +2083,17 @@ jbyte Java_org_rocksdb_Options_bottommostCompressionType(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setCompressionOptions
+ * Method:    setBottommostCompressionOptions
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setCompressionOptions(
+void Java_org_rocksdb_Options_setBottommostCompressionOptions(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jcompression_options_handle) {
+    jlong jbottommost_compression_options_handle) {
   auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
-  auto* compression_options = reinterpret_cast<rocksdb::CompressionOptions*>(
-      jcompression_options_handle);
-  options->compression_opts = *compression_options;
+  auto* bottommost_compression_options =
+      reinterpret_cast<rocksdb::CompressionOptions*>(
+          jbottommost_compression_options_handle);
+  options->bottommost_compression_opts = *bottommost_compression_options;
 }
 
 /*
@@ -3499,6 +3500,20 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_bottommostCompressionType(
   auto* cf_options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   return rocksdb::CompressionTypeJni::toJavaCompressionType(
       cf_options->bottommost_compression);
+}
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setBottommostCompressionOptions
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBottommostCompressionOptions(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    jlong jbottommost_compression_options_handle) {
+  auto* cf_options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  auto* bottommost_compression_options =
+      reinterpret_cast<rocksdb::CompressionOptions*>(
+          jbottommost_compression_options_handle);
+  cf_options->bottommost_compression_opts = *bottommost_compression_options;
 }
 
 /*

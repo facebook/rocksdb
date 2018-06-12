@@ -62,6 +62,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
        "kZSTD:"
        "kZSTDNotFinalCompression"},
       {"bottommost_compression", "kLZ4Compression"},
+      {"bottommost_compression_opts", "5:6:7:8"},
       {"compression_opts", "4:5:6:7"},
       {"num_levels", "8"},
       {"level0_file_num_compaction_trigger", "8"},
@@ -160,6 +161,10 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
   ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 7);
   ASSERT_EQ(new_cf_opt.bottommost_compression, kLZ4Compression);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 5);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 8);
   ASSERT_EQ(new_cf_opt.num_levels, 8);
   ASSERT_EQ(new_cf_opt.level0_file_num_compaction_trigger, 8);
   ASSERT_EQ(new_cf_opt.level0_slowdown_writes_trigger, 9);
@@ -716,6 +721,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       "write_buffer_size=10;max_write_buffer_number=16;"
       "block_based_table_factory={block_cache=1M;block_size=4;};"
       "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
+      "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
+      "1;"
       "rate_limiter_bytes_per_sec=1024",
       &new_options));
 
@@ -724,6 +731,10 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.compression_opts.strategy, 6);
   ASSERT_EQ(new_options.compression_opts.max_dict_bytes, 0);
   ASSERT_EQ(new_options.bottommost_compression, kDisableCompressionOption);
+  ASSERT_EQ(new_options.bottommost_compression_opts.window_bits, 5);
+  ASSERT_EQ(new_options.bottommost_compression_opts.level, 6);
+  ASSERT_EQ(new_options.bottommost_compression_opts.strategy, 7);
+  ASSERT_EQ(new_options.bottommost_compression_opts.max_dict_bytes, 0);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
   BlockBasedTableOptions new_block_based_table_options =

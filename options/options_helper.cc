@@ -904,6 +904,52 @@ Status ParseColumnFamilyOption(const std::string& name,
             "unable to parse the specified CF option " + name);
       }
       new_options->memtable_factory.reset(new_mem_factory.release());
+    } else if (name == "bottommost_compression_opts") {
+      size_t start = 0;
+      size_t end = value.find(':');
+      if (end == std::string::npos) {
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
+      }
+      new_options->bottommost_compression_opts.window_bits =
+          ParseInt(value.substr(start, end - start));
+      start = end + 1;
+      end = value.find(':', start);
+      if (end == std::string::npos) {
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
+      }
+      new_options->bottommost_compression_opts.level =
+          ParseInt(value.substr(start, end - start));
+      start = end + 1;
+      if (start >= value.size()) {
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
+      }
+      end = value.find(':', start);
+      new_options->bottommost_compression_opts.strategy =
+          ParseInt(value.substr(start, value.size() - start));
+      // max_dict_bytes is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->bottommost_compression_opts.max_dict_bytes =
+            ParseInt(value.substr(start, value.size() - start));
+        end = value.find(':', start);
+      }
+      // zstd_max_train_bytes is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->bottommost_compression_opts.zstd_max_train_bytes =
+            ParseInt(value.substr(start, value.size() - start));
+      }
     } else if (name == "compression_opts") {
       size_t start = 0;
       size_t end = value.find(':');

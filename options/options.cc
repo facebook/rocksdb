@@ -159,6 +159,25 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      min_write_buffer_number_to_merge);
     ROCKS_LOG_HEADER(log, "    Options.max_write_buffer_number_to_maintain: %d",
                      max_write_buffer_number_to_maintain);
+    ROCKS_LOG_HEADER(
+        log, "           Options.bottommost_compression_opts.window_bits: %d",
+        bottommost_compression_opts.window_bits);
+    ROCKS_LOG_HEADER(
+        log, "                 Options.bottommost_compression_opts.level: %d",
+        bottommost_compression_opts.level);
+    ROCKS_LOG_HEADER(
+        log, "              Options.bottommost_compression_opts.strategy: %d",
+        bottommost_compression_opts.strategy);
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.max_dict_bytes: "
+        "%" ROCKSDB_PRIszt,
+        bottommost_compression_opts.max_dict_bytes);
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.zstd_max_train_bytes: "
+        "%" ROCKSDB_PRIszt,
+        bottommost_compression_opts.zstd_max_train_bytes);
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",

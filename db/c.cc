@@ -2268,6 +2268,16 @@ void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
   }
 }
 
+void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
+                                                        int w_bits, int level,
+                                                        int strategy,
+                                                        int max_dict_bytes) {
+  opt->rep.bottommost_compression_opts.window_bits = w_bits;
+  opt->rep.bottommost_compression_opts.level = level;
+  opt->rep.bottommost_compression_opts.strategy = strategy;
+  opt->rep.bottommost_compression_opts.max_dict_bytes = max_dict_bytes;
+}
+
 void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
                                              int level, int strategy,
                                              int max_dict_bytes) {

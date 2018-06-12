@@ -381,6 +381,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->rate_limit_delay_max_milliseconds = 33;
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->compression_opts = CompressionOptions();
+  options->bottommost_compression_opts = CompressionOptions();
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
   options->purge_redundant_kvs_while_flush = false;
