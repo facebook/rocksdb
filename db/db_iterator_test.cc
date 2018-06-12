@@ -913,38 +913,38 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   // testing iterate_upper_bound and forward iterator
   // to make sure it stops at bound
   {
-    ReadOptions ro;
-    // iterate_upper_bound points beyond the last expected entry
-    Slice prefix("foo2");
-    ro.iterate_upper_bound = &prefix;
+      ReadOptions ro;
+      // iterate_upper_bound points beyond the last expected entry
+      Slice prefix("foo2");
+      ro.iterate_upper_bound = &prefix;
 
-    std::unique_ptr<Iterator> iter(NewIterator(ro));
+      std::unique_ptr<Iterator> iter(NewIterator(ro));
 
-    iter->Seek("foo");
+      iter->Seek("foo");
 
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
 
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(("foo1")), 0);
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(("foo1")), 0);
 
-    iter->Next();
-    // should stop here...
-    ASSERT_TRUE(!iter->Valid());
+      iter->Next();
+      // should stop here...
+      ASSERT_TRUE(!iter->Valid());
   }
   // Testing SeekToLast with iterate_upper_bound set
   {
-    ReadOptions ro;
+      ReadOptions ro;
 
-    Slice prefix("foo");
-    ro.iterate_upper_bound = &prefix;
+      Slice prefix("foo");
+      ro.iterate_upper_bound = &prefix;
 
-    std::unique_ptr<Iterator> iter(NewIterator(ro));
+      std::unique_ptr<Iterator> iter(NewIterator(ro));
 
-    iter->SeekToLast();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(Slice("a")), 0);
+      iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(Slice("a")), 0);
   }
 
   // prefix is the first letter of the key
