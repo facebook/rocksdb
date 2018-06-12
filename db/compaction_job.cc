@@ -798,7 +798,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
-  auto vstorage = cfd->current()->storage_info();
+  VersionStorageInfo* vstorage =
+      sub_compact->compaction->input_version()->storage_info();
   // I/O measurement variables
   PerfLevel prev_perf_level = PerfLevel::kEnableTime;
   const uint64_t kRecordStatsEvery = 1000;
@@ -1396,7 +1397,8 @@ Status CompactionJob::OpenCompactionOutputFile(
         TableFileCreationReason::kCompaction, s);
     return s;
   }
-  auto vstorage = cfd->current()->storage_info();
+  VersionStorageInfo* vstorage =
+      sub_compact->compaction->input_version()->storage_info();
   SubcompactionState::Output out;
   out.meta.fd =
       FileDescriptor(file_number, sub_compact->compaction->output_path_id(), 0);

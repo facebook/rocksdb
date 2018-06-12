@@ -2105,9 +2105,8 @@ void Java_org_rocksdb_Options_setCompressionOptions(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
     jlong jcompression_options_handle) {
   auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
-  auto* compression_options =
-      reinterpret_cast<rocksdb::CompressionOptions*>(
-          jcompression_options_handle);
+  auto* compression_options = reinterpret_cast<rocksdb::CompressionOptions*>(
+      jcompression_options_handle);
   options->compression_opts = *compression_options;
 }
 
