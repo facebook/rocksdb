@@ -27,7 +27,8 @@ enum Direction {
 };
 
 void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
-                     const std::vector<ExpectedPoint>& expected_points) {
+                     const std::vector<ExpectedPoint>& expected_points,
+                     const RangeDelAggregator::CollapsedTombstoneMap& expected_map) {
   auto icmp = InternalKeyComparator(BytewiseComparator());
   // Test same result regardless of which order the range deletions are added.
   for (Direction dir : {kForward, kReverse}) {
@@ -61,6 +62,20 @@ void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
             RangeDelAggregator::RangePositioningMode::kForwardTraversal));
       }
     }
+
+    auto actual_map = range_del_agg.DumpCollapsedTombstones();
+    auto ite = expected_map.begin();
+    auto ita = actual_map.begin();
+    for (; ite != expected_map.end() && ita != actual_map.end(); ite++, ita++) {
+      ASSERT_EQ(ite->first.ToString(), ita->first.ToString());
+      ASSERT_EQ(ite->second, ita->second);
+    }
+    if (ite != expected_map.end()) {
+      ADD_FAILURE() << "tombstone map missing key: " << ite->first.ToString();
+    }
+    if (ita != actual_map.end()) {
+      ADD_FAILURE() << "tombstone map has extra key: " << ita->first.ToString();
+    }
   }
 
   RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
@@ -87,60 +102,82 @@ void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
 
 }  // anonymous namespace
 
-TEST_F(RangeDelAggregatorTest, Empty) { VerifyRangeDels({}, {{"a", 0}}); }
+TEST_F(RangeDelAggregatorTest, Empty) {
+  VerifyRangeDels({},
+                  {{"a", 0}},
+                  {});
+}
 
 TEST_F(RangeDelAggregatorTest, SameStartAndEnd) {
-  VerifyRangeDels({{"a", "a", 5}}, {{" ", 0}, {"a", 0}, {"b", 0}});
+  VerifyRangeDels({{"a", "a", 5}},
+                  {{" ", 0}, {"a", 0}, {"b", 0}},
+                  {{"a", 5}, {"a", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, Single) {
-  VerifyRangeDels({{"a", "b", 10}}, {{" ", 0}, {"a", 10}, {"b", 0}});
+  VerifyRangeDels({{"a", "b", 10}},
+                  {{" ", 0}, {"a", 10}, {"b", 0}},
+                  {{"a", 10}, {"b", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, OverlapAboveLeft) {
   VerifyRangeDels({{"a", "c", 10}, {"b", "d", 5}},
-                  {{" ", 0}, {"a", 10}, {"c", 5}, {"d", 0}});
+                  {{" ", 0}, {"a", 10}, {"c", 5}, {"d", 0}},
+                  {{"a", 10}, {"c", 5}, {"d", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, OverlapAboveRight) {
   VerifyRangeDels({{"a", "c", 5}, {"b", "d", 10}},
-                  {{" ", 0}, {"a", 5}, {"b", 10}, {"d", 0}});
+                  {{" ", 0}, {"a", 5}, {"b", 10}, {"d", 0}},
+                  {{"a", 5}, {"b", 10}, {"d", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, OverlapAboveMiddle) {
   VerifyRangeDels({{"a", "d", 5}, {"b", "c", 10}},
-                  {{" ", 0}, {"a", 5}, {"b", 10}, {"c", 5}, {"d", 0}});
+                  {{" ", 0}, {"a", 5}, {"b", 10}, {"c", 5}, {"d", 0}},
+                  {{"a", 5}, {"b", 10}, {"c", 5}, {"d", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, OverlapFully) {
   VerifyRangeDels({{"a", "d", 10}, {"b", "c", 5}},
-                  {{" ", 0}, {"a", 10}, {"d", 0}});
+                  {{" ", 0}, {"a", 10}, {"d", 0}},
+                  {{"a", 10}, {"d", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, OverlapPoint) {
   VerifyRangeDels({{"a", "b", 5}, {"b", "c", 10}},
-                  {{" ", 0}, {"a", 5}, {"b", 10}, {"c", 0}});
+                  {{" ", 0}, {"a", 5}, {"b", 10}, {"c", 0}},
+                  {{"a", 5}, {"b", 10}, {"c", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, SameStartKey) {
   VerifyRangeDels({{"a", "c", 5}, {"a", "b", 10}},
-                  {{" ", 0}, {"a", 10}, {"b", 5}, {"c", 0}});
+                  {{" ", 0}, {"a", 10}, {"b", 5}, {"c", 0}},
+                  {{"a", 10}, {"b", 5}, {"c", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, SameEndKey) {
   VerifyRangeDels({{"a", "d", 5}, {"b", "d", 10}},
-                  {{" ", 0}, {"a", 5}, {"b", 10}, {"d", 0}});
+                  {{" ", 0}, {"a", 5}, {"b", 10}, {"d", 0}},
+                  {{"a", 5}, {"b", 10}, {"d", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, GapsBetweenRanges) {
-  VerifyRangeDels({{"a", "b", 5}, {"c", "d", 10}, {"e", "f", 15}}, {{" ", 0},
-                                                                    {"a", 5},
-                                                                    {"b", 0},
-                                                                    {"c", 10},
-                                                                    {"d", 0},
-                                                                    {"da", 0},
-                                                                    {"e", 15},
-                                                                    {"f", 0}});
+  VerifyRangeDels({{"a", "b", 5}, {"c", "d", 10}, {"e", "f", 15}},
+                  {{" ", 0},
+                   {"a", 5},
+                   {"b", 0},
+                   {"c", 10},
+                   {"d", 0},
+                   {"da", 0},
+                   {"e", 15},
+                   {"f", 0}},
+                  {{"a", 5},
+                   {"b", 0},
+                   {"c", 10},
+                   {"d", 0},
+                   {"e", 15},
+                   {"f", 0}});
 }
 
 // Note the Cover* tests also test cases where tombstones are inserted under a
@@ -148,19 +185,22 @@ TEST_F(RangeDelAggregatorTest, GapsBetweenRanges) {
 TEST_F(RangeDelAggregatorTest, CoverMultipleFromLeft) {
   VerifyRangeDels(
       {{"b", "d", 5}, {"c", "f", 10}, {"e", "g", 15}, {"a", "f", 20}},
-      {{" ", 0}, {"a", 20}, {"f", 15}, {"g", 0}});
+      {{" ", 0}, {"a", 20}, {"f", 15}, {"g", 0}},
+      {{"a", 20}, {"f", 15}, {"g", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, CoverMultipleFromRight) {
   VerifyRangeDels(
       {{"b", "d", 5}, {"c", "f", 10}, {"e", "g", 15}, {"c", "h", 20}},
-      {{" ", 0}, {"b", 5}, {"c", 20}, {"h", 0}});
+      {{" ", 0}, {"b", 5}, {"c", 20}, {"h", 0}},
+      {{"b", 5}, {"c", 20}, {"h", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, CoverMultipleFully) {
   VerifyRangeDels(
       {{"b", "d", 5}, {"c", "f", 10}, {"e", "g", 15}, {"a", "h", 20}},
-      {{" ", 0}, {"a", 20}, {"h", 0}});
+      {{" ", 0}, {"a", 20}, {"h", 0}},
+      {{"a", 20}, {"h", 0}});
 }
 
 TEST_F(RangeDelAggregatorTest, AlternateMultipleAboveBelow) {
@@ -172,7 +212,8 @@ TEST_F(RangeDelAggregatorTest, AlternateMultipleAboveBelow) {
        {"d", 10},
        {"e", 20},
        {"g", 5},
-       {"h", 0}});
+       {"h", 0}},
+      {{"a", 5}, {"b", 15}, {"d", 10}, {"e", 20}, {"g", 5}, {"h", 0}});
 }
 
 }  // namespace rocksdb

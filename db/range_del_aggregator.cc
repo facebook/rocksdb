@@ -547,4 +547,19 @@ bool RangeDelAggregator::AddFile(uint64_t file_number) {
   return rep_->added_files_.emplace(file_number).second;
 }
 
+RangeDelAggregator::CollapsedTombstoneMap
+RangeDelAggregator::DumpCollapsedTombstones() {
+  if (rep_ == nullptr) {
+    return CollapsedTombstoneMap();
+  }
+  assert(collapse_deletions_);
+  assert(rep_->stripe_map_.size() == 2);
+  auto& tombstone_map = GetPositionalTombstoneMap(1 /* valid seqno */).raw_map;
+  CollapsedTombstoneMap out;
+  for (auto it = tombstone_map.begin(); it != tombstone_map.end(); ++it) {
+    out.emplace(it->first, it->second.seq_);
+  }
+  return out;
+}
+
 }  // namespace rocksdb

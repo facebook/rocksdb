@@ -143,6 +143,13 @@ class RangeDelAggregator {
   bool IsEmpty();
   bool AddFile(uint64_t file_number);
 
+  // Only for testing. DumpCollapsedTombstones can be called only if
+  // collapse_deletions_ is true and only the default snapshot stripes are
+  // present.
+  typedef std::multimap<Slice, SequenceNumber, stl_wrappers::LessOfComparator>
+    CollapsedTombstoneMap;
+  CollapsedTombstoneMap DumpCollapsedTombstones();
+
  private:
   // Maps tombstone user start key -> tombstone object
   typedef std::multimap<Slice, RangeTombstone, stl_wrappers::LessOfComparator>
