@@ -322,9 +322,9 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
             *new_range_dels_iter_end, *tombstone_map_iter_end);
       }
 
-      if (new_to_old_start_cmp < 0) {
-        // the existing one's left endpoint comes after, so raise/delete it if
-        // it's covered.
+      if (new_to_old_start_cmp <= 0) {
+        // the existing one's left endpoint comes after or coincides, so
+        // raise/delete the right endpoint if it's covered.
         if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           untermed_seq = tombstone_map_iter->second.seq_;
           if (tombstone_map_iter != tombstone_map.begin() &&
@@ -336,7 +336,7 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
             tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
           }
         }
-      } else if (new_to_old_start_cmp > 0) {
+      } else {
         if (untermed_seq != kMaxSequenceNumber ||
             tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           auto seq = tombstone_map_iter->second.seq_;
@@ -351,12 +351,6 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
                       untermed_seq == kMaxSequenceNumber ? 0 : untermed_seq,
                       new_range_dels_iter->seq_)));
           untermed_seq = seq;
-        }
-      } else {
-        // their left endpoints coincide, so raise the existing one if needed
-        if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
-          untermed_seq = tombstone_map_iter->second.seq_;
-          tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
         }
       }
 
