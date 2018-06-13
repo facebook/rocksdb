@@ -382,10 +382,16 @@ DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
 
-// Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,
-             "If non-zero, then CompactFiles() will be called one for every N "
-             "operations IN AVERAGE.  0 indicates CompactFiles() is disabled.");
+             "If non-zero, then CompactFiles() will be called once for every N "
+             "operations on average.  0 indicates CompactFiles() is disabled.");
+
+DEFINE_int32(compact_range_one_in, 0,
+             "If non-zero, then CompactRange() will be called once for every N "
+             "operations on average.  0 indicates CompactRange() is disabled.");
+
+DEFINE_int32(compact_range_width, 10000,
+             "The width of the ranges passed to CompactRange().");
 
 DEFINE_int32(acquire_snapshot_one_in, 0,
              "If non-zero, then acquires a snapshot once every N operations on "
@@ -1812,6 +1818,27 @@ class StressTest {
       }
 
       auto column_family = column_families_[rand_column_family];
+
+      if (FLAGS_compact_range_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_compact_range_one_in) == 0) {
+        int64_t end_key_num;
+        if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
+          end_key_num = port::kMaxInt64;
+        } else {
+          end_key_num = FLAGS_compact_range_width + rand_key;
+        }
+        std::string end_key_buf = Key(end_key_num);
+        Slice end_key(end_key_buf);
+
+        CompactRangeOptions cro;
+        cro.exclusive_manual_compaction =
+            static_cast<bool>(thread->rand.Next() % 2);
+        Status status = db_->CompactRange(cro, column_family, &key, &end_key);
+        if (!status.ok()) {
+          printf("Unable to perform CompactRange(): %s\n",
+                 status.ToString().c_str());
+        }
+      }
 
       if (FLAGS_acquire_snapshot_one_in > 0 &&
           thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
