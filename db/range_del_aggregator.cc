@@ -303,17 +303,12 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
 
       int new_to_old_start_cmp = icmp_.user_comparator()->Compare(
           new_range_dels_iter->start_key_, tombstone_map_iter->first);
-      // nullptr end means extends infinitely rightwards, set new_to_old_end_cmp
-      // accordingly so we can use common code paths later.
-      int new_to_old_end_cmp;
-      if (new_range_dels_iter_end == nullptr &&
-          tombstone_map_iter_end == nullptr) {
-        new_to_old_end_cmp = 0;
-      } else if (new_range_dels_iter_end == nullptr) {
-        new_to_old_end_cmp = 1;
-      } else if (tombstone_map_iter_end == nullptr) {
-        new_to_old_end_cmp = -1;
-      } else {
+      // If we're looking at either the last new tombstone or the last existing
+      // tombstone, we can't compare against nullptr, but we know that the new
+      // tombstone logically ends before the existing tombstone.
+      int new_to_old_end_cmp = -1;
+      if (new_range_dels_iter_end != nullptr &&
+          tombstone_map_iter_end != nullptr) {
         new_to_old_end_cmp = icmp_.user_comparator()->Compare(
             *new_range_dels_iter_end, *tombstone_map_iter_end);
       }
