@@ -25,6 +25,8 @@ default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
     "clear_column_family_one_in": 0,
+    "compact_files_one_in": 1000000,
+    "compact_range_one_in": 1000000,
     "delpercent": 5,
     "destroy_db_initially": 0,
     "expected_values_path": expected_values_file.name,
