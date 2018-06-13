@@ -383,12 +383,12 @@ DEFINE_bool(use_txn, false,
             "TxnDBWritePolicy::WRITE_PREPARED");
 
 DEFINE_int32(compact_files_one_in, 0,
-             "If non-zero, then CompactFiles() will be called one for every N "
-             "operations IN AVERAGE.  0 indicates CompactFiles() is disabled.");
+             "If non-zero, then CompactFiles() will be called once for every N "
+             "operations on average.  0 indicates CompactFiles() is disabled.");
 
 DEFINE_int32(compact_range_one_in, 0,
-             "If non-zero, then CompactRange() will be called one for every N "
-             "operations IN AVERAGE.  0 indicates CompactRange() is disabled.");
+             "If non-zero, then CompactRange() will be called once for every N "
+             "operations on average.  0 indicates CompactRange() is disabled.");
 
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
