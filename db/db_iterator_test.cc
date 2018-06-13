@@ -913,9 +913,9 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   // testing iterate_upper_bound and forward iterator
   // to make sure it stops at bound
   {
-      ReadOptions roo;
       // iterate_upper_bound points beyond the last expected entry
       Slice prefix("foo2");
+      ReadOptions roo;
       roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> iter(NewIterator(roo));
@@ -935,9 +935,9 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   }
   // Testing SeekToLast with iterate_upper_bound set
   {
-      ReadOptions roo;
 
       Slice prefix("foo");
+      ReadOptions roo;
       roo.iterate_upper_bound = &prefix;
 
       std::unique_ptr<Iterator> iter(NewIterator(roo));
@@ -958,8 +958,8 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   // Seek target and iterate_upper_bound are not is same prefix
   // This should be an error
   {
-    ReadOptions roo;
     Slice upper_bound("g");
+    ReadOptions roo;
     roo.iterate_upper_bound = &upper_bound;
 
     std::unique_ptr<Iterator> iter(NewIterator(roo));
@@ -991,6 +991,7 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_OK(Delete("c"));
     ASSERT_OK(Delete("d"));
 
+    Slice prefix("c");
     // base case with no bound
     ReadOptions roo;
     roo.iterate_upper_bound = nullptr;
@@ -1012,7 +1013,6 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 2);
 
     // now testing with iterate_bound
-    Slice prefix("c");
     roo.iterate_upper_bound = &prefix;
 
     iter.reset(NewIterator(roo));

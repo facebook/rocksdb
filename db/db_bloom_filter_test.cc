@@ -1123,6 +1123,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
+    Slice upper_bound("foz90000");
     ReadOptions read_options;
     read_options.prefix_same_as_start = true;
 
@@ -1138,7 +1139,6 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
     ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
                         "rocksdb.CappedPrefix.3"));
-    Slice upper_bound("foz90000");
     read_options.iterate_upper_bound = &upper_bound;
     Iterator* iter = db_->NewIterator(read_options);
     ASSERT_EQ(CountIter(iter, "foo"), 2);
