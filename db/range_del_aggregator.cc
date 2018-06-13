@@ -282,17 +282,13 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
            new_range_dels_iter != new_range_dels.end()) {
       const Slice *tombstone_map_iter_end = nullptr,
                   *new_range_dels_iter_end = nullptr;
-      if (tombstone_map_iter != tombstone_map.end()) {
-        auto next_tombstone_map_iter = std::next(tombstone_map_iter);
-        if (next_tombstone_map_iter != tombstone_map.end()) {
-          tombstone_map_iter_end = &next_tombstone_map_iter->first;
-        }
+      auto next_tombstone_map_iter = std::next(tombstone_map_iter);
+      if (next_tombstone_map_iter != tombstone_map.end()) {
+        tombstone_map_iter_end = &next_tombstone_map_iter->first;
       }
-      if (new_range_dels_iter != new_range_dels.end()) {
-        auto next_new_range_dels_iter = std::next(new_range_dels_iter);
-        if (next_new_range_dels_iter != new_range_dels.end()) {
-          new_range_dels_iter_end = &next_new_range_dels_iter->start_key_;
-        }
+      auto next_new_range_dels_iter = std::next(new_range_dels_iter);
+      if (next_new_range_dels_iter != new_range_dels.end()) {
+        new_range_dels_iter_end = &next_new_range_dels_iter->start_key_;
       }
 
       // our positions in existing/new tombstone collections should always
