@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.13.4 (6/12/2018)
+### Bug Fixes
+* Fix regression bug of Prev() with ReadOptions.iterate_upper_bound.
+
 ## 5.13.3 (6/6/2018)
 ### Bug Fixes
 * Fix assertion when reading bloom filter of SST files containing range deletions but no data
