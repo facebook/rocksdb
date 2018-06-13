@@ -636,6 +636,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, start_level,
                          1, enable_compression),
+      GetCompressionOptions(ioptions_, vstorage, start_level, 1,
+                            enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */, compaction_reason);
 }
@@ -765,12 +767,13 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
   }
 
   return new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-      output_level, MaxFileSizeForLevel(mutable_cf_options, output_level,
-          kCompactionStyleUniversal),
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
+      MaxFileSizeForLevel(mutable_cf_options, output_level,
+                          kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                         output_level, 1),
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
+                         1),
+      GetCompressionOptions(ioptions_, vstorage, output_level, 1),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);
@@ -890,6 +893,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          1),
+      GetCompressionOptions(ioptions_, vstorage, output_level, 1),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
       score, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);

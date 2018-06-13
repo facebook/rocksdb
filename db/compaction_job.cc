@@ -798,8 +798,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
-  VersionStorageInfo* vstorage =
-      sub_compact->compaction->input_version()->storage_info();
+
   // I/O measurement variables
   PerfLevel prev_perf_level = PerfLevel::kEnableTime;
   const uint64_t kRecordStatsEvery = 1000;
@@ -823,20 +822,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // it'll reach the maximum length. We optionally pass these samples through
   // zstd's dictionary trainer, or just use them directly. Then, the dictionary
   // is used for compressing subsequent output files in the same subcompaction.
-  CompressionOptions compression_opts;
-  if (sub_compact->compaction->output_compression() !=
-          kDisableCompressionOption &&
-      sub_compact->compaction->output_level() >=
-          (vstorage->num_non_empty_levels() - 1)) {
-    compression_opts = cfd->ioptions()->bottommost_compression_opts;
-  } else {
-    compression_opts = cfd->ioptions()->compression_opts;
-  }
-
-  const bool kUseZstdTrainer = compression_opts.zstd_max_train_bytes > 0;
-  const size_t kSampleBytes = kUseZstdTrainer
-                                  ? compression_opts.zstd_max_train_bytes
-                                  : compression_opts.max_dict_bytes;
+  const bool kUseZstdTrainer =
+      cfd->ioptions()->compression_opts.zstd_max_train_bytes > 0;
+  const size_t kSampleBytes =
+      kUseZstdTrainer ? cfd->ioptions()->compression_opts.zstd_max_train_bytes
+                      : cfd->ioptions()->compression_opts.max_dict_bytes;
   const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
   std::set<size_t> sample_begin_offsets;
   if (bottommost_level_ && kSampleBytes > 0) {
@@ -1037,9 +1027,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         // Use samples from first output file to create dictionary for
         // compression of subsequent files.
         if (kUseZstdTrainer) {
-          sub_compact->compression_dict =
-              ZSTD_TrainDictionary(dict_sample_data, kSampleLenShift,
-                                   compression_opts.max_dict_bytes);
+          sub_compact->compression_dict = ZSTD_TrainDictionary(
+              dict_sample_data, kSampleLenShift,
+              cfd->ioptions()->compression_opts.max_dict_bytes);
         } else {
           sub_compact->compression_dict = std::move(dict_sample_data);
         }
@@ -1397,8 +1387,7 @@ Status CompactionJob::OpenCompactionOutputFile(
         TableFileCreationReason::kCompaction, s);
     return s;
   }
-  VersionStorageInfo* vstorage =
-      sub_compact->compaction->input_version()->storage_info();
+
   SubcompactionState::Output out;
   out.meta.fd =
       FileDescriptor(file_number, sub_compact->compaction->output_path_id(), 0);
@@ -1434,21 +1423,12 @@ Status CompactionJob::OpenCompactionOutputFile(
     output_file_creation_time = static_cast<uint64_t>(_current_time);
   }
 
-  CompressionOptions compression_opts;
-  if (sub_compact->compaction->output_compression() !=
-          kDisableCompressionOption &&
-      sub_compact->compaction->output_level() >=
-          (vstorage->num_non_empty_levels() - 1)) {
-    compression_opts = cfd->ioptions()->bottommost_compression_opts;
-  } else {
-    compression_opts = cfd->ioptions()->compression_opts;
-  }
-
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
-      sub_compact->compaction->output_compression(), compression_opts,
+      sub_compact->compaction->output_compression(),
+      cfd->ioptions()->compression_opts,
       sub_compact->compaction->output_level(), &sub_compact->compression_dict,
       skip_filters, output_file_creation_time));
   LogFlush(db_options_.info_log);
