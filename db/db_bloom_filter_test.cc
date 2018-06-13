@@ -1097,6 +1097,193 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
 }
 
+int CountIter(Iterator* iter, const Slice& key) {
+  int count = 0;
+  for (iter->Seek(key); iter->Valid() && iter->status() == Status::OK();
+       iter->Next()) {
+    count++;
+  }
+  return count;
+}
+
+
+// Create multiple SST files each with a different prefix_extractor config,
+// verify iterators can read all SST files using the latest config.
+TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
+  for (bool use_block_based_builder : {true, false}) {
+    Options options;
+    options.create_if_missing = true;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+    options.disable_auto_compactions = true;
+    options.statistics = CreateDBStatistics();
+    // Enable prefix bloom for SST files
+    BlockBasedTableOptions table_options;
+    table_options.filter_policy.reset(
+        NewBloomFilterPolicy(10, use_block_based_builder));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    DestroyAndReopen(options);
+
+    Slice upper_bound("foz90000");
+    ReadOptions read_options;
+    read_options.prefix_same_as_start = true;
+
+    // first SST with fixed:1 BF
+    ASSERT_OK(Put("foo2", "bar2"));
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Put("foq1", "bar1"));
+    ASSERT_OK(Put("fpa", "0"));
+    dbfull()->Flush(FlushOptions());
+    Iterator* iter_old = db_->NewIterator(read_options);
+    ASSERT_EQ(CountIter(iter_old, "foo"), 4);
+
+    ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
+    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
+                        "rocksdb.CappedPrefix.3"));
+    read_options.iterate_upper_bound = &upper_bound;
+    Iterator* iter = db_->NewIterator(read_options);
+    ASSERT_EQ(CountIter(iter, "foo"), 2);
+    ASSERT_EQ(CountIter(iter, "gpk"), 0);
+
+    // second SST with capped:3 BF
+    ASSERT_OK(Put("foo3", "bar3"));
+    ASSERT_OK(Put("foo4", "bar4"));
+    ASSERT_OK(Put("foq5", "bar5"));
+    ASSERT_OK(Put("fpb", "1"));
+    dbfull()->Flush(FlushOptions());
+    // BF is cappped:3 now
+    Iterator* iter_tmp = db_->NewIterator(read_options);
+    ASSERT_EQ(CountIter(iter_tmp, "foo"), 4);
+    ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
+    // both counters are incremented because BF is "not changed" for 1 of the
+    // SST files, so filter is checked once and found no match.
+
+    delete iter_tmp;
+
+    ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
+    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
+                        "rocksdb.FixedPrefix.2"));
+    // third SST with fixed:2 BF
+    ASSERT_OK(Put("foo6", "bar6"));
+    ASSERT_OK(Put("foo7", "bar7"));
+    ASSERT_OK(Put("foq8", "bar8"));
+    ASSERT_OK(Put("fpc", "2"));
+    dbfull()->Flush(FlushOptions());
+    // BF is fixed:2 now
+    iter_tmp = db_->NewIterator(read_options);
+    ASSERT_EQ(CountIter(iter_tmp, "foo"), 9);
+    ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
+    delete iter_tmp;
+
+    // TODO(Zhongyi): verify existing iterator cannot see newly inserted keys
+    ASSERT_EQ(CountIter(iter_old, "foo"), 4);
+    ASSERT_EQ(CountIter(iter, "foo"), 2);
+    delete iter;
+    delete iter_old;
+
+    // keys in all three SSTs are visible to iterator
+    Iterator* iter_all = db_->NewIterator(read_options);
+    ASSERT_EQ(CountIter(iter_all, "foo"), 9);
+    ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
+    delete iter_all;
+    ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
+    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
+                        "rocksdb.CappedPrefix.3"));
+    iter_all = db_->NewIterator(read_options);
+    ASSERT_EQ(CountIter(iter_all, "foo"), 6);
+    ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
+    delete iter_all;
+  }
+}
+
+// Create a new column family in a running DB, change prefix_extractor
+// dynamically, verify the iterator created on the new column family behaves
+// as expected
+TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.disable_auto_compactions = true;
+  // Enable prefix bloom for SST files
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ReadOptions read_options;
+  read_options.prefix_same_as_start = true;
+  // create a new CF and set prefix_extractor dynamically
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  CreateColumnFamilies({"ramen_dojo"}, options);
+  ASSERT_EQ(0,
+            strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
+                   "rocksdb.CappedPrefix.3"));
+  ASSERT_OK(Put(2, "foo3", "bar3"));
+  ASSERT_OK(Put(2, "foo4", "bar4"));
+  ASSERT_OK(Put(2, "foo5", "bar5"));
+  ASSERT_OK(Put(2, "foq6", "bar6"));
+  ASSERT_OK(Put(2, "fpq7", "bar7"));
+  dbfull()->Flush(FlushOptions());
+  Iterator* iter = db_->NewIterator(read_options, handles_[2]);
+  ASSERT_EQ(CountIter(iter, "foo"), 3);
+  delete iter;
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[2], {{"prefix_extractor", "fixed:2"}}));
+  ASSERT_EQ(0,
+            strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
+                   "rocksdb.FixedPrefix.2"));
+  iter = db_->NewIterator(read_options, handles_[2]);
+  ASSERT_EQ(CountIter(iter, "foo"), 4);
+  delete iter;
+}
+
+// Verify it's possible to change prefix_extractor at runtime and iterators
+// behaves as expected
+TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
+  Options options;
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.disable_auto_compactions = true;
+  // Enable prefix bloom for SST files
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("fpa", "0"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("foo3", "bar3"));
+  ASSERT_OK(Put("foo4", "bar4"));
+  ASSERT_OK(Put("foo5", "bar5"));
+  ASSERT_OK(Put("fpb", "1"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("foo6", "bar6"));
+  ASSERT_OK(Put("foo7", "bar7"));
+  ASSERT_OK(Put("foo8", "bar8"));
+  ASSERT_OK(Put("fpc", "2"));
+  dbfull()->Flush(FlushOptions());
+
+  ReadOptions read_options;
+  read_options.prefix_same_as_start = true;
+  Iterator* iter = db_->NewIterator(read_options);
+  ASSERT_EQ(CountIter(iter, "foo"), 12);
+  delete iter;
+  Iterator* iter_old = db_->NewIterator(read_options);
+  ASSERT_EQ(CountIter(iter_old, "foo"), 12);
+
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
+  ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
+                      "rocksdb.CappedPrefix.3"));
+  iter = db_->NewIterator(read_options);
+  // "fp*" should be skipped
+  ASSERT_EQ(CountIter(iter, "foo"), 9);
+  delete iter;
+
+  // iterator created before should not be affected and see all keys
+  ASSERT_EQ(CountIter(iter_old, "foo"), 12);
+  delete iter_old;
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

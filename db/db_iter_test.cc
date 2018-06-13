@@ -233,428 +233,428 @@ class DBIteratorTest : public testing::Test {
   DBIteratorTest() : env_(Env::Default()) {}
 };
 
-TEST_F(DBIteratorTest, DBIteratorPrevNext) {
-  Options options;
-  ImmutableCFOptions cf_options = ImmutableCFOptions(options);
-  MutableCFOptions mutable_cf_options = MutableCFOptions(options);
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddDeletion("a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddPut("a", "val_a");
-
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->Finish();
-
-    ReadOptions ro;
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b");
-
-    db_iter->Prev();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "val_a");
-
-    db_iter->Next();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b");
-
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-  // Test to check the SeekToLast() with iterate_upper_bound not set
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->Finish();
-
-    ReadOptions ro;
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "c");
-  }
-
-  // Test to check the SeekToLast() with iterate_upper_bound set
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("d", "val_d");
-    internal_iter->AddPut("e", "val_e");
-    internal_iter->AddPut("f", "val_f");
-    internal_iter->Finish();
-
-    Slice prefix("d");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "c");
-
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "c");
-  }
-  // Test to check the SeekToLast() iterate_upper_bound set to a key that
-  // is not Put yet
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("d", "val_d");
-    internal_iter->Finish();
-
-    Slice prefix("z");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "d");
-
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "d");
-
-    db_iter->Prev();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "c");
-  }
-  // Test to check the SeekToLast() with iterate_upper_bound set to the
-  // first key
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->Finish();
-
-    Slice prefix("a");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-  // Test case to check SeekToLast with iterate_upper_bound set
-  // (same key put may times - SeekToLast should start with the
-  // maximum sequence id of the upper bound)
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->Finish();
-
-    Slice prefix("c");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 7, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    SetPerfLevel(kEnableCount);
-    ASSERT_TRUE(GetPerfLevel() == kEnableCount);
-
-    get_perf_context()->Reset();
-    db_iter->SeekToLast();
-
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 1);
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-
-    SetPerfLevel(kDisable);
-  }
-  // Test to check the SeekToLast() with the iterate_upper_bound set
-  // (Checking the value of the key which has sequence ids greater than
-  // and less that the iterator's sequence id)
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-
-    internal_iter->AddPut("a", "val_a1");
-    internal_iter->AddPut("a", "val_a2");
-    internal_iter->AddPut("b", "val_b1");
-    internal_iter->AddPut("c", "val_c1");
-    internal_iter->AddPut("c", "val_c2");
-    internal_iter->AddPut("c", "val_c3");
-    internal_iter->AddPut("b", "val_b2");
-    internal_iter->AddPut("d", "val_d1");
-    internal_iter->Finish();
-
-    Slice prefix("c");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 4, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b1");
-  }
-
-  // Test to check the SeekToLast() with the iterate_upper_bound set to the
-  // key that is deleted
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->Finish();
-
-    Slice prefix("a");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-  // Test to check the SeekToLast() with the iterate_upper_bound set
-  // (Deletion cases)
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddDeletion("b");
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->Finish();
-
-    Slice prefix("c");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-  }
-  // Test to check the SeekToLast() with iterate_upper_bound set
-  // (Deletion cases - Lot of internal keys after the upper_bound
-  // is deleted)
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->AddDeletion("c");
-    internal_iter->AddDeletion("d");
-    internal_iter->AddDeletion("e");
-    internal_iter->AddDeletion("f");
-    internal_iter->AddDeletion("g");
-    internal_iter->AddDeletion("h");
-    internal_iter->Finish();
-
-    Slice prefix("c");
-
-    ReadOptions ro;
-    ro.iterate_upper_bound = &prefix;
-
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 7, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    SetPerfLevel(kEnableCount);
-    ASSERT_TRUE(GetPerfLevel() == kEnableCount);
-
-    get_perf_context()->Reset();
-    db_iter->SeekToLast();
-
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-
-    SetPerfLevel(kDisable);
-  }
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddDeletion("a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddDeletion("a");
-    internal_iter->AddPut("a", "val_a");
-
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->Finish();
-
-    ReadOptions ro;
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-
-    db_iter->SeekToFirst();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "val_a");
-
-    db_iter->Next();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b");
-
-    db_iter->Prev();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "val_a");
-
-    db_iter->Prev();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("b", "val_b");
-    internal_iter->Finish();
-
-    ReadOptions ro;
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 2, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b");
-
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b");
-  }
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-    internal_iter->AddPut("a", "val_a");
-
-    internal_iter->AddPut("b", "val_b");
-
-    internal_iter->AddPut("c", "val_c");
-    internal_iter->Finish();
-
-    ReadOptions ro;
-    std::unique_ptr<Iterator> db_iter(NewDBIterator(
-        env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
-        internal_iter, 10, options.max_sequential_skip_in_iterations,
-        nullptr /*read_callback*/));
-    db_iter->SeekToLast();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "c");
-    ASSERT_EQ(db_iter->value().ToString(), "val_c");
-
-    db_iter->Prev();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "val_b");
-
-    db_iter->Next();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "c");
-    ASSERT_EQ(db_iter->value().ToString(), "val_c");
-  }
+TEST_F(DBIteratorTest, DBIteratorPrevNextabc) {
+    Options options;
+    ImmutableCFOptions cf_options = ImmutableCFOptions(options);
+    MutableCFOptions mutable_cf_options = MutableCFOptions(options);
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddDeletion("a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddPut("a", "val_a");
+
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->Finish();
+
+      ReadOptions roo;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b");
+
+      db_iter->Prev();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+      ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+      db_iter->Next();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b");
+
+      db_iter->Next();
+      ASSERT_TRUE(!db_iter->Valid());
+    }
+    // Test to check the SeekToLast() with iterate_upper_bound not set
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      ReadOptions roo;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+    }
+
+    // Test to check the SeekToLast() with iterate_upper_bound set
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("d", "val_d");
+      internal_iter->AddPut("e", "val_e");
+      internal_iter->AddPut("f", "val_f");
+      internal_iter->Finish();
+
+      Slice prefix("d");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+
+      db_iter->Next();
+      ASSERT_TRUE(!db_iter->Valid());
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+    }
+    // Test to check the SeekToLast() iterate_upper_bound set to a key that
+    // is not Put yet
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("d", "val_d");
+      internal_iter->Finish();
+
+      Slice prefix("z");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "d");
+
+      db_iter->Next();
+      ASSERT_TRUE(!db_iter->Valid());
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "d");
+
+      db_iter->Prev();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+    }
+    // Test to check the SeekToLast() with iterate_upper_bound set to the
+    // first key
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->Finish();
+
+      Slice prefix("a");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(!db_iter->Valid());
+    }
+    // Test case to check SeekToLast with iterate_upper_bound set
+    // (same key put may times - SeekToLast should start with the
+    // maximum sequence id of the upper bound)
+
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      Slice prefix("c");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 7, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      SetPerfLevel(kEnableCount);
+      ASSERT_TRUE(GetPerfLevel() == kEnableCount);
+
+      get_perf_context()->Reset();
+      db_iter->SeekToLast();
+
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 1);
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+
+      SetPerfLevel(kDisable);
+    }
+    // Test to check the SeekToLast() with the iterate_upper_bound set
+    // (Checking the value of the key which has sequence ids greater than
+    // and less that the iterator's sequence id)
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+
+      internal_iter->AddPut("a", "val_a1");
+      internal_iter->AddPut("a", "val_a2");
+      internal_iter->AddPut("b", "val_b1");
+      internal_iter->AddPut("c", "val_c1");
+      internal_iter->AddPut("c", "val_c2");
+      internal_iter->AddPut("c", "val_c3");
+      internal_iter->AddPut("b", "val_b2");
+      internal_iter->AddPut("d", "val_d1");
+      internal_iter->Finish();
+
+      Slice prefix("c");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 4, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b1");
+    }
+
+    // Test to check the SeekToLast() with the iterate_upper_bound set to the
+    // key that is deleted
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      Slice prefix("a");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(!db_iter->Valid());
+    }
+    // Test to check the SeekToLast() with the iterate_upper_bound set
+    // (Deletion cases)
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddDeletion("b");
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      Slice prefix("c");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+
+      db_iter->Next();
+      ASSERT_TRUE(!db_iter->Valid());
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+    }
+    // Test to check the SeekToLast() with iterate_upper_bound set
+    // (Deletion cases - Lot of internal keys after the upper_bound
+    // is deleted)
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->AddDeletion("c");
+      internal_iter->AddDeletion("d");
+      internal_iter->AddDeletion("e");
+      internal_iter->AddDeletion("f");
+      internal_iter->AddDeletion("g");
+      internal_iter->AddDeletion("h");
+      internal_iter->Finish();
+
+      Slice prefix("c");
+
+      ReadOptions roo;
+      roo.iterate_upper_bound = &prefix;
+
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 7, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      SetPerfLevel(kEnableCount);
+      ASSERT_TRUE(GetPerfLevel() == kEnableCount);
+
+      get_perf_context()->Reset();
+      db_iter->SeekToLast();
+
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+
+      SetPerfLevel(kDisable);
+    }
+
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddDeletion("a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddDeletion("a");
+      internal_iter->AddPut("a", "val_a");
+
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->Finish();
+
+      ReadOptions roo;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+
+      db_iter->SeekToFirst();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+      ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+      db_iter->Next();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b");
+
+      db_iter->Prev();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+      ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+      db_iter->Prev();
+      ASSERT_TRUE(!db_iter->Valid());
+    }
+
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("b", "val_b");
+      internal_iter->Finish();
+
+      ReadOptions roo;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 2, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b");
+
+      db_iter->Next();
+      ASSERT_TRUE(!db_iter->Valid());
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b");
+    }
+
+    {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+      internal_iter->AddPut("a", "val_a");
+
+      internal_iter->AddPut("b", "val_b");
+
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      ReadOptions roo;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, roo, cf_options, mutable_cf_options, BytewiseComparator(),
+          internal_iter, 10, options.max_sequential_skip_in_iterations,
+          nullptr /*read_callback*/));
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+      ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+      db_iter->Prev();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "b");
+      ASSERT_EQ(db_iter->value().ToString(), "val_b");
+
+      db_iter->Next();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+      ASSERT_EQ(db_iter->value().ToString(), "val_c");
+    }
 }
 
 TEST_F(DBIteratorTest, DBIteratorEmpty) {
