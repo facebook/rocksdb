@@ -23,6 +23,22 @@
 
 namespace rocksdb {
 
+// We maintain position in the tombstone map across calls to ShouldDelete. The
+// caller may wish to specify a mode to optimize positioning the iterator
+// during the next call to ShouldDelete. The non-kFullScan modes are only
+// available when deletion collapsing is enabled.
+//
+// For example, if we invoke Next() on an iterator, kForwardTraversal should
+// be specified to advance one-by-one through deletions until one is found
+// with its interval containing the key. This will typically be faster than
+// doing a full binary search (kBinarySearch).
+enum class RangeDelPositioningMode {
+  kFullScan,  // used iff collapse_deletions_ == false
+  kForwardTraversal,
+  kBackwardTraversal,
+  kBinarySearch,
+};
+
 // A RangeDelAggregator aggregates range deletion tombstones as they are
 // encountered in memtables/SST files. It provides methods that check whether a
 // key is covered by range tombstones or write the relevant tombstones to a new
@@ -53,45 +69,31 @@ class RangeDelAggregator {
                      SequenceNumber upper_bound,
                      bool collapse_deletions = false);
 
-  // We maintain position in the tombstone map across calls to ShouldDelete. The
-  // caller may wish to specify a mode to optimize positioning the iterator
-  // during the next call to ShouldDelete. The non-kFullScan modes are only
-  // available when deletion collapsing is enabled.
-  //
-  // For example, if we invoke Next() on an iterator, kForwardTraversal should
-  // be specified to advance one-by-one through deletions until one is found
-  // with its interval containing the key. This will typically be faster than
-  // doing a full binary search (kBinarySearch).
-  enum RangePositioningMode {
-    kFullScan,  // used iff collapse_deletions_ == false
-    kForwardTraversal,
-    kBackwardTraversal,
-    kBinarySearch,
-  };
-
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
   // @param mode If collapse_deletions_ is true, this dictates how we will find
   //             the deletion whose interval contains this key. Otherwise, its
   //             value must be kFullScan indicating linear scan from beginning..
-  bool ShouldDelete(const ParsedInternalKey& parsed,
-                    RangePositioningMode mode = kFullScan) {
+  bool ShouldDelete(
+      const ParsedInternalKey& parsed,
+      RangeDelPositioningMode mode = RangeDelPositioningMode::kFullScan) {
     if (rep_ == nullptr) {
       return false;
     }
     return ShouldDeleteImpl(parsed, mode);
   }
-  bool ShouldDelete(const Slice& internal_key,
-                    RangePositioningMode mode = kFullScan) {
+  bool ShouldDelete(
+      const Slice& internal_key,
+      RangeDelPositioningMode mode = RangeDelPositioningMode::kFullScan) {
     if (rep_ == nullptr) {
       return false;
     }
     return ShouldDeleteImpl(internal_key, mode);
   }
   bool ShouldDeleteImpl(const ParsedInternalKey& parsed,
-                        RangePositioningMode mode = kFullScan);
+                        RangeDelPositioningMode mode);
   bool ShouldDeleteImpl(const Slice& internal_key,
-                        RangePositioningMode mode = kFullScan);
+                        RangeDelPositioningMode mode);
 
   // Checks whether range deletions cover any keys between `start` and `end`,
   // inclusive.

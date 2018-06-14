@@ -518,8 +518,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                   ikey_.user_key,
                   !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
               if (range_del_agg_.ShouldDelete(
-                      ikey_, RangeDelAggregator::RangePositioningMode::
-                                 kForwardTraversal)) {
+                      ikey_, RangeDelPositioningMode::kForwardTraversal)) {
                 // Arrange to skip all upcoming entries for this key since
                 // they are hidden by this deletion.
                 skipping = true;
@@ -549,8 +548,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
             if (range_del_agg_.ShouldDelete(
-                    ikey_, RangeDelAggregator::RangePositioningMode::
-                               kForwardTraversal)) {
+                    ikey_, RangeDelPositioningMode::kForwardTraversal)) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               skipping = true;
@@ -657,8 +655,7 @@ bool DBIter::MergeValuesNewToOld() {
       break;
     } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
                range_del_agg_.ShouldDelete(
-                   ikey, RangeDelAggregator::RangePositioningMode::
-                             kForwardTraversal)) {
+                   ikey, RangeDelPositioningMode::kForwardTraversal)) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_->Next();
@@ -916,8 +913,7 @@ bool DBIter::FindValueForCurrentKey() {
       case kTypeValue:
       case kTypeBlobIndex:
         if (range_del_agg_.ShouldDelete(
-                ikey,
-                RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+                ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
           PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         } else {
@@ -935,8 +931,7 @@ bool DBIter::FindValueForCurrentKey() {
         break;
       case kTypeMerge:
         if (range_del_agg_.ShouldDelete(
-                ikey,
-                RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+                ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           merge_context_.Clear();
           last_key_entry_type = kTypeRangeDeletion;
           last_not_merge_type = last_key_entry_type;
@@ -1069,7 +1064,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(
-          ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+          ikey, RangeDelPositioningMode::kBackwardTraversal)) {
     valid_ = false;
     return true;
   }
@@ -1114,8 +1109,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
     if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
         range_del_agg_.ShouldDelete(
-            ikey,
-            RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+            ikey, RangeDelPositioningMode::kBackwardTraversal)) {
       break;
     } else if (ikey.type == kTypeValue) {
       const Slice val = iter_->value();

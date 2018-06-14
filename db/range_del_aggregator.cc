@@ -43,8 +43,8 @@ void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
   rep_->pinned_iters_mgr_.StartPinning();
 }
 
-bool RangeDelAggregator::ShouldDeleteImpl(
-    const Slice& internal_key, RangeDelAggregator::RangePositioningMode mode) {
+bool RangeDelAggregator::ShouldDeleteImpl(const Slice& internal_key,
+                                          RangeDelPositioningMode mode) {
   assert(rep_ != nullptr);
   ParsedInternalKey parsed;
   if (!ParseInternalKey(internal_key, &parsed)) {
@@ -53,9 +53,8 @@ bool RangeDelAggregator::ShouldDeleteImpl(
   return ShouldDelete(parsed, mode);
 }
 
-bool RangeDelAggregator::ShouldDeleteImpl(
-    const ParsedInternalKey& parsed,
-    RangeDelAggregator::RangePositioningMode mode) {
+bool RangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
+                                          RangeDelPositioningMode mode) {
   assert(IsValueType(parsed.type));
   assert(rep_ != nullptr);
   auto& positional_tombstone_map = GetPositionalTombstoneMap(parsed.sequence);
@@ -65,13 +64,14 @@ bool RangeDelAggregator::ShouldDeleteImpl(
   }
   auto& tombstone_map_iter = positional_tombstone_map.iter;
   if (tombstone_map_iter == tombstone_map.end() &&
-      (mode == kForwardTraversal || mode == kBackwardTraversal)) {
+      (mode == RangeDelPositioningMode::kForwardTraversal ||
+       mode == RangeDelPositioningMode::kBackwardTraversal)) {
     // invalid (e.g., if AddTombstones() changed the deletions), so need to
     // reseek
-    mode = kBinarySearch;
+    mode = RangeDelPositioningMode::kBinarySearch;
   }
   switch (mode) {
-    case kFullScan:
+    case RangeDelPositioningMode::kFullScan:
       assert(!collapse_deletions_);
       // The maintained state (PositionalTombstoneMap::iter) isn't useful when
       // we linear scan from the beginning each time, but we maintain it anyways
@@ -91,7 +91,7 @@ bool RangeDelAggregator::ShouldDeleteImpl(
         ++tombstone_map_iter;
       }
       return false;
-    case kForwardTraversal:
+    case RangeDelPositioningMode::kForwardTraversal:
       assert(collapse_deletions_ && tombstone_map_iter != tombstone_map.end());
       if (tombstone_map_iter == tombstone_map.begin() &&
           icmp_.user_comparator()->Compare(parsed.user_key,
@@ -105,7 +105,7 @@ bool RangeDelAggregator::ShouldDeleteImpl(
         ++tombstone_map_iter;
       }
       break;
-    case kBackwardTraversal:
+    case RangeDelPositioningMode::kBackwardTraversal:
       assert(collapse_deletions_ && tombstone_map_iter != tombstone_map.end());
       while (tombstone_map_iter != tombstone_map.begin() &&
              icmp_.user_comparator()->Compare(parsed.user_key,
@@ -119,7 +119,7 @@ bool RangeDelAggregator::ShouldDeleteImpl(
         return false;
       }
       break;
-    case kBinarySearch:
+    case RangeDelPositioningMode::kBinarySearch:
       assert(collapse_deletions_);
       tombstone_map_iter =
           tombstone_map.upper_bound(parsed.user_key);
@@ -130,7 +130,7 @@ bool RangeDelAggregator::ShouldDeleteImpl(
       --tombstone_map_iter;
       break;
   }
-  assert(mode != kFullScan);
+  assert(mode != RangeDelPositioningMode::kFullScan);
   assert(tombstone_map_iter != tombstone_map.end() &&
          icmp_.user_comparator()->Compare(tombstone_map_iter->first,
                                           parsed.user_key) <= 0);
