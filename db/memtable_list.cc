@@ -401,7 +401,23 @@ Status MemTableList::InstallMemtableFlushResults(
       // All the later memtables that have the same filenum
       // are part of the same batch. They can be committed now.
       uint64_t mem_id = 1;  // how many memtables have been flushed.
-      if (s.ok()) {         // commit new state
+
+      // commit new state only if the column family is NOT dropped.
+      // The reason is as follows (refer to
+      // ColumnFamilyTest.FlushAndDropRaceCondition).
+      // It is possible that there has been an iterator scanning this column
+      // family. Before the scan finishes, the column family is dropped (by
+      // another thread). Since the original scanning thread does not delete
+      // the cf, the scanning thread should be able to finish scan the column
+      // family according to Rocksdb contract.
+      // Now suppose we commit the new state here even if the column family is
+      // dropped. Since the column family is already dropped, ref count on the
+      // memtables should be 1 now (since we still have an iterator).
+      // If we commit, then the following code will
+      // further unref the memtable, which will make the refcount of memtables
+      // to 0. If the ref count is 0, the memtables may get dropped at any
+      // time, and the iterator will see wrong results.
+      if (s.ok() && !cfd->IsDropped()) {         // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();
           ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64

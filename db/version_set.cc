@@ -2994,11 +2994,13 @@ Status VersionSet::ProcessManifestWrites(
   return s;
 }
 
+// 'datas' is gramatically incorrect. We still use this notation is to indicate
+// that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
-    std::vector<ColumnFamilyData*>& column_family_data,
-    const std::vector<MutableCFOptions>& mutable_cf_options,
-    std::vector<autovector<VersionEdit*>>& edit_lists, InstrumentedMutex* mu,
-    Directory* db_directory, bool new_descriptor_log,
+    const std::vector<ColumnFamilyData*>& column_family_datas,
+    const std::vector<MutableCFOptions>& mutable_cf_options_list,
+    const std::vector<autovector<VersionEdit*>>& edit_lists,
+    InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();
   int num_edits = 0;
@@ -3017,15 +3019,15 @@ Status VersionSet::LogAndApply(
 #endif /* ! NDEBUG */
   }
 
-  int n = (int) column_family_data.size();
-  if (n == 1 && column_family_data[0] == nullptr) {
+  int num_cfds = static_cast<int>(column_family_datas.size());
+  if (num_cfds == 1 && column_family_datas[0] == nullptr) {
     assert(edit_lists.size() == 1 && edit_lists[0].size() == 1);
     assert(edit_lists[0][0]->is_column_family_add_);
     assert(new_cf_options != nullptr);
   }
   std::deque<ManifestWriter> writers;
-  for (int i = 0; i < n; ++i) {
-    writers.emplace_back(mu, column_family_data[i], mutable_cf_options[i],
+  for (int i = 0; i < num_cfds; ++i) {
+    writers.emplace_back(mu, column_family_datas[i], mutable_cf_options_list[i],
         edit_lists[i]);
     manifest_writers_.push_back(&writers[i]);
   }
@@ -3036,59 +3038,24 @@ Status VersionSet::LogAndApply(
   if (first_writer.done) {
     return first_writer.status;
   }
-  return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
-      new_cf_options);
-}
 
-Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
-                               const MutableCFOptions& mutable_cf_options,
-                               const autovector<VersionEdit*>& edit_list,
-                               InstrumentedMutex* mu, Directory* db_directory,
-                               bool new_descriptor_log,
-                               const ColumnFamilyOptions* new_cf_options) {
-  mu->AssertHeld();
-  // num of edits
-  auto num_edits = edit_list.size();
-  if (num_edits == 0) {
-    return Status::OK();
-  } else if (num_edits > 1) {
-#ifndef NDEBUG
-    // no group commits for column family add or drop
-    for (auto& edit : edit_list) {
-      assert(!edit->IsColumnFamilyManipulation());
+  int num_undropped_cfds = num_cfds;
+  for (auto cfd : column_family_datas) {
+    if (cfd != nullptr && cfd->IsDropped()) {
+      --num_undropped_cfds;
     }
-#endif
   }
-
-  // column_family_data can be nullptr only if this is column_family_add.
-  // in that case, we also need to specify ColumnFamilyOptions
-  if (column_family_data == nullptr) {
-    assert(num_edits == 1);
-    assert(edit_list[0]->is_column_family_add_);
-    assert(new_cf_options != nullptr);
-  }
-
-  // queue our request
-  std::deque<ManifestWriter> writers;
-  writers.emplace_back(mu, column_family_data, mutable_cf_options, edit_list);
-  ManifestWriter& w = writers.front();
-  manifest_writers_.push_back(&w);
-  while (!w.done && &w != manifest_writers_.front()) {
-    w.cv.Wait();
-  }
-  if (w.done) {
-    return w.status;
-  }
-  if (column_family_data != nullptr && column_family_data->IsDropped()) {
-    // if column family is dropped by the time we get here, no need to write
-    // anything to the manifest
-    manifest_writers_.pop_front();
-    // Notify new head of write queue
+  if (0 == num_undropped_cfds) {
+    // TODO (yanqin) maybe use a different status code to denote column family
+    // drop other than OK and ShutdownInProgress
+    for (int i = 0; i != num_cfds; ++i) {
+      manifest_writers_.pop_front();
+    }
+    // Notify new head of manifest write queue.
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    // we steal this code to also inform about cf-drop
-    return Status::ShutdownInProgress();
+    return Status::OK();
   }
 
   return ProcessManifestWrites(writers, mu, db_directory, new_descriptor_log,
