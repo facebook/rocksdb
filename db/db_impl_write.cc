@@ -12,6 +12,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"

@@ -1,5 +1,5 @@
-#include <rocksdb/status.h>
-#include <db/db_impl.h>
+#include "db/error_handler.h"
+#include "db/event_helpers.h"
 
 namespace rocksdb {
 
@@ -49,16 +49,6 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity> DefaultReaso
   {std::make_tuple(BackgroundErrorReason::kMemTable, true), Status::Severity::kFatalError},
   {std::make_tuple(BackgroundErrorReason::kMemTable, false), Status::Severity::kFatalError},
 };
-
-Status::Severity ErrorHandler::GetErrorSeverity(BackgroundErrorReason , Status::Code , Status::SubCode ) {
-#if 0
-  auto entry = ErrorSeverityMap.find(std::make_tuple(reason, code, subcode));
-  if (entry != ErrorSeverityMap.end()) {
-    return entry->second;
-  }
-#endif
-  return Status::Severity::kNoError;
-}
 
 Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
   if (bg_err.ok()) {

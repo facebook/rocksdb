@@ -480,8 +480,8 @@ set(SOURCES
         db/db_impl_readonly.cc
         db/db_info_dumper.cc
         db/db_iter.cc
-        db/db_error_handler.cc
         db/dbformat.cc
+        db/error_handler.cc
         db/event_helpers.cc
         db/experimental.cc
         db/external_sst_file_ingestion_job.cc
@@ -855,7 +855,6 @@ if(WITH_TESTS)
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
         db/db_dynamic_level_test.cc
-        db/db_error_handling_test.cc
         db/db_flush_test.cc
         db/db_inplace_update_test.cc
         db/db_io_failure_test.cc
@@ -879,6 +878,7 @@ if(WITH_TESTS)
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
+        db/error_handler_test.cc
         db/obsolete_files_test.cc
         db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc

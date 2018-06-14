@@ -14,6 +14,7 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
+#include "db/error_handler.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"

@@ -32,6 +32,7 @@
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"

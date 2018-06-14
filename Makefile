@@ -429,7 +429,7 @@ TESTS = \
 	db_table_properties_test \
 	db_statistics_test \
 	db_write_test \
-	db_error_handling_test \
+	error_handler_test \
 	autovector_test \
 	blob_db_test \
 	cleanable_test \
@@ -1195,7 +1195,7 @@ db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TE
 db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_error_handling_test: db/db_error_handling_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+error_handler_test: db/error_handler_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

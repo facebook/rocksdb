@@ -28,6 +28,7 @@
 #include "db/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
