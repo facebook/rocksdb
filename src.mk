@@ -24,6 +24,7 @@ LIB_SOURCES =                                                   \
   db/db_impl_write.cc                                           \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
+  db/db_error_handler.cc					\
   db/dbformat.cc                                                \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
@@ -269,6 +270,7 @@ MAIN_SOURCES =                                                          \
   db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
+  db/db_error_handling_test.cc                                        	\
   db/db_flush_test.cc                                                   \
   db/db_inplace_update_test.cc                                          \
   db/db_io_failure_test.cc                                              \

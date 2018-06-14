@@ -244,6 +244,36 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   preserve_deletes_seqnum_.store(0);
 }
 
+Status DBImpl::Resume() {
+  InstrumentedMutexLock mutex(&mutex_);
+
+  if (!error_handler_->IsDBStopped() && !error_handler_->IsBGWorkStopped()) {
+    // Nothing to do
+    return Status::OK();
+  }
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Resuming DB");
+
+  JobContext job_context(0);
+  FindObsoleteFiles(&job_context, true);
+  error_handler_->ClearBGError();
+  mutex_.Unlock();
+
+  job_context.manifest_file_number = 1;
+  if (job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+
+  mutex_.Lock();
+  if (bg_work_paused_ == 0) {
+    MaybeScheduleFlushOrCompaction();
+  }
+
+  return Status::OK();
+}
+
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
@@ -2879,9 +2909,9 @@ Status DBImpl::IngestExternalFile(
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
-    if (!bg_error_.ok()) {
+    if (error_handler_->IsDBStopped()) {
       // Don't ingest files when there is a bg_error
-      return bg_error_;
+      return error_handler_->GetBGError();
     }
 
     // Make sure that bg cleanup wont delete the files that we are ingesting

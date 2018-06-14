@@ -23,6 +23,7 @@
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/event_helpers.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -67,11 +68,52 @@ struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
 
+class ErrorHandler {
+  public:
+    ErrorHandler(const ImmutableDBOptions& db_options,
+        InstrumentedMutex* db_mutex)
+      : db_options_(db_options),
+        bg_error_(Status::OK()),
+        db_mutex_(db_mutex)
+      {}
+    ~ErrorHandler() {}
+
+    Status::Severity GetErrorSeverity(BackgroundErrorReason reason,
+        Status::Code code, Status::SubCode subcode);
+
+    Status SetBGError(const Status& bg_err, BackgroundErrorReason reason);
+
+    Status GetBGError()
+    {
+      return bg_error_;
+    }
+
+    void ClearBGError() {
+      bg_error_ = Status::OK();
+    }
+
+    bool IsDBStopped() {
+      return !bg_error_.ok();
+    }
+
+    bool IsBGWorkStopped() {
+      return !bg_error_.ok();
+    }
+
+  private:
+    const ImmutableDBOptions& db_options_;
+    Status bg_error_;
+    InstrumentedMutex* db_mutex_;
+};
+
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
          const bool seq_per_batch = false);
   virtual ~DBImpl();
+
+  using DB::Resume;
+  virtual Status Resume();
 
   // Implementations of the DB interface
   using DB::Put;
@@ -1265,9 +1307,6 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
-  // Have we encountered a background error in paranoid mode?
-  Status bg_error_;
-
   // shall we disable deletion of obsolete files
   // if 0 the deletion is enabled.
   // if non-zero, files will not be getting deleted
@@ -1425,6 +1464,8 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
+
+  std::unique_ptr<ErrorHandler> error_handler_;
 };
 
 extern Options SanitizeOptions(const std::string& db,
