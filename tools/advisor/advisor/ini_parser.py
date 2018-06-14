@@ -62,7 +62,7 @@ class IniParser:
     def get_key_value_pair(line):
         line = line.strip()
         key = line.split('=')[0].strip()
-        value = line.split('=')[1].strip()
+        value = "=".join(line.split('=')[1:])
         if not value:
             return (key, None)
         values = IniParser.get_list_from_value(value)
