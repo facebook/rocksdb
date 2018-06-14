@@ -29,34 +29,40 @@ enum Direction {
 void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
                      const std::vector<ExpectedPoint>& expected_points) {
   auto icmp = InternalKeyComparator(BytewiseComparator());
-  // Test same result regardless of which order the range deletions are added.
-  for (Direction dir : {kForward, kReverse}) {
-    RangeDelAggregator range_del_agg(icmp, {} /* snapshots */, true);
-    std::vector<std::string> keys, values;
-    for (const auto& range_del : range_dels) {
-      auto key_and_value = range_del.Serialize();
-      keys.push_back(key_and_value.first.Encode().ToString());
-      values.push_back(key_and_value.second.ToString());
-    }
-    if (dir == kReverse) {
-      std::reverse(keys.begin(), keys.end());
-      std::reverse(values.begin(), values.end());
-    }
-    std::unique_ptr<test::VectorIterator> range_del_iter(
-        new test::VectorIterator(keys, values));
-    range_del_agg.AddTombstones(std::move(range_del_iter));
+  // Test same result regardless of which order the range deletions are added
+  // and regardless of collapsed mode.
+  for (bool collapsed : {false, true}) {
+    for (Direction dir : {kForward, kReverse}) {
+      RangeDelAggregator range_del_agg(icmp, {} /* snapshots */, collapsed);
+      std::vector<std::string> keys, values;
+      for (const auto& range_del : range_dels) {
+        auto key_and_value = range_del.Serialize();
+        keys.push_back(key_and_value.first.Encode().ToString());
+        values.push_back(key_and_value.second.ToString());
+      }
+      if (dir == kReverse) {
+        std::reverse(keys.begin(), keys.end());
+        std::reverse(values.begin(), values.end());
+      }
+      std::unique_ptr<test::VectorIterator> range_del_iter(
+          new test::VectorIterator(keys, values));
+      range_del_agg.AddTombstones(std::move(range_del_iter));
 
-    for (const auto expected_point : expected_points) {
-      ParsedInternalKey parsed_key;
-      parsed_key.user_key = expected_point.begin;
-      parsed_key.sequence = expected_point.seq;
-      parsed_key.type = kTypeValue;
-      ASSERT_FALSE(range_del_agg.ShouldDelete(
-          parsed_key, RangeDelPositioningMode::kForwardTraversal));
-      if (parsed_key.sequence > 0) {
-        --parsed_key.sequence;
-        ASSERT_TRUE(range_del_agg.ShouldDelete(
-            parsed_key, RangeDelPositioningMode::kForwardTraversal));
+      auto mode = RangeDelPositioningMode::kFullScan;
+      if (collapsed) {
+        mode = RangeDelPositioningMode::kForwardTraversal;
+      }
+
+      for (const auto expected_point : expected_points) {
+        ParsedInternalKey parsed_key;
+        parsed_key.user_key = expected_point.begin;
+        parsed_key.sequence = expected_point.seq;
+        parsed_key.type = kTypeValue;
+        ASSERT_FALSE(range_del_agg.ShouldDelete(parsed_key, mode));
+        if (parsed_key.sequence > 0) {
+          --parsed_key.sequence;
+          ASSERT_TRUE(range_del_agg.ShouldDelete(parsed_key, mode));
+        }
       }
     }
   }
