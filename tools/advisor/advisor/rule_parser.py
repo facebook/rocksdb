@@ -4,14 +4,11 @@
 #  (found in the LICENSE.Apache file in the root directory).
 
 from abc import ABC, abstractmethod
-import argparse
-from db_log_parser import DatabaseLogs, DataSource
-from db_options_parser import DatabaseOptions
-from db_stats_fetcher import StatsFetcher
+from advisor.db_log_parser import DataSource, NO_FAM
+from advisor.db_timeseries_parser import TimeSeriesData
 from enum import Enum
-from ini_parser import IniParser
+from advisor.ini_parser import IniParser
 import re
-import time
 
 
 class Section(ABC):
@@ -33,6 +30,8 @@ class Rule(Section):
         self.conditions = None
         self.suggestions = None
         self.overlap_time_seconds = None
+        self.trigger_entities = None
+        self.trigger_column_families = None
 
     def set_parameter(self, key, value):
         # If the Rule is associated with a single suggestion/condition, then
@@ -88,9 +87,7 @@ class Rule(Section):
                     in_seconds *= (24 * 60 * 60)
                 self.overlap_time_seconds = in_seconds
 
-    def do_conditions_time_overlap_for_entity(
-        self, key1_trigger_epochs, key2_trigger_epochs
-    ):
+    def get_overlap_timestamps(self, key1_trigger_epochs, key2_trigger_epochs):
         key1_lower_bounds = [
             epoch - self.overlap_time_seconds
             for epoch in key1_trigger_epochs
@@ -98,54 +95,91 @@ class Rule(Section):
         key1_lower_bounds.sort()
         key2_trigger_epochs.sort()
         trigger_ix = 0
+        overlap_pair = None
         for key1_lb in key1_lower_bounds:
             while key2_trigger_epochs[trigger_ix] < key1_lb:
                 trigger_ix += 1
                 if trigger_ix >= len(key2_trigger_epochs):
-                    return False
+                    break
             if (
                 key2_trigger_epochs[trigger_ix] <=
                 key1_lb + (2 * self.overlap_time_seconds)
             ):
-                return True
-        return False
+                overlap_pair = (
+                    key2_trigger_epochs[trigger_ix],
+                    key1_lb + self.overlap_time_seconds
+                )
+                break
+        return overlap_pair
 
-    def is_triggered(self, conditions_dict, db_stats_fetcher=None):
+    def get_trigger_entities(self):
+        return self.trigger_entities
+
+    def get_trigger_column_families(self):
+        return self.trigger_column_families
+
+    def is_triggered(self, conditions_dict, column_families):
         if self.overlap_time_seconds:
             condition1 = conditions_dict[self.conditions[0]]
             condition2 = conditions_dict[self.conditions[1]]
             if not (
-                condition1.get_data_source() is DataSource.Type.ODS and
-                condition2.get_data_source() is DataSource.Type.ODS
+                condition1.get_data_source() is DataSource.Type.TIME_SERIES and
+                condition2.get_data_source() is DataSource.Type.TIME_SERIES and
+                condition1.behavior is TimeSeriesData.Behavior.bursty and
+                condition2.behavior is TimeSeriesData.Behavior.bursty
             ):
-                raise ValueError(self.name + ': should have 2 ODS conditions')
+                raise ValueError(self.name + ': need 2 timeseries conditions')
 
             map1 = condition1.get_trigger()
             map2 = condition2.get_trigger()
             if not (map1 and map2):
                 return False
 
-            key1 = condition1.keys
-            key2 = condition2.keys
+            self.trigger_entities = {}
+            is_triggered = False
             entity_intersection = (
                 set(map1.keys()).intersection(set(map2.keys()))
             )
-
-            entity_triggered_dict = {}
             for entity in entity_intersection:
-                entity_triggered_dict[entity] = (
-                    self.do_conditions_time_overlap_for_entity(
-                        list(map1[entity][key1].keys()),
-                        list(map2[entity][key2].keys())
+                overlap_timestamps_pair = (
+                    self.get_overlap_timestamps(
+                        list(map1[entity].keys()), list(map2[entity].keys())
                     )
                 )
-            self.trigger = entity_triggered_dict
-            return any(entity_triggered_dict.values())
+                if overlap_timestamps_pair:
+                    self.trigger_entities[entity] = overlap_timestamps_pair
+                    is_triggered = True
+            return is_triggered
         else:
-            condition_triggers = []
-            for cond in self.conditions:
-                condition_triggers.append(conditions_dict[cond].is_triggered())
-            return all(condition_triggers)
+            all_conditions_triggered = True
+            self.trigger_column_families = set(column_families)
+            for cond_name in self.conditions:
+                cond = conditions_dict[cond_name]
+                if not cond.get_trigger():
+                    all_conditions_triggered = False
+                    break
+                if (
+                    cond.get_data_source() is DataSource.Type.LOG or
+                    cond.get_data_source() is DataSource.Type.DB_OPTIONS
+                ):
+                    cond_col_fam = set(cond.get_trigger().keys())
+                    if NO_FAM in cond_col_fam:
+                        cond_col_fam = set(column_families)
+                    self.trigger_column_families = (
+                        self.trigger_column_families.intersection(cond_col_fam)
+                    )
+                elif cond.get_data_source() is DataSource.Type.TIME_SERIES:
+                    cond_entities = set(cond.get_trigger().keys())
+                    if self.trigger_entities is None:
+                        self.trigger_entities = cond_entities
+                    else:
+                        self.trigger_entities = (
+                            self.trigger_entities.intersection(cond_entities)
+                        )
+                if not (self.trigger_entities or self.trigger_column_families):
+                    all_conditions_triggered = False
+                    break
+            return all_conditions_triggered
 
     def __repr__(self):
         # Append conditions
@@ -208,20 +242,20 @@ class Suggestion(Section):
 
     def __repr__(self):
         if self.description:
-            return self.description
+            return self.name + ' description : ' + self.description
         sugg_string = ""
         if self.action is self.Action.set:
             sugg_string = (
-                self.name + ' suggests setting ' + self.option +
-                ' to ' + self.suggested_value
+                self.name + ' option : ' + self.option +
+                ' action : set suggested_value : ' + self.suggested_value
             )
         else:
-            sugg_string = self.name + ' suggests ' + self.action.name + ' in '
-            sugg_string += (self.option + '.')
+            sugg_string = (
+                self.name + ' option : ' + self.option +
+                ' action : ' + self.action.name
+            )
             if self.suggested_value:
-                sugg_string += (
-                    ' The suggested value is ' + self.suggested_value
-                )
+                sugg_string += (' suggested_value : ' + self.suggested_value)
         return sugg_string
 
 
@@ -274,8 +308,6 @@ class LogCondition(Condition):
     def set_parameter(self, key, value):
         if key == 'regex':
             self.regex = value
-        elif key == 'scope':
-            self.scope = self.Scope[value]
 
     def perform_checks(self):
         super().perform_checks()
@@ -284,8 +316,8 @@ class LogCondition(Condition):
 
     def __repr__(self):
         log_cond_str = (
-            self.name + ' checks if the regex ' + self.regex + ' is found ' +
-            ' in the LOG file in the scope of ' + self.scope.name
+            self.name + ' checks if the regex ' + self.regex + ' is found in' +
+            ' the LOG file'
         )
         return log_cond_str
 
@@ -317,67 +349,44 @@ class OptionCondition(Condition):
         return log_cond_str
 
 
-class OdsCondition(Condition):
+class TimeSeriesCondition(Condition):
     @classmethod
     def create(cls, base_condition):
-        base_condition.set_data_source(DataSource.Type['ODS'])
+        base_condition.set_data_source(DataSource.Type['TIME_SERIES'])
         base_condition.__class__ = cls
         return base_condition
 
     def set_parameter(self, key, value):
         if key == 'keys':
             self.keys = value
-        elif key == 'transformation':
-            self.transformation = StatsFetcher.Transformation[value]
-        elif key == 'threshold':
-            self.threshold = value
+        elif key == 'behavior':
+            self.behavior = TimeSeriesData.Behavior[value]
+        elif key == 'rate_threshold':
+            self.rate_threshold = value
         elif key == 'evaluate':
             self.expression = value
+        elif key == 'aggregation_op':
+            self.aggregation_op = TimeSeriesData.AggregationOperator[value]
 
     def perform_checks(self):
         if not self.keys:
-            raise ValueError(
-                self.name +
-                ': specify key for metric to be fetched from ODS'
-            )
-        if not self.transformation:
-            raise ValueError(
-                self.name +
-                ": specify transformation on the ODS time series"
-            )
-        if self.transformation is StatsFetcher.Transformation.rate:
+            raise ValueError(self.name + ': specify timeseries key')
+        if not self.behavior:
+            raise ValueError(self.name + ': specify triggering behavior')
+        if self.behavior is TimeSeriesData.Behavior.bursty:
+            if not self.rate_threshold:
+                raise ValueError(self.name + ': specify rate burst threshold')
             if not isinstance(self.keys, str):
+                raise ValueError(self.name + ': specify only one key')
+        elif self.behavior is TimeSeriesData.Behavior.evaluate_expression:
+            if not (self.expression and self.aggregation_op):
                 raise ValueError(
-                    self.name + ': specify only one key'
+                    self.name +
+                    ': specify evaluation expression and the aggregation'
+                    + ' operator for the keys'
                 )
-            if not self.threshold:
-                raise ValueError(self.name + ': set threshold')
-        elif self.transformation is StatsFetcher.Transformation.avg:
-            if not self.expression:
-                raise ValueError(
-                    self.name + ': set expression to be evaluated'
-                )
-
-    def attach_prefix_to_keys(self, key_prefix):
-        if isinstance(self.keys, str):
-            if self.keys.startswith('[]'):
-                self.keys = key_prefix + self.keys[2:]
         else:
-            client_keys = []
-            for key in self.keys:
-                if key.startswith('[]'):
-                    new_key = key_prefix + key[2:]
-                    client_keys.append(new_key)
-                else:
-                    client_keys.append(key)
-            self.keys = client_keys
-
-    def __repr__(self):
-        log_cond_str = (
-            self.name + " is a " + self.transformation.name +
-            " ODS condition"
-        )
-        return log_cond_str
+            raise ValueError(self.name + ': trigger behavior not supported')
 
 
 class RulesSpec:
@@ -399,6 +408,9 @@ class RulesSpec:
         with open(self.file_path, 'r') as db_rules:
             curr_section = None
             for line in db_rules:
+                line = IniParser.remove_trailing_comment(line)
+                if not line:
+                    continue
                 element = IniParser.get_element(line)
                 if element is IniParser.Element.comment:
                     continue
@@ -424,8 +436,8 @@ class RulesSpec:
                                 new_cond = LogCondition.create(new_cond)
                             elif value == 'OPTIONS':
                                 new_cond = OptionCondition.create(new_cond)
-                            elif value == 'ODS':
-                                new_cond = OdsCondition.create(new_cond)
+                            elif value == 'TIME_SERIES':
+                                new_cond = TimeSeriesCondition.create(new_cond)
                         else:
                             new_cond.set_parameter(key, value)
                     elif curr_section is IniParser.Element.sugg:
@@ -440,114 +452,21 @@ class RulesSpec:
     def get_suggestions_dict(self):
         return self.suggestions_dict
 
+    def get_triggered_rules(self, data_sources, column_families):
+        self.trigger_conditions(data_sources)
+        triggered_rules = []
+        for rule in self.rules_dict.values():
+            if rule.is_triggered(self.conditions_dict, column_families):
+                triggered_rules.append(rule)
+        return triggered_rules
 
-def trigger_conditions(data_sources, conditions_dict):
-    for source in data_sources:
-        cond_subset = [
-            cond
-            for cond in conditions_dict.values()
-            if cond.get_data_source() is source.type
-        ]
-        if not cond_subset:
-            continue
-        source.check_and_trigger_conditions(cond_subset)
-
-
-def get_triggered_rules(rules_dict, conditions_dict):
-    triggered_rules = []
-    for rule in rules_dict.values():
-        if rule.is_triggered(conditions_dict):
-            triggered_rules.append(rule)
-    return triggered_rules
-
-
-def main(args):
-    # Load the rules with their conditions and suggestions.
-    db_rules = RulesSpec(args.rules_spec)
-    db_rules.load_rules_from_spec()
-    # Perform some basic sanity checks for each section.
-    db_rules.perform_section_checks()
-
-    rules_dict = db_rules.get_rules_dict()
-    conditions_dict = db_rules.get_conditions_dict()
-    suggestions_dict = db_rules.get_suggestions_dict()
-
-    if args.ods_key_prefix:
-        for cond in conditions_dict.values():
-            if cond.get_data_source() is DataSource.Type.ODS:
-                cond.attach_prefix_to_keys(args.ods_key_prefix)
-
-    print()
-    print('RULES')
-    for rule in rules_dict.values():
-        print(repr(rule))
-    print()
-    print('CONDITIONS')
-    for cond in conditions_dict.values():
-        print(repr(cond))
-    print()
-    print('SUGGESTIONS')
-    for sugg in suggestions_dict.values():
-        print(repr(sugg))
-    print()
-
-    # Initialise the data sources.
-    data_sources = []
-    data_sources.append(DatabaseOptions(args.rocksdb_options))
-    data_sources.append(DatabaseLogs(args.rocksdb_log_prefix))
-    if args.ods_client:
-        ods_start_time = args.ods_start_time
-        ods_end_time = args.ods_end_time
-        if not ods_end_time:
-            ods_end_time = int(time.time())
-        if not ods_start_time:
-            ods_start_time = ods_end_time - (3 * 60 * 60)
-        data_sources.append(
-            StatsFetcher(
-                args.ods_client,
-                args.ods_entities,
-                ods_start_time,
-                ods_end_time)
-        )
-
-    # Initialise the ConditionChecker with the provided data sources.
-    trigger_conditions(data_sources, conditions_dict)
-
-    # Check for the conditions read in from the Rules spec, if triggered.
-    print()
-    triggered_rules = get_triggered_rules(rules_dict, conditions_dict)
-    for rule in triggered_rules:
-        print('Rule: ' + rule.name + ' has been triggered')
-        if rule.overlap_time_seconds:
-            keys = [
-                conditions_dict[rule.conditions[0]].keys,
-                conditions_dict[rule.conditions[1]].keys
+    def trigger_conditions(self, data_sources):
+        for source in data_sources:
+            cond_subset = [
+                cond
+                for cond in self.conditions_dict.values()
+                if cond.get_data_source() is source.type
             ]
-            print(data_sources[2].fetch_url(keys, 'chart'))
-        rule_suggestions = rule.get_suggestions()
-        for sugg_name in rule_suggestions:
-            print(suggestions_dict[sugg_name])
-        print()
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='This script is used for\
-        gauging rocksdb performance using as input: Rocksdb LOG, OPTIONS,\
-        performance context, command-line statistics and statistics published\
-        on ODS and providing as output: suggestions to improve Rocksdb\
-        performance')
-    parser.add_argument('--rules_spec', required=True, type=str)
-    parser.add_argument('--rocksdb_options', required=True, type=str)
-    parser.add_argument('--rocksdb_log_prefix', required=True, type=str)
-    '''
-    ods_entities and ods_key_prefix are required for ODS based conditions.
-    By default, the data fetched from ODS is for the last 3 hours. If
-    ods_end_time is not specified, it is assumed to be the current time.
-    '''
-    parser.add_argument('--ods_client', type=str)
-    parser.add_argument('--ods_entities', type=str)
-    parser.add_argument('--ods_key_prefix', type=str)
-    parser.add_argument('--ods_start_time', type=str)
-    parser.add_argument('--ods_end_time', type=str)
-    args = parser.parse_args()
-    main(args)
+            if not cond_subset:
+                continue
+            source.check_and_trigger_conditions(cond_subset)
