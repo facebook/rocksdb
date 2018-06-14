@@ -136,8 +136,6 @@ class RangeDelAggregator {
   //     `end` causes this to return true.
   bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
-  bool ShouldAddTombstones(bool bottommost_level = false);
-
   // Adds tombstones to the tombstone aggregation structure maintained by this
   // object.
   // @return non-OK status if any of the tombstone keys are corrupted.
@@ -150,32 +148,16 @@ class RangeDelAggregator {
   // search for its tombstone.
   void InvalidateRangeDelMapPositions();
 
-  // Writes tombstones covering a range to a table builder.
-  // @param extend_before_min_key If true, the range of tombstones to be added
-  //    to the TableBuilder starts from the beginning of the key-range;
-  //    otherwise, it starts from meta->smallest.
-  // @param lower_bound/upper_bound Any range deletion with [start_key, end_key)
-  //    that overlaps the target range [*lower_bound, *upper_bound) is added to
-  //    the builder. If lower_bound is nullptr, the target range extends
-  //    infinitely to the left. If upper_bound is nullptr, the target range
-  //    extends infinitely to the right. If both are nullptr, the target range
-  //    extends infinitely in both directions, i.e., all range deletions are
-  //    added to the builder.
-  // @param meta The file's metadata. We modify the begin and end keys according
-  //    to the range tombstones added to this file such that the read path does
-  //    not miss range tombstones that cover gaps before/after/between files in
-  //    a level. lower_bound/upper_bound above constrain how far file boundaries
-  //    can be extended.
-  // @param bottommost_level If true, we will filter out any tombstones
-  //    belonging to the oldest snapshot stripe, because all keys potentially
-  //    covered by this tombstone are guaranteed to have been deleted by
-  //    compaction.
-  void AddToBuilder(TableBuilder* builder, const Slice* lower_bound,
-                    const Slice* upper_bound, FileMetaData* meta,
-                    CompactionIterationStats* range_del_out_stats = nullptr,
-                    bool bottommost_level = false);
   bool IsEmpty();
   bool AddFile(uint64_t file_number);
+
+  // Create a new iterator over the range deletion tombstones in all of the
+  // snapshot stripes in this aggregator. Tombstones are presented in start key
+  // order. Tombstones with the same start key are presented in arbitrary order.
+  //
+  // The iterator is invalidated after any call to AddTombstones. It is the
+  // caller's responsibility to avoid using invalid iterators.
+  std::unique_ptr<RangeDelIterator> NewIterator();
 
  private:
   // Maps snapshot seqnum -> map of tombstones that fall in that stripe, i.e.,

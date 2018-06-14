@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/range_del_aggregator.h"
+#include "util/heap.h"
 
 #include <algorithm>
 
@@ -424,32 +425,6 @@ bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
   return false;
 }
 
-bool RangeDelAggregator::ShouldAddTombstones(
-    bool bottommost_level /* = false */) {
-  (void)bottommost_level;
-  // TODO(andrewkr): can we just open a file and throw it away if it ends up
-  // empty after AddToBuilder()? This function doesn't take into subcompaction
-  // boundaries so isn't completely accurate.
-  if (rep_ == nullptr) {
-    return false;
-  }
-  auto stripe_map_iter = rep_->stripe_map_.begin();
-  assert(stripe_map_iter != rep_->stripe_map_.end());
-  if (bottommost_level) {
-    // For the bottommost level, keys covered by tombstones in the first
-    // (oldest) stripe have been compacted away, so the tombstones are
-    // obsolete.
-    ++stripe_map_iter;
-  }
-  while (stripe_map_iter != rep_->stripe_map_.end()) {
-    if (!stripe_map_iter->second->IsEmpty()) {
-      return true;
-    }
-    ++stripe_map_iter;
-  }
-  return false;
-}
-
 Status RangeDelAggregator::AddTombstones(
     std::unique_ptr<InternalIterator> input) {
   if (input == nullptr) {
@@ -509,112 +484,6 @@ RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
   return *iter->second;
 }
 
-// TODO(andrewkr): We should implement a merging iterator over the tombstone
-// maps. It'd enable compaction to open tables on-demand, i.e., only once range
-// tombstones are known to be available, without the code duplication we have in
-// ShouldAddTombstones(). It'll also allow us to move the table-modifying code
-// into more coherent places: CompactionJob and BuildTable().
-void RangeDelAggregator::AddToBuilder(
-    TableBuilder* builder, const Slice* lower_bound, const Slice* upper_bound,
-    FileMetaData* meta,
-    CompactionIterationStats* range_del_out_stats /* = nullptr */,
-    bool bottommost_level /* = false */) {
-  if (rep_ == nullptr) {
-    return;
-  }
-  auto stripe_map_iter = rep_->stripe_map_.begin();
-  assert(stripe_map_iter != rep_->stripe_map_.end());
-  if (bottommost_level) {
-    // TODO(andrewkr): these are counted for each compaction output file, so
-    // lots of double-counting.
-    range_del_out_stats->num_range_del_drop_obsolete +=
-        stripe_map_iter->second->Size();
-    range_del_out_stats->num_record_drop_obsolete +=
-        stripe_map_iter->second->Size();
-    // For the bottommost level, keys covered by tombstones in the first
-    // (oldest) stripe have been compacted away, so the tombstones are obsolete.
-    ++stripe_map_iter;
-  }
-
-  // Note the order in which tombstones are stored is insignificant since we
-  // insert them into a std::map on the read path.
-  while (stripe_map_iter != rep_->stripe_map_.end()) {
-    bool first_added = false;
-    for (auto tombstone_map_iter = stripe_map_iter->second->NewIterator();
-         tombstone_map_iter->Valid(); tombstone_map_iter->Next()) {
-      RangeTombstone tombstone = tombstone_map_iter->Tombstone();
-      if (upper_bound != nullptr &&
-          icmp_.user_comparator()->Compare(*upper_bound,
-                                           tombstone.start_key_) <= 0) {
-        // Tombstones starting at upper_bound or later only need to be included
-        // in the next table. Break because subsequent tombstones will start
-        // even later.
-        break;
-      }
-      if (lower_bound != nullptr &&
-          icmp_.user_comparator()->Compare(tombstone.end_key_,
-                                           *lower_bound) <= 0) {
-        // Tombstones ending before or at lower_bound only need to be included
-        // in the prev table. Continue because subsequent tombstones may still
-        // overlap [lower_bound, upper_bound).
-        continue;
-      }
-
-      auto ikey_and_end_key = tombstone.Serialize();
-      builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-      if (!first_added) {
-        first_added = true;
-        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);
-        if (lower_bound != nullptr &&
-            icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
-                                             *lower_bound) <= 0) {
-          // Pretend the smallest key has the same user key as lower_bound
-          // (the max key in the previous table or subcompaction) in order for
-          // files to appear key-space partitioned.
-          //
-          // Choose lowest seqnum so this file's smallest internal key comes
-          // after the previous file's/subcompaction's largest. The fake seqnum
-          // is OK because the read path's file-picking code only considers user
-          // key.
-          smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
-        }
-        if (meta->smallest.size() == 0 ||
-            icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
-          meta->smallest = std::move(smallest_candidate);
-        }
-      }
-      InternalKey largest_candidate = tombstone.SerializeEndKey();
-      if (upper_bound != nullptr &&
-          icmp_.user_comparator()->Compare(*upper_bound,
-                                           largest_candidate.user_key()) <= 0) {
-        // Pretend the largest key has the same user key as upper_bound (the
-        // min key in the following table or subcompaction) in order for files
-        // to appear key-space partitioned.
-        //
-        // Choose highest seqnum so this file's largest internal key comes
-        // before the next file's/subcompaction's smallest. The fake seqnum is
-        // OK because the read path's file-picking code only considers the user
-        // key portion.
-        //
-        // Note Seek() also creates InternalKey with (user_key,
-        // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
-        // kTypeRangeDeletion (0xF), so the range tombstone comes before the
-        // Seek() key in InternalKey's ordering. So Seek() will look in the
-        // next file for the user key.
-        largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
-                                        kTypeRangeDeletion);
-      }
-      if (meta->largest.size() == 0 ||
-          icmp_.Compare(meta->largest, largest_candidate) < 0) {
-        meta->largest = std::move(largest_candidate);
-      }
-      meta->smallest_seqno = std::min(meta->smallest_seqno, tombstone.seq_);
-      meta->largest_seqno = std::max(meta->largest_seqno, tombstone.seq_);
-    }
-    ++stripe_map_iter;
-  }
-}
-
 bool RangeDelAggregator::IsEmpty() {
   if (rep_ == nullptr) {
     return true;
@@ -632,6 +501,77 @@ bool RangeDelAggregator::AddFile(uint64_t file_number) {
     return true;
   }
   return rep_->added_files_.emplace(file_number).second;
+}
+
+class MergingRangeDelIter : public RangeDelIterator {
+ public:
+  MergingRangeDelIter(const Comparator* c)
+      : heap_(IterMinHeap(IterComparator(c))), current_(nullptr) {}
+
+  void AddIterator(std::unique_ptr<RangeDelIterator> iter) {
+    if (iter->Valid()) {
+      heap_.push(iter.get());
+      iters_.push_back(std::move(iter));
+      current_ = heap_.top();
+    }
+  }
+
+  bool Valid() const override { return current_ != nullptr; }
+
+  void Next() override {
+    current_->Next();
+    if (current_->Valid()) {
+      heap_.replace_top(current_);
+    } else {
+      heap_.pop();
+    }
+    current_ = heap_.empty() ? nullptr : heap_.top();
+  }
+
+  void Seek(const Slice& target) override {
+    heap_.clear();
+    for (auto& iter : iters_) {
+      iter->Seek(target);
+      if (iter->Valid()) {
+        heap_.push(iter.get());
+      }
+    }
+    current_ = heap_.empty() ? nullptr : heap_.top();
+  }
+
+  RangeTombstone Tombstone() const override { return current_->Tombstone(); }
+
+ private:
+  struct IterComparator {
+    IterComparator(const Comparator* c) : cmp(c) {}
+
+    bool operator()(const RangeDelIterator* a,
+                    const RangeDelIterator* b) const {
+      // Note: counterintuitively, returning the tombstone with the larger start
+      // key puts the tombstone with the smallest key at the top of the heap.
+      return cmp->Compare(a->Tombstone().start_key_,
+                          b->Tombstone().start_key_) > 0;
+    }
+
+    const Comparator* cmp;
+  };
+
+  typedef BinaryHeap<RangeDelIterator*, IterComparator> IterMinHeap;
+
+  std::vector<std::unique_ptr<RangeDelIterator>> iters_;
+  IterMinHeap heap_;
+  RangeDelIterator* current_;
+};
+
+std::unique_ptr<RangeDelIterator> RangeDelAggregator::NewIterator() {
+  std::unique_ptr<MergingRangeDelIter> iter(
+      new MergingRangeDelIter(icmp_.user_comparator()));
+  if (rep_ != nullptr) {
+    for (const auto& stripe : rep_->stripe_map_) {
+      iter->AddIterator(stripe.second->NewIterator());
+    }
+  }
+  return std::move(iter);
 }
 
 }  // namespace rocksdb
