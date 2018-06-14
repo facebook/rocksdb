@@ -2771,7 +2771,7 @@ Status VersionSet::ProcessManifestWrites(
         batch_edits.push_back(e);
       }
     }
-    for (int i = 0; i < (int) versions.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
       auto* builder = builder_guards[i]->version_builder();
       builder->SaveTo(versions[i]->storage_info());
     }
@@ -2807,7 +2807,7 @@ Status VersionSet::ProcessManifestWrites(
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
         column_family_set_->get_table_cache()->GetCapacity() ==
         TableCache::kInfiniteCapacity) {
-      for (int i = 0; i < (int) versions.size(); ++i) {
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
@@ -2839,7 +2839,7 @@ Status VersionSet::ProcessManifestWrites(
     }
 
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
-      for (int i = 0; i < (int) versions.size(); ++i) {
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
       }
     }
@@ -2925,7 +2925,7 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (max_log_number_in_batch != 0) {
-        for (int i = 0; i < (int) versions.size(); ++i) {
+        for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
           ColumnFamilyData* cfd = versions[i]->cfd_;
           assert(cfd->GetLogNumber() <= max_log_number_in_batch);
           cfd->SetLogNumber(max_log_number_in_batch);
@@ -2937,7 +2937,7 @@ Status VersionSet::ProcessManifestWrites(
         MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
       }
 
-      for (int i = 0; i < (int) versions.size(); ++i) {
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         ColumnFamilyData* cfd = versions[i]->cfd_;
         AppendVersion(cfd, versions[i]);
       }
@@ -3005,7 +3005,7 @@ Status VersionSet::LogAndApply(
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
-    num_edits += (int) elist.size();
+    num_edits += static_cast<int>(elist.size());
   }
   if (num_edits == 0) {
     return Status::OK();
@@ -4068,7 +4068,7 @@ InternalIterator* VersionSet::MakeInputIterator(
               nullptr /* table_reader_ptr */,
               nullptr /* no per level latency histogram */,
               true /* for_compaction */, nullptr /* arena */,
-              false /* skip_filters */, (int)which /* level */);
+              false /* skip_filters */, static_cast<int>(which) /* level */);
         }
       } else {
         // Create concatenating iterator for the files from this level
@@ -4079,7 +4079,7 @@ InternalIterator* VersionSet::MakeInputIterator(
             false /* should_sample */,
             nullptr /* no per level latency histogram */,
             true /* for_compaction */, false /* skip_filters */,
-            (int)which /* level */, range_del_agg);
+            static_cast<int>(which) /* level */, range_del_agg);
       }
     }
   }
