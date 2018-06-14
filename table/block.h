@@ -220,22 +220,26 @@ class BlockIter final : public InternalIterator {
         key_includes_seq_(true),
         global_seqno_(kDisableGlobalSequenceNumber),
         read_amp_bitmap_(nullptr),
-        last_bitmap_offset_(0) {}
+        last_bitmap_offset_(0),
+        block_contents_pinned_(false) {}
 
   BlockIter(const Comparator* comparator, const Comparator* user_comparator,
             const char* data, uint32_t restarts, uint32_t num_restarts,
             BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
-            BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq)
+            BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq,
+            bool block_contents_pinned)
       : BlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
-               prefix_index, global_seqno, read_amp_bitmap, key_includes_seq);
+               prefix_index, global_seqno, read_amp_bitmap, key_includes_seq,
+               block_contents_pinned);
   }
 
   void Initialize(const Comparator* comparator,
                   const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
-                  BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq) {
+                  BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq,
+                  bool block_contents_pinned) {
     assert(data_ == nullptr);           // Ensure it is called only once
     assert(num_restarts > 0);           // Ensure the param is valid
 
@@ -251,10 +255,11 @@ class BlockIter final : public InternalIterator {
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
     key_includes_seq_ = key_includes_seq;
+    block_contents_pinned_ = block_contents_pinned;
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
-  // nothing.
+  // nothing. Calls cleanup functions.
   void Invalidate(Status s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
@@ -263,6 +268,9 @@ class BlockIter final : public InternalIterator {
     data_ = nullptr;
     current_ = restarts_;
     status_ = s;
+
+    // Call cleanup callbacks.
+    Cleanable::Reset();
 
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
@@ -312,9 +320,11 @@ class BlockIter final : public InternalIterator {
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  virtual bool IsKeyPinned() const override { return key_pinned_; }
+  virtual bool IsKeyPinned() const override {
+    return block_contents_pinned_ && key_pinned_;
+  }
 
-  virtual bool IsValuePinned() const override { return true; }
+  virtual bool IsValuePinned() const override { return block_contents_pinned_; }
 
   size_t TEST_CurrentEntrySize() { return NextEntryOffset() - current_; }
 
@@ -349,6 +359,8 @@ class BlockIter final : public InternalIterator {
   BlockReadAmpBitmap* read_amp_bitmap_;
   // last `current_` value we report to read-amp bitmp
   mutable uint32_t last_bitmap_offset_;
+  // whether the block data is guaranteed to outlive this iterator
+  bool block_contents_pinned_;
 
   struct CachedPrevEntry {
     explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,

@@ -111,7 +111,7 @@ class PartitionedFilterBlockTest : public testing::Test {
   std::unique_ptr<MockedBlockBasedTable> table;
 
   PartitionedFilterBlockReader* NewReader(
-      PartitionedFilterBlockBuilder* builder) {
+      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib) {
     BlockHandle bh;
     Status status;
     Slice slice;
@@ -127,13 +127,14 @@ class PartitionedFilterBlockTest : public testing::Test {
         ioptions, env_options, table_options_, icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
-        nullptr, *icomp.user_comparator(), table.get());
+        nullptr, icomp, table.get(), pib->seperator_is_key_plus_seq());
     return reader;
   }
 
   void VerifyReader(PartitionedFilterBlockBuilder* builder,
-                    bool empty = false) {
-    std::unique_ptr<PartitionedFilterBlockReader> reader(NewReader(builder));
+                    PartitionedIndexBuilder* pib, bool empty = false) {
+    std::unique_ptr<PartitionedFilterBlockReader> reader(
+        NewReader(builder, pib));
     // Querying added keys
     const bool no_io = true;
     for (auto key : keys) {
@@ -182,7 +183,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     builder->Add(keys[i]);
     CutABlock(pib.get(), keys[i]);
 
-    VerifyReader(builder.get());
+    VerifyReader(builder.get(), pib.get());
     return CountNumOfIndexPartitions(pib.get());
   }
 
@@ -202,7 +203,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     builder->Add(keys[i]);
     CutABlock(pib.get(), keys[i]);
 
-    VerifyReader(builder.get());
+    VerifyReader(builder.get(), pib.get());
   }
 
   void TestBlockPerAllKeys() {
@@ -220,7 +221,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     builder->Add(keys[i]);
     CutABlock(pib.get(), keys[i]);
 
-    VerifyReader(builder.get());
+    VerifyReader(builder.get(), pib.get());
   }
 
   void CutABlock(PartitionedIndexBuilder* builder,
@@ -261,7 +262,7 @@ TEST_F(PartitionedFilterBlockTest, EmptyBuilder) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder(pib.get()));
   const bool empty = true;
-  VerifyReader(builder.get(), empty);
+  VerifyReader(builder.get(), pib.get(), empty);
 }
 
 TEST_F(PartitionedFilterBlockTest, OneBlock) {

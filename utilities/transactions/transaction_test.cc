@@ -45,11 +45,14 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED)));
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_PREPARED)));
+                      std::make_tuple(true, true, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_UNPREPARED)));
 
 // MySQLStyleTransactionTest takes far too long for valgrind to run.
 #ifndef ROCKSDB_VALGRIND_RUN
@@ -62,7 +65,11 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED),
                       std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED)));
+                      std::make_tuple(true, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED),
+                      std::make_tuple(true, false, WRITE_UNPREPARED),
+                      std::make_tuple(true, true, WRITE_UNPREPARED)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -91,6 +98,7 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
   delete txn0;
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
+  assert(db != nullptr);
   txn0 = db->GetTransactionByName("xid2");
   ASSERT_OK(txn0->Commit());
   delete txn0;
@@ -138,6 +146,7 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
     ReadOptions read_options;
     std::string value;
 
+    assert(db != nullptr);
     Transaction* txn1 =
         db->BeginTransaction(write_options, TransactionOptions());
     ASSERT_TRUE(txn1);
@@ -928,6 +937,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
       // kill and reopen to trigger recovery
       s = ReOpenNoDelete();
       ASSERT_OK(s);
+      assert(db != nullptr);
       s = db->Get(read_options, "gtid", &value);
       ASSERT_OK(s);
       ASSERT_EQ(value, "dogs");
@@ -1058,6 +1068,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
         // kill and reopen to trigger recovery
         s = ReOpenNoDelete();
         ASSERT_OK(s);
+        assert(db != nullptr);
         s = db->Get(read_options, "foo", &value);
         ASSERT_OK(s);
         ASSERT_EQ(value, "bar");
@@ -1412,6 +1423,7 @@ TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
   for (int i = 0; i < 1000; i++) {
     std::string key(i, 'k');
     std::string val(1000, 'v');
+    assert(db != nullptr);
     s = db->Put(write_options, key, val);
     ASSERT_OK(s);
 
@@ -1487,6 +1499,7 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   // kill and reopen
   env->SetFilesystemActive(false);
   ReOpenNoDelete();
+  assert(db != nullptr);
 
   // value is now available
   s = db->Get(read_options, "foo4", &value);
@@ -1553,6 +1566,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   // kill and reopen
   env->SetFilesystemActive(false);
   ReOpenNoDelete();
+  assert(db != nullptr);
 
   // value is now available
   s = db->Get(read_options, "foo", &value);
@@ -1779,10 +1793,10 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
       ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
       break;
     case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
       // This cf is not flushed yet and should ref the log that has its data
       ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
       break;
-    case WRITE_UNPREPARED:
     default:
       assert(false);
   }
@@ -1905,6 +1919,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   env->SetFilesystemActive(false);
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
+  assert(db != nullptr);
 
   s = db->Get(read_options, "first", &value);
   ASSERT_OK(s);
@@ -2173,6 +2188,7 @@ TEST_P(TransactionTest, FlushTest2) {
 
     Status s = ReOpen();
     ASSERT_OK(s);
+    assert(db != nullptr);
 
     WriteOptions write_options;
     ReadOptions read_options, snapshot_read_options;

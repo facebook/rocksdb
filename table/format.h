@@ -83,7 +83,7 @@ inline uint32_t GetCompressFormatForVersion(
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 2;
+  return version <= 3;
 }
 
 // Footer encapsulates the fixed information stored at the tail
@@ -228,19 +228,18 @@ extern Status ReadBlockContents(
 // free this buffer.
 // For description of compress_format_version and possible values, see
 // util/compression.h
-extern Status UncompressBlockContents(const char* data, size_t n,
-                                      BlockContents* contents,
-                                      uint32_t compress_format_version,
-                                      const Slice& compression_dict,
-                                      const ImmutableCFOptions& ioptions);
+extern Status UncompressBlockContents(
+    const UncompressionContext& uncompression_ctx, const char* data, size_t n,
+    BlockContents* contents, uint32_t compress_format_version,
+    const ImmutableCFOptions& ioptions);
 
 // This is an extension to UncompressBlockContents that accepts
 // a specific compression type. This is used by un-wrapped blocks
 // with no compression header.
 extern Status UncompressBlockContentsForCompressionType(
-    const char* data, size_t n, BlockContents* contents,
-    uint32_t compress_format_version, const Slice& compression_dict,
-    CompressionType compression_type, const ImmutableCFOptions& ioptions);
+    const UncompressionContext& uncompression_ctx, const char* data, size_t n,
+    BlockContents* contents, uint32_t compress_format_version,
+    const ImmutableCFOptions& ioptions);
 
 // Implementation details follow.  Clients should ignore,
 

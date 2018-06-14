@@ -14,6 +14,25 @@
 #include <stdexcept>
 #include "jemalloc/jemalloc.h"
 
+#if defined(ZSTD) && defined(ZSTD_STATIC_LINKING_ONLY)
+#include <zstd.h>
+#if (ZSTD_VERSION_NUMBER >= 500)
+namespace rocksdb {
+namespace port {
+void* JemallocAllocateForZSTD(void* /* opaque */, size_t size) {
+  return je_malloc(size);
+}
+void JemallocDeallocateForZSTD(void* /* opaque */, void* address) {
+  je_free(address);
+}
+ZSTD_customMem GetJeZstdAllocationOverrides() {
+  return {JemallocAllocateForZSTD, JemallocDeallocateForZSTD, nullptr};
+}
+} // namespace port
+} // namespace rocksdb
+#endif // (ZSTD_VERSION_NUMBER >= 500)
+#endif // defined(ZSTD) defined(ZSTD_STATIC_LINKING_ONLY)
+
 // Global operators to be replaced by a linker when this file is
 // a part of the build
 
@@ -44,4 +63,3 @@ void operator delete[](void* p) {
     je_free(p);
   }
 }
-
