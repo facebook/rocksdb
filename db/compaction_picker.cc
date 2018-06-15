@@ -111,8 +111,7 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
 }
 
 CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
-                                         const VersionStorageInfo* vstorage,
-                                         int level, int base_level,
+                                         const VersionStorageInfo* vstorage, int level,
                                          const bool enable_compression) {
   if (!enable_compression) {
     return ioptions.compression_opts;
@@ -124,10 +123,6 @@ CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
       level >= (vstorage->num_non_empty_levels() - 1 &&
                 ioptions.bottommost_compression_opts.enabled)) {
     return ioptions.bottommost_compression_opts;
-  }
-
-  if (!ioptions.compression_per_level.empty()) {
-    assert(level == 0 || level >= base_level);
   }
   return ioptions.compression_opts;
 }
@@ -597,7 +592,7 @@ Compaction* CompactionPicker::CompactRange(
         /* max_compaction_bytes */ LLONG_MAX, output_path_id,
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
-        GetCompressionOptions(ioptions_, vstorage, output_level, 1),
+        GetCompressionOptions(ioptions_, vstorage, output_level),
         max_subcompactions, /* grandparents */ {}, /* is manual */ true);
     RegisterCompaction(c);
     return c;
@@ -708,8 +703,7 @@ Compaction* CompactionPicker::CompactRange(
       mutable_cf_options.max_compaction_bytes, output_path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
-      GetCompressionOptions(ioptions_, vstorage, output_level,
-                            vstorage->base_level()),
+      GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, std::move(grandparents),
       /* is manual compaction */ true);
 
@@ -1361,8 +1355,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetPathId(ioptions_, mutable_cf_options_, output_level_),
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level_, vstorage_->base_level()),
-      GetCompressionOptions(ioptions_, vstorage_, output_level_,
-                            vstorage_->base_level()),
+      GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       start_level_score_, false /* deletion_compaction */, compaction_reason_);
 
