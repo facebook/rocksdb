@@ -246,7 +246,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 }
 
 Status DBImpl::Resume() {
-  InstrumentedMutexLock mutex(&mutex_);
+  InstrumentedMutexLock db_mutex(&mutex_);
 
   if (!error_handler_->IsDBStopped() && !error_handler_->IsBGWorkStopped()) {
     // Nothing to do
