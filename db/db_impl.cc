@@ -243,6 +243,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+
+  error_handler_.reset(new ErrorHandler(immutable_db_options_, &mutex_));
 }
 
 Status DBImpl::Resume() {

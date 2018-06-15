@@ -1111,6 +1111,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     // Wait until the compaction completes
     s = WaitForFlushMemTable(cfd, &flush_memtable_id);
   }
+  TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
 }
 

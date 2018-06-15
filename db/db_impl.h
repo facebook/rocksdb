@@ -75,7 +75,7 @@ class DBImpl : public DB {
   virtual ~DBImpl();
 
   using DB::Resume;
-  virtual Status Resume();
+  virtual Status Resume() override;
 
   // Implementations of the DB interface
   using DB::Put;

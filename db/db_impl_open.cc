@@ -1217,10 +1217,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 #endif  // !ROCKSDB_LITE
 
   if (s.ok()) {
-    impl->error_handler_.reset(new ErrorHandler(impl->immutable_db_options_, &impl->mutex_));
-  }
-
-  if (s.ok()) {
     ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "DB pointer %p", impl);
     LogFlush(impl->immutable_db_options_.info_log);
     assert(impl->TEST_WALBufferIsEmpty());
