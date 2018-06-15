@@ -762,7 +762,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
       Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions,
-      &raw_table_properties, false /* reset_compression_type */);
+      &raw_table_properties, false /* block_type_not_available */);
   if (!s.ok()) {
     return s;
   }

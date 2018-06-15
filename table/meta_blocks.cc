@@ -170,7 +170,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties,
-                      bool reset_compression_type) {
+                      bool block_type_not_available) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -192,7 +192,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   s = block_fetcher.ReadBlockContents();
   // override compression_type when table file is known to contain undefined
   // value at compression type marker
-  if (reset_compression_type) {
+  if (block_type_not_available) {
     block_contents.compression_type = kNoCompression;
   }
 
@@ -300,7 +300,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
                            const ImmutableCFOptions &ioptions,
                            TableProperties** properties,
-                           bool reset_compression_type) {
+                           bool block_type_not_available) {
   // -- Read metaindex block
   Footer footer;
   auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
@@ -326,7 +326,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   }
   // override compression_type when table file is known to contain undefined
   // value at compression type marker
-  if (reset_compression_type) {
+  if (block_type_not_available) {
     metaindex_contents.compression_type = kNoCompression;
   }
   Block metaindex_block(std::move(metaindex_contents),
@@ -344,7 +344,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   TableProperties table_properties;
   if (found_properties_block == true) {
     s = ReadProperties(meta_iter->value(), file, nullptr /* prefetch_buffer */,
-                       footer, ioptions, properties, reset_compression_type);
+                       footer, ioptions, properties, block_type_not_available);
   } else {
     s = Status::NotFound();
   }
@@ -370,7 +370,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      const ImmutableCFOptions &ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
-                     bool reset_compression_type) {
+                     bool block_type_not_available) {
   Footer footer;
   auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
                               &footer, table_magic_number);
@@ -394,7 +394,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   }
   // override compression_type when table file is known to contain undefined
   // value at compression type marker
-  if (reset_compression_type) {
+  if (block_type_not_available) {
     metaindex_contents.compression_type = kNoCompression;
   }
   Block metaindex_block(std::move(metaindex_contents),
@@ -412,7 +412,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      uint64_t table_magic_number,
                      const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
-                     BlockContents* contents, bool reset_compression_type) {
+                     BlockContents* contents, bool block_type_not_available) {
   Status status;
   Footer footer;
   status = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
@@ -439,7 +439,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   }
   // override compression_type when table file is known to contain undefined
   // value at compression type marker
-  if (reset_compression_type) {
+  if (block_type_not_available) {
     metaindex_contents.compression_type = kNoCompression;
   }
 
