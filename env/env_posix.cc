@@ -20,7 +20,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_SOLARIS)
 #include <sys/statfs.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
