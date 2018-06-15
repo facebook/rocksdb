@@ -405,17 +405,13 @@ class VersionBuilder::Rep {
       }
     };
 
-    if (max_threads <= 1) {
-      load_handlers_func();
-    } else {
-      std::vector<port::Thread> threads;
-      for (int i = 0; i < max_threads; i++) {
-        threads.emplace_back(load_handlers_func);
-      }
-
-      for (auto& t : threads) {
-        t.join();
-      }
+    std::vector<port::Thread> threads;
+    for (int i = 1; i < max_threads; i++) {
+      threads.emplace_back(load_handlers_func);
+    }
+    load_handlers_func();
+    for (auto& t : threads) {
+      t.join();
     }
   }
 
