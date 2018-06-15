@@ -2039,7 +2039,6 @@ void BlockBasedTableIterator::FindKeyForward() {
       &reached_upper_bound);
   if (reached_upper_bound) {
     is_out_of_bound_ = true;
-    ResetDataIter();
     return;
   }
 }
