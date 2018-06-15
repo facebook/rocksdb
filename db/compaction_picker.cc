@@ -111,7 +111,8 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
 }
 
 CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
-                                         const VersionStorageInfo* vstorage, int level,
+                                         const VersionStorageInfo* vstorage,
+                                         int level,
                                          const bool enable_compression) {
   if (!enable_compression) {
     return ioptions.compression_opts;
@@ -120,8 +121,8 @@ CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
   // bottommost level then we should use the specified compression options
   // for the bottmomost_compression.
   if (ioptions.bottommost_compression != kDisableCompressionOption &&
-      level >= (vstorage->num_non_empty_levels() - 1 &&
-                ioptions.bottommost_compression_opts.enabled)) {
+      level >= (vstorage->num_non_empty_levels() - 1) &&
+      ioptions.bottommost_compression_opts.enabled) {
     return ioptions.bottommost_compression_opts;
   }
   return ioptions.compression_opts;

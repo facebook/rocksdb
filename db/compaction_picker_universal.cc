@@ -636,7 +636,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, start_level,
                          1, enable_compression),
-      GetCompressionOptions(ioptions_, vstorage, start_level, enable_compression),
+      GetCompressionOptions(ioptions_, vstorage, start_level,
+                            enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */, compaction_reason);
 }
