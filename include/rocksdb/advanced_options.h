@@ -126,19 +126,28 @@ struct CompressionOptions {
   // Default: 0.
   uint32_t zstd_max_train_bytes;
 
+  // When the compression options are set by the user, it will be set to "true".
+  // For bottommost_compression_opts, if it is not set by the user,
+  // compression_opts will be used as default.
+  //
+  // Default: false.
+  bool enabled;
+
   CompressionOptions()
       : window_bits(-14),
         level(kDefaultCompressionLevel),
         strategy(0),
         max_dict_bytes(0),
-        zstd_max_train_bytes(0) {}
+        zstd_max_train_bytes(0),
+        enabled(false) {}
   CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
-                     int _zstd_max_train_bytes)
+                     int _zstd_max_train_bytes, bool _enabled)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
         max_dict_bytes(_max_dict_bytes),
-        zstd_max_train_bytes(_zstd_max_train_bytes) {}
+        zstd_max_train_bytes(_zstd_max_train_bytes),
+        enabled(_enabled) {}
 };
 
 enum UpdateStatus {    // Return status For inplace update callback

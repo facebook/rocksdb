@@ -178,6 +178,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "        Options.bottommost_compression_opts.zstd_max_train_bytes: "
         "%" ROCKSDB_PRIszt,
         bottommost_compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(
+        log, "                 Options.bottommost_compression_opts.enabled: %s",
+        bottommost_compression_opts.enabled ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",
@@ -192,6 +195,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" ROCKSDB_PRIszt,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(log,
+                     "                 Options.compression_opts.enabled: %s",
+                     compression_opts.enabled ? "true" : "false");
     ROCKS_LOG_HEADER(log, "     Options.level0_file_num_compaction_trigger: %d",
                      level0_file_num_compaction_trigger);
     ROCKS_LOG_HEADER(log, "         Options.level0_slowdown_writes_trigger: %d",

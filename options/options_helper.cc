@@ -949,6 +949,17 @@ Status ParseColumnFamilyOption(const std::string& name,
         }
         new_options->bottommost_compression_opts.zstd_max_train_bytes =
             ParseInt(value.substr(start, value.size() - start));
+        end = value.find(':', start);
+      }
+      // enabled is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->bottommost_compression_opts.enabled =
+            ParseBoolean("", value.substr(start, value.size() - start));
       }
     } else if (name == "compression_opts") {
       size_t start = 0;
@@ -995,6 +1006,17 @@ Status ParseColumnFamilyOption(const std::string& name,
         }
         new_options->compression_opts.zstd_max_train_bytes =
             ParseInt(value.substr(start, value.size() - start));
+        end = value.find(':', start);
+      }
+      // enabled is optional for backwards compatibility
+      if (end != std::string::npos) {
+        start = end + 1;
+        if (start >= value.size()) {
+          return Status::InvalidArgument(
+              "unable to parse the specified CF option " + name);
+        }
+        new_options->compression_opts.enabled =
+            ParseBoolean("", value.substr(start, value.size() - start));
       }
     } else {
       auto iter = cf_options_type_info.find(name);

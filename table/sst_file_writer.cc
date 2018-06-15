@@ -153,7 +153,11 @@ Status SstFileWriter::Open(const std::string& file_path) {
   CompressionOptions compression_opts;
   if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
     compression_type = r->ioptions.bottommost_compression;
-    compression_opts = r->ioptions.bottommost_compression_opts;
+    if (r->ioptions.bottommost_compression_opts.enabled) {
+      compression_opts = r->ioptions.bottommost_compression_opts;
+    } else {
+      compression_opts = r->ioptions.compression_opts;
+    }
   } else if (!r->ioptions.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
     compression_type = *(r->ioptions.compression_per_level.rbegin());
