@@ -128,7 +128,8 @@ Status PlainTableReader::Open(
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props);
+                               ioptions, &props,
+                               true /* reset_compression_type */);
   if (!s.ok()) {
     return s;
   }
@@ -293,7 +294,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                            file_size_, kPlainTableMagicNumber, ioptions_,
                            PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           &index_block_contents);
+                           &index_block_contents,
+                           true /* reset_compression_type */);
 
   bool index_in_file = s.ok();
 
@@ -303,7 +305,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   if (index_in_file) {
     s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                       file_size_, kPlainTableMagicNumber, ioptions_,
-                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
+                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents,
+                      true /* reset_compression_type */);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 

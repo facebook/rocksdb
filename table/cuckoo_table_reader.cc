@@ -57,7 +57,7 @@ CuckooTableReader::CuckooTableReader(
   }
   TableProperties* props = nullptr;
   status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
-      ioptions, &props);
+      ioptions, &props, true /* reset_compression_type */);
   if (!status_.ok()) {
     return;
   }

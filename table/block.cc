@@ -428,9 +428,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
     size_ = 0;  // Error marker
   } else {
     // Should only decode restart points for uncompressed blocks
-    if (compression_type() <= kSnappyCompression ||
-        (compression_type() > kZSTD &&
-         compression_type() != kZSTDNotFinalCompression)) {
+    if (compression_type() == kNoCompression) {
       num_restarts_ = NumRestarts();
       restart_offset_ =
           static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
