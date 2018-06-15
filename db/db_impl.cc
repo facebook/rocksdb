@@ -253,6 +253,13 @@ Status DBImpl::Resume() {
     return Status::OK();
   }
 
+  Status s = error_handler_->GetBGError();
+  if (s.severity() > Status::Severity::kHardError) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+        "DB resume requested but failed due to Fatal/Unrecoverable error");
+    return s;
+  }
+
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Resuming DB");
 
@@ -272,6 +279,10 @@ Status DBImpl::Resume() {
     MaybeScheduleFlushOrCompaction();
   }
 
+  // No need to check BGError again. If something happened, event listener would be
+  // notified and the operation causing it would have failed
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+      "Successfully resumed DB");
   return Status::OK();
 }
 

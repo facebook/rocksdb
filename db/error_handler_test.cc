@@ -91,6 +91,40 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   Destroy(options);
 }
 
+TEST_F(DBErrorHandlingTest, CorruptionError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.env = fault_env.get();
+  Status s;
+  DestroyAndReopen(options);
+
+  Put(Key(0), "va;");
+  Put(Key(2), "va;");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void *) {
+      fault_env->SetFilesystemActive(false, Status::Corruption("Corruption"));
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(Key(1), "val");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kUnrecoverableError);
+
+  fault_env->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_NE(s, Status::OK());
+  Destroy(options);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
