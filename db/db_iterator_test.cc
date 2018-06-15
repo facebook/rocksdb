@@ -1051,7 +1051,6 @@ TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek) {
   ASSERT_OK(Put("foo3", "bar3"));
   ASSERT_OK(Put("foo4", "bar4"));
 
-  // testing basic case with no iterate_upper_bound and no prefix_extractor
   {
     std::string up_str = "foo5";
     Slice up(up_str);
