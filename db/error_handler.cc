@@ -1,3 +1,8 @@
+//  Copyright (c) 2018-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+//
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 
@@ -56,7 +61,7 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   }
 
   auto paranoid = db_options_.paranoid_checks;
-  Status::Severity sev;
+  Status::Severity sev = Status::Severity::kNoError;
   Status new_bg_err;
   bool found = false;
 
