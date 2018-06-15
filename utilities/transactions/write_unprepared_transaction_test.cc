@@ -161,6 +161,11 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   iter->Prev();
   verify_state(iter, "a", "v7");
 
+  db->ReleaseSnapshot(snapshot0);
+  db->ReleaseSnapshot(snapshot2);
+  db->ReleaseSnapshot(snapshot4);
+  db->ReleaseSnapshot(snapshot6);
+  db->ReleaseSnapshot(snapshot8);
   delete iter;
   delete txn;
 }
