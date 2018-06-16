@@ -253,7 +253,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       // should be disabled
       return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
     } else if (seq_per_batch_) {
-      currentStatus_ = Status::NotFound("Unexpected failures!");
+      currentStatus_ = Status::NotFound("Gap in sequence numbers");
     }
   }
 
