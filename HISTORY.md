@@ -6,6 +6,7 @@
 
 ### New Features
 * Changes the format of index blocks by storing the key in their raw form rather than converting them to InternalKey. This saves 8 bytes per index key. The feature is backward compatbile but not forward compatible. It is disabled by default unless format_version 3 or above is used.
+* Improve the performance of iterators doing long range scans by using readahead, when using direct IO.
 
 ### Bug Fixes
 * fix deadlock with enable_pipelined_write=true and max_successive_merges > 0
