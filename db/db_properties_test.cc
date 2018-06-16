@@ -252,8 +252,11 @@ TEST_F(DBPropertiesTest, ValidatePropertyInfo) {
     ASSERT_TRUE(ppt_name_and_info.first.empty() ||
                 !isdigit(ppt_name_and_info.first.back()));
 
-    ASSERT_TRUE((ppt_name_and_info.second.handle_string == nullptr) !=
-                (ppt_name_and_info.second.handle_int == nullptr));
+    int count = 0;
+    count += (ppt_name_and_info.second.handle_string == nullptr) ? 0 : 1;
+    count += (ppt_name_and_info.second.handle_int == nullptr) ? 0 : 1;
+    count += (ppt_name_and_info.second.handle_string_dbimpl == nullptr) ? 0 : 1;
+    ASSERT_TRUE(count == 1);
   }
 }
 
@@ -372,6 +375,13 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   for (int key = 0; key < key_index; key++) {
     Get(Key(key));
   }
+
+  // Test for getting immutable_db_options_.statistics
+  ASSERT_TRUE(dbfull()->GetProperty(dbfull()->DefaultColumnFamily(),
+                                    "rocksdb.options-statistics", &prop));
+  ASSERT_NE(std::string::npos, prop.find("rocksdb.block.cache.miss"));
+  ASSERT_EQ(std::string::npos, prop.find("rocksdb.db.f.micros"));
+
   ASSERT_TRUE(dbfull()->GetProperty(dbfull()->DefaultColumnFamily(),
                                     "rocksdb.cf-file-histogram", &prop));
   ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
