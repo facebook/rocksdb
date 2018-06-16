@@ -1004,6 +1004,7 @@ void BlockBasedTable::SetupForCompaction() {
     default:
       assert(false);
   }
+  rep_->for_compaction = true;
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
@@ -1992,15 +1993,20 @@ void BlockBasedTableIterator::InitDataBlock() {
         // Discarding the return status of Prefetch calls intentionally, as we
         // can fallback to reading from disk if Prefetch fails.
         if (!rep->file->use_direct_io()) {
+          // buffered i/o
           rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
-        } else {
-          prefetch_buffer_.reset(new FilePrefetchBuffer());
+          readahead_limit_ =
+              static_cast<size_t>(data_block_handle.offset() + readahead_size_);
+        } else if (!rep->for_compaction) {
+          // direct i/o -- but not for compaction reads.
+          if (!prefetch_buffer_) {
+            prefetch_buffer_.reset(new FilePrefetchBuffer());
+          }
           prefetch_buffer_->Prefetch(
               rep->file.get(), data_block_handle.offset(), readahead_size_);
+          readahead_limit_ =
+              prefetch_buffer_->Offset() + prefetch_buffer_->Length();
         }
-
-        readahead_limit_ =
-            static_cast<size_t>(data_block_handle.offset() + readahead_size_);
         // Keep exponentially increasing readahead size until kMaxReadaheadSize.
         readahead_size_ *= 2;
       }

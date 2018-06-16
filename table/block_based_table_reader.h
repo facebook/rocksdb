@@ -507,6 +507,8 @@ struct BlockBasedTable::Rep {
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
+
+  bool for_compaction = false;
 };
 
 class BlockBasedTableIterator : public InternalIterator {

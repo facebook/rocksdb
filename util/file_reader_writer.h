@@ -208,6 +208,8 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer() : buffer_offset_(0), buffer_len_(0) {}
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
   bool TryReadFromCache(uint64_t offset, size_t n, Slice* result) const;
+  uint64_t Offset();
+  size_t Length();
 
  private:
   AlignedBuffer buffer_;

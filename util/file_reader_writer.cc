@@ -647,15 +647,49 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   uint64_t roundup_len = roundup_end - rounddown_offset;
   assert(roundup_len >= alignment);
   assert(roundup_len % alignment == 0);
+
+  // Check if requested bytes are in the existing buffer_.
+  // If all bytes exist -- return.
+  // If only a few bytes exist -- reuse them and read only what is really needed
+  // If no bytes exist in buffer -- full pread.
+  Status s;
+  uint64_t chunk_offset_in_buffer = 0;
+  uint64_t chunk_len = 0;
+  if (buffer_len_ > 0 && offset >= buffer_offset_ &&
+      offset <= buffer_offset_ + buffer_len_) {
+    if (offset + n <= buffer_offset_ + buffer_len_) {
+      // All requested bytes are already in the buffer. So no need to Read
+      // again.
+      return s;
+    } else {
+      // Only a few requested bytes are in the buffer. memmove those chunk of
+      // bytes to the beginning and memcpy back into the new buffer.
+      chunk_offset_in_buffer = Rounddown(offset - buffer_offset_, alignment);
+      chunk_len = buffer_len_ - chunk_offset_in_buffer;
+      assert(chunk_offset_in_buffer % alignment == 0);
+      assert(chunk_len % alignment == 0);
+      // memmove's bytes from tail to the beginning.
+      buffer_.RefitTail(chunk_offset_in_buffer, chunk_len);
+    }
+  }
+
   buffer_.Alignment(alignment);
-  buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len));
+  if (chunk_len > 0) {
+    // allocate new buffer and memcpy the chunk.
+    buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
+                              true /* copy data */);
+  } else {
+    buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
+                              false /* copy data */);
+  }
 
   Slice result;
-  Status s = reader->Read(rounddown_offset, static_cast<size_t>(roundup_len),
-                          &result, buffer_.BufferStart());
+  s = reader->Read(rounddown_offset + chunk_len,
+                   static_cast<size_t>(roundup_len), &result,
+                   buffer_.BufferStart() + chunk_len);
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
-    buffer_len_ = result.size();
+    buffer_len_ = chunk_len + result.size();
   }
   return s;
 }
@@ -669,6 +703,10 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;
 }
+
+uint64_t FilePrefetchBuffer::Offset() { return buffer_offset_; }
+
+size_t FilePrefetchBuffer::Length() { return buffer_len_; }
 
 std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {
