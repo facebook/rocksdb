@@ -2575,7 +2575,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
                                kPlainTableMagicNumber, ioptions,
-                               &props);
+                               &props, true /* compression_type_missing */);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -3169,7 +3169,7 @@ TEST_P(BlockBasedTableTest, TableWithGlobalSeqno) {
     TableProperties* props = nullptr;
     ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
+                                  &props, true /* compression_type_missing */));
 
     UserCollectedProperties user_props = props->user_collected_properties;
     version = DecodeFixed32(
@@ -3346,7 +3346,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
     TableProperties* props = nullptr;
     ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
+                                  &props, true /* compression_type_missing */));
 
     uint64_t data_block_size = props->data_size / props->num_data_blocks;
     ASSERT_EQ(data_block_size, 4096);

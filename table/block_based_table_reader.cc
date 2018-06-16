@@ -806,7 +806,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (s.ok()) {
       s = ReadProperties(meta_iter->value(), rep->file.get(),
                          prefetch_buffer.get(), rep->footer, rep->ioptions,
-                         &table_properties);
+                         &table_properties, false /* compression_type_missing */);
     }
 
     if (!s.ok()) {
