@@ -22,6 +22,7 @@ expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
+    "backup_one_in": 1000000,
     "block_size": 16384,
     "cache_size": 1048576,
     "clear_column_family_one_in": 0,
