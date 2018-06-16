@@ -334,7 +334,7 @@ class TestPlainTableFactory : public PlainTableFactory {
     auto s =
         ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                             table_reader_options.ioptions, &props,
-                            true /* block_type_not_available */);
+                            true /* compression_type_missing */);
     EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
@@ -342,14 +342,14 @@ class TestPlainTableFactory : public PlainTableFactory {
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
                         table_reader_options.ioptions,
                         BloomBlockBuilder::kBloomBlock, &bloom_block_handle,
-                        /* block_type_not_available */ true);
+                        /* compression_type_missing */ true);
       EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
                         table_reader_options.ioptions,
                         PlainTableIndexBuilder::kPlainTableIndexBlock,
-                        &index_block_handle, /* block_type_not_available */ true);
+                        &index_block_handle, /* compression_type_missing */ true);
       EXPECT_TRUE(s.ok());
     }
 

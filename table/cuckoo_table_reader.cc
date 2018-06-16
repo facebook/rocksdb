@@ -57,7 +57,7 @@ CuckooTableReader::CuckooTableReader(
   }
   TableProperties* props = nullptr;
   status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
-      ioptions, &props, true /* block_type_not_available */);
+      ioptions, &props, true /* compression_type_missing */);
   if (!status_.ok()) {
     return;
   }

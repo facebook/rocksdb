@@ -97,7 +97,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties,
-                      bool block_type_not_available = false);
+                      bool compression_type_missing = false);
 
 // Directly read the properties from the properties block of a plain table.
 // @returns a status to indicate if the operation succeeded. On success,
@@ -105,13 +105,13 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 //          object, otherwise value of `table_properties` will not be modified.
 // certain tables do not have compression_type byte setup properly for
 // uncompressed blocks, caller can request to reset compression type by
-// passing block_type_not_available = true, the same applies to
+// passing compression_type_missing = true, the same applies to
 // `ReadProperties`, `FindMetaBlock`, and `ReadMetaBlock`
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
                            const ImmutableCFOptions &ioptions,
                            TableProperties** properties,
-                           bool block_type_not_available = false);
+                           bool compression_type_missing = false);
 
 // Find the meta block from the meta index block.
 Status FindMetaBlock(InternalIterator* meta_index_iter,
@@ -124,7 +124,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      const ImmutableCFOptions &ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle,
-                     bool block_type_not_available = false);
+                     bool compression_type_missing = false);
 
 // Read the specified meta block with name meta_block_name
 // from `file` and initialize `contents` with contents of this block.
@@ -135,6 +135,6 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      const ImmutableCFOptions& ioptions,
                      const std::string& meta_block_name,
                      BlockContents* contents,
-                     bool block_type_not_available = false);
+                     bool compression_type_missing = false);
 
 }  // namespace rocksdb
