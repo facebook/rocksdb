@@ -2731,6 +2731,8 @@ void DumpRocksDBBuildVersion(Logger* log) {
                    ROCKSDB_MINOR, ROCKSDB_PATCH);
   ROCKS_LOG_HEADER(log, "Git sha %s", rocksdb_build_git_sha);
   ROCKS_LOG_HEADER(log, "Compile date %s", rocksdb_build_compile_date);
+#else
+  (void)log;  // ignore "-Wunused-parameter"
 #endif
 }
 
