@@ -48,7 +48,7 @@ void Java_org_rocksdb_Transaction_setSnapshotOnNextOperation__JJ(
     jlong jtxn_notifier_handle) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* txn_notifier =
-      reinterpret_cast<std::shared_ptr<rocksdb::TransactionNotifier>*>(
+      reinterpret_cast<std::shared_ptr<rocksdb::TransactionNotifierJniCallback>*>(
           jtxn_notifier_handle);
   txn->SetSnapshotOnNextOperation(*txn_notifier);
 }

@@ -1363,7 +1363,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCFPathUse) {
   options.memtable_factory.reset(
       new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
   options.compaction_style = kCompactionStyleUniversal;
-  options.compaction_options_universal.size_ratio = 5;
+  options.compaction_options_universal.size_ratio = 10;
   options.write_buffer_size = 111 << 10;  // 114KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;

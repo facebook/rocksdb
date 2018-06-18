@@ -52,7 +52,7 @@ matrix:
 # https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      brew install ccache;
+      brew install ccache zstd lz4 snappy xz;
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then

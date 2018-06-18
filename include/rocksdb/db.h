@@ -621,6 +621,10 @@ class DB {
     // "rocksdb.block-cache-pinned-usage" - returns the memory size for the
     //      entries being pinned.
     static const std::string kBlockCachePinnedUsage;
+
+    // "rocksdb.options-statistics" - returns multi-line string
+    //      of options.statistics
+    static const std::string kOptionsStatistics;
   };
 #endif /* ROCKSDB_LITE */
 
