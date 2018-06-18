@@ -41,7 +41,6 @@ void MemTableListVersion::UnrefMemTable(autovector<MemTable*>* to_delete,
     to_delete->push_back(m);
     assert(*parent_memtable_list_memory_usage_ >= m->ApproximateMemoryUsage());
     *parent_memtable_list_memory_usage_ -= m->ApproximateMemoryUsage();
-  } else {
   }
 }
 
@@ -405,18 +404,17 @@ Status MemTableList::InstallMemtableFlushResults(
       // commit new state only if the column family is NOT dropped.
       // The reason is as follows (refer to
       // ColumnFamilyTest.FlushAndDropRaceCondition).
-      // It is possible that there has been an iterator scanning this column
-      // family. Before the scan finishes, the column family is dropped (by
-      // another thread). Since the original scanning thread does not delete
-      // the cf, the scanning thread should be able to finish scan the column
-      // family according to Rocksdb contract.
-      // Now suppose we commit the new state here even if the column family is
-      // dropped. Since the column family is already dropped, ref count on the
-      // memtables should be 1 now (since we still have an iterator).
-      // If we commit, then the following code will
-      // further unref the memtable, which will make the refcount of memtables
-      // to 0. If the ref count is 0, the memtables may get dropped at any
-      // time, and the iterator will see wrong results.
+      // If the column family is dropped, then according to LogAndApply, its
+      // corrresponding flush operation is NOT written to the MANIFEST. This
+      // means the DB is not aware of the L0 files generated from the flush.
+      // By committing the new state, we remove the memtable from the memtable
+      // list. Creating an iterator on this column family will not be able to
+      // read full data since the memtable is removed, and the DB is not aware
+      // of the L0 files, causing MergingIterator unable to build child
+      // iterators. RocksDB contract requires that the iterator can be created
+      // on a dropped column family, and we must be able to
+      // read full data as long as column family handle is not deleted, even if
+      // the column family is dropped.
       if (s.ok() && !cfd->IsDropped()) {         // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();

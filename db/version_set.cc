@@ -3040,10 +3040,11 @@ Status VersionSet::LogAndApply(
     return first_writer.status;
   }
 
-  int num_undropped_cfds = num_cfds;
+  int num_undropped_cfds = 0;
   for (auto cfd : column_family_datas) {
-    if (cfd != nullptr && cfd->IsDropped()) {
-      --num_undropped_cfds;
+    // if cfd == nullptr, it is a column family add.
+    if (cfd == nullptr || !cfd->IsDropped()) {
+      ++num_undropped_cfds;
     }
   }
   if (0 == num_undropped_cfds) {
