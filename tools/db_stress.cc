@@ -1770,7 +1770,8 @@ class StressTest {
 #ifndef ROCKSDB_LITE
       if (FLAGS_checkpoint_one_in > 0 &&
           thread->rand.Uniform(FLAGS_checkpoint_one_in) == 0) {
-        std::string checkpoint_dir = FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+        std::string checkpoint_dir =
+            FLAGS_db + "/.checkpoint" + ToString(thread->tid);
         Checkpoint* checkpoint;
         Status s = Checkpoint::Create(db_, &checkpoint);
         if (s.ok()) {
