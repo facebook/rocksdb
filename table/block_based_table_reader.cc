@@ -249,8 +249,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           index_block_->NewIterator(icomparator_,
                                     icomparator_->user_comparator(), nullptr,
                                     true, nullptr, index_key_includes_seq_),
-          false, true, /* prefix_extractor */ nullptr, kIsIndex,
-          index_key_includes_seq_);
+          false, true, kIsIndex, index_key_includes_seq_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
     // on-stack BlockIter while the state is on heap. Currentlly it assumes
@@ -1792,80 +1791,36 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
                                      const ReadOptions& read_options,
-                                     const bool prefix_extractor_changed,
-                                     const SliceTransform* prefix_extractor) {
+                                     const bool prefix_extractor_changed) {
   if (!rep_->filter_policy) {
     return true;
   }
 
-  assert(prefix_extractor != nullptr);
-  auto user_key = ExtractUserKey(internal_key);
-  if (!prefix_extractor->InDomain(user_key)) {
+  if (rep_->table_prefix_extractor == nullptr) {
     return true;
   }
-  auto prefix = prefix_extractor->Transform(user_key);
-  if (prefix_extractor_changed) {
-    // TODO(Zhongyi): move the logic of detecting compatibility of bloom filter
-    // to the filter. This will allow us to plug in different range filter
-    // implementation in the future.
-    // Try to reuse the bloom filter in the SST table if prefix_extractor in
-    // mutable_cf_options has changed. If range [user_key, upper_bound) all
-    // share the same prefix then we may still be able to use the bloom filter.
-    if (read_options.iterate_upper_bound != nullptr &&
-        rep_->table_prefix_extractor) {
-      if (!rep_->table_prefix_extractor->InDomain(user_key) ||
-          !rep_->table_prefix_extractor->InDomain(
-              *read_options.iterate_upper_bound)) {
-        return true;
-      }
-      Slice user_key_xform = rep_->table_prefix_extractor->Transform(user_key);
-      Slice upper_bound_xform = rep_->table_prefix_extractor->Transform(
-          *read_options.iterate_upper_bound);
-      // first check if user_key and upper_bound all share the same prefix
-      if (user_key_xform.compare(upper_bound_xform) != 0) {
-        auto& comparator = rep_->internal_comparator;
-        // second check if user_key's prefix is the immediate predecessor of
-        // upper_bound and have the same length. If so, we know for sure all
-        // keys in the range [user_key, upper_bound) share the same prefix.
-        // Also need to make sure upper_bound are full length to ensure
-        // correctness
-        size_t full_length;
-        bool full_length_enabled =
-            rep_->table_prefix_extractor->FullLengthEnabled(&full_length);
-        if (!full_length_enabled ||
-            read_options.iterate_upper_bound->size() != full_length ||
-            !comparator.IsSameLengthImmediateSuccessor(
-                user_key_xform,
-                *read_options.iterate_upper_bound)) {
-          // TODO(Zhongyi): delete debug code before merging
-          // fprintf(stdout, "BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
-          // "%s, upper_bound_xform = %s transformed into different prefix, not "
-          // "possible\n",
-          //         rep_->table_prefix_extractor->Name(),
-          //         user_key.ToString().c_str(),
-          //         read_options.iterate_upper_bound->ToString().c_str(),
-          //         user_key_xform.ToString().c_str(),
-          //         upper_bound_xform.ToString().c_str());
-          return true;
-        }
-      }
-      // Use prefix_extractor found in the SSTtable to do the transformation.
-      prefix = user_key_xform;
-    } else {
-      return true;
-    }
+  auto user_key = ExtractUserKey(internal_key);
+  if (!rep_->table_prefix_extractor->InDomain(user_key)) {
+    return true;
   }
 
   bool may_match = true;
   Status s;
 
   // First, try check with full filter
-  auto filter_entry = GetFilter(prefix_extractor);
+  auto filter_entry = GetFilter(rep_->table_prefix_extractor.get());
   FilterBlockReader* filter = filter_entry.value;
+  // set prefix using prefix_extractor from the SST
+  auto prefix = rep_->table_prefix_extractor->Transform(user_key);
   if (filter != nullptr) {
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
-      may_match = filter->PrefixMayMatch(prefix, prefix_extractor, kNotValid,
+      if (prefix_extractor_changed &&
+          !filter->IsFilterCompatible(read_options, user_key,
+                                      rep_->table_prefix_extractor.get())) {
+          return true;
+      }
+      may_match = filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(), kNotValid,
                                          false, const_ikey_ptr);
     } else {
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
@@ -1918,7 +1873,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         s = handle.DecodeFrom(&handle_value);
         assert(s.ok());
         may_match =
-            filter->PrefixMayMatch(prefix, prefix_extractor, handle.offset());
+            filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(), handle.offset());
       }
     }
   }
@@ -1935,7 +1890,6 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   if (!rep_->filter_entry.IsSet()) {
     filter_entry.Release(rep_->table_options.block_cache.get());
   }
-
   return may_match;
 }
 
@@ -2170,8 +2124,8 @@ InternalIterator* BlockBasedTable::NewIterator(
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, for_compaction);
+        prefix_extractor_changed, kIsNotIndex, true /*key_includes_seq*/,
+        for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
@@ -2179,8 +2133,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
-        true /*key_includes_seq*/, for_compaction);
+        prefix_extractor_changed, kIsNotIndex, true /*key_includes_seq*/,
+        for_compaction);
   }
 }
 

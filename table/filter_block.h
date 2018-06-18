@@ -123,6 +123,12 @@ class FilterBlockReader {
   virtual void CacheDependencies(bool /*pin*/,
                                  const SliceTransform* /*prefix_extractor*/) {}
 
+  virtual bool IsFilterCompatible(
+      const ReadOptions& /*read_options*/, const Slice& /*user_key*/,
+      const SliceTransform* /*prefix_extractor*/) {
+    return true;
+  }
+
  protected:
   bool whole_key_filtering_;
 

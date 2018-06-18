@@ -96,8 +96,7 @@ class BlockBasedTable : public TableReader {
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
-                      const bool prefix_extractor_changed,
-                      const SliceTransform* prefix_extractor);
+                      const bool prefix_extractor_changed);
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -517,9 +516,8 @@ class BlockBasedTableIterator : public InternalIterator {
   BlockBasedTableIterator(
       BlockBasedTable* table, const ReadOptions& read_options,
       const InternalKeyComparator& icomp, InternalIterator* index_iter,
-      bool check_filter, bool prefix_extractor_changed,
-      const SliceTransform* prefix_extractor,
-      bool is_index, bool key_includes_seq = true, bool for_compaction = false)
+      bool check_filter, bool prefix_extractor_changed, bool is_index,
+      bool key_includes_seq = true, bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -528,7 +526,6 @@ class BlockBasedTableIterator : public InternalIterator {
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
         prefix_extractor_changed_(prefix_extractor_changed),
-        prefix_extractor_(prefix_extractor),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
         for_compaction_(for_compaction),
@@ -581,8 +578,8 @@ class BlockBasedTableIterator : public InternalIterator {
 
   bool CheckPrefixMayMatch(const Slice& ikey) {
     if (check_filter_ &&
-        !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_changed_,
-                                prefix_extractor_)) {
+        !table_->PrefixMayMatch(ikey, read_options_,
+                                prefix_extractor_changed_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to
@@ -630,7 +627,6 @@ class BlockBasedTableIterator : public InternalIterator {
   bool prefix_extractor_changed_;
   // TODO use block offset instead
   std::string prev_index_value_;
-  const SliceTransform* prefix_extractor_;
   // If the blocks over which we iterate are index blocks
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence

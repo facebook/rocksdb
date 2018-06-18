@@ -108,6 +108,9 @@ class FullFilterBlockReader : public FilterBlockReader {
       uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
+  virtual bool IsFilterCompatible(
+      const ReadOptions& read_options, const Slice& user_key,
+      const SliceTransform* prefix_extractor) override;
 
  private:
   const SliceTransform* prefix_extractor_;

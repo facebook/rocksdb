@@ -153,4 +153,53 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry) {
 size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
   return contents_.size();
 }
+
+bool FullFilterBlockReader::IsFilterCompatible(
+    const ReadOptions& read_options, const Slice& user_key,
+    const SliceTransform* table_prefix_extractor) {
+  // Try to reuse the bloom filter in the SST table if prefix_extractor in
+  // mutable_cf_options has changed. If range [user_key, upper_bound) all
+  // share the same prefix then we may still be able to use the bloom filter.
+  if (read_options.iterate_upper_bound != nullptr && table_prefix_extractor) {
+    if (!table_prefix_extractor->InDomain(user_key) ||
+        !table_prefix_extractor->InDomain(
+            *read_options.iterate_upper_bound)) {
+      return false;
+    }
+    Slice user_key_xform = table_prefix_extractor->Transform(user_key);
+    Slice upper_bound_xform = table_prefix_extractor->Transform(
+        *read_options.iterate_upper_bound);
+    // first check if user_key and upper_bound all share the same prefix
+    if (user_key_xform.compare(upper_bound_xform) != 0) {
+      // second check if user_key's prefix is the immediate predecessor of
+      // upper_bound and have the same length. If so, we know for sure all
+      // keys in the range [user_key, upper_bound) share the same prefix.
+      // Also need to make sure upper_bound are full length to ensure
+      // correctness
+      size_t full_length;
+      bool full_length_enabled =
+          table_prefix_extractor->FullLengthEnabled(&full_length);
+      if (!full_length_enabled ||
+          read_options.iterate_upper_bound->size() != full_length ||
+            !BytewiseComparator()->IsSameLengthImmediateSuccessor(
+              user_key_xform,
+              *read_options.iterate_upper_bound)) {
+        // TODO(Zhongyi): delete debug code before merging
+        // fprintf(stdout, "[full filter] BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
+        // "%s, upper_bound_xform = %s transformed into different prefix, not "
+        // "possible\n",
+        //         table_prefix_extractor->Name(),
+        //         user_key.ToString().c_str(),
+        //         read_options.iterate_upper_bound->ToString().c_str(),
+        //         user_key_xform.ToString().c_str(),
+        //         upper_bound_xform.ToString().c_str());
+        return false;
+      }
+    }
+    return true;
+  } else {
+    return false;
+  }
+}
+
 }  // namespace rocksdb

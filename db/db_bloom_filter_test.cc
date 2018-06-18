@@ -1111,7 +1111,8 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
 // into the same string, or 2) the transformed seek key is of the same length
 // as the upper bound and two keys are adjacent according to the comparator.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
-  for (bool use_block_based_builder : {true, false}) {
+  int iteration = 0;
+  for (bool use_block_based_builder : {false, true}) {
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
@@ -1172,7 +1173,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcdxx01"), 4);
       // should skip bloom filter since upper bound is too long
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
+                3+iteration);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -1185,7 +1187,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(CountIter(iter, "abcdxx02"), 4);
       // should check bloom filter since upper bound matches transformed seek
       // key
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
+                4+iteration);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -1198,8 +1201,10 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "aaaaaaaa"), 0);
       // should skip bloom filter since mismatch is found
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
+                4+iteration*2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL),
+                iteration);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:3"}}));
     {
@@ -1210,17 +1215,26 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.prefix_same_as_start = true;
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
-      ASSERT_EQ(CountIter(iter, "abc"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      if (!use_block_based_builder) {
+        ASSERT_EQ(CountIter(iter, "abc"), 4);
+      }
+      else {
+        ASSERT_EQ(CountIter(iter, "abc"), 0);
+      }
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
+                4+iteration*3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL),
+                iteration*2);
     }
+    iteration++;
   }
 }
 
 // Create multiple SST files each with a different prefix_extractor config,
 // verify iterators can read all SST files using the latest config.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
-  for (bool use_block_based_builder : {true, false}) {
+  int iteration = 0;
+  for (bool use_block_based_builder : {false, true}) {
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1255,8 +1269,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     ASSERT_EQ(CountIter(iter, "foo"), 2);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
     ASSERT_EQ(CountIter(iter, "gpk"), 0);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2+iteration);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0+iteration);
 
     // second SST with capped:3 BF
     ASSERT_OK(Put("foo3", "bar3"));
@@ -1268,13 +1282,13 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // BF is cappped:3 now
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4+iteration);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0+iteration);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // both counters are incremented because BF is "not changed" for 1 of the
       // SST files, so filter is checked once and found no match.
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5+iteration*2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1+iteration*2);
     }
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
@@ -1290,28 +1304,28 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // BF is fixed:2 now
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 9);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 7);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 7+iteration*3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1+iteration*2);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 8);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 8+iteration*5);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2+iteration*4);
     }
 
     // TODO(Zhongyi): verify existing iterator cannot see newly inserted keys
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 9);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 9+iteration*5);
     ASSERT_EQ(CountIter(iter, "foo"), 2);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 10);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 10+iteration*5);
 
     {
       // keys in all three SSTs are visible to iterator
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 9);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12+iteration*6);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2+iteration*4);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 13);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 13+iteration*8);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3+iteration*6);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
     ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
@@ -1319,13 +1333,14 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     {
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 6);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 16);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 16+iteration*8);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3+iteration*6);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 17);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 4);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 17+iteration*10);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 4+iteration*8);
     }
     // TODO(Zhongyi): Maybe also need to add Get calls to test point look up?
+    iteration++;
   }
 }
 
@@ -1333,8 +1348,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
 // dynamically, verify the iterator created on the new column family behaves
 // as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
-  int cf_count = 0;
-  for (bool use_block_based_builder : {true, false}) {
+  int iteration = 0;
+  for (bool use_block_based_builder : {false, true}) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1345,12 +1360,12 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    CreateAndReopenWithCF({"pikachu" + std::to_string(cf_count)}, options);
+    CreateAndReopenWithCF({"pikachu" + std::to_string(iteration)}, options);
     ReadOptions read_options;
     read_options.prefix_same_as_start = true;
     // create a new CF and set prefix_extractor dynamically
     options.prefix_extractor.reset(NewCappedPrefixTransform(3));
-    CreateColumnFamilies({"ramen_dojo_" + std::to_string(cf_count)}, options);
+    CreateColumnFamilies({"ramen_dojo_" + std::to_string(iteration)}, options);
     ASSERT_EQ(0,
               strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
                      "rocksdb.CappedPrefix.3"));
@@ -1385,14 +1400,15 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
     dbfull()->DestroyColumnFamilyHandle(handles_[1]);
     handles_[1] = nullptr;
-    cf_count++;
+    iteration++;
   }
 }
 
 // Verify it's possible to change prefix_extractor at runtime and iterators
 // behaves as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
-  for (bool use_block_based_builder : {true, false}) {
+  int iteration = 0;
+  for (bool use_block_based_builder : {false, true}) {
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1441,17 +1457,18 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       // "fp*" should be skipped
       ASSERT_EQ(CountIter(iter, "foo"), 9);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 6);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 6+3*iteration);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
 
     // iterator created before should not be affected and see all keys
     ASSERT_EQ(CountIter(iter_old, "foo"), 12);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 9);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 9+3*iteration);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     ASSERT_EQ(CountIter(iter_old, "abc"), 0);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12+3*iteration);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
+    iteration++;
   }
 }
 

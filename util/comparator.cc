@@ -99,9 +99,10 @@ class BytewiseComparatorImpl : public Comparator {
     // *key is a run of 0xffs.  Leave it alone.
   }
 
+  // TODO(Zhongyi): add test case coverage
   virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
                                               const Slice& t) const override {
-    if (s.size() != t.size() || s.size() == 0) return false;
+    if (s.size() != t.size() || s.size() == 0) { return false; }
     size_t diff_ind = s.difference_offset(t);
     // should only differ in the last byte
     // s, t are non empty, safe to check s.size() - 1
