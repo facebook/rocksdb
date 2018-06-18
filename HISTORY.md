@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.12.5 (6/18/2018)
+### Bug Fixes
+* Fix regression bug of Prev() with ReadOptions.iterate_upper_bound.
+
 ## 5.12.3 (04/09/2018)
 ### Bug Fixes
 * Fix memory leak when pin_l0_filter_and_index_blocks_in_cache is used with partitioned filters
