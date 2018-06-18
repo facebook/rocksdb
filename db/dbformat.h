@@ -176,8 +176,10 @@ class InternalKeyComparator
   virtual const Comparator* GetRootComparator() const override {
     return user_comparator_->GetRootComparator();
   }
-  virtual bool IsSameLengthImmediateSuccessor(std::string s,
-                                              std::string t) const override;
+  virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
+                                              const Slice& t) const override {
+    return user_comparator_->IsSameLengthImmediateSuccessor(s, t);
+  }
 };
 
 // Modules in this directory should keep internal keys wrapped inside
@@ -551,8 +553,8 @@ class InternalKeySliceTransform : public SliceTransform {
     return transform_->InRange(user_key);
   }
 
-  virtual size_t FullLength() const override {
-    return transform_->FullLength();
+  virtual bool FullLengthEnabled(size_t* len) const override {
+    return transform_->FullLengthEnabled(len);
   }
 
   const SliceTransform* user_prefix_extractor() const { return transform_; }

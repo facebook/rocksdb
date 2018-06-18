@@ -692,7 +692,7 @@ class FixedOrLessPrefixTransform : public SliceTransform {
   virtual bool InRange(const Slice& dst) const override {
     return (dst.size() <= prefix_len_);
   }
-  virtual size_t FullLength() const override { return prefix_len_; }
+  virtual bool FullLengthEnabled(size_t* /*len*/) const override { return false; }
 };
 
 class HarnessTest : public testing::Test {

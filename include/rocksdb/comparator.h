@@ -70,8 +70,8 @@ class Comparator {
   virtual const Comparator* GetRootComparator() const { return this; }
 
   // given two keys, determine if t is the successor of s
-  virtual bool IsSameLengthImmediateSuccessor(std::string /*s*/,
-                                              std::string /*t*/) const {
+  virtual bool IsSameLengthImmediateSuccessor(const Slice& /*s*/,
+                                              const Slice& /*t*/) const {
     return false;
   }
 };

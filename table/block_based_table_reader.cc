@@ -1805,6 +1805,9 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   }
   auto prefix = prefix_extractor->Transform(user_key);
   if (prefix_extractor_changed) {
+    // TODO(Zhongyi): move the logic of detecting compatibility of bloom filter
+    // to the filter. This will allow us to plug in different range filter
+    // implementation in the future.
     // Try to reuse the bloom filter in the SST table if prefix_extractor in
     // mutable_cf_options has changed. If range [user_key, upper_bound) all
     // share the same prefix then we may still be able to use the bloom filter.
@@ -1826,11 +1829,14 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         // keys in the range [user_key, upper_bound) share the same prefix.
         // Also need to make sure upper_bound are full length to ensure
         // correctness
-        if (read_options.iterate_upper_bound->size() !=
-                rep_->table_prefix_extractor->FullLength() ||
+        size_t full_length;
+        bool full_length_enabled =
+            rep_->table_prefix_extractor->FullLengthEnabled(&full_length);
+        if (!full_length_enabled ||
+            read_options.iterate_upper_bound->size() != full_length ||
             !comparator.IsSameLengthImmediateSuccessor(
-                user_key_xform.ToString(),
-                read_options.iterate_upper_bound->ToString())) {
+                user_key_xform,
+                *read_options.iterate_upper_bound)) {
           // TODO(Zhongyi): delete debug code before merging
           // fprintf(stdout, "BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
           // "%s, upper_bound_xform = %s transformed into different prefix, not "

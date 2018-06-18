@@ -213,7 +213,9 @@ class SamePrefixTransform : public SliceTransform {
     return dst == prefix_;
   }
 
-  virtual size_t FullLength() const override { return prefix_.size(); }
+  virtual bool FullLengthEnabled(size_t* /*len*/) const override {
+    return false;
+  }
 };
 
 }  // namespace

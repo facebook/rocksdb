@@ -99,20 +99,23 @@ class BytewiseComparatorImpl : public Comparator {
     // *key is a run of 0xffs.  Leave it alone.
   }
 
-  virtual bool IsSameLengthImmediateSuccessor(std::string s,
-                                              std::string t) const override {
-    if (s.size() != t.size()) return false;
-    int len = static_cast<int>(s.size());
-    for (int i = len - 1; i >= 0; --i) {
-      const uint8_t byte = s[i];
-      if (byte != static_cast<uint8_t>(0xff)) {
-        s[i] = byte + 1;
-        break;
-      }
+  virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
+                                              const Slice& t) const override {
+    if (s.size() != t.size() || s.size() == 0) return false;
+    size_t diff_ind = s.difference_offset(t);
+    // should only differ in the last byte
+    // s, t are non empty, safe to check s.size() - 1
+    if (diff_ind != s.size() - 1) {
+      return false;
     }
-    // if s is ffffffff, then t cannot be successor of s under the constraint
-    // that they are the same length
-    return !s.compare(t);
+    uint8_t byte_s = static_cast<uint8_t>(s[diff_ind]);
+    uint8_t byte_t = static_cast<uint8_t>(t[diff_ind]);
+    if (byte_s != uint8_t{0xff} && byte_s + 1 == byte_t) {
+      return true;
+    }
+    else {
+      return false;
+    }
   }
 };
 

@@ -63,7 +63,7 @@ class SliceTransform {
   // Some SliceTransform will have a full length which can be used to
   // determine if two keys are consecuitive. Can be disabled by always
   // returning 0
-  virtual size_t FullLength() const { return 0; }
+  virtual bool FullLengthEnabled(size_t* /*len*/) const { return false; }
 
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.
   //
