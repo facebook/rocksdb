@@ -26,13 +26,13 @@ struct ZSTDCachedData {
   // We choose to cache the below structure instead of a ptr
   // because we want to avoid a) native types leak b) make
   // cache use transparent for the user
-  ZSTDUncompressCachedData         uncomp_cached_data_;
-  std::atomic<void*>               zstd_uncomp_sentinel_;
+  ZSTDUncompressCachedData uncomp_cached_data_;
+  std::atomic<void*> zstd_uncomp_sentinel_;
 
-  char padding[(CACHE_LINE_SIZE -
-                  (sizeof(ZSTDUncompressCachedData) +
-                   sizeof(std::atomic<void*>)) %
-                     CACHE_LINE_SIZE)]; // unused padding field
+  char
+      padding[(CACHE_LINE_SIZE -
+               (sizeof(ZSTDUncompressCachedData) + sizeof(std::atomic<void*>)) %
+                   CACHE_LINE_SIZE)];  // unused padding field
 
   ZSTDCachedData() : zstd_uncomp_sentinel_(&uncomp_cached_data_) {}
   ZSTDCachedData(const ZSTDCachedData&) = delete;
@@ -41,7 +41,8 @@ struct ZSTDCachedData {
   ZSTDUncompressCachedData GetUncompressData(int64_t idx) {
     ZSTDUncompressCachedData result;
     void* expected = &uncomp_cached_data_;
-    if (zstd_uncomp_sentinel_.compare_exchange_strong(expected, SentinelValue)) {
+    if (zstd_uncomp_sentinel_.compare_exchange_strong(expected,
+                                                      SentinelValue)) {
       uncomp_cached_data_.CreateIfNeeded();
       result.InitFromCache(uncomp_cached_data_, idx);
     } else {
@@ -60,15 +61,15 @@ struct ZSTDCachedData {
     }
   }
 };
-static_assert(sizeof(ZSTDCachedData) % CACHE_LINE_SIZE == 0, "Expected CACHE_LINE_SIZE alignment");
-} // compression_cache
+static_assert(sizeof(ZSTDCachedData) % CACHE_LINE_SIZE == 0,
+              "Expected CACHE_LINE_SIZE alignment");
+}  // namespace compression_cache
 
 using namespace compression_cache;
 
 class CompressionContextCache::Rep {
-public:
-  Rep() {
-  }
+ public:
+  Rep() {}
   ZSTDUncompressCachedData GetZSTDUncompressData() {
     auto p = per_core_uncompr_.AccessElementAndIndex();
     int64_t idx = static_cast<int64_t>(p.second);
@@ -79,24 +80,22 @@ public:
     auto* cn = per_core_uncompr_.AccessAtCore(static_cast<size_t>(idx));
     cn->ReturnUncompressData();
   }
-private:
+
+ private:
   CoreLocalArray<ZSTDCachedData> per_core_uncompr_;
 };
 
-CompressionContextCache::CompressionContextCache() :
-  rep_(new Rep()) {
-}
+CompressionContextCache::CompressionContextCache() : rep_(new Rep()) {}
 
 CompressionContextCache* CompressionContextCache::Instance() {
   static CompressionContextCache instance;
   return &instance;
 }
 
-void CompressionContextCache::InitSingleton() {
-  Instance();
-}
+void CompressionContextCache::InitSingleton() { Instance(); }
 
-ZSTDUncompressCachedData CompressionContextCache::GetCachedZSTDUncompressData() {
+ZSTDUncompressCachedData
+CompressionContextCache::GetCachedZSTDUncompressData() {
   return rep_->GetZSTDUncompressData();
 }
 
@@ -104,8 +103,6 @@ void CompressionContextCache::ReturnCachedZSTDUncompressData(int64_t idx) {
   rep_->ReturnZSTDUncompressData(idx);
 }
 
-CompressionContextCache::~CompressionContextCache() {
-  delete rep_;
-}
+CompressionContextCache::~CompressionContextCache() { delete rep_; }
 
-}
+}  // namespace rocksdb

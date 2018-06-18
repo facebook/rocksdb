@@ -226,10 +226,9 @@ Status BlockFetcher::ReadBlockContents() {
   if (do_uncompress_ && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
     UncompressionContext uncompression_ctx(compression_type, compression_dict_);
-    status_ = UncompressBlockContents(uncompression_ctx, 
-                                      slice_.data(), block_size_, contents_,
-                                      footer_.version(),
-                                      ioptions_);
+    status_ =
+        UncompressBlockContents(uncompression_ctx, slice_.data(), block_size_,
+                                contents_, footer_.version(), ioptions_);
   } else {
     GetBlockContents();
   }

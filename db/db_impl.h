@@ -1392,6 +1392,7 @@ class DBImpl : public DB {
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
                               bool is_locked, uint64_t* value);
+  bool GetPropertyHandleOptionsStatistics(std::string* value);
 
   bool HasPendingManualCompaction();
   bool HasExclusiveManualCompaction();

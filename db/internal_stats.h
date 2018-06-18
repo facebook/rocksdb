@@ -45,6 +45,10 @@ struct DBPropertyInfo {
 
   // @param props Map of general properties to populate
   bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
+
+  // handle the string type properties rely on DBImpl methods
+  // @param value Value-result argument for storing the property's string value
+  bool (DBImpl::*handle_string_dbimpl)(std::string* value);
 };
 
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
@@ -538,7 +542,6 @@ class InternalStats {
   bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,
                                    Version* version);
-
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
   // be caused by any possible reason, including file system errors, out of

@@ -24,6 +24,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval),
+      index_on_filter_block_builder_without_seq_(index_block_restart_interval),
       p_index_builder_(p_index_builder),
       filters_in_partition_(0),
       num_added_(0) {
@@ -65,6 +66,10 @@ Slice PartitionedFilterBlockBuilder::Finish(
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     index_on_filter_block_builder_.Add(last_entry.key, handle_encoding);
+    if (!p_index_builder_->seperator_is_key_plus_seq()) {
+      index_on_filter_block_builder_without_seq_.Add(
+          ExtractUserKey(last_entry.key), handle_encoding);
+    }
     filters.pop_front();
   } else {
     MaybeCutAFilterBlock();
@@ -74,7 +79,11 @@ Slice PartitionedFilterBlockBuilder::Finish(
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
     if (finishing_filters) {
-      return index_on_filter_block_builder_.Finish();
+      if (p_index_builder_->seperator_is_key_plus_seq()) {
+        return index_on_filter_block_builder_.Finish();
+      } else {
+        return index_on_filter_block_builder_without_seq_.Finish();
+      }
     } else {
       // This is the rare case where no key was added to the filter
       return Slice();
@@ -91,12 +100,13 @@ Slice PartitionedFilterBlockBuilder::Finish(
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     const SliceTransform* prefix_extractor, bool _whole_key_filtering,
     BlockContents&& contents, FilterBitsReader* /*filter_bits_reader*/,
-    Statistics* stats, const Comparator& comparator,
-    const BlockBasedTable* table)
+    Statistics* stats, const InternalKeyComparator comparator,
+    const BlockBasedTable* table, const bool index_key_includes_seq)
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
       prefix_extractor_(prefix_extractor),
       comparator_(comparator),
-      table_(table) {
+      table_(table),
+      index_key_includes_seq_(index_key_includes_seq) {
   idx_on_fltr_blk_.reset(new Block(std::move(contents),
                                    kDisableGlobalSequenceNumber,
                                    0 /* read_amp_bytes_per_bit */, stats));
@@ -113,7 +123,8 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
   char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   BlockIter biter;
   BlockHandle handle;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &comparator_, &biter, true);
+  idx_on_fltr_blk_->NewIterator(&comparator_, comparator_.user_comparator(),
+                                &biter, true, nullptr, index_key_includes_seq_);
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
     auto input = biter.value();
@@ -207,7 +218,8 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
     const Slice& entry) {
   BlockIter iter;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &comparator_, &iter, true);
+  idx_on_fltr_blk_->NewIterator(&comparator_, comparator_.user_comparator(),
+                                &iter, true, nullptr, index_key_includes_seq_);
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     return Slice();
@@ -269,7 +281,8 @@ void PartitionedFilterBlockReader::CacheDependencies(
   auto rep = table_->rep_;
   BlockIter biter;
   BlockHandle handle;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &comparator_, &biter, true);
+  idx_on_fltr_blk_->NewIterator(&comparator_, comparator_.user_comparator(),
+                                &biter, true, nullptr, index_key_includes_seq_);
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();

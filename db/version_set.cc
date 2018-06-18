@@ -761,7 +761,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
       new RandomAccessFileReader(std::move(file), file_name));
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
-      Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions, &raw_table_properties);
+      Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions,
+      &raw_table_properties, false /* compression_type_missing */);
   if (!s.ok()) {
     return s;
   }

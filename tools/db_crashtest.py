@@ -25,6 +25,8 @@ default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
     "clear_column_family_one_in": 0,
+    "compact_files_one_in": 1000000,
+    "compact_range_one_in": 1000000,
     "delpercent": 5,
     "destroy_db_initially": 0,
     "expected_values_path": expected_values_file.name,
@@ -50,6 +52,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
+    "format_version": lambda: random.randint(2, 3),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
