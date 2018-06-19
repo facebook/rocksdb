@@ -347,7 +347,7 @@ class BlockBasedTable : public TableReader {
   Status VerifyChecksumInBlocks(InternalIterator* index_iter);
 
   // Create the filter from the filter block.
-  FilterBlockReader* ReadFilter(
+  virtual FilterBlockReader* ReadFilter(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_handle,
       const bool is_a_filter_partition,
       const SliceTransform* prefix_extractor = nullptr) const;
