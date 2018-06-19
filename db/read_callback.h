@@ -24,7 +24,7 @@ class ReadCallback {
   //
   // For other uses, this returns zero, meaning that the current snapshot
   // sequence number is the maximum visible sequence number.
-  virtual SequenceNumber MaxVisibleSequenceNumber() = 0;
+  virtual SequenceNumber MaxUnpreparedSequenceNumber() = 0;
 };
 
 }  //  namespace rocksdb

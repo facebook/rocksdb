@@ -42,7 +42,7 @@ bool WritePreparedTxnReadCallback::IsCommitted(SequenceNumber seq) {
   return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
 }
 
-SequenceNumber WritePreparedTxnReadCallback::MaxVisibleSequenceNumber() {
+SequenceNumber WritePreparedTxnReadCallback::MaxUnpreparedSequenceNumber() {
   if (txn_ != nullptr) {
     auto unprep_seqs = txn_->GetUnpreparedSequenceNumbers();
 

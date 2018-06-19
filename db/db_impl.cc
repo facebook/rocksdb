@@ -1047,8 +1047,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // reading own writes.
     snapshot =
         reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
-    if (callback && callback->MaxVisibleSequenceNumber() != 0) {
-      snapshot = std::max(snapshot, callback->MaxVisibleSequenceNumber());
+    if (callback) {
+      snapshot = std::max(snapshot, callback->MaxUnpreparedSequenceNumber());
     }
   } else {
     // Since we get and reference the super version before getting

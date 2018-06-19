@@ -49,7 +49,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
   // next seq number.
   virtual bool IsCommitted(SequenceNumber seq) override;
 
-  virtual SequenceNumber MaxVisibleSequenceNumber() override;
+  virtual SequenceNumber MaxUnpreparedSequenceNumber() override;
 
  protected:
   friend class WriteUnpreparedTxnDB;

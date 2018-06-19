@@ -259,8 +259,18 @@ class DBIter final: public Iterator {
   void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence);
-  bool CanReseekToSkip();
-  SequenceNumber MaxVisibleSequenceNumber();
+
+  // CanReseekToSkip() returns whether the iterator can use the optimization
+  // where it reseek by sequence number to get the next key when there are too
+  // many versions. This is disabled for write unprepared because seeking to
+  // sequence number does not guarantee that it is visible.
+  inline bool CanReseekToSkip();
+
+  // MaxVisibleSequenceNumber() returns the maximum visible sequence number
+  // for this snapshot. This sequence number may be greater than snapshot
+  // seqno because uncommitted data written to DB for write unprepared will
+  // have a higher sequence number.
+  inline SequenceNumber MaxVisibleSequenceNumber();
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -1242,7 +1252,7 @@ bool DBIter::IsVisible(SequenceNumber sequence) {
 
 bool DBIter::CanReseekToSkip() {
   return read_callback_ == nullptr ||
-         read_callback_->MaxVisibleSequenceNumber() == 0;
+         read_callback_->MaxUnpreparedSequenceNumber() == 0;
 }
 
 SequenceNumber DBIter::MaxVisibleSequenceNumber() {
@@ -1250,7 +1260,7 @@ SequenceNumber DBIter::MaxVisibleSequenceNumber() {
     return sequence_;
   }
 
-  return std::max(sequence_, read_callback_->MaxVisibleSequenceNumber());
+  return std::max(sequence_, read_callback_->MaxUnpreparedSequenceNumber());
 }
 
 void DBIter::Seek(const Slice& target) {
