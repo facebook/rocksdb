@@ -268,6 +268,10 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
+    if (!biter.Valid()) {
+      // Empty index.
+      return;
+    }
     Slice input = biter.value();
     Status s = handle.DecodeFrom(&input);
     assert(s.ok());
@@ -280,6 +284,10 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
 
     // Read the last block's offset
     biter.SeekToLast();
+    if (!biter.Valid()) {
+      // Empty index.
+      return;
+    }
     input = biter.value();
     s = handle.DecodeFrom(&input);
     assert(s.ok());
