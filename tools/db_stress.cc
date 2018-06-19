@@ -385,8 +385,9 @@ DEFINE_bool(use_txn, false,
             "TxnDBWritePolicy::WRITE_PREPARED");
 
 DEFINE_int32(backup_one_in, 0,
-             "If non-zero, then CompactFiles() will be called once for every N "
-             "operations on average.  0 indicates CompactFiles() is disabled.");
+             "If non-zero, then CreateNewBackup() will be called once for "
+             "every N operations on average.  0 indicates CreateNewBackup() "
+             "is disabled.");
 
 DEFINE_int32(checkpoint_one_in, 0,
              "If non-zero, then CreateCheckpoint() will be called once for "
