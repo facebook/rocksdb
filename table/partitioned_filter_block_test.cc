@@ -123,7 +123,8 @@ class PartitionedFilterBlockTest : public testing::Test {
   std::unique_ptr<MockedBlockBasedTable> table;
 
   PartitionedFilterBlockReader* NewReader(
-      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib, const SliceTransform* prefix_extractor) {
+      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib,
+      const SliceTransform* prefix_extractor) {
     BlockHandle bh;
     Status status;
     Slice slice;
@@ -138,13 +139,14 @@ class PartitionedFilterBlockTest : public testing::Test {
     table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
         ioptions, env_options, table_options_, icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
-        prefix_extractor, true, BlockContents(slice, false, kNoCompression), nullptr,
-        nullptr, icomp, table.get(), pib->seperator_is_key_plus_seq());
+        prefix_extractor, true, BlockContents(slice, false, kNoCompression),
+        nullptr, nullptr, icomp, table.get(), pib->seperator_is_key_plus_seq());
     return reader;
   }
 
   void VerifyReader(PartitionedFilterBlockBuilder* builder,
-                    PartitionedIndexBuilder* pib, bool empty = false, const SliceTransform* prefix_extractor = nullptr) {
+                    PartitionedIndexBuilder* pib, bool empty = false,
+                    const SliceTransform* prefix_extractor = nullptr) {
     std::unique_ptr<PartitionedFilterBlockReader> reader(
         NewReader(builder, pib, prefix_extractor));
     // Querying added keys
@@ -310,7 +312,7 @@ TEST_F(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   builder->Add(pkeys[2]);
   CutABlock(pib.get(), pkeys[2]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
-      NewReader(builder.get(), prefix_extractor));
+      NewReader(builder.get(), pib.get(), prefix_extractor));
   for (auto key : pkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
