@@ -145,6 +145,8 @@ DEFINE_int32(value_size_mult, 8,
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
+DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
+
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
@@ -2178,6 +2180,7 @@ class StressTest {
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =
           FLAGS_allow_concurrent_memtable_write;
+      options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
       options_.enable_write_thread_adaptive_yield =
           FLAGS_enable_write_thread_adaptive_yield;
       options_.compaction_options_universal.size_ratio =

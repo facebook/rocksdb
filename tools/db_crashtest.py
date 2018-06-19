@@ -30,6 +30,7 @@ default_params = {
     "compact_range_one_in": 1000000,
     "delpercent": 5,
     "destroy_db_initially": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
