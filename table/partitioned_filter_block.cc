@@ -48,6 +48,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
   filters_in_partition_ = 0;
+  Reset();
 }
 
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
