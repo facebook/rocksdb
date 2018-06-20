@@ -650,11 +650,14 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 
   // Check if requested bytes are in the existing buffer_.
   // If all bytes exist -- return.
-  // If only a few bytes exist -- reuse them and read only what is really needed
+  // If only a few bytes exist -- reuse them & read only what is really needed.
+  //     This is typically the case of incremental reading of data.
   // If no bytes exist in buffer -- full pread.
+
   Status s;
   uint64_t chunk_offset_in_buffer = 0;
   uint64_t chunk_len = 0;
+  bool copy_data_to_new_buffer = false;
   if (buffer_len_ > 0 && offset >= buffer_offset_ &&
       offset <= buffer_offset_ + buffer_len_) {
     if (offset + n <= buffer_offset_ + buffer_len_) {
@@ -663,24 +666,26 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
       return s;
     } else {
       // Only a few requested bytes are in the buffer. memmove those chunk of
-      // bytes to the beginning and memcpy back into the new buffer.
+      // bytes to the beginning, and memcpy them back into the new buffer if a
+      // new buffer is created.
       chunk_offset_in_buffer = Rounddown(offset - buffer_offset_, alignment);
       chunk_len = buffer_len_ - chunk_offset_in_buffer;
       assert(chunk_offset_in_buffer % alignment == 0);
       assert(chunk_len % alignment == 0);
-      // memmove's bytes from tail to the beginning.
-      buffer_.RefitTail(chunk_offset_in_buffer, chunk_len);
+      copy_data_to_new_buffer = true;
     }
   }
 
-  buffer_.Alignment(alignment);
-  if (chunk_len > 0) {
-    // allocate new buffer and memcpy the chunk.
+  // Create a new buffer only if current capacity is not sufficient, and memcopy
+  // bytes from old buffer if needed (i.e., if chunk_len is greater than 0).
+  if (buffer_.Capacity() < roundup_len) {
+    buffer_.Alignment(alignment);
     buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
-                              true /* copy data */);
-  } else {
-    buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
-                              false /* copy data */);
+        copy_data_to_new_buffer, chunk_offset_in_buffer, chunk_len);
+  } else if (chunk_len > 0) {
+    // New buffer not needed. But memmove bytes from tail to the beginning since
+    // chunk_len is greater than 0.
+    buffer_.RefitTail(chunk_offset_in_buffer, chunk_len);
   }
 
   Slice result;
@@ -690,6 +695,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
     buffer_len_ = chunk_len + result.size();
+    buffer_.Size(buffer_len_);
   }
   return s;
 }
