@@ -2,6 +2,7 @@
 ## 5.14.1 (6/20/2018)
 ### Bug Fixes
 * Fix block-based table reader pinning blocks throughout its lifetime, causing memory usage increase.
+* Fix bug with prefix search in partition filters where a shared prefix would be ignored from the later partitions. The bug could report an eixstent key as missing. The bug could be triggered if prefix_extractor is set and partition filters is enabled.
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change
