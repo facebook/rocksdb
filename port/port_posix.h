@@ -51,6 +51,7 @@
 #endif
 #include <pthread.h>
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <limits>
@@ -184,13 +185,19 @@ typedef pthread_once_t OnceType;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
 extern void InitOnce(OnceType* once, void (*initializer)());
 
+
 #ifndef CACHE_LINE_SIZE
-  #if defined(__s390__)
-    #define CACHE_LINE_SIZE 256U
-  #elif defined(__powerpc__) || defined(__aarch64__)
-    #define CACHE_LINE_SIZE 128U
+  #if defined(__CLANG_MAX_ALIGN_T_DEFINED) || defined(_GCC_MAX_ALIGN_T)
+    #define POSIX_MIN_ALIGN(x) (x < sizeof(::max_align_t) ? x : (unsigned int) sizeof(::max_align_t))
   #else
-    #define CACHE_LINE_SIZE 64U
+    #define POSIX_MIN_ALIGN(x) x
+  #endif
+  #if defined(__s390__)
+    #define CACHE_LINE_SIZE POSIX_MIN_ALIGN(256U)
+  #elif defined(__powerpc__) || defined(__aarch64__)
+    #define CACHE_LINE_SIZE POSIX_MIN_ALIGN(128U)
+  #else
+    #define CACHE_LINE_SIZE POSIX_MIN_ALIGN(64U)
   #endif
 #endif
 
