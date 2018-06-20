@@ -73,8 +73,7 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   ASSERT_EQ(s, Status::OK());
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"BackgroundCallCompaction:0",
-        "FlushMemTableFinished"}});
+      {{"BackgroundCallCompaction:0", "FlushMemTableFinished"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void *) {
       fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
@@ -110,8 +109,7 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   ASSERT_EQ(s, Status::OK());
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"BackgroundCallCompaction:0",
-        "FlushMemTableFinished"}});
+      {{"BackgroundCallCompaction:0", "FlushMemTableFinished"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void *) {
       fault_env->SetFilesystemActive(false, Status::Corruption("Corruption"));

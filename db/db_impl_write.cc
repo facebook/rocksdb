@@ -677,7 +677,7 @@ void DBImpl::WriteStatusCheck(const Status& status) {
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
-    error_handler_->SetBGError(status, BackgroundErrorReason::kWriteCallback);
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -690,8 +690,8 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
   // ignore_missing_column_families.
   if (!status.ok()) {
     mutex_.Lock();
-    assert(!error_handler_->IsBGWorkStopped());
-    error_handler_->SetBGError(status, BackgroundErrorReason::kMemTable);
+    assert(!error_handler_.IsBGWorkStopped());
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
     mutex_.Unlock();
   }
 }
@@ -722,7 +722,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   if (UNLIKELY(status.ok())) {
-    status = error_handler_->GetBGError();
+    status = error_handler_.GetBGError();
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
@@ -1161,7 +1161,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       mutex_.Lock();
     }
 
-    while (!error_handler_->IsDBStopped() && write_controller_.IsStopped()) {
+    while (!error_handler_.IsDBStopped() && write_controller_.IsStopped()) {
       if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
@@ -1177,7 +1177,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     RecordTick(stats_, STALL_MICROS, time_delayed);
   }
 
-  return error_handler_->GetBGError();
+  return error_handler_.GetBGError();
 }
 
 Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,

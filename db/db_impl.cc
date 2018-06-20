@@ -216,7 +216,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // as well.
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
-      closed_(false) {
+      closed_(false),
+      error_handler_(immutable_db_options_, &mutex_) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -243,31 +244,28 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
-
-  error_handler_.reset(new ErrorHandler(immutable_db_options_, &mutex_));
 }
 
 Status DBImpl::Resume() {
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Resuming DB");
+
   InstrumentedMutexLock db_mutex(&mutex_);
 
-  if (!error_handler_->IsDBStopped() && !error_handler_->IsBGWorkStopped()) {
+  if (!error_handler_.IsDBStopped() && !error_handler_.IsBGWorkStopped()) {
     // Nothing to do
     return Status::OK();
   }
 
-  Status s = error_handler_->GetBGError();
+  Status s = error_handler_.GetBGError();
   if (s.severity() > Status::Severity::kHardError) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
         "DB resume requested but failed due to Fatal/Unrecoverable error");
     return s;
   }
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Resuming DB");
-
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  error_handler_->ClearBGError();
+  error_handler_.ClearBGError();
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -276,15 +274,12 @@ Status DBImpl::Resume() {
   }
   job_context.Clean();
 
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   mutex_.Lock();
-  if (bg_work_paused_ == 0) {
-    MaybeScheduleFlushOrCompaction();
-  }
+  MaybeScheduleFlushOrCompaction();
 
   // No need to check BGError again. If something happened, event listener would be
   // notified and the operation causing it would have failed
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-      "Successfully resumed DB");
   return Status::OK();
 }
 
@@ -2923,9 +2918,9 @@ Status DBImpl::IngestExternalFile(
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
-    if (error_handler_->IsDBStopped()) {
+    if (error_handler_.IsDBStopped()) {
       // Don't ingest files when there is a bg_error
-      return error_handler_->GetBGError();
+      return error_handler_.GetBGError();
     }
 
     // Make sure that bg cleanup wont delete the files that we are ingesting

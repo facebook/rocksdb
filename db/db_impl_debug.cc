@@ -135,10 +135,10 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
           (wait_unscheduled && unscheduled_compactions_)) &&
-         !error_handler_->IsDBStopped()) {
+         !error_handler_.IsDBStopped()) {
     bg_cv_.Wait();
   }
-  return error_handler_->GetBGError();
+  return error_handler_.GetBGError();
 }
 
 void DBImpl::TEST_LockMutex() {

@@ -79,7 +79,7 @@ class Status {
 
   SubCode subcode() const { return subcode_; }
 
-  enum Severity {
+  enum Severity : unsigned char {
     kNoError = 0,
     kSoftError = 1,
     kHardError = 2,

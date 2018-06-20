@@ -23,6 +23,7 @@
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
@@ -1427,7 +1428,7 @@ class DBImpl : public DB {
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 
-  std::unique_ptr<ErrorHandler> error_handler_;
+  ErrorHandler error_handler_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

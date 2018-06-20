@@ -8,18 +8,47 @@
 
 namespace rocksdb {
 
-std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode,bool>, Status::Severity> ErrorSeverityMap = {
-  // Errors during BG compaction
-  {std::make_tuple(BackgroundErrorReason::kCompaction, Status::Code::kIOError, Status::SubCode::kNoSpace, true), Status::Severity::kSoftError},
-  {std::make_tuple(BackgroundErrorReason::kCompaction, Status::Code::kIOError, Status::SubCode::kNoSpace, false), Status::Severity::kNoError},
-  {std::make_tuple(BackgroundErrorReason::kCompaction, Status::Code::kIOError, Status::SubCode::kSpaceLimit, true), Status::Severity::kHardError},
-  // Errors during BG flush
-  {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError, Status::SubCode::kNoSpace, true), Status::Severity::kSoftError},
-  {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError, Status::SubCode::kNoSpace, false), Status::Severity::kNoError},
-  {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError, Status::SubCode::kSpaceLimit, true), Status::Severity::kHardError},
-  // Errors during Write
-  {std::make_tuple(BackgroundErrorReason::kWriteCallback, Status::Code::kIOError, Status::SubCode::kNoSpace, true), Status::Severity::kHardError},
-  {std::make_tuple(BackgroundErrorReason::kWriteCallback, Status::Code::kIOError, Status::SubCode::kNoSpace, false), Status::Severity::kHardError},
+// Maps to help decide the severity of an error based on the
+// BackgroundErrorReason, Code, SubCode and whether db_options.paranoid_checks
+// is set or not. There are 3 maps, going from most specific to least specific
+// (i.e from all 4 fields in a tuple to only the BackgroundErrorReason and
+// paranoid_checks). The less specific map serves as a catch all in case we miss
+// a specific error code or subcode.
+std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
+         Status::Severity>
+    ErrorSeverityMap = {
+        // Errors during BG compaction
+        {std::make_tuple(BackgroundErrorReason::kCompaction,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         true),
+         Status::Severity::kSoftError},
+        {std::make_tuple(BackgroundErrorReason::kCompaction,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kCompaction,
+                         Status::Code::kIOError, Status::SubCode::kSpaceLimit,
+                         true),
+         Status::Severity::kHardError},
+        // Errors during BG flush
+        {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError,
+                         Status::SubCode::kNoSpace, true),
+         Status::Severity::kSoftError},
+        {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError,
+                         Status::SubCode::kNoSpace, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError,
+                         Status::SubCode::kSpaceLimit, true),
+         Status::Severity::kHardError},
+        // Errors during Write
+        {std::make_tuple(BackgroundErrorReason::kWriteCallback,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kWriteCallback,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         false),
+         Status::Severity::kFatalError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>, Status::Severity> DefaultErrorSeverityMap = {
@@ -56,12 +85,14 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity> DefaultReaso
 };
 
 Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
+  db_mutex_->AssertHeld();
+
   if (bg_err.ok()) {
     return Status::OK();
   }
 
-  auto paranoid = db_options_.paranoid_checks;
-  Status::Severity sev = Status::Severity::kNoError;
+  bool paranoid = db_options_.paranoid_checks;
+  Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
   bool found = false;
 
