@@ -213,21 +213,16 @@ class BlockBasedTable : public TableReader {
   Rep* get_rep() { return rep_; }
 
   // input_iter: if it is not null, update this one and return it as Iterator
-  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                         const Slice& index_value,
-                                         BlockIter* input_iter = nullptr,
-                                         bool is_index = false,
-                                         bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr,
-                                         FilePrefetchBuffer* prefetch_buffer = nullptr);
-  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                         const BlockHandle& block_hanlde,
-                                         BlockIter* input_iter = nullptr,
-                                         bool is_index = false,
-                                         bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr,
-                                         Status s = Status(),
-                                         FilePrefetchBuffer* prefetch_buffer = nullptr);
+  static BlockIter* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const Slice& index_value,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      FilePrefetchBuffer* prefetch_buffer = nullptr);
+  static BlockIter* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
 
   class PartitionedIndexIteratorState;
 

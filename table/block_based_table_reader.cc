@@ -1541,7 +1541,8 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
   // can add more features in the future.
   Status s = handle.DecodeFrom(&input);
   return NewDataBlockIterator(rep, ro, handle, input_iter, is_index,
-                              key_includes_seq, get_context, s, prefetch_buffer);
+                              key_includes_seq, get_context, s,
+                              prefetch_buffer);
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -1585,8 +1586,8 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
       StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
                    READ_BLOCK_GET_MICROS);
       s = ReadBlockFromFile(
-          rep->file.get(), prefetch_buffer, rep->footer, ro,
-          handle, &block_value, rep->ioptions, rep->blocks_maybe_compressed,
+          rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
+          &block_value, rep->ioptions, rep->blocks_maybe_compressed,
           compression_dict, rep->persistent_cache_options,
           is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
           rep->table_options.read_amp_bytes_per_bit);
@@ -2008,7 +2009,8 @@ void BlockBasedTableIterator::InitDataBlock() {
     BlockBasedTable::NewDataBlockIterator(rep, read_options_, data_block_handle,
                                           &data_block_iter_, is_index_,
                                           key_includes_seq_,
-                                          /* get_context */ nullptr, s, prefetch_buffer_.get());
+                                          /* get_context */ nullptr, s,
+                                          prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
   }
 }
