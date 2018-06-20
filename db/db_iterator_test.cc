@@ -1035,6 +1035,60 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
   }
 }
+
+TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.prefix_extractor = nullptr;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "0"));
+  ASSERT_OK(Put("z", "0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Put("foo3", "bar3"));
+  ASSERT_OK(Put("foo4", "bar4"));
+
+  {
+    std::string up_str = "foo5";
+    Slice up(up_str);
+    ReadOptions ro;
+    ro.iterate_upper_bound = &up;
+    std::unique_ptr<Iterator> iter(NewIterator(ro));
+
+    iter->Seek("foo1");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+
+    uint64_t prev_block_cache_hit =
+        TestGetTickerCount(options, BLOCK_CACHE_HIT);
+    uint64_t prev_block_cache_miss =
+        TestGetTickerCount(options, BLOCK_CACHE_MISS);
+
+    ASSERT_GT(prev_block_cache_hit + prev_block_cache_miss, 0);
+
+    iter->Seek("foo4");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo4")), 0);
+    ASSERT_EQ(prev_block_cache_hit,
+              TestGetTickerCount(options, BLOCK_CACHE_HIT));
+    ASSERT_EQ(prev_block_cache_miss,
+              TestGetTickerCount(options, BLOCK_CACHE_MISS));
+
+    iter->Seek("foo2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo2")), 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo3")), 0);
+    ASSERT_EQ(prev_block_cache_hit,
+              TestGetTickerCount(options, BLOCK_CACHE_HIT));
+    ASSERT_EQ(prev_block_cache_miss,
+              TestGetTickerCount(options, BLOCK_CACHE_MISS));
+  }
+}
 #endif
 
 TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
@@ -2044,6 +2098,43 @@ TEST_P(DBIteratorTest, CreationFailure) {
   delete iter;
 }
 
+TEST_P(DBIteratorTest, UpperBoundWithChangeDirection) {
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 3;
+  DestroyAndReopen(options);
+
+  // write a bunch of kvs to the database.
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("y", "1"));
+  ASSERT_OK(Put("y1", "1"));
+  ASSERT_OK(Put("y2", "1"));
+  ASSERT_OK(Put("y3", "1"));
+  ASSERT_OK(Put("z", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("z", "1"));
+  ASSERT_OK(Put("bar", "1"));
+  ASSERT_OK(Put("foo", "1"));
+
+  std::string upper_bound = "x";
+  Slice ub_slice(upper_bound);
+  ReadOptions ro;
+  ro.iterate_upper_bound = &ub_slice;
+  ro.max_skippable_internal_keys = 1000;
+
+  Iterator* iter = NewIterator(ro);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("foo", iter->key().ToString());
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("bar", iter->key().ToString());
+
+  delete iter;
+}
+
 TEST_P(DBIteratorTest, TableFilter) {
   ASSERT_OK(Put("a", "1"));
   dbfull()->Flush(FlushOptions());
@@ -2108,6 +2199,47 @@ TEST_P(DBIteratorTest, TableFilter) {
     ASSERT_FALSE(iter->Valid());
     delete iter;
   }
+}
+
+TEST_P(DBIteratorTest, UpperBoundWithPrevReseek) {
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 3;
+  DestroyAndReopen(options);
+
+  // write a bunch of kvs to the database.
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("y", "1"));
+  ASSERT_OK(Put("z", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("z", "1"));
+  ASSERT_OK(Put("bar", "1"));
+  ASSERT_OK(Put("foo", "1"));
+  ASSERT_OK(Put("foo", "2"));
+
+  ASSERT_OK(Put("foo", "3"));
+  ASSERT_OK(Put("foo", "4"));
+  ASSERT_OK(Put("foo", "5"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put("foo", "6"));
+
+  std::string upper_bound = "x";
+  Slice ub_slice(upper_bound);
+  ReadOptions ro;
+  ro.snapshot = snapshot;
+  ro.iterate_upper_bound = &ub_slice;
+
+  Iterator* iter = NewIterator(ro);
+  iter->SeekForPrev("goo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("foo", iter->key().ToString());
+  iter->Prev();
+
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bar", iter->key().ToString());
+
+  delete iter;
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_P(DBIteratorTest, SkipStatistics) {

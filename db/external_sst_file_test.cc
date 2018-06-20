@@ -897,11 +897,11 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 
 TEST_F(ExternalSSTFileTest, OverlappingRanges) {
   Random rnd(301);
-  int picked_level = 0;
+  SequenceNumber assigned_seqno = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-    "ExternalSstFileIngestionJob::Run", [&picked_level](void* arg) {
+    "ExternalSstFileIngestionJob::Run", [&assigned_seqno](void* arg) {
       ASSERT_TRUE(arg != nullptr);
-      picked_level = *(static_cast<int*>(arg));
+      assigned_seqno = *(static_cast<SequenceNumber*>(arg));
     });
   bool need_flush = false;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -982,7 +982,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
           }
         } else {
           if ((it != true_data.end() && it->first <= Key(range_end)) ||
-              need_flush || picked_level > 0 || overlap_with_db) {
+              need_flush || assigned_seqno > 0 || overlap_with_db) {
             // This range overlap with data already exist in DB
             ASSERT_NOK(s);
             failed_add_file++;

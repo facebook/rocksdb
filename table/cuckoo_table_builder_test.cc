@@ -60,7 +60,7 @@ class CuckooBuilderTest : public testing::Test {
         new RandomAccessFileReader(std::move(read_file), fname));
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
                                   kCuckooTableMagicNumber, ioptions,
-                                  &props));
+                                  &props, true /* compression_type_missing */));
     // Check unused bucket.
     std::string unused_key = props->user_collected_properties[
       CuckooTablePropertyNames::kEmptyKey];

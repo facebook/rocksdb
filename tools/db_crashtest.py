@@ -24,9 +24,13 @@ default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
+    "checkpoint_one_in": 1000000,
     "clear_column_family_one_in": 0,
+    "compact_files_one_in": 1000000,
+    "compact_range_one_in": 1000000,
     "delpercent": 5,
     "destroy_db_initially": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
@@ -50,11 +54,14 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
+    "format_version": lambda: random.randint(2, 3),
 }
+
+_TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
 
 
 def get_dbname(test_name):
-    test_tmpdir = os.environ.get("TEST_TMPDIR")
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
         dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_' + test_name)
     else:
@@ -201,12 +208,12 @@ def blackbox_crash_main(args, unknown_args):
 
         while True:
             line = child.stderr.readline().strip()
-            if line != '' and not line.startswith('WARNING'):
+            if line == '':
+                break
+            elif not line.startswith('WARNING'):
                 run_had_errors = True
                 print('stderr has error message:')
                 print('***' + line + '***')
-            else:
-                break
 
         if run_had_errors:
             sys.exit(2)
@@ -333,6 +340,7 @@ def whitebox_crash_main(args, unknown_args):
             # we need to clean up after ourselves -- only do this on test
             # success
             shutil.rmtree(dbname, True)
+            os.mkdir(dbname)
             cmd_params.pop('expected_values_path', None)
             check_mode = (check_mode + 1) % total_check_mode
 
@@ -356,6 +364,12 @@ def main():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
     # unknown_args are passed directly to db_stress
     args, unknown_args = parser.parse_known_args()
+
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is not None and not os.path.isdir(test_tmpdir):
+        print('%s env var is set to a non-existent directory: %s' %
+                (_TEST_DIR_ENV_VAR, test_tmpdir))
+        sys.exit(1)
 
     if args.test_type == 'blackbox':
         blackbox_crash_main(args, unknown_args)

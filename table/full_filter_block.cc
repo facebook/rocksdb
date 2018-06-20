@@ -72,8 +72,14 @@ inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
+void FullFilterBlockBuilder::Reset() {
+  last_whole_key_recorded_ = false;
+  last_prefix_recorded_ = false;
+}
+
 Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
                                      Status* status) {
+  Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
   if (num_added_ != 0) {

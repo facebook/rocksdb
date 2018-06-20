@@ -1845,6 +1845,13 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     InstrumentedMutexLock l(&mutex_);
     return cfd->internal_stats()->GetStringProperty(*property_info, property,
                                                     value);
+  } else if (property_info->handle_string_dbimpl) {
+    std::string tmp_value;
+    bool ret_value = (this->*(property_info->handle_string_dbimpl))(&tmp_value);
+    if (ret_value) {
+      *value = tmp_value;
+    }
+    return ret_value;
   }
   // Shouldn't reach here since exactly one of handle_string and handle_int
   // should be non-nullptr.
@@ -1909,6 +1916,16 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
 
     return ret;
   }
+}
+
+bool DBImpl::GetPropertyHandleOptionsStatistics(std::string* value) {
+  assert(value != nullptr);
+  Statistics* statistics = immutable_db_options_.statistics.get();
+  if (!statistics) {
+    return false;
+  }
+  *value = statistics->ToString();
+  return true;
 }
 
 #ifndef ROCKSDB_LITE

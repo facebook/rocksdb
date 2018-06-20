@@ -19,6 +19,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "table/table_builder.h"
+#include "util/compression.h"
 
 namespace rocksdb {
 
@@ -52,6 +53,10 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
+
+  // No copying allowed
+  BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
+  BlockBasedTableBuilder& operator=(const BlockBasedTableBuilder&) = delete;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -115,16 +120,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
-
-  // No copying allowed
-  BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
-  void operator=(const BlockBasedTableBuilder&) = delete;
 };
 
-Slice CompressBlock(const Slice& raw,
-                    const CompressionOptions& compression_options,
+Slice CompressBlock(const Slice& raw, const CompressionContext& compression_ctx,
                     CompressionType* type, uint32_t format_version,
-                    const Slice& compression_dict,
                     std::string* compressed_output);
 
 }  // namespace rocksdb

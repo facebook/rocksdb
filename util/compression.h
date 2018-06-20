@@ -15,6 +15,7 @@
 
 #include "rocksdb/options.h"
 #include "util/coding.h"
+#include "util/compression_context_cache.h"
 
 #ifdef SNAPPY
 #include <snappy.h>
@@ -38,13 +39,191 @@
 #if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
 #include <zdict.h>
 #endif  // ZSTD_VERSION_NUMBER >= 800
+namespace rocksdb {
+// Need this for the context allocation override
+// On windows we need to do this explicitly
+#if (ZSTD_VERSION_NUMBER >= 500)
+#if defined(ROCKSDB_JEMALLOC) && defined(OS_WIN) && \
+    defined(ZSTD_STATIC_LINKING_ONLY)
+#define ROCKSDB_ZSTD_CUSTOM_MEM
+namespace port {
+ZSTD_customMem GetJeZstdAllocationOverrides();
+}  // namespace port
+#endif  // defined(ROCKSDB_JEMALLOC) && defined(OS_WIN) &&
+        // defined(ZSTD_STATIC_LINKING_ONLY)
+
+// Cached data represents a portion that can be re-used
+// If, in the future we have more than one native context to
+// cache we can arrange this as a tuple
+class ZSTDUncompressCachedData {
+ public:
+  using ZSTDNativeContext = ZSTD_DCtx*;
+  ZSTDUncompressCachedData() {}
+  // Init from cache
+  ZSTDUncompressCachedData(const ZSTDUncompressCachedData& o) = delete;
+  ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) ROCKSDB_NOEXCEPT
+      : ZSTDUncompressCachedData() {
+    *this = std::move(o);
+  }
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o)
+      ROCKSDB_NOEXCEPT {
+    assert(zstd_ctx_ == nullptr);
+    std::swap(zstd_ctx_, o.zstd_ctx_);
+    std::swap(cache_idx_, o.cache_idx_);
+    return *this;
+  }
+  ZSTDNativeContext Get() const { return zstd_ctx_; }
+  int64_t GetCacheIndex() const { return cache_idx_; }
+  void CreateIfNeeded() {
+    if (zstd_ctx_ == nullptr) {
+#ifdef ROCKSDB_ZSTD_CUSTOM_MEM
+      zstd_ctx_ =
+          ZSTD_createDCtx_advanced(port::GetJeZstdAllocationOverrides());
+#else   // ROCKSDB_ZSTD_CUSTOM_MEM
+      zstd_ctx_ = ZSTD_createDCtx();
+#endif  // ROCKSDB_ZSTD_CUSTOM_MEM
+      cache_idx_ = -1;
+    }
+  }
+  void InitFromCache(const ZSTDUncompressCachedData& o, int64_t idx) {
+    zstd_ctx_ = o.zstd_ctx_;
+    cache_idx_ = idx;
+  }
+  ~ZSTDUncompressCachedData() {
+    if (zstd_ctx_ != nullptr && cache_idx_ == -1) {
+      ZSTD_freeDCtx(zstd_ctx_);
+    }
+  }
+
+ private:
+  ZSTDNativeContext zstd_ctx_ = nullptr;
+  int64_t cache_idx_ = -1;  // -1 means this instance owns the context
+};
+#endif  // (ZSTD_VERSION_NUMBER >= 500)
+}  // namespace rocksdb
 #endif  // ZSTD
+
+#if !(defined ZSTD) || !(ZSTD_VERSION_NUMBER >= 500)
+namespace rocksdb {
+class ZSTDUncompressCachedData {
+  void* padding;  // unused
+ public:
+  using ZSTDNativeContext = void*;
+  ZSTDUncompressCachedData() {}
+  ZSTDUncompressCachedData(const ZSTDUncompressCachedData&) {}
+  ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&)
+      ROCKSDB_NOEXCEPT = default;
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&)
+      ROCKSDB_NOEXCEPT = default;
+  ZSTDNativeContext Get() const { return nullptr; }
+  int64_t GetCacheIndex() const { return -1; }
+  void CreateIfNeeded() {}
+  void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
+};
+}  // namespace rocksdb
+#endif
 
 #if defined(XPRESS)
 #include "port/xpress.h"
 #endif
 
 namespace rocksdb {
+
+// Instantiate this class and pass it to the uncompression API below
+class CompressionContext {
+ private:
+  const CompressionType type_;
+  const CompressionOptions opts_;
+  Slice dict_;
+#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
+  ZSTD_CCtx* zstd_ctx_ = nullptr;
+  void CreateNativeContext() {
+    if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
+#ifdef ROCKSDB_ZSTD_CUSTOM_MEM
+      zstd_ctx_ =
+          ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
+#else   // ROCKSDB_ZSTD_CUSTOM_MEM
+      zstd_ctx_ = ZSTD_createCCtx();
+#endif  // ROCKSDB_ZSTD_CUSTOM_MEM
+    }
+  }
+  void DestroyNativeContext() {
+    if (zstd_ctx_ != nullptr) {
+      ZSTD_freeCCtx(zstd_ctx_);
+    }
+  }
+
+ public:
+  // callable inside ZSTD_Compress
+  ZSTD_CCtx* ZSTDPreallocCtx() const {
+    assert(type_ == kZSTD || type_ == kZSTDNotFinalCompression);
+    return zstd_ctx_;
+  }
+#else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
+ private:
+  void CreateNativeContext() {}
+  void DestroyNativeContext() {}
+#endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
+ public:
+  explicit CompressionContext(CompressionType comp_type) : type_(comp_type) {
+    CreateNativeContext();
+  }
+  CompressionContext(CompressionType comp_type, const CompressionOptions& opts,
+                     const Slice& comp_dict = Slice())
+      : type_(comp_type), opts_(opts), dict_(comp_dict) {
+    CreateNativeContext();
+  }
+  ~CompressionContext() { DestroyNativeContext(); }
+  CompressionContext(const CompressionContext&) = delete;
+  CompressionContext& operator=(const CompressionContext&) = delete;
+
+  const CompressionOptions& options() const { return opts_; }
+  CompressionType type() const { return type_; }
+  const Slice& dict() const { return dict_; }
+  Slice& dict() { return dict_; }
+};
+
+// Instantiate this class and pass it to the uncompression API below
+class UncompressionContext {
+ private:
+  CompressionType type_;
+  Slice dict_;
+  CompressionContextCache* ctx_cache_ = nullptr;
+  ZSTDUncompressCachedData uncomp_cached_data_;
+
+ public:
+  struct NoCache {};
+  // Do not use context cache, used by TableBuilder
+  UncompressionContext(NoCache, CompressionType comp_type) : type_(comp_type) {}
+  explicit UncompressionContext(CompressionType comp_type)
+      : UncompressionContext(comp_type, Slice()) {}
+  UncompressionContext(CompressionType comp_type, const Slice& comp_dict)
+      : type_(comp_type), dict_(comp_dict) {
+    if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
+      ctx_cache_ = CompressionContextCache::Instance();
+      uncomp_cached_data_ = ctx_cache_->GetCachedZSTDUncompressData();
+    }
+  }
+  ~UncompressionContext() {
+    if ((type_ == kZSTD || type_ == kZSTDNotFinalCompression) &&
+        uncomp_cached_data_.GetCacheIndex() != -1) {
+      assert(ctx_cache_ != nullptr);
+      ctx_cache_->ReturnCachedZSTDUncompressData(
+          uncomp_cached_data_.GetCacheIndex());
+    }
+  }
+  UncompressionContext(const UncompressionContext&) = delete;
+  UncompressionContext& operator=(const UncompressionContext&) = delete;
+
+  ZSTDUncompressCachedData::ZSTDNativeContext GetZSTDContext() const {
+    return uncomp_cached_data_.Get();
+  }
+  CompressionType type() const { return type_; }
+  const Slice& dict() const { return dict_; }
+  Slice& dict() { return dict_; }
+};
 
 inline bool Snappy_Supported() {
 #ifdef SNAPPY
@@ -162,7 +341,7 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
 // 2 -- Zlib, BZip2 and LZ4 encode decompressed size as Varint32 just before the
 // start of compressed block. Snappy format is the same as version 1.
 
-inline bool Snappy_Compress(const CompressionOptions& /*opts*/,
+inline bool Snappy_Compress(const CompressionContext& /*ctx*/,
                             const char* input, size_t length,
                             ::std::string* output) {
 #ifdef SNAPPY
@@ -229,10 +408,9 @@ inline bool GetDecompressedSizeInfo(const char** input_data,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline bool Zlib_Compress(const CompressionOptions& opts,
+inline bool Zlib_Compress(const CompressionContext& ctx,
                           uint32_t compress_format_version, const char* input,
-                          size_t length, ::std::string* output,
-                          const Slice& compression_dict = Slice()) {
+                          size_t length, ::std::string* output) {
 #ifdef ZLIB
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -255,24 +433,24 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
   // The default value is 8. See zconf.h for more details.
   static const int memLevel = 8;
   int level;
-  if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+  if (ctx.options().level == CompressionOptions::kDefaultCompressionLevel) {
     level = Z_DEFAULT_COMPRESSION;
   } else {
-    level = opts.level;
+    level = ctx.options().level;
   }
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
-  int st = deflateInit2(&_stream, level, Z_DEFLATED, opts.window_bits,
-                        memLevel, opts.strategy);
+  int st = deflateInit2(&_stream, level, Z_DEFLATED, ctx.options().window_bits,
+                        memLevel, ctx.options().strategy);
   if (st != Z_OK) {
     return false;
   }
 
-  if (compression_dict.size()) {
+  if (ctx.dict().size()) {
     // Initialize the compression library's dictionary
-    st = deflateSetDictionary(
-        &_stream, reinterpret_cast<const Bytef*>(compression_dict.data()),
-        static_cast<unsigned int>(compression_dict.size()));
+    st = deflateSetDictionary(&_stream,
+                              reinterpret_cast<const Bytef*>(ctx.dict().data()),
+                              static_cast<unsigned int>(ctx.dict().size()));
     if (st != Z_OK) {
       deflateEnd(&_stream);
       return false;
@@ -300,12 +478,11 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
   deflateEnd(&_stream);
   return compressed;
 #else
-  (void)opts;
+  (void)ctx;
   (void)compress_format_version;
   (void)input;
   (void)length;
   (void)output;
-  (void)compression_dict;
   return false;
 #endif
 }
@@ -316,10 +493,10 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
+inline char* Zlib_Uncompress(const UncompressionContext& ctx,
+                             const char* input_data, size_t input_length,
                              int* decompress_size,
                              uint32_t compress_format_version,
-                             const Slice& compression_dict = Slice(),
                              int windowBits = -14) {
 #ifdef ZLIB
   uint32_t output_len = 0;
@@ -349,11 +526,11 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
     return nullptr;
   }
 
-  if (compression_dict.size()) {
+  if (ctx.dict().size()) {
     // Initialize the compression library's dictionary
-    st = inflateSetDictionary(
-        &_stream, reinterpret_cast<const Bytef*>(compression_dict.data()),
-        static_cast<unsigned int>(compression_dict.size()));
+    st = inflateSetDictionary(&_stream,
+                              reinterpret_cast<const Bytef*>(ctx.dict().data()),
+                              static_cast<unsigned int>(ctx.dict().size()));
     if (st != Z_OK) {
       return nullptr;
     }
@@ -406,11 +583,11 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   inflateEnd(&_stream);
   return output;
 #else
+  (void)ctx;
   (void)input_data;
   (void)input_length;
   (void)decompress_size;
   (void)compress_format_version;
-  (void)compression_dict;
   (void)windowBits;
   return nullptr;
 #endif
@@ -420,7 +597,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
 // block header
 // compress_format_version == 2 -- decompressed size is included in the block
 // header in varint32 format
-inline bool BZip2_Compress(const CompressionOptions& /*opts*/,
+inline bool BZip2_Compress(const CompressionContext& /*ctx*/,
                            uint32_t compress_format_version, const char* input,
                            size_t length, ::std::string* output) {
 #ifdef BZIP2
@@ -567,10 +744,9 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline bool LZ4_Compress(const CompressionOptions& /*opts*/,
+inline bool LZ4_Compress(const CompressionContext& ctx,
                          uint32_t compress_format_version, const char* input,
-                         size_t length, ::std::string* output,
-                         const Slice compression_dict = Slice()) {
+                         size_t length, ::std::string* output) {
 #ifdef LZ4
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -596,9 +772,9 @@ inline bool LZ4_Compress(const CompressionOptions& /*opts*/,
   int outlen;
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_stream_t* stream = LZ4_createStream();
-  if (compression_dict.size()) {
-    LZ4_loadDict(stream, compression_dict.data(),
-                 static_cast<int>(compression_dict.size()));
+  if (ctx.dict().size()) {
+    LZ4_loadDict(stream, ctx.dict().data(),
+                 static_cast<int>(ctx.dict().size()));
   }
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
   outlen =
@@ -621,11 +797,11 @@ inline bool LZ4_Compress(const CompressionOptions& /*opts*/,
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
 #else  // LZ4
+  (void)ctx;
   (void)compress_format_version;
   (void)input;
   (void)length;
   (void)output;
-  (void)compression_dict;
   return false;
 #endif
 }
@@ -636,10 +812,10 @@ inline bool LZ4_Compress(const CompressionOptions& /*opts*/,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
+inline char* LZ4_Uncompress(const UncompressionContext& ctx,
+                            const char* input_data, size_t input_length,
                             int* decompress_size,
-                            uint32_t compress_format_version,
-                            const Slice& compression_dict = Slice()) {
+                            uint32_t compress_format_version) {
 #ifdef LZ4
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
@@ -662,9 +838,9 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
   char* output = new char[output_len];
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamDecode_t* stream = LZ4_createStreamDecode();
-  if (compression_dict.size()) {
-    LZ4_setStreamDecode(stream, compression_dict.data(),
-                        static_cast<int>(compression_dict.size()));
+  if (ctx.dict().size()) {
+    LZ4_setStreamDecode(stream, ctx.dict().data(),
+                        static_cast<int>(ctx.dict().size()));
   }
   *decompress_size = LZ4_decompress_safe_continue(
       stream, input_data, output, static_cast<int>(input_length),
@@ -683,11 +859,11 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
   assert(*decompress_size == static_cast<int>(output_len));
   return output;
 #else  // LZ4
+  (void)ctx;
   (void)input_data;
   (void)input_length;
   (void)decompress_size;
   (void)compress_format_version;
-  (void)compression_dict;
   return nullptr;
 #endif
 }
@@ -698,10 +874,9 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
 // header in varint32 format
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline bool LZ4HC_Compress(const CompressionOptions& opts,
+inline bool LZ4HC_Compress(const CompressionContext& ctx,
                            uint32_t compress_format_version, const char* input,
-                           size_t length, ::std::string* output,
-                           const Slice& compression_dict = Slice()) {
+                           size_t length, ::std::string* output) {
 #ifdef LZ4
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -726,17 +901,17 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
 
   int outlen;
   int level;
-  if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+  if (ctx.options().level == CompressionOptions::kDefaultCompressionLevel) {
     level = 0;  // lz4hc.h says any value < 1 will be sanitized to default
   } else {
-    level = opts.level;
+    level = ctx.options().level;
   }
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamHC_t* stream = LZ4_createStreamHC();
   LZ4_resetStreamHC(stream, level);
   const char* compression_dict_data =
-      compression_dict.size() > 0 ? compression_dict.data() : nullptr;
-  size_t compression_dict_size = compression_dict.size();
+      ctx.dict().size() > 0 ? ctx.dict().data() : nullptr;
+  size_t compression_dict_size = ctx.dict().size();
   LZ4_loadDictHC(stream, compression_dict_data,
                  static_cast<int>(compression_dict_size));
 
@@ -767,12 +942,11 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
 #else  // LZ4
-  (void)opts;
+  (void)ctx;
   (void)compress_format_version;
   (void)input;
   (void)length;
   (void)output;
-  (void)compression_dict;
   return false;
 #endif
 }
@@ -804,9 +978,8 @@ inline char* XPRESS_Uncompress(const char* /*input_data*/,
 
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
-                          size_t length, ::std::string* output,
-                          const Slice& compression_dict = Slice()) {
+inline bool ZSTD_Compress(const CompressionContext& ctx, const char* input,
+                          size_t length, ::std::string* output) {
 #ifdef ZSTD
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -818,21 +991,21 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
 
   size_t compressBound = ZSTD_compressBound(length);
   output->resize(static_cast<size_t>(output_header_len + compressBound));
-  size_t outlen;
+  size_t outlen = 0;
   int level;
-  if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+  if (ctx.options().level == CompressionOptions::kDefaultCompressionLevel) {
     // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
     // https://github.com/facebook/zstd/issues/1148
     level = 3;
   } else {
-    level = opts.level;
+    level = ctx.options().level;
   }
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-  ZSTD_CCtx* context = ZSTD_createCCtx();
-  outlen = ZSTD_compress_usingDict(
-      context, &(*output)[output_header_len], compressBound, input, length,
-      compression_dict.data(), compression_dict.size(), level);
-  ZSTD_freeCCtx(context);
+  ZSTD_CCtx* context = ctx.ZSTDPreallocCtx();
+  assert(context != nullptr);
+  outlen = ZSTD_compress_usingDict(context, &(*output)[output_header_len],
+                                   compressBound, input, length,
+                                   ctx.dict().data(), ctx.dict().size(), level);
 #else   // up to v0.4.x
   outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,
                          length, level);
@@ -843,20 +1016,19 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   output->resize(output_header_len + outlen);
   return true;
 #else  // ZSTD
-  (void)opts;
+  (void)ctx;
   (void)input;
   (void)length;
   (void)output;
-  (void)compression_dict;
   return false;
 #endif
 }
 
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
-inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
-                             int* decompress_size,
-                             const Slice& compression_dict = Slice()) {
+inline char* ZSTD_Uncompress(const UncompressionContext& ctx,
+                             const char* input_data, size_t input_length,
+                             int* decompress_size) {
 #ifdef ZSTD
   uint32_t output_len = 0;
   if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
@@ -867,11 +1039,11 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   char* output = new char[output_len];
   size_t actual_output_length;
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-  ZSTD_DCtx* context = ZSTD_createDCtx();
+  ZSTD_DCtx* context = ctx.GetZSTDContext();
+  assert(context != nullptr);
   actual_output_length = ZSTD_decompress_usingDict(
-      context, output, output_len, input_data, input_length,
-      compression_dict.data(), compression_dict.size());
-  ZSTD_freeDCtx(context);
+      context, output, output_len, input_data, input_length, ctx.dict().data(),
+      ctx.dict().size());
 #else   // up to v0.4.x
   actual_output_length =
       ZSTD_decompress(output, output_len, input_data, input_length);
@@ -880,10 +1052,10 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   *decompress_size = static_cast<int>(actual_output_length);
   return output;
 #else  // ZSTD
+  (void)ctx;
   (void)input_data;
   (void)input_length;
   (void)decompress_size;
-  (void)compression_dict;
   return nullptr;
 #endif
 }
