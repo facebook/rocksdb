@@ -681,7 +681,8 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   if (buffer_.Capacity() < roundup_len) {
     buffer_.Alignment(alignment);
     buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
-        copy_data_to_new_buffer, chunk_offset_in_buffer, chunk_len);
+                              copy_data_to_new_buffer, chunk_offset_in_buffer,
+                              chunk_len);
   } else if (chunk_len > 0) {
     // New buffer not needed. But memmove bytes from tail to the beginning since
     // chunk_len is greater than 0.

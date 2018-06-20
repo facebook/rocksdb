@@ -102,7 +102,8 @@ public:
   // copy_data: Copy data from old buffer to new buffer.
   // copy_offset: Copy data from this offset in old buffer.
   // copy_len: Number of bytes to copy.
-  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false, uint64_t copy_offset = 0, size_t copy_len = 0) {
+  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false,
+                         uint64_t copy_offset = 0, size_t copy_len = 0) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 

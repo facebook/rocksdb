@@ -210,8 +210,7 @@ class WritableFileWriter {
 class FilePrefetchBuffer {
  public:
   FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
-                     size_t readadhead_size = 0,
-                     size_t max_readahead_size = 0)
+                     size_t readadhead_size = 0, size_t max_readahead_size = 0)
       : buffer_offset_(0),
         buffer_len_(0),
         file_reader_(file_reader),
