@@ -8,6 +8,7 @@
 #include "db/snapshot_checker.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
+#include "table/format.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -16,14 +17,14 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, Env* env,
+    const SnapshotChecker* snapshot_checker, Env* env, Statistics* stats,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
-          earliest_write_conflict_snapshot, snapshot_checker, env,
+          earliest_write_conflict_snapshot, snapshot_checker, env, stats,
           expect_valid_internal_key, range_del_agg,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
@@ -33,7 +34,7 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber /*last_sequence*/, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, Env* env,
+    const SnapshotChecker* snapshot_checker, Env* env, Statistics* stats,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
@@ -46,6 +47,7 @@ CompactionIterator::CompactionIterator(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
+      stats_(stats),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
       compaction_(std::move(compaction)),
@@ -171,7 +173,8 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // to get sequence number.
     Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
     {
-      StopWatchNano timer(env_, true);
+      StopWatchNano timer(
+          env_, stats_ != nullptr && ShouldReportDetailedTime(env_, stats_));
       filter = compaction_filter_->FilterV2(
           compaction_->level(), filter_key, value_type, value_,
           &compaction_filter_value_, compaction_filter_skip_until_.rep());
