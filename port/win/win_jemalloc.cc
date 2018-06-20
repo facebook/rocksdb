@@ -13,6 +13,7 @@
 
 #include <stdexcept>
 #include "jemalloc/jemalloc.h"
+#include "port/win/port_win.h"
 
 #if defined(ZSTD) && defined(ZSTD_STATIC_LINKING_ONLY)
 #include <zstd.h>
@@ -35,6 +36,13 @@ ZSTD_customMem GetJeZstdAllocationOverrides() {
 
 // Global operators to be replaced by a linker when this file is
 // a part of the build
+
+void* jemalloc_aligned_alloc( size_t size, size_t alignment) ROCKSDB_NOEXCEPT {
+  return je_aligned_alloc(alignment, size);
+}
+void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT {
+  je_free(p);
+}
 
 void* operator new(size_t size) {
   void* p = je_malloc(size);
