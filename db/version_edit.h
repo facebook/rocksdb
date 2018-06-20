@@ -171,10 +171,7 @@ struct LevelFilesBrief {
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
-  VersionEdit(const VersionEdit& other);
-  VersionEdit(VersionEdit&& other);
   ~VersionEdit() { }
-  VersionEdit& operator=(VersionEdit&& other);
 
   void Clear();
 
