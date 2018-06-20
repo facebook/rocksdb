@@ -250,7 +250,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       // that allows gaps in the WAL since it will still skip over the gap.
       currentStatus_ = Status::NotFound("Gap in sequence numbers");
       // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
-      // should be disabled.
+      // should be disabled
       return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
     } else if (seq_per_batch_) {
       currentStatus_ = Status::NotFound("Gap in sequence numbers");
