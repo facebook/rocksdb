@@ -89,11 +89,11 @@ void SyncPoint::Data::ClearAllCallBacks() {
 }
 
 void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
-  std::unique_lock<std::mutex> lock(mutex_);
   if (!enabled_) {
     return;
   }
 
+  std::unique_lock<std::mutex> lock(mutex_);
   auto thread_id = std::this_thread::get_id();
 
   auto marker_iter = markers_.find(point);

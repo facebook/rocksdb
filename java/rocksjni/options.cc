@@ -3230,7 +3230,7 @@ Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterFactoryHandle(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jopt_handle,
     jlong jcompactionfilterfactory_handle) {
   auto* cff_factory =
-      reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactory>*>(
+      reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactoryJniCallback>*>(
           jcompactionfilterfactory_handle);
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)
       ->compaction_filter_factory = *cff_factory;

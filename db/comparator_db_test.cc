@@ -251,7 +251,9 @@ class TwoStrComparator : public Comparator {
 };
 }  // namespace
 
-class ComparatorDBTest : public testing::Test {
+class ComparatorDBTest
+    : public testing::Test,
+      virtual public ::testing::WithParamInterface<uint32_t> {
  private:
   std::string dbname_;
   Env* env_;
@@ -263,6 +265,10 @@ class ComparatorDBTest : public testing::Test {
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
     comparator = BytewiseComparator();
     dbname_ = test::TmpDir() + "/comparator_db_test";
+    BlockBasedTableOptions toptions;
+    toptions.format_version = GetParam();
+    last_options_.table_factory.reset(
+        rocksdb::NewBlockBasedTableFactory(toptions));
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
@@ -274,8 +280,12 @@ class ComparatorDBTest : public testing::Test {
 
   DB* GetDB() { return db_; }
 
-  void SetOwnedComparator(const Comparator* cmp) {
-    comparator_guard.reset(cmp);
+  void SetOwnedComparator(const Comparator* cmp, bool owner = true) {
+    if (owner) {
+      comparator_guard.reset(cmp);
+    } else {
+      comparator_guard.reset();
+    }
     comparator = cmp;
     last_options_.comparator = cmp;
   }
@@ -304,7 +314,12 @@ class ComparatorDBTest : public testing::Test {
   }
 };
 
-TEST_F(ComparatorDBTest, Bytewise) {
+INSTANTIATE_TEST_CASE_P(FormatDef, ComparatorDBTest,
+                        testing::Values(test::kDefaultFormatVersion));
+INSTANTIATE_TEST_CASE_P(FormatLatest, ComparatorDBTest,
+                        testing::Values(test::kLatestFormatVersion));
+
+TEST_P(ComparatorDBTest, Bytewise) {
   for (int rand_seed = 301; rand_seed < 306; rand_seed++) {
     DestroyAndReopen();
     Random rnd(rand_seed);
@@ -314,7 +329,7 @@ TEST_F(ComparatorDBTest, Bytewise) {
   }
 }
 
-TEST_F(ComparatorDBTest, SimpleSuffixReverseComparator) {
+TEST_P(ComparatorDBTest, SimpleSuffixReverseComparator) {
   SetOwnedComparator(new test::SimpleSuffixReverseComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -340,8 +355,8 @@ TEST_F(ComparatorDBTest, SimpleSuffixReverseComparator) {
   }
 }
 
-TEST_F(ComparatorDBTest, Uint64Comparator) {
-  SetOwnedComparator(test::Uint64Comparator());
+TEST_P(ComparatorDBTest, Uint64Comparator) {
+  SetOwnedComparator(test::Uint64Comparator(), false /* owner */);
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();
@@ -364,7 +379,7 @@ TEST_F(ComparatorDBTest, Uint64Comparator) {
   }
 }
 
-TEST_F(ComparatorDBTest, DoubleComparator) {
+TEST_P(ComparatorDBTest, DoubleComparator) {
   SetOwnedComparator(new DoubleComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -389,7 +404,7 @@ TEST_F(ComparatorDBTest, DoubleComparator) {
   }
 }
 
-TEST_F(ComparatorDBTest, HashComparator) {
+TEST_P(ComparatorDBTest, HashComparator) {
   SetOwnedComparator(new HashComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -408,7 +423,7 @@ TEST_F(ComparatorDBTest, HashComparator) {
   }
 }
 
-TEST_F(ComparatorDBTest, TwoStrComparator) {
+TEST_P(ComparatorDBTest, TwoStrComparator) {
   SetOwnedComparator(new TwoStrComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -434,7 +449,7 @@ TEST_F(ComparatorDBTest, TwoStrComparator) {
   }
 }
 
-TEST_F(ComparatorDBTest, FindShortestSeparator) {
+TEST_P(ComparatorDBTest, FindShortestSeparator) {
   std::string s1 = "abc1xyz";
   std::string s2 = "abc3xy";
 
@@ -468,7 +483,7 @@ TEST_F(ComparatorDBTest, FindShortestSeparator) {
   ASSERT_TRUE(s1 > s2);
 }
 
-TEST_F(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
+TEST_P(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
   // Char list for boundary cases.
   std::array<unsigned char, 6> char_list{{0, 1, 2, 253, 254, 255}};
   Random rnd(301);

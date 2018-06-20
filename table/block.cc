@@ -427,13 +427,16 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
-    num_restarts_ = NumRestarts();
-    restart_offset_ =
-        static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
-    if (restart_offset_ > size_ - sizeof(uint32_t)) {
-      // The size is too small for NumRestarts() and therefore
-      // restart_offset_ wrapped around.
-      size_ = 0;
+    // Should only decode restart points for uncompressed blocks
+    if (compression_type() == kNoCompression) {
+      num_restarts_ = NumRestarts();
+      restart_offset_ =
+          static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
+      if (restart_offset_ > size_ - sizeof(uint32_t)) {
+        // The size is too small for NumRestarts() and therefore
+        // restart_offset_ wrapped around.
+        size_ = 0;
+      }
     }
   }
   if (read_amp_bytes_per_bit != 0 && statistics && size_ != 0) {

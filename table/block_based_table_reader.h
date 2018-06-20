@@ -347,7 +347,7 @@ class BlockBasedTable : public TableReader {
   Status VerifyChecksumInBlocks(InternalIterator* index_iter);
 
   // Create the filter from the filter block.
-  FilterBlockReader* ReadFilter(
+  virtual FilterBlockReader* ReadFilter(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_handle,
       const bool is_a_filter_partition,
       const SliceTransform* prefix_extractor = nullptr) const;
@@ -535,7 +535,8 @@ class BlockBasedTableIterator : public InternalIterator {
   void Next() override;
   void Prev() override;
   bool Valid() const override {
-    return block_iter_points_to_real_block_ && data_block_iter_.Valid();
+    return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
+           data_block_iter_.Valid();
   }
   Slice key() const override {
     assert(Valid());

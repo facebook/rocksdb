@@ -52,6 +52,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
  protected:
   virtual void AddKey(const Slice& key);
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
+  virtual void Reset();
 
  private:
   // important: all of these might point to invalid addresses

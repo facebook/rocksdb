@@ -1097,7 +1097,7 @@ size_t WinEnvIO::GetSectorSize(const std::string& fname) {
 
     DISK_GEOMETRY_EX geometry = { 0 };
     ret = DeviceIoControl(hDevice, IOCTL_DISK_GET_DRIVE_GEOMETRY,
-           nullptr, 0, &geometry, sizeof(geometry), nullptr, nullptr);
+           nullptr, 0, &geometry, sizeof(geometry), &output_bytes, nullptr);
     if (ret) {
       sector_size = geometry.Geometry.BytesPerSector;
     }

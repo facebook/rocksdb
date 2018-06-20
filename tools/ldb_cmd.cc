@@ -1262,8 +1262,8 @@ void InternalDumpCommand::DoCommand() {
       for(int j=0;row[j]!=delim_[0] && row[j]!='\0' && row[j]!='\x01';j++)
         rtype1+=row[j];
       if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
-        fprintf(stdout,"%s => count:%lld\tsize:%lld\n",rtype2.c_str(),
-            (long long)c,(long long)s2);
+        fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
+                rtype2.c_str(), c, s2);
         c=1;
         s2=s1;
         rtype2 = rtype1;
@@ -1284,10 +1284,11 @@ void InternalDumpCommand::DoCommand() {
     if (max_keys_ > 0 && count >= max_keys_) break;
   }
   if(count_delim_) {
-    fprintf(stdout,"%s => count:%lld\tsize:%lld\n", rtype2.c_str(),
-        (long long)c,(long long)s2);
-  } else
-  fprintf(stdout, "Internal keys in range: %lld\n", (long long) count);
+    fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
+            rtype2.c_str(), c, s2);
+  } else {
+    fprintf(stdout, "Internal keys in range: %lld\n", count);
+  }
 }
 
 const std::string DBDumperCommand::ARG_COUNT_ONLY = "count_only";
@@ -1533,8 +1534,8 @@ void DBDumperCommand::DoDumpCommand() {
       for(int j=0;row[j]!=delim_[0] && row[j]!='\0';j++)
         rtype1+=row[j];
       if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
-        fprintf(stdout,"%s => count:%lld\tsize:%lld\n",rtype2.c_str(),
-            (long long )c,(long long)s2);
+        fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
+                rtype2.c_str(), c, s2);
         c=1;
         s2=s1;
         rtype2 = rtype1;
@@ -1565,10 +1566,10 @@ void DBDumperCommand::DoDumpCommand() {
     PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
   } else if(count_delim_) {
-    fprintf(stdout,"%s => count:%lld\tsize:%lld\n",rtype2.c_str(),
-        (long long )c,(long long)s2);
+    fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
+            rtype2.c_str(), c, s2);
   } else {
-    fprintf(stdout, "Keys in range: %lld\n", (long long) count);
+    fprintf(stdout, "Keys in range: %" PRIu64 "\n", count);
   }
 
   if (count_only_) {

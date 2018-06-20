@@ -19,6 +19,9 @@
 namespace rocksdb {
 namespace test {
 
+const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
+const uint32_t kLatestFormatVersion = 3u;
+
 Slice RandomString(Random* rnd, int len, std::string* dst) {
   dst->resize(len);
   for (int i = 0; i < len; i++) {
@@ -116,14 +119,9 @@ class Uint64ComparatorImpl : public Comparator {
 };
 }  // namespace
 
-static port::OnceType once;
-static const Comparator* uint64comp;
-
-static void InitModule() { uint64comp = new Uint64ComparatorImpl; }
-
 const Comparator* Uint64Comparator() {
-  port::InitOnce(&once, InitModule);
-  return uint64comp;
+  static Uint64ComparatorImpl uint64comp;
+  return &uint64comp;
 }
 
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
