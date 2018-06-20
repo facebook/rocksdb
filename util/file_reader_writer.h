@@ -31,8 +31,10 @@ class SequentialFileReader {
 
  public:
   explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
-                                const std::string file_name)
-      : file_(std::move(_file)), file_name_(std::move(file_name)), offset_(0) {}
+                                const std::string _file_name)
+      : file_(std::move(_file)),
+        file_name_(std::move(_file_name)),
+        offset_(0) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);

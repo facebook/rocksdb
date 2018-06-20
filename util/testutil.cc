@@ -135,7 +135,8 @@ RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
                                     "[test RandomAccessFileReader]");
 }
 
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se, const std::string& fname) {
+SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
+                                              const std::string& fname) {
   unique_ptr<SequentialFile> file(se);
   return new SequentialFileReader(std::move(file), fname);
 }
