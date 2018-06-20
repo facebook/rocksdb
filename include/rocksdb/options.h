@@ -644,6 +644,9 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
+  // Perform checksum verification before ingesting external SST file
+  bool check_checksum_before_ingesting = false;
+
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
   //

@@ -328,6 +328,8 @@ class DBImpl : public DB {
 
   virtual Status VerifyChecksum() override;
 
+  Status VerifyChecksumPreIngestion(const std::vector<std::string>& external_files);
+
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot

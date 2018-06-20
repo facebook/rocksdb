@@ -100,6 +100,7 @@ struct MutableDBOptions {
   uint64_t bytes_per_sync;
   uint64_t wal_bytes_per_sync;
   size_t compaction_readahead_size;
+  bool check_checksum_before_ingestion;
 };
 
 }  // namespace rocksdb

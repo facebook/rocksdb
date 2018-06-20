@@ -500,6 +500,70 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
   }
 }
 
+TEST_F(CorruptionTest, ExternalSSTFileIngestionChecksumCorrupted) {
+  Options options;
+  options.check_checksum_before_ingesting = true;
+  Reopen(&options);
+  Build(1000);
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  dbi->TEST_FlushMemTable();
+  dbi->TEST_CompactRange(0, nullptr, nullptr);
+  dbi->TEST_CompactRange(1, nullptr, nullptr);
+
+  std::vector<std::string> filenames;
+  ASSERT_OK(env_.GetChildren(dbname_, &filenames));
+  uint64_t number;
+  FileType type;
+  std::string fname;
+
+  for (size_t i = 0; i < filenames.size(); i++) {
+    if (ParseFileName(filenames[i], &number, &type) &&
+        type == kTableFile) {
+      fname = dbname_ + "/" + filenames[i];
+
+      break;
+    }
+  }
+
+  CorruptFile(fname, 100, 1);
+
+  std::vector<std::string> input_vector;
+  input_vector.push_back(fname);
+
+  ASSERT_NOK(dbi->VerifyChecksumPreIngestion(input_vector));
+}
+
+TEST_F(CorruptionTest, ExternalSSTFileIngestionChecksumNoCorruption) {
+  Options options;
+  options.check_checksum_before_ingesting = true;
+  Reopen(&options);
+  Build(1000);
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  dbi->TEST_FlushMemTable();
+  dbi->TEST_CompactRange(0, nullptr, nullptr);
+  dbi->TEST_CompactRange(1, nullptr, nullptr);
+
+  std::vector<std::string> filenames;
+  ASSERT_OK(env_.GetChildren(dbname_, &filenames));
+  uint64_t number;
+  FileType type;
+  std::string fname;
+
+  for (size_t i = 0; i < filenames.size(); i++) {
+    if (ParseFileName(filenames[i], &number, &type) &&
+        type == kTableFile) {
+      fname = dbname_ + "/" + filenames[i];
+
+      break;
+    }
+  }
+
+  std::vector<std::string> input_vector;
+  input_vector.push_back(fname);
+
+  ASSERT_OK(dbi->VerifyChecksumPreIngestion(input_vector));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

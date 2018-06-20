@@ -126,6 +126,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.preserve_deletes;
   options.two_write_queues = immutable_db_options.two_write_queues;
   options.manual_wal_flush = immutable_db_options.manual_wal_flush;
+  options.check_checksum_before_ingesting = mutable_db_options.check_checksum_before_ingestion;
 
   return options;
 }
@@ -1515,6 +1516,9 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, manual_wal_flush), OptionType::kBoolean,
           OptionVerificationType::kNormal, false,
           offsetof(struct ImmutableDBOptions, manual_wal_flush)}},
+        {"check_checksum_before_ingesting",
+                {offsetof(struct DBOptions, check_checksum_before_ingesting), OptionType::kBoolean,
+                        OptionVerificationType::kNormal, false, 0}},
         {"seq_per_batch",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
           0}}};

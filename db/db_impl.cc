@@ -2847,22 +2847,18 @@ Status DBImpl::IngestExternalFile(
     }
   }
 
+  if(mutable_db_options_.check_checksum_before_ingestion) {
+    status = VerifyChecksumPreIngestion(external_files);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,
                                             &snapshots_, ingestion_options);
 
   std::list<uint64_t>::iterator pending_output_elem;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    if (!bg_error_.ok()) {
-      // Don't ingest files when there is a bg_error
-      return bg_error_;
-    }
-
-    // Make sure that bg cleanup wont delete the files that we are ingesting
-    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
-  }
-
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
   status = ingestion_job.Prepare(external_files, super_version);
   CleanupSuperVersion(super_version);
@@ -2892,6 +2888,14 @@ Status DBImpl::IngestExternalFile(
       status = Status::InvalidArgument(
           "Cannot ingest an external file into a dropped CF");
     }
+
+    if (!bg_error_.ok()) {
+      // Don't ingest files when there is a bg_error
+      return bg_error_;
+    }
+
+    // Make sure that bg cleanup wont delete the files that we are ingesting
+    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
 
     // Figure out if we need to flush the memtable first
     if (status.ok()) {
@@ -2956,6 +2960,22 @@ Status DBImpl::IngestExternalFile(
   }
 
   return status;
+}
+
+Status DBImpl::VerifyChecksumPreIngestion(const std::vector<std::string>& external_files) {
+  Status s;
+  Options options;
+  EnvOptions env_options;
+
+  for(auto current_fname : external_files) {
+    s = rocksdb::VerifySstFileChecksum(options, env_options, current_fname);
+
+    if(!s.ok()) {
+      break;
+    }
+  }
+
+  return s;
 }
 
 Status DBImpl::VerifyChecksum() {
