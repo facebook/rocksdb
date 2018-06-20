@@ -41,7 +41,7 @@ Status CopyFile(Env* env, const std::string& source,
         return s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile)));
+    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
     dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
   }
 
