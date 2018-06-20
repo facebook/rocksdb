@@ -1979,36 +1979,29 @@ void BlockBasedTableIterator::InitDataBlock() {
     // Automatically prefetch additional data when a range scan (iterator) does
     // more than 2 sequential IOs. This is enabled only when
     // ReadOptions.readahead_size is 0.
-    if (read_options_.readahead_size == 0) {
-      if (num_file_reads_ < 2) {
-        num_file_reads_++;
-      } else if (data_block_handle.offset() +
-                     static_cast<size_t>(data_block_handle.size()) +
-                     kBlockTrailerSize >
-                 readahead_limit_) {
-        num_file_reads_++;
-        // Do not readahead more than kMaxReadaheadSize.
-        readahead_size_ = std::min(kMaxReadaheadSize, readahead_size_);
-
-        // Discarding the return status of Prefetch calls intentionally, as we
-        // can fallback to reading from disk if Prefetch fails.
-        if (!rep->file->use_direct_io()) {
-          // buffered i/o
+    if (!rep->for_compaction && read_options_.readahead_size == 0) {
+      num_file_reads_++;
+      if (num_file_reads_ > 2) {
+        if (!rep->file->use_direct_io() &&
+            (data_block_handle.offset() +
+                 static_cast<size_t>(data_block_handle.size()) +
+                 kBlockTrailerSize >
+             readahead_limit_)) {
+          // Buffered I/O
+          // Discarding the return status of Prefetch calls intentionally, as we
+          // can fallback to reading from disk if Prefetch fails.
           rep->file->Prefetch(data_block_handle.offset(), readahead_size_);
           readahead_limit_ =
               static_cast<size_t>(data_block_handle.offset() + readahead_size_);
-        } else if (!rep->for_compaction) {
-          // direct i/o -- but not for compaction reads.
-          if (!prefetch_buffer_) {
-            prefetch_buffer_.reset(new FilePrefetchBuffer());
-          }
-          prefetch_buffer_->Prefetch(
-              rep->file.get(), data_block_handle.offset(), readahead_size_);
-          readahead_limit_ =
-              prefetch_buffer_->Offset() + prefetch_buffer_->Length();
+          // Keep exponentially increasing readahead size until
+          // kMaxReadaheadSize.
+          readahead_size_ = std::min(kMaxReadaheadSize, readahead_size_ * 2);
+        } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
+          // Direct I/O
+          // Let FilePrefetchBuffer take care of the readahead.
+          prefetch_buffer_.reset(new FilePrefetchBuffer(
+              rep->file.get(), kInitReadaheadSize, kMaxReadaheadSize));
         }
-        // Keep exponentially increasing readahead size until kMaxReadaheadSize.
-        readahead_size_ *= 2;
       }
     }
 

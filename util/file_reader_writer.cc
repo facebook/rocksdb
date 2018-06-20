@@ -695,18 +695,30 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 }
 
 bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
-                                          Slice* result) const {
-  if (offset < buffer_offset_ || offset + n > buffer_offset_ + buffer_len_) {
+                                          Slice* result) {
+  if (offset < buffer_offset_) {
     return false;
   }
+
+  if (offset + n > buffer_offset_ + buffer_len_) {
+    if (readahead_size_ > 0) {
+      assert(file_reader_ != nullptr);
+      assert(max_readahead_size_ >= readahead_size_);
+
+      Status s = Prefetch(file_reader_, offset, n + readahead_size_);
+      if (!s.ok()) {
+        return false;
+      }
+      readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
+    } else {
+      return false;
+    }
+  }
+
   uint64_t offset_in_buffer = offset - buffer_offset_;
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;
 }
-
-uint64_t FilePrefetchBuffer::Offset() { return buffer_offset_; }
-
-size_t FilePrefetchBuffer::Length() { return buffer_len_; }
 
 std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {

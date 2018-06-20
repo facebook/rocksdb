@@ -205,16 +205,24 @@ class WritableFileWriter {
 
 class FilePrefetchBuffer {
  public:
-  FilePrefetchBuffer() : buffer_offset_(0), buffer_len_(0) {}
+  FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
+                     size_t readadhead_size = 0,
+                     size_t max_readahead_size = 0)
+      : buffer_offset_(0),
+        buffer_len_(0),
+        file_reader_(file_reader),
+        readahead_size_(readadhead_size),
+        max_readahead_size_(max_readahead_size) {}
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
-  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result) const;
-  uint64_t Offset();
-  size_t Length();
+  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result);
 
  private:
   AlignedBuffer buffer_;
   uint64_t buffer_offset_;
   size_t buffer_len_;
+  RandomAccessFileReader* file_reader_;
+  size_t readahead_size_;
+  size_t max_readahead_size_;
 };
 
 extern Status NewWritableFile(Env* env, const std::string& fname,
