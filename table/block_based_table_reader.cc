@@ -1977,7 +1977,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     auto* rep = table_->get_rep();
 
     // Automatically prefetch additional data when a range scan (iterator) does
-    // more than 2 sequential IOs. This is enabled only when
+    // more than 2 sequential IOs. This is enabled only for user reads and when
     // ReadOptions.readahead_size is 0.
     if (!rep->for_compaction && read_options_.readahead_size == 0) {
       num_file_reads_++;

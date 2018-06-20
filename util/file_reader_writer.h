@@ -203,6 +203,10 @@ class WritableFileWriter {
   Status SyncInternal(bool use_fsync);
 };
 
+// FilePrefetchBuffer can automatically do the readahead if file_reader,
+// readahead_size, and max_readahead_size are passed in.
+// max_readahead_size should be greater than or equal to readahead_size.
+// readahead_size will be doubled on every IO, until max_readahead_size.
 class FilePrefetchBuffer {
  public:
   FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,

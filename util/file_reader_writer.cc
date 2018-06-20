@@ -700,6 +700,10 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
     return false;
   }
 
+  // If the buffer contains only a few of the requested bytes:
+  //    If readahead is enabled: prefetch the remaining bytes + readadhead bytes
+  //        and satisfy the request.
+  //    If readahead is not enabled: return false.
   if (offset + n > buffer_offset_ + buffer_len_) {
     if (readahead_size_ > 0) {
       assert(file_reader_ != nullptr);
