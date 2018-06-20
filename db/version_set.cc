@@ -3284,13 +3284,15 @@ Status VersionSet::Recover(
         break;
       }
 
-      if (edit.is_in_group_commit_) {
+      if (edit.is_in_atomic_group_) {
         if (replay_buffer.empty()) {
           replay_buffer.resize(edit.remaining_entries_ + 1);
         }
         ++num_entries_decoded;
-        assert(num_entries_decoded + edit.remaining_entries_ ==
-            static_cast<uint32_t>(replay_buffer.size()));
+        if (num_entries_decoded + edit.remaining_entries_ !=
+            static_cast<uint32_t>(replay_buffer.size())) {
+          return Status::Corruption("corrupted atomic group");
+        }
         replay_buffer[num_entries_decoded - 1] = std::move(edit);
         if (num_entries_decoded == replay_buffer.size()) {
           for (auto& e : replay_buffer) {
@@ -3309,8 +3311,9 @@ Status VersionSet::Recover(
           num_entries_decoded = 0;
         }
       } else {
-        assert(replay_buffer.empty());
-        assert(!edit.is_in_group_commit_);
+        if (!replay_buffer.empty()) {
+          return Status::Corruption("corrupted atomic group");
+        }
         s = ApplyOneVersionEdit(edit, cf_name_to_options,
             column_families_not_found, builders,
             &have_log_number, &log_number,

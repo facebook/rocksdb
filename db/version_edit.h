@@ -281,8 +281,8 @@ class VersionEdit {
     return new_files_;
   }
 
-  void MarkGroupCommit(uint32_t remaining_entries) {
-    is_in_group_commit_ = true;
+  void MarkAtomicGroup(uint32_t remaining_entries) {
+    is_in_atomic_group_ = true;
     remaining_entries_ = remaining_entries;
   }
 
@@ -325,7 +325,7 @@ class VersionEdit {
   bool is_column_family_add_;
   std::string column_family_name_;
 
-  bool is_in_group_commit_;
+  bool is_in_atomic_group_;
   uint32_t remaining_entries_;
 };
 

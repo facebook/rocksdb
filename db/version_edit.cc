@@ -41,7 +41,7 @@ enum Tag : uint32_t {
   kColumnFamilyDrop = 202,
   kMaxColumnFamily = 203,
 
-  kInGroupCommit = 300,
+  kInAtomicGroup = 300,
 };
 
 enum CustomTag : uint32_t {
@@ -83,7 +83,7 @@ VersionEdit::VersionEdit(const VersionEdit& other):
     is_column_family_drop_(other.is_column_family_drop_),
     is_column_family_add_(other.is_column_family_add_),
     column_family_name_(other.column_family_name_),
-    is_in_group_commit_(other.is_in_group_commit_),
+    is_in_atomic_group_(other.is_in_atomic_group_),
     remaining_entries_(other.remaining_entries_) {}
 
 VersionEdit::VersionEdit(VersionEdit&& other):
@@ -106,7 +106,7 @@ VersionEdit::VersionEdit(VersionEdit&& other):
     is_column_family_drop_(other.is_column_family_drop_),
     is_column_family_add_(other.is_column_family_add_),
     column_family_name_(other.column_family_name_),
-    is_in_group_commit_(other.is_in_group_commit_),
+    is_in_atomic_group_(other.is_in_atomic_group_),
     remaining_entries_(other.remaining_entries_) {}
 
 VersionEdit& VersionEdit::operator=(VersionEdit&& other) {
@@ -132,7 +132,7 @@ VersionEdit& VersionEdit::operator=(VersionEdit&& other) {
     is_column_family_drop_ = other.is_column_family_drop_;
     is_column_family_add_ = other.is_column_family_add_;
     column_family_name_ = other.column_family_name_;
-    is_in_group_commit_ = other.is_in_group_commit_;
+    is_in_atomic_group_= other.is_in_atomic_group_;
     remaining_entries_ = other.remaining_entries_;
   }
   return *this;
@@ -160,7 +160,7 @@ void VersionEdit::Clear() {
   is_column_family_add_ = 0;
   is_column_family_drop_ = 0;
   column_family_name_.clear();
-  is_in_group_commit_ = false;
+  is_in_atomic_group_ = false;
   remaining_entries_ = 0;
 }
 
@@ -280,8 +280,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kColumnFamilyDrop);
   }
 
-  if (is_in_group_commit_) {
-    PutVarint32(dst, kInGroupCommit);
+  if (is_in_atomic_group_) {
+    PutVarint32(dst, kInAtomicGroup);
     PutVarint32(dst, remaining_entries_);
   }
   return true;
@@ -557,8 +557,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         is_column_family_drop_ = true;
         break;
 
-      case kInGroupCommit:
-        is_in_group_commit_ = true;
+      case kInAtomicGroup:
+        is_in_atomic_group_ = true;
         if (!GetVarint32(&input, &remaining_entries_)) {
           if (!msg) {
             msg = "remaining entries";
@@ -644,8 +644,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
   }
-  if (is_in_group_commit_) {
-    r.append("\n GroupCommit: ");
+  if (is_in_atomic_group_) {
+    r.append("\n AtomicGroup: ");
     AppendNumberTo(&r, remaining_entries_);
     r.append(" entries remains");
   }
@@ -721,8 +721,8 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   if (has_min_log_number_to_keep_) {
     jw << "MinLogNumberToKeep" << min_log_number_to_keep_;
   }
-  if (is_in_group_commit_) {
-    jw << "GroupCommit" << remaining_entries_;
+  if (is_in_atomic_group_) {
+    jw << "AtomicGroup" << remaining_entries_;
   }
 
   jw.EndObject();
