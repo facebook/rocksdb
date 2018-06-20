@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.14.1 (6/20/2018)
+### Bug Fixes
+* Fix block-based table reader pinning blocks throughout its lifetime, causing memory usage increase.
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change
