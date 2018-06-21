@@ -2795,6 +2795,19 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
+#ifdef ROCKSDB_LITE
+  virtual void TestIngestExternalFile(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+    assert(false);
+    fprintf(stderr,
+            "RocksDB lite does not support "
+            "TestIngestExternalFile\n");
+    std::terminate();
+  }
+#else
   virtual void TestIngestExternalFile(
       ThreadState* thread, const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys, std::unique_ptr<MutexLock>& lock) {
@@ -2856,6 +2869,7 @@ class NonBatchedOpsStressTest : public StressTest {
       ++key;
     }
   }
+#endif  // ROCKSDB_LITE
 
   bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                    SharedState* shared, const std::string& value_from_db,
