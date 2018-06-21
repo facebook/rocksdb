@@ -1119,8 +1119,8 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       // We only consider active mem table, hoping immutable memtable is
       // already in the process of flushing.
       if (atomic_flush_) {
-        status = SwitchMemtable(cfd, write_context,
-            FlushReason::kWriteBufferFull);
+        status =
+            SwitchMemtable(cfd, write_context, FlushReason::kWriteBufferFull);
         if (!status.ok()) {
           break;
         }

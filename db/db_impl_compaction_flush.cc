@@ -967,13 +967,13 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   Status s;
   if (atomic_flush_) {
     s = FlushMemTables(flush_options, FlushReason::kManualFlush,
-        false /* writes_stopped */);
+                       false /* writes_stopped */);
   } else {
     s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
-      "[%s] Manual flush finished, status: %s\n",
-      cfh->GetName().c_str(), s.ToString().c_str());
+                 "[%s] Manual flush finished, status: %s\n",
+                 cfh->GetName().c_str(), s.ToString().c_str());
   return s;
 }
 
@@ -1150,7 +1150,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
-    FlushReason flush_reason, bool writes_stopped) {
+                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
   bool schedule_flush = false;
   GroupFlushRequest flush_req;
@@ -1166,7 +1166,7 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped() ||
           (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-          cached_recoverable_state_empty_.load())) {
+           cached_recoverable_state_empty_.load())) {
         continue;
       }
       s = SwitchMemtable(cfd, &context);
@@ -1235,7 +1235,8 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
   return s;
 }
 
-Status DBImpl::WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
+Status DBImpl::WaitForFlushMemTables(
+    const autovector<ColumnFamilyData*>& cfds,
     const autovector<uint64_t>& flush_memtable_ids) {
   Status s;
   InstrumentedMutexLock l(&mutex_);
@@ -1244,7 +1245,7 @@ Status DBImpl::WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
       return Status::ShutdownInProgress();
     }
     bool exit = true;
-    for (int i = 0; i < (int) cfds.size(); i++) {
+    for (int i = 0; i < (int)cfds.size(); i++) {
       if (cfds[i]->IsDropped()) {
         s = Status::InvalidArgument("Cannot flush a dropped CF");
         break;
@@ -1299,7 +1300,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   if (atomic_flush_) {
     if (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-      unscheduled_flushes_ = 0;
+      assert(!group_flush_queue_.empty());
+      const auto& flush_req = *group_flush_queue_.begin();
+      assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
+      unscheduled_flushes_ -= flush_req.size();
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
     }
@@ -1309,8 +1313,11 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     if (is_flush_pool_empty) {
       if (unscheduled_flushes_ > 0 &&
           bg_flush_scheduled_ + bg_compaction_scheduled_ <
-          bg_job_limits.max_flushes) {
-        unscheduled_flushes_ = 0;
+              bg_job_limits.max_flushes) {
+        assert(!group_flush_queue_.empty());
+        const auto& flush_req = *group_flush_queue_.begin();
+        assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
+        unscheduled_flushes_ -= flush_req.size();
         bg_flush_scheduled_++;
         env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
       }
@@ -1441,7 +1448,7 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
 }
 
 void DBImpl::SchedulePendingGroupFlush(const GroupFlushRequest& flush_req,
-    FlushReason flush_reason) {
+                                       FlushReason flush_reason) {
   for (auto& iter : flush_req) {
     auto cfd = iter.first;
     cfd->Ref();

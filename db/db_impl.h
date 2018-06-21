@@ -858,7 +858,7 @@ class DBImpl : public DB {
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
   Status FlushMemTables(const FlushOptions& options, FlushReason flush_reason,
-      bool writes_stopped);
+                        bool writes_stopped);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID
@@ -867,7 +867,7 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
                               const uint64_t* flush_memtable_id = nullptr);
   Status WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
-      const autovector<uint64_t>& flush_memtable_ids);
+                               const autovector<uint64_t>& flush_memtable_ids);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
@@ -927,7 +927,7 @@ class DBImpl : public DB {
 
   typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> GroupFlushRequest;
   void SchedulePendingGroupFlush(const GroupFlushRequest& req,
-      FlushReason flush_reason);
+                                 FlushReason flush_reason);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
