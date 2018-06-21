@@ -24,11 +24,13 @@ default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
+    "checkpoint_one_in": 1000000,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
     "delpercent": 5,
     "destroy_db_initially": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
@@ -206,12 +208,12 @@ def blackbox_crash_main(args, unknown_args):
 
         while True:
             line = child.stderr.readline().strip()
-            if line != '' and not line.startswith('WARNING'):
+            if line == '':
+                break
+            elif not line.startswith('WARNING'):
                 run_had_errors = True
                 print('stderr has error message:')
                 print('***' + line + '***')
-            else:
-                break
 
         if run_had_errors:
             sys.exit(2)

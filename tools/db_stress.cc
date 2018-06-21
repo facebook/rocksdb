@@ -54,6 +54,8 @@ int main() {
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
@@ -142,6 +144,8 @@ DEFINE_int32(value_size_mult, 8,
              "Size of value will be this number times rand_int(1,3) bytes");
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+
+DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
 
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
@@ -381,6 +385,16 @@ DEFINE_bool(rate_limit_bg_reads, false,
 DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
+
+DEFINE_int32(backup_one_in, 0,
+             "If non-zero, then CreateNewBackup() will be called once for "
+             "every N operations on average.  0 indicates CreateNewBackup() "
+             "is disabled.");
+
+DEFINE_int32(checkpoint_one_in, 0,
+             "If non-zero, then CreateCheckpoint() will be called once for "
+             "every N operations on average.  0 indicates CreateCheckpoint() "
+             "is disabled.");
 
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
@@ -1756,7 +1770,54 @@ class StressTest {
 
       MaybeClearOneColumnFamily(thread);
 
-#ifndef ROCKSDB_LITE  // Lite does not support GetColumnFamilyMetaData
+#ifndef ROCKSDB_LITE
+      if (FLAGS_checkpoint_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_checkpoint_one_in) == 0) {
+        std::string checkpoint_dir =
+            FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+        Checkpoint* checkpoint;
+        Status s = Checkpoint::Create(db_, &checkpoint);
+        if (s.ok()) {
+          s = checkpoint->CreateCheckpoint(checkpoint_dir);
+        }
+        std::vector<std::string> files;
+        if (s.ok()) {
+          s = FLAGS_env->GetChildren(checkpoint_dir, &files);
+        }
+        size_t file_idx = 0;
+        while (s.ok() && file_idx < files.size()) {
+          if (files[file_idx] != "." && files[file_idx] != "..") {
+            s = FLAGS_env->DeleteFile(checkpoint_dir + "/" + files[file_idx]);
+          }
+          ++file_idx;
+        }
+        if (s.ok()) {
+          s = FLAGS_env->DeleteDir(checkpoint_dir);
+        }
+        if (!s.ok()) {
+          printf("A checkpoint operation failed with: %s\n",
+                 s.ToString().c_str());
+        }
+      }
+
+      if (FLAGS_backup_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
+        std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
+        BackupableDBOptions backup_opts(backup_dir);
+        BackupEngine* backup_engine;
+        Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
+        if (s.ok()) {
+          s = backup_engine->CreateNewBackup(db_);
+        }
+        if (s.ok()) {
+          s = backup_engine->PurgeOldBackups(0 /* num_backups_to_keep */);
+        }
+        if (!s.ok()) {
+          printf("A BackupEngine operation failed with: %s\n",
+                 s.ToString().c_str());
+        }
+      }
+
       if (FLAGS_compact_files_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_files_one_in) == 0) {
         auto* random_cf =
@@ -2119,6 +2180,7 @@ class StressTest {
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =
           FLAGS_allow_concurrent_memtable_write;
+      options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
       options_.enable_write_thread_adaptive_yield =
           FLAGS_enable_write_thread_adaptive_yield;
       options_.compaction_options_universal.size_ratio =

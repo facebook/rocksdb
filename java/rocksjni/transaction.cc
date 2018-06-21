@@ -183,7 +183,7 @@ jbyteArray txn_get_helper(JNIEnv* env, const FnGet& fn_get,
       return nullptr;
     }
     env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
-                            reinterpret_cast<const jbyte*>(value.c_str()));
+                            const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       return nullptr;
@@ -350,7 +350,7 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
 
       env->SetByteArrayRegion(
           jentry_value, 0, static_cast<jsize>(value_parts[i].size()),
-          reinterpret_cast<const jbyte*>(value_parts[i].c_str()));
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_parts[i].c_str())));
       if (env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jentry_value);

@@ -1035,6 +1035,60 @@ TEST_P(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
   }
 }
+
+TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.prefix_extractor = nullptr;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "0"));
+  ASSERT_OK(Put("z", "0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Put("foo3", "bar3"));
+  ASSERT_OK(Put("foo4", "bar4"));
+
+  {
+    std::string up_str = "foo5";
+    Slice up(up_str);
+    ReadOptions ro;
+    ro.iterate_upper_bound = &up;
+    std::unique_ptr<Iterator> iter(NewIterator(ro));
+
+    iter->Seek("foo1");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+
+    uint64_t prev_block_cache_hit =
+        TestGetTickerCount(options, BLOCK_CACHE_HIT);
+    uint64_t prev_block_cache_miss =
+        TestGetTickerCount(options, BLOCK_CACHE_MISS);
+
+    ASSERT_GT(prev_block_cache_hit + prev_block_cache_miss, 0);
+
+    iter->Seek("foo4");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo4")), 0);
+    ASSERT_EQ(prev_block_cache_hit,
+              TestGetTickerCount(options, BLOCK_CACHE_HIT));
+    ASSERT_EQ(prev_block_cache_miss,
+              TestGetTickerCount(options, BLOCK_CACHE_MISS));
+
+    iter->Seek("foo2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo2")), 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo3")), 0);
+    ASSERT_EQ(prev_block_cache_hit,
+              TestGetTickerCount(options, BLOCK_CACHE_HIT));
+    ASSERT_EQ(prev_block_cache_miss,
+              TestGetTickerCount(options, BLOCK_CACHE_MISS));
+  }
+}
 #endif
 
 TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {

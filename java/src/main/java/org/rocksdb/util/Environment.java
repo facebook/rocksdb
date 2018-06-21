@@ -8,6 +8,10 @@ public class Environment {
     return ARCH.contains("ppc");
   }
 
+  public static boolean isS390x() {
+    return ARCH.contains("s390x");
+  }
+
   public static boolean isWindows() {
     return (OS.contains("win"));
   }
@@ -57,6 +61,8 @@ public class Environment {
       final String arch = is64Bit() ? "64" : "32";
       if(isPowerPC()) {
         return String.format("%sjni-linux-%s", name, ARCH);
+      } else if(isS390x()) {
+        return String.format("%sjni-linux%s", name, ARCH);
       } else {
         return String.format("%sjni-linux%s", name, arch);
       }
