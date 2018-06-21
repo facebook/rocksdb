@@ -28,6 +28,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based_table_builder.h"
+#include "table/format.h"
 #include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
@@ -139,6 +140,7 @@ Status BuildTable(
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
+        ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
