@@ -1783,6 +1783,7 @@ class StressTest {
           thread->rand.Uniform(FLAGS_checkpoint_one_in) == 0) {
         std::string checkpoint_dir =
             FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+        DestroyDB(checkpoint_dir, Options());
         Checkpoint* checkpoint;
         Status s = Checkpoint::Create(db_, &checkpoint);
         if (s.ok()) {
@@ -1792,16 +1793,7 @@ class StressTest {
         if (s.ok()) {
           s = FLAGS_env->GetChildren(checkpoint_dir, &files);
         }
-        size_t file_idx = 0;
-        while (s.ok() && file_idx < files.size()) {
-          if (files[file_idx] != "." && files[file_idx] != "..") {
-            s = FLAGS_env->DeleteFile(checkpoint_dir + "/" + files[file_idx]);
-          }
-          ++file_idx;
-        }
-        if (s.ok()) {
-          s = FLAGS_env->DeleteDir(checkpoint_dir);
-        }
+        DestroyDB(checkpoint_dir, Options());
         if (!s.ok()) {
           printf("A checkpoint operation failed with: %s\n",
                  s.ToString().c_str());
