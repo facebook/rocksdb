@@ -213,19 +213,16 @@ class BlockBasedTable : public TableReader {
   Rep* get_rep() { return rep_; }
 
   // input_iter: if it is not null, update this one and return it as Iterator
-  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                         const Slice& index_value,
-                                         BlockIter* input_iter = nullptr,
-                                         bool is_index = false,
-                                         bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr);
-  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                         const BlockHandle& block_hanlde,
-                                         BlockIter* input_iter = nullptr,
-                                         bool is_index = false,
-                                         bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr,
-                                         Status s = Status());
+  static BlockIter* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const Slice& index_value,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      FilePrefetchBuffer* prefetch_buffer = nullptr);
+  static BlockIter* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
 
   class PartitionedIndexIteratorState;
 
@@ -505,6 +502,8 @@ struct BlockBasedTable::Rep {
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
+
+  bool for_compaction = false;
 };
 
 class BlockBasedTableIterator : public InternalIterator {
@@ -632,6 +631,7 @@ class BlockBasedTableIterator : public InternalIterator {
   size_t readahead_size_ = kInitReadaheadSize;
   size_t readahead_limit_ = 0;
   int num_file_reads_ = 0;
+  std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
 
 }  // namespace rocksdb
