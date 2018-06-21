@@ -1962,7 +1962,8 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     unique_ptr<SequentialFile> file;
     status = env_->NewSequentialFile(wal_file, &file, soptions);
     if (status.ok()) {
-      wal_file_reader.reset(new SequentialFileReader(std::move(file)));
+      wal_file_reader.reset(
+          new SequentialFileReader(std::move(file), wal_file));
     }
   }
   if (!status.ok()) {
