@@ -2864,7 +2864,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::terminate();
     }
     int64_t key = key_base;
-    for (int64_t value : values) {
+    for (int32_t value : values) {
       shared->Put(column_family, key, value, false /* pending */);
       ++key;
     }
