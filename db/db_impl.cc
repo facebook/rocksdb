@@ -2368,7 +2368,8 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
     if (!s.ok()) {
       return s;
     }
-    id_file_reader.reset(new SequentialFileReader(std::move(idfile)));
+    id_file_reader.reset(
+        new SequentialFileReader(std::move(idfile), idfilename));
   }
 
   uint64_t file_size;

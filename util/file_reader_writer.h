@@ -26,11 +26,13 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
+  std::string file_name_;
   std::atomic<size_t> offset_;  // read offset
 
  public:
-  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file)
-      : file_(std::move(_file)), offset_(0) {}
+  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
+                                const std::string& _file_name)
+      : file_(std::move(_file)), file_name_(_file_name), offset_(0) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -51,6 +53,8 @@ class SequentialFileReader {
   void Rewind();
 
   SequentialFile* file() { return file_.get(); }
+
+  std::string file_name() { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 };

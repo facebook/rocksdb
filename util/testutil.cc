@@ -135,9 +135,10 @@ RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
                                     "[test RandomAccessFileReader]");
 }
 
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
+SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
+                                              const std::string& fname) {
   unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(std::move(file));
+  return new SequentialFileReader(std::move(file), fname);
 }
 
 void CorruptKeyType(InternalKey* ikey) {
