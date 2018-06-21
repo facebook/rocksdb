@@ -857,8 +857,6 @@ class DBImpl : public DB {
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
-  Status FlushMemTables(const FlushOptions& options, FlushReason flush_reason,
-                        bool writes_stopped);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID

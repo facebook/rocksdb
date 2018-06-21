@@ -964,13 +964,8 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
-  Status s;
-  if (atomic_flush_) {
-    s = FlushMemTables(flush_options, FlushReason::kManualFlush,
-                       false /* writes_stopped */);
-  } else {
-    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
-  }
+  Status s =
+      FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
@@ -1111,48 +1106,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
-  uint64_t flush_memtable_id = 0;
-  {
-    WriteContext context;
-    InstrumentedMutexLock guard_lock(&mutex_);
-
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-        cached_recoverable_state_empty_.load()) {
-      // Nothing to flush
-      return Status::OK();
-    }
-
-    WriteThread::Writer w;
-    if (!writes_stopped) {
-      write_thread_.EnterUnbatched(&w, &mutex_);
-    }
-
-    // SwitchMemtable() will release and reacquire mutex during execution
-    s = SwitchMemtable(cfd, &context);
-    flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-
-    if (!writes_stopped) {
-      write_thread_.ExitUnbatched(&w);
-    }
-
-    cfd->imm()->FlushRequested();
-
-    // schedule flush
-    SchedulePendingFlush(cfd, flush_reason);
-    MaybeScheduleFlushOrCompaction();
-  }
-
-  if (s.ok() && flush_options.wait) {
-    // Wait until the compaction completes
-    s = WaitForFlushMemTable(cfd, &flush_memtable_id);
-  }
-  return s;
-}
-
-Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
-                              FlushReason flush_reason, bool writes_stopped) {
-  Status s;
   bool schedule_flush = false;
+  uint64_t flush_memtable_id = 0;
   GroupFlushRequest flush_req;
   {
     WriteContext context;
@@ -1163,29 +1118,46 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped() ||
-          (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-           cached_recoverable_state_empty_.load())) {
-        continue;
+    if (atomic_flush_) {
+      // Refer to ColumnFamilySet for the reason of Ref/Unref
+      for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
+        if (loop_cfd->IsDropped() || (loop_cfd->imm()->NumNotFlushed() == 0 &&
+                                      loop_cfd->mem()->IsEmpty() &&
+                                      cached_recoverable_state_empty_.load())) {
+          continue;
+        }
+        loop_cfd->Ref();
+        s = SwitchMemtable(loop_cfd, &context);
+        loop_cfd->Unref();
+        if (!s.ok()) {
+          break;
+        }
+        flush_memtable_id = loop_cfd->imm()->GetLatestMemTableID();
+        flush_req.emplace_back(loop_cfd, flush_memtable_id);
       }
-      s = SwitchMemtable(cfd, &context);
-      if (!s.ok()) {
-        break;
+    } else {
+      if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+          cached_recoverable_state_empty_.load()) {
+        s = Status::OK();
+      } else {
+        s = SwitchMemtable(cfd, &context);
+        flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+        flush_req.emplace_back(cfd, flush_memtable_id);
       }
-      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      flush_req.emplace_back(cfd, flush_memtable_id);
     }
 
     if (s.ok()) {
-      for (auto& iter : flush_req) {
-        auto& cfd = iter.first;
-        cfd->imm()->FlushRequested();
+      for (auto& elem : flush_req) {
+        auto& loop_cfd = elem.first;
+        loop_cfd->imm()->FlushRequested();
       }
       schedule_flush = !flush_req.empty();
       if (schedule_flush) {
-        // All cfd will be refcounted.
-        SchedulePendingGroupFlush(flush_req, flush_reason);
+        if (atomic_flush_) {
+          SchedulePendingGroupFlush(flush_req, flush_reason);
+        } else {
+          SchedulePendingFlush(cfd, flush_reason);
+        }
       }
     }
 
@@ -1198,14 +1170,19 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
     }
   }
 
-  if (schedule_flush && s.ok() && flush_options.wait) {
-    autovector<ColumnFamilyData*> cfds;
-    autovector<uint64_t> flush_memtable_ids;
-    for (auto& iter : flush_req) {
-      cfds.push_back(iter.first);
-      flush_memtable_ids.push_back(iter.second);
+  if (s.ok() && flush_options.wait) {
+    if (atomic_flush_) {
+      autovector<ColumnFamilyData*> cfds;
+      autovector<uint64_t> flush_memtable_ids;
+      for (auto& iter : flush_req) {
+        cfds.push_back(iter.first);
+        flush_memtable_ids.push_back(iter.second);
+      }
+      s = WaitForFlushMemTables(cfds, flush_memtable_ids);
+    } else {
+      // Wait until the compaction completes
+      s = WaitForFlushMemTable(cfd, &flush_memtable_id);
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   return s;
 }
