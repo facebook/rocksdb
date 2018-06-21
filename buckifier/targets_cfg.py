@@ -32,7 +32,7 @@ rocksdb_compiler_flags = [
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
     "-DROCKSDB_BACKTRACE",
-    "-Wshorten-64-to-32",
+    "-Wnarrowing",
 ]
 
 rocksdb_external_deps = [
