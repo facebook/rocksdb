@@ -173,13 +173,15 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // to get sequence number.
     Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
     {
+      bool is_timer_enabled =
+          (stats_ != nullptr && ShouldReportDetailedTime(env_, stats_));
       StopWatchNano timer(
-          env_, stats_ != nullptr && ShouldReportDetailedTime(env_, stats_));
+          env_, is_timer_enabled);
       filter = compaction_filter_->FilterV2(
           compaction_->level(), filter_key, value_type, value_,
           &compaction_filter_value_, compaction_filter_skip_until_.rep());
       iter_stats_.total_filter_time +=
-          env_ != nullptr ? timer.ElapsedNanos() : 0;
+          is_timer_enabled ? timer.ElapsedNanos() : 0;
     }
 
     if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
