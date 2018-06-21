@@ -2330,6 +2330,7 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
         }
         for (bool index_and_filter_in_cache : {true, false}) {
           for (bool pin_l0 : {true, false}) {
+          for (bool pin_top_level : {true, false}) {
             if (pin_l0 && !index_and_filter_in_cache) {
               continue;
             }
@@ -2343,6 +2344,7 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
             table_options.index_type =
                 BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
             table_options.pin_l0_filter_and_index_blocks_in_cache = pin_l0;
+            table_options.pin_top_level_index_and_filter = pin_top_level;
             table_options.partition_filters = partition_filter;
             table_options.cache_index_and_filter_blocks =
                 index_and_filter_in_cache;
@@ -2394,6 +2396,7 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
             value.Reset();
             pinned_usage = table_options.block_cache->GetPinnedUsage();
             ASSERT_EQ(pinned_usage, 0);
+          }
           }
         }
       }

@@ -432,6 +432,10 @@ DEFINE_int32(ops_between_duration_checks, 1000,
 DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
             "Pin index/filter blocks of L0 files in block cache.");
 
+DEFINE_bool(
+    pin_top_level_index_and_filter, false,
+    "Pin top-level index of partitioned index/filter blocks in block cache.");
+
 DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
@@ -3186,6 +3190,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
           FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+      block_based_options.pin_top_level_index_and_filter =
+          FLAGS_pin_top_level_index_and_filter;
       if (FLAGS_cache_high_pri_pool_ratio > 1e-6) {  // > 0.0 + eps
         block_based_options.cache_index_and_filter_blocks_with_high_priority =
             true;
