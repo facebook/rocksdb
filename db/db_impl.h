@@ -867,7 +867,7 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
                               const uint64_t* flush_memtable_id = nullptr);
   Status WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
-      const autovector<uint64_t*>& flush_memtable_ids);
+      const autovector<uint64_t>& flush_memtable_ids);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);

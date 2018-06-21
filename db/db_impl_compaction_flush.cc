@@ -1129,11 +1129,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
-    if (s.ok()) {
-      cfd->imm()->FlushRequested();
-      // schedule flush
-      SchedulePendingFlush(cfd, flush_reason);
-    }
     flush_memtable_id = cfd->imm()->GetLatestMemTableID();
 
     if (!writes_stopped) {
@@ -1205,10 +1200,10 @@ Status DBImpl::FlushMemTables(const FlushOptions& flush_options,
 
   if (schedule_flush && s.ok() && flush_options.wait) {
     autovector<ColumnFamilyData*> cfds;
-    autovector<uint64_t*> flush_memtable_ids;
+    autovector<uint64_t> flush_memtable_ids;
     for (auto& iter : flush_req) {
       cfds.push_back(iter.first);
-      flush_memtable_ids.push_back(&(iter.second));
+      flush_memtable_ids.push_back(iter.second);
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
@@ -1241,7 +1236,7 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
-    const autovector<uint64_t*>& flush_memtable_ids) {
+    const autovector<uint64_t>& flush_memtable_ids) {
   Status s;
   InstrumentedMutexLock l(&mutex_);
   while (bg_error_.ok()) {
@@ -1255,8 +1250,7 @@ Status DBImpl::WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
         break;
       }
       if (cfds[i]->imm()->NumNotFlushed() > 0 &&
-          (flush_memtable_ids[i] == nullptr ||
-           cfds[i]->imm()->GetEarliestMemTableID() <= *flush_memtable_ids[i])) {
+          (cfds[i]->imm()->GetEarliestMemTableID() <= flush_memtable_ids[i])) {
         exit = false;
         break;
       }
