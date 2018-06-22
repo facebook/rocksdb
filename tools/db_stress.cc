@@ -1794,6 +1794,7 @@ class StressTest {
           s = FLAGS_env->GetChildren(checkpoint_dir, &files);
         }
         DestroyDB(checkpoint_dir, Options());
+        delete checkpoint;
         if (!s.ok()) {
           printf("A checkpoint operation failed with: %s\n",
                  s.ToString().c_str());
