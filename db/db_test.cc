@@ -5099,6 +5099,7 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics->stats_level_ = kExceptTimeForMutex;
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 

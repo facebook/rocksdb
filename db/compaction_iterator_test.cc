@@ -247,8 +247,9 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         earliest_write_conflict_snapshot, snapshot_checker_.get(),
-        Env::Default(), false, range_del_agg_.get(), std::move(compaction),
-        filter, &shutting_down_));
+        Env::Default(), false /* report_detailed_time */,
+        false, range_del_agg_.get(), std::move(compaction), filter,
+        &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot,
