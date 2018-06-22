@@ -3327,6 +3327,55 @@ class BatchedOpsStressTest : public StressTest {
   virtual void VerifyDb(ThreadState* /* thread */) const {}
 };
 
+class AtomicFlushStressTest : public StressTest {
+ public:
+  AtomicFlushStressTest() {}
+  virtual ~AtomicFlushStressTest() {}
+
+  virtual Status TestPut(
+      ThreadState* thread,
+      WriteOptions& write_opts, const ReadOptions& /* read_opts */,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys,
+      char (&value)[100], std::unique_ptr<MutexLock>& /* lock */) {
+  }
+
+  virtual Status TestDelete(
+      ThreadState* thread,
+      WriteOptions& write_opts,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys,
+      std::unique_ptr<MutexLock>& /* lock */) {
+  }
+
+  virtual Status TestDeleteRange(
+      ThreadState* /* thread */,
+      WriteOptions& /* write_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+  }
+
+  virtual void TestIngestExternalFile(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+  }
+
+  virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys) {
+  }
+
+  virtual Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys) {
+  }
+
+  virtual void VerifyDb(ThreadState* /* thread */) const {}
+};
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
