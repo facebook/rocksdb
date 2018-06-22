@@ -33,7 +33,7 @@ std::string BlockSuffixIndexBuilder::Finish() {
   // write each bucket to the string
   for (uint32_t i = 0; i < num_buckets_; i++) {
     // remember the start offset of the buckets in bucket_offsets
-    bucket_offsets[i] = index_content.size();
+    bucket_offsets[i] = static_cast<uint32_t>(index_content.size());
     for (uint32_t restart_offset : buckets_[i])
       PutFixed32(&index_content, restart_offset);
   }
@@ -47,7 +47,8 @@ std::string BlockSuffixIndexBuilder::Finish() {
   PutFixed32(&index_content, num_buckets_);
 
   // write MAP_SIZE
-  uint32_t map_size = index_content.size() + sizeof(uint32_t) /* MAP_SIZE */;
+  uint32_t map_size = static_cast<uint32_t>(index_content.size() +
+                                            sizeof(uint32_t)); /* MAP_SIZE */;
   PutFixed32(&index_content, map_size);
 
   return index_content;
@@ -58,7 +59,7 @@ BlockSuffixIndex::BlockSuffixIndex(std::string& s) {
   suffix_index_ = s;                         // can we avoid this memory copy?
 
   data_ = suffix_index_.data();
-  size_ = suffix_index_.size();
+  size_ = static_cast<uint32_t>(suffix_index_.size());
 
   map_size_ = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
   assert(map_size_ > 0);
