@@ -112,12 +112,6 @@ Status BlockBasedTableFactory::SanitizeOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (table_options_.pin_top_level_index_and_filter &&
-      table_options_.no_block_cache) {
-    return Status::InvalidArgument(
-        "Enable pin_top_level_index_and_filter, "
-        ", but block cache is disabled");
-  }
   if (!BlockBasedTableSupportedVersion(table_options_.format_version)) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
