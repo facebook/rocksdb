@@ -177,7 +177,8 @@ def finalize_and_sanitize(src_params):
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
     if dest_params["partition_filters"] == 1:
-        dest_params["index_type"] == 2
+        dest_params["index_type"] = 2
+        dest_params["use_block_based_filter"] = 0
     return dest_params
 
 
