@@ -903,6 +903,18 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                                 rep->ioptions.info_log);
   }
 
+  bool prefix_extractor_changed = PrefixExtractorChanged(
+      rep->table_properties.get(), prefix_extractor);
+  const SliceTransform* prefix_extractor_to_use = nullptr;
+  // TODO(Zhongyi): make sure it is the right way to set prefix_extractor
+  // for filters
+  if (prefix_extractor_changed && rep->table_prefix_extractor != nullptr) {
+    prefix_extractor_to_use = rep->table_prefix_extractor.get();
+  }
+  else {
+    prefix_extractor_to_use = prefix_extractor;
+  }
+
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   BlockBasedTableOptions::IndexType index_type = new_table->UpdateIndexType();
@@ -937,14 +949,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // Hack: Call NewIndexIterator() to implicitly add index to the
       // block_cache
       CachableEntry<IndexReader> index_entry;
-      bool prefix_extractor_changed = false;
       // check prefix_extractor match only if hash based index is used
-      if (rep->index_type == BlockBasedTableOptions::kHashSearch) {
-        prefix_extractor_changed = PrefixExtractorChanged(
-            rep->table_properties.get(), prefix_extractor);
-      }
+      bool disable_prefix_seek =
+          rep->index_type == BlockBasedTableOptions::kHashSearch &&
+          prefix_extractor_changed;
       unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
-          ReadOptions(), prefix_extractor_changed, nullptr, &index_entry));
+          ReadOptions(), disable_prefix_seek, nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
@@ -963,9 +973,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     }
     if (s.ok() && prefetch_filter) {
       // Hack: Call GetFilter() to implicitly add filter to the block_cache
-      auto filter_entry = new_table->GetFilter(prefix_extractor);
+      auto filter_entry = new_table->GetFilter(prefix_extractor_to_use);
       if (filter_entry.value != nullptr && prefetch_all) {
-        filter_entry.value->CacheDependencies(pin_all, prefix_extractor);
+        filter_entry.value->CacheDependencies(pin_all, prefix_extractor_to_use);
       }
       // if pin_filter is true then save it in rep_->filter_entry; it will be
       // released in the destructor only, hence it will be pinned in the
@@ -997,12 +1007,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         const bool is_a_filter_partition = true;
         auto filter =
             new_table->ReadFilter(prefetch_buffer.get(), rep->filter_handle,
-                                  !is_a_filter_partition, prefix_extractor);
+                                  !is_a_filter_partition, prefix_extractor_to_use);
         rep->filter.reset(filter);
         // Refer to the comment above about paritioned indexes always being
         // cached
         if (filter && (prefetch_index_and_filter_in_cache || level == 0)) {
-          filter->CacheDependencies(pin_all, prefix_extractor);
+          filter->CacheDependencies(pin_all, prefix_extractor_to_use);
         }
       }
     } else {
@@ -1816,13 +1826,17 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       if (prefix_extractor_changed &&
-          !filter->IsFilterCompatible(read_options, user_key,
-                                      rep_->table_prefix_extractor.get())) {
+          !filter->IsFilterCompatible(
+              read_options, user_key, rep_->table_prefix_extractor.get(),
+              rep_->internal_comparator.user_comparator())) {
           return true;
       }
       may_match = filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(), kNotValid,
                                          false, const_ikey_ptr);
     } else {
+      if (prefix_extractor_changed) {
+        return true;
+      }
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
 

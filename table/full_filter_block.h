@@ -110,7 +110,8 @@ class FullFilterBlockReader : public FilterBlockReader {
   virtual size_t ApproximateMemoryUsage() const override;
   virtual bool IsFilterCompatible(
       const ReadOptions& read_options, const Slice& user_key,
-      const SliceTransform* prefix_extractor) override;
+      const SliceTransform* prefix_extractor,
+      const Comparator* comparator) override;
 
  private:
   const SliceTransform* prefix_extractor_;
@@ -118,6 +119,8 @@ class FullFilterBlockReader : public FilterBlockReader {
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   BlockContents block_contents_;
   std::unique_ptr<const char[]> filter_data_;
+  bool full_length_enabled_;
+  size_t prefix_extractor_full_length_;
 
   // No copying allowed
   FullFilterBlockReader(const FullFilterBlockReader&);

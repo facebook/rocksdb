@@ -98,6 +98,10 @@ FullFilterBlockReader::FullFilterBlockReader(
       contents_(contents) {
   assert(filter_bits_reader != nullptr);
   filter_bits_reader_.reset(filter_bits_reader);
+  if (prefix_extractor_ != nullptr) {
+    full_length_enabled_ =
+        prefix_extractor_->FullLengthEnabled(&prefix_extractor_full_length_);
+  }
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
@@ -156,7 +160,9 @@ size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
 
 bool FullFilterBlockReader::IsFilterCompatible(
     const ReadOptions& read_options, const Slice& user_key,
-    const SliceTransform* table_prefix_extractor) {
+    const SliceTransform* table_prefix_extractor,
+    const Comparator* comparator) {
+  // TODO (Zhongyi): consider removing table_prefix_extractor
   // Try to reuse the bloom filter in the SST table if prefix_extractor in
   // mutable_cf_options has changed. If range [user_key, upper_bound) all
   // share the same prefix then we may still be able to use the bloom filter.
@@ -176,14 +182,10 @@ bool FullFilterBlockReader::IsFilterCompatible(
       // keys in the range [user_key, upper_bound) share the same prefix.
       // Also need to make sure upper_bound are full length to ensure
       // correctness
-      size_t full_length;
-      bool full_length_enabled =
-          table_prefix_extractor->FullLengthEnabled(&full_length);
-      if (!full_length_enabled ||
-          read_options.iterate_upper_bound->size() != full_length ||
-            !BytewiseComparator()->IsSameLengthImmediateSuccessor(
-              user_key_xform,
-              *read_options.iterate_upper_bound)) {
+      if (!full_length_enabled_ ||
+          read_options.iterate_upper_bound->size() != prefix_extractor_full_length_ ||
+            !comparator->IsSameLengthImmediateSuccessor(
+                user_key_xform, *read_options.iterate_upper_bound)) {
         // TODO(Zhongyi): delete debug code before merging
         // fprintf(stdout, "[full filter] BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
         // "%s, upper_bound_xform = %s transformed into different prefix, not "

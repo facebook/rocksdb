@@ -176,10 +176,6 @@ class InternalKeyComparator
   virtual const Comparator* GetRootComparator() const override {
     return user_comparator_->GetRootComparator();
   }
-  virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
-                                              const Slice& t) const override {
-    return user_comparator_->IsSameLengthImmediateSuccessor(s, t);
-  }
 };
 
 // Modules in this directory should keep internal keys wrapped inside
