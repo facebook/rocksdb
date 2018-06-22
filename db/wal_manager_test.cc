@@ -79,7 +79,7 @@ class WalManagerTest : public testing::Test {
     unique_ptr<WritableFile> file;
     ASSERT_OK(env_->NewWritableFile(fname, &file, env_options_));
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), env_options_));
+        new WritableFileWriter(std::move(file), fname, env_options_));
     current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
   }
 
@@ -130,7 +130,7 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
   ASSERT_EQ(s, 0U);
 
   unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), EnvOptions()));
+      new WritableFileWriter(std::move(file), path, EnvOptions()));
   log::Writer writer(std::move(file_writer), 1,
                      db_options_.recycle_log_file_num > 0);
   WriteBatch batch;

@@ -93,7 +93,7 @@ Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
     return s;
   }
 
-  WritableFileWriter file_writer(std::move(file), EnvOptions());
+  WritableFileWriter file_writer(std::move(file), fname, EnvOptions());
 
   uint32_t id = GetAndWriteNextID(&file_writer);
   file_system_.files.insert({id, std::move(file_contents)});

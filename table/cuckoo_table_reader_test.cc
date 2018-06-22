@@ -96,7 +96,7 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(writable_file), env_options));
+        new WritableFileWriter(std::move(writable_file), fname, env_options));
 
     CuckooTableBuilder builder(
         file_writer.get(), 0.9, kNumHashFunc, 100, ucomp, 2, false, false,
@@ -412,7 +412,7 @@ void WriteFile(const std::vector<std::string>& keys,
   std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(writable_file), env_options));
+      new WritableFileWriter(std::move(writable_file), fname, env_options));
   CuckooTableBuilder builder(
       file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
       false, FLAGS_identity_as_first_hash, nullptr, 0 /* column_family_id */,

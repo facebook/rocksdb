@@ -1214,7 +1214,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   }
 
   unique_ptr<WritableFileWriter> dest_writer(
-      new WritableFileWriter(std::move(dst_file), env_options));
+      new WritableFileWriter(std::move(dst_file), dst, env_options));
   unique_ptr<SequentialFileReader> src_reader;
   unique_ptr<char[]> buf;
   if (!src.empty()) {

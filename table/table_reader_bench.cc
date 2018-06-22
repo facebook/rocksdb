@@ -94,7 +94,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
 
-    file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+    file_writer.reset(
+        new WritableFileWriter(std::move(file), file_name, env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
