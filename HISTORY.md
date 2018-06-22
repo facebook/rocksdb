@@ -4,6 +4,9 @@
 * Change default value of `bytes_max_delete_chunk` to 0 in NewSstFileManager() as it doesn't work well with checkpoints.
 * Set DEBUG_LEVEL=0 for RocksJava Mac Release build.
 
+### New Features
+* pin_top_level_index_and_filter (default true) in BlockBasedTableOptions can be used in combination with cache_index_and_filter_blocks to prefetch and pin the top-level index of partitioned index and filter blocks in cache. It has no impact when cache_index_and_filter_blocks is false.
+
 ## 5.14.1 (6/20/2018)
 ### Bug Fixes
 * Fix block-based table reader pinning blocks throughout its lifetime, causing memory usage increase.
