@@ -957,19 +957,19 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       }
     }
     if (s.ok() && prefetch_filter) {
-        // Hack: Call GetFilter() to implicitly add filter to the block_cache
-        auto filter_entry = new_table->GetFilter(prefix_extractor);
-        if (filter_entry.value != nullptr && prefetch_all) {
-          filter_entry.value->CacheDependencies(pin_all, prefix_extractor);
-        }
-        // if pin_filter is true then save it in rep_->filter_entry; it will be
-        // released in the destructor only, hence it will be pinned in the
-        // cache while this reader is alive
-        if (pin_filter) {
-          rep->filter_entry = filter_entry;
-        } else {
-          filter_entry.Release(table_options.block_cache.get());
-        }
+      // Hack: Call GetFilter() to implicitly add filter to the block_cache
+      auto filter_entry = new_table->GetFilter(prefix_extractor);
+      if (filter_entry.value != nullptr && prefetch_all) {
+        filter_entry.value->CacheDependencies(pin_all, prefix_extractor);
+      }
+      // if pin_filter is true then save it in rep_->filter_entry; it will be
+      // released in the destructor only, hence it will be pinned in the
+      // cache while this reader is alive
+      if (pin_filter) {
+        rep->filter_entry = filter_entry;
+      } else {
+        filter_entry.Release(table_options.block_cache.get());
+      }
     }
   } else {
     // If we don't use block cache for index/filter blocks access, we'll
