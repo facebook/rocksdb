@@ -6,10 +6,12 @@
 
 ### New Features
 * Changes the format of index blocks by storing the key in their raw form rather than converting them to InternalKey. This saves 8 bytes per index key. The feature is backward compatbile but not forward compatible. It is disabled by default unless format_version 3 or above is used.
+* Improve the performance of iterators doing long range scans by using readahead, when using direct IO.
 
 ### Bug Fixes
 * fix deadlock with enable_pipelined_write=true and max_successive_merges > 0
 * Fix corruption in non-iterator reads when mmap is used for file reads
+* Fix bug with prefix search in partition filters where a shared prefix would be ignored from the later partitions. The bug could report an eixstent key as missing. The bug could be triggered if prefix_extractor is set and partition filters is enabled.
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change

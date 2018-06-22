@@ -160,8 +160,8 @@ class LogTest : public ::testing::TestWithParam<int> {
       : reader_contents_(),
         dest_holder_(test::GetWritableFileWriter(
             new test::StringSink(&reader_contents_))),
-        source_holder_(
-            test::GetSequentialFileReader(new StringSource(reader_contents_))),
+        source_holder_(test::GetSequentialFileReader(
+            new StringSource(reader_contents_), "" /* file name */)),
         writer_(std::move(dest_holder_), 123, GetParam()),
         reader_(nullptr, std::move(source_holder_), &report_, true /*checksum*/,
                 0 /*initial_offset*/, 123) {
@@ -268,8 +268,8 @@ class LogTest : public ::testing::TestWithParam<int> {
 
   void CheckOffsetPastEndReturnsNoRecords(uint64_t offset_past_end) {
     WriteInitialOffsetLog();
-    unique_ptr<SequentialFileReader> file_reader(
-        test::GetSequentialFileReader(new StringSource(reader_contents_)));
+    unique_ptr<SequentialFileReader> file_reader(test::GetSequentialFileReader(
+        new StringSource(reader_contents_), "" /* fname */));
     unique_ptr<Reader> offset_reader(
         new Reader(nullptr, std::move(file_reader), &report_,
                    true /*checksum*/, WrittenBytes() + offset_past_end, 123));
@@ -281,8 +281,8 @@ class LogTest : public ::testing::TestWithParam<int> {
   void CheckInitialOffsetRecord(uint64_t initial_offset,
                                 int expected_record_offset) {
     WriteInitialOffsetLog();
-    unique_ptr<SequentialFileReader> file_reader(
-        test::GetSequentialFileReader(new StringSource(reader_contents_)));
+    unique_ptr<SequentialFileReader> file_reader(test::GetSequentialFileReader(
+        new StringSource(reader_contents_), "" /* fname */));
     unique_ptr<Reader> offset_reader(
         new Reader(nullptr, std::move(file_reader), &report_,
                    true /*checksum*/, initial_offset, 123));

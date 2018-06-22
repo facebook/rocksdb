@@ -577,7 +577,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           continue;
         }
       }
-      file_reader.reset(new SequentialFileReader(std::move(file)));
+      file_reader.reset(new SequentialFileReader(std::move(file), fname));
     }
 
     // Create the log reader.
