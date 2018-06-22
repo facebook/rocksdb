@@ -44,7 +44,7 @@ class Status {
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
-  enum Code {
+  enum Code : unsigned char {
     kOk = 0,
     kNotFound = 1,
     kCorruption = 2,
@@ -64,7 +64,7 @@ class Status {
 
   Code code() const { return code_; }
 
-  enum SubCode {
+  enum SubCode : unsigned char {
     kNone = 0,
     kMutexTimeout = 1,
     kLockTimeout = 2,
