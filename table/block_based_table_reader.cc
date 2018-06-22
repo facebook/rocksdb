@@ -898,17 +898,39 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                                 rep->ioptions.info_log);
   }
 
-  const bool pin =
+  // prefetch both index and filters, down to all partitions
+  const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
+  BlockBasedTableOptions::IndexType index_type = new_table->UpdateIndexType();
+  // prefetch the first level of index
+  const bool prefetch_index =
+      prefetch_all ||
+      (table_options.pin_top_level_index_and_filter &&
+       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+  // prefetch the first level of filter
+  const bool prefetch_filter =
+      prefetch_all || (table_options.pin_top_level_index_and_filter &&
+                       rep->filter_type == Rep::FilterType::kPartitionedFilter);
+  // Partition fitlers cannot be enabled without partition indexes
+  assert(!prefetch_index || prefetch_filter);
+  // pin both index and filters, down to all partitions
+  const bool pin_all =
       rep->table_options.pin_l0_filter_and_index_blocks_in_cache && level == 0;
+  // pin the first level of index
+  const bool pin_index =
+      pin_all || (table_options.pin_top_level_index_and_filter &&
+                  index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+  // pin the first level of filter
+  const bool pin_filter =
+      pin_all || (table_options.pin_top_level_index_and_filter &&
+                  rep->filter_type == Rep::FilterType::kPartitionedFilter);
   // pre-fetching of blocks is turned on
   // Will use block cache for index/filter blocks access
   // Always prefetch index and filter for level 0
   if (table_options.cache_index_and_filter_blocks) {
-    if (prefetch_index_and_filter_in_cache || level == 0) {
-      assert(table_options.block_cache != nullptr);
+    assert(table_options.block_cache != nullptr);
+    if (prefetch_index) {
       // Hack: Call NewIndexIterator() to implicitly add index to the
       // block_cache
-
       CachableEntry<IndexReader> index_entry;
       bool prefix_extractor_changed = false;
       // check prefix_extractor match only if hash based index is used
@@ -924,27 +946,29 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         // On success it should give us ownership of the `CachableEntry` by
         // populating `index_entry`.
         assert(index_entry.value != nullptr);
-        index_entry.value->CacheDependencies(pin);
-        if (pin) {
+        if (prefetch_all) {
+          index_entry.value->CacheDependencies(pin_all);
+        }
+        if (pin_index) {
           rep->index_entry = std::move(index_entry);
         } else {
           index_entry.Release(table_options.block_cache.get());
         }
-
-        // Hack: Call GetFilter() to implicitly add filter to the block_cache
-        auto filter_entry = new_table->GetFilter(prefix_extractor);
-        if (filter_entry.value != nullptr) {
-          filter_entry.value->CacheDependencies(pin, prefix_extractor);
-        }
-        // if pin_l0_filter_and_index_blocks_in_cache is true, and this is
-        // a level0 file, then save it in rep_->filter_entry; it will be
-        // released in the destructor only, hence it will be pinned in the
-        // cache while this reader is alive
-        if (pin) {
-          rep->filter_entry = filter_entry;
-        } else {
-          filter_entry.Release(table_options.block_cache.get());
-        }
+      }
+    }
+    if (s.ok() && prefetch_filter) {
+      // Hack: Call GetFilter() to implicitly add filter to the block_cache
+      auto filter_entry = new_table->GetFilter(prefix_extractor);
+      if (filter_entry.value != nullptr && prefetch_all) {
+        filter_entry.value->CacheDependencies(pin_all, prefix_extractor);
+      }
+      // if pin_filter is true then save it in rep_->filter_entry; it will be
+      // released in the destructor only, hence it will be pinned in the
+      // cache while this reader is alive
+      if (pin_filter) {
+        rep->filter_entry = filter_entry;
+      } else {
+        filter_entry.Release(table_options.block_cache.get());
       }
     }
   } else {
@@ -960,7 +984,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // are hence follow the configuration for pin and prefetch regardless of
       // the value of cache_index_and_filter_blocks
       if (prefetch_index_and_filter_in_cache || level == 0) {
-        rep->index_reader->CacheDependencies(pin);
+        rep->index_reader->CacheDependencies(pin_all);
       }
 
       // Set filter block
@@ -973,7 +997,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         // Refer to the comment above about paritioned indexes always being
         // cached
         if (filter && (prefetch_index_and_filter_in_cache || level == 0)) {
-          filter->CacheDependencies(pin, prefix_extractor);
+          filter->CacheDependencies(pin_all, prefix_extractor);
         }
       }
     } else {
@@ -2419,18 +2443,11 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
   return in_cache;
 }
 
-// REQUIRES: The following fields of rep_ should have already been populated:
-//  1. file
-//  2. index_handle,
-//  3. options
-//  4. internal_comparator
-//  5. index_type
-Status BlockBasedTable::CreateIndexReader(
-    FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
-    InternalIterator* preloaded_meta_index_iter, int level) {
+BlockBasedTableOptions::IndexType BlockBasedTable::UpdateIndexType() {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
-  auto index_type_on_file = BlockBasedTableOptions::kBinarySearch;
+  BlockBasedTableOptions::IndexType index_type_on_file =
+      BlockBasedTableOptions::kBinarySearch;
   if (rep_->table_properties) {
     auto& props = rep_->table_properties->user_collected_properties;
     auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
@@ -2441,6 +2458,19 @@ Status BlockBasedTable::CreateIndexReader(
       rep_->index_type = index_type_on_file;
     }
   }
+  return index_type_on_file;
+}
+
+// REQUIRES: The following fields of rep_ should have already been populated:
+//  1. file
+//  2. index_handle,
+//  3. options
+//  4. internal_comparator
+//  5. index_type
+Status BlockBasedTable::CreateIndexReader(
+    FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
+    InternalIterator* preloaded_meta_index_iter, int level) {
+  auto index_type_on_file = UpdateIndexType();
 
   auto file = rep_->file.get();
   const InternalKeyComparator* icomparator = &rep_->internal_comparator;

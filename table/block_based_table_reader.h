@@ -322,6 +322,9 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
 
+  // Figure the index type, update it in rep_, and also return it.
+  BlockBasedTableOptions::IndexType UpdateIndexType();
+
   // Create a index reader based on the index type stored in the table.
   // Optionally, user can pass a preloaded meta_index_iter for the index that
   // need to access extra meta blocks for index construction. This parameter
@@ -478,11 +481,12 @@ struct BlockBasedTable::Rep {
   // block to extract prefix without knowing if a key is internal or not.
   unique_ptr<SliceTransform> internal_prefix_transform;
 
-  // only used in level 0 files:
-  // when pin_l0_filter_and_index_blocks_in_cache is true, we do use the
-  // LRU cache, but we always keep the filter & idndex block's handle checked
-  // out here (=we don't call Release()), plus the parsed out objects
-  // the LRU cache will never push flush them out, hence they're pinned
+  // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is
+  // true or in all levels when pin_top_level_index_and_filter is set in
+  // combination with partitioned index/filters: then we do use the LRU cache,
+  // but we always keep the filter & index block's handle checked out here (=we
+  // don't call Release()), plus the parsed out objects the LRU cache will never
+  // push flush them out, hence they're pinned
   CachableEntry<FilterBlockReader> filter_entry;
   CachableEntry<IndexReader> index_entry;
   // range deletion meta-block is pinned through reader's lifetime when LRU
