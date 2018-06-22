@@ -82,7 +82,7 @@ struct BlockBasedTableOptions {
   // the cache, but a reference is held in the "table reader" object so the
   // blocks are pinned and only evicted from cache when the table reader is
   // freed. This is not limited to l0 in LSM tree.
-  bool pin_top_level_index_and_filter = false;
+  bool pin_top_level_index_and_filter = true;
 
   // The index type that will be used for this table.
   enum IndexType : char {
