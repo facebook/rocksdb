@@ -222,7 +222,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   CompressionType bottommost_compression = kDisableCompressionOption;
 
   // different options for compression algorithms used by bottommost_compression
-  // if it is enabled
+  // if it is enabled. To enable it, please see the definition of
+  // CompressionOptions.
   CompressionOptions bottommost_compression_opts;
 
   // different options for compression algorithms

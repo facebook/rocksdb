@@ -1072,14 +1072,10 @@ TEST_F(DBTest2, PresetCompressionDict) {
         case 0:
           options.compression_opts.max_dict_bytes = 0;
           options.compression_opts.zstd_max_train_bytes = 0;
-          options.bottommost_compression_opts.max_dict_bytes = 0;
-          options.bottommost_compression_opts.zstd_max_train_bytes = 0;
           break;
         case 1:
           options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = 0;
-          options.bottommost_compression_opts.max_dict_bytes = kBlockSizeBytes;
-          options.bottommost_compression_opts.zstd_max_train_bytes = 0;
           break;
         case 2:
           if (compression_type != kZSTD) {
@@ -1087,9 +1083,6 @@ TEST_F(DBTest2, PresetCompressionDict) {
           }
           options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes =
-              kZstdTrainFactor * kBlockSizeBytes;
-          options.bottommost_compression_opts.max_dict_bytes = kBlockSizeBytes;
-          options.bottommost_compression_opts.zstd_max_train_bytes =
               kZstdTrainFactor * kBlockSizeBytes;
           break;
         default:

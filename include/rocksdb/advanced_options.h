@@ -127,8 +127,12 @@ struct CompressionOptions {
   uint32_t zstd_max_train_bytes;
 
   // When the compression options are set by the user, it will be set to "true".
-  // For bottommost_compression_opts, if it is not set by the user,
-  // compression_opts will be used as default.
+  // For bottommost_compression_opts, to enable it, user must set enabled=true.
+  // Otherwise, bottommost compression will use compression_opts as default
+  // compression options.
+  //
+  // For compression_opts, if compression_opts.enabled=false, it is still
+  // used as compression options for compression process.
   //
   // Default: false.
   bool enabled;
