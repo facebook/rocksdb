@@ -161,6 +161,30 @@ class BlobDBTest : public testing::Test {
     }
   }
 
+  void PutForRange(const std::string &key, const std::string &value,
+                     std::map<std::string, std::string> *data ) {
+    ASSERT_OK(blob_db_->Put(WriteOptions(),Slice(key),Slice(value)));
+    if (data != nullptr) {
+      (*data)[key] = value;
+    }
+  }
+
+  void DeleteRange(const std::string &begin_key, const std::string &end_key,
+                     std::map<std::string, std::string> *data ) {
+    ASSERT_OK(blob_db_->DeleteRange(WriteOptions(), blob_db_->DefaultColumnFamily(), begin_key, end_key));
+
+    if (data != nullptr) {
+      std::map<std::string, std::string>::iterator itr;
+      for (itr = data->begin(); itr != data->end();) {
+        if (itr->first.compare(begin_key) >= 0 && itr->first.compare(end_key) < 0) {
+          data->erase(itr++);
+        } else {
+          itr++;
+        }
+      }
+    }
+  }
+
   // Verify blob db contain expected data and nothing more.
   void VerifyDB(const std::map<std::string, std::string> &data) {
     VerifyDB(blob_db_, data);
@@ -569,6 +593,33 @@ TEST_F(BlobDBTest, DeleteBatch) {
   ASSERT_OK(blob_db_->Write(WriteOptions(), &batch));
   // DB should be empty.
   VerifyDB({});
+}
+
+TEST_F(BlobDBTest, DeleteRange) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  for (size_t i = 100; i < 200; i++) {
+    PutForRange("key-" + ToString(i), "value-" + ToString(i), &data);
+  }
+  std::string v0;
+  ASSERT_OK(blob_db_->Get(ReadOptions(), Slice("key-103"), &v0));
+  ASSERT_EQ("value-103", v0);
+
+  VerifyDB(data);
+
+  DeleteRange("key-" + ToString(105), "key-" + ToString(180), &data);
+  VerifyDB(data);
+  std::string v;
+  ASSERT_OK(blob_db_->Get(ReadOptions(), Slice("key-103"), &v));
+  ASSERT_EQ("value-103", v);
+  std::string v2;
+  ASSERT_NOK(blob_db_->Get(ReadOptions(), Slice("key-160"), &v2));
+
+  DeleteRange("key-" + ToString(100), "key-" + ToString(200), &data);
+  VerifyDB(data);
 }
 
 TEST_F(BlobDBTest, Override) {
