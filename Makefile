@@ -85,6 +85,10 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
 	DEBUG_LEVEL=0
 endif
 
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
+        DEBUG_LEVEL=0
+endif
+
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 	DEBUG_LEVEL=0
 endif
