@@ -449,6 +449,77 @@ TEST_P(ComparatorDBTest, TwoStrComparator) {
   }
 }
 
+TEST_P(ComparatorDBTest, IsSameLengthImmediateSuccessor) {
+  {
+    Slice s("abcxy");
+    Slice t("abcxyz");
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              false);
+  }
+  {
+    Slice s("abcxyz");
+    Slice t("abcxy");
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              false);
+  }
+  {
+    Slice s("abc1xyz");
+    Slice t("abc2xyz");
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              false);
+  }
+  {
+    Slice s("abcxyz");
+    Slice t("abcxyz");
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              false);
+  }
+  {
+    Slice s("abcxy");
+    Slice t("abcxz");
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              true);
+  }
+  {
+    Slice s("abcxz");
+    Slice t("abcxy");
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              false);
+  }
+  {
+    const char s_array[] = "\x50\x8a\xac";
+    const char t_array[] = "\x50\x8a\xad";
+    Slice s(s_array);
+    Slice t(t_array);
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              true);
+  }
+  {
+    const char s_array[] = "\x50\x8a\xff";
+    const char t_array[] = "\x50\x8b\x00";
+    Slice s(s_array, 3);
+    Slice t(t_array, 3);
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              true);
+  }
+  {
+    const char s_array[] = "\x50\x8a\xff\xff";
+    const char t_array[] = "\x50\x8b\x00\x00";
+    Slice s(s_array, 4);
+    Slice t(t_array, 4);
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              true);
+  }
+  {
+    const char s_array[] = "\x50\x8a\xff\xff";
+    const char t_array[] = "\x50\x8b\x00\x01";
+    Slice s(s_array, 4);
+    Slice t(t_array, 4);
+    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
+              false);
+  }
+}
+
 TEST_P(ComparatorDBTest, FindShortestSeparator) {
   std::string s1 = "abc1xyz";
   std::string s2 = "abc3xy";

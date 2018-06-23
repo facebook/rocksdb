@@ -1120,6 +1120,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     options.statistics = CreateDBStatistics();
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
+    table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1252,6 +1253,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     BlockBasedTableOptions table_options;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.cache_index_and_filter_blocks = true;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
@@ -1379,6 +1381,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     options.statistics = CreateDBStatistics();
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
+    table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1438,6 +1441,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     options.statistics = CreateDBStatistics();
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
+    table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));

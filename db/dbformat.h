@@ -549,10 +549,6 @@ class InternalKeySliceTransform : public SliceTransform {
     return transform_->InRange(user_key);
   }
 
-  virtual bool FullLengthEnabled(size_t* len) const override {
-    return transform_->FullLengthEnabled(len);
-  }
-
   const SliceTransform* user_prefix_extractor() const { return transform_; }
 
  private:

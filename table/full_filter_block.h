@@ -110,7 +110,6 @@ class FullFilterBlockReader : public FilterBlockReader {
   virtual size_t ApproximateMemoryUsage() const override;
   virtual bool IsFilterCompatible(
       const ReadOptions& read_options, const Slice& user_key,
-      const SliceTransform* prefix_extractor,
       const Comparator* comparator) override;
 
  private:

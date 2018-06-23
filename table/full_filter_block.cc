@@ -160,20 +160,19 @@ size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
 
 bool FullFilterBlockReader::IsFilterCompatible(
     const ReadOptions& read_options, const Slice& user_key,
-    const SliceTransform* table_prefix_extractor,
     const Comparator* comparator) {
   // TODO (Zhongyi): consider removing table_prefix_extractor
   // Try to reuse the bloom filter in the SST table if prefix_extractor in
   // mutable_cf_options has changed. If range [user_key, upper_bound) all
   // share the same prefix then we may still be able to use the bloom filter.
-  if (read_options.iterate_upper_bound != nullptr && table_prefix_extractor) {
-    if (!table_prefix_extractor->InDomain(user_key) ||
-        !table_prefix_extractor->InDomain(
+  if (read_options.iterate_upper_bound != nullptr && prefix_extractor_) {
+    if (!prefix_extractor_->InDomain(user_key) ||
+        !prefix_extractor_->InDomain(
             *read_options.iterate_upper_bound)) {
       return false;
     }
-    Slice user_key_xform = table_prefix_extractor->Transform(user_key);
-    Slice upper_bound_xform = table_prefix_extractor->Transform(
+    Slice user_key_xform = prefix_extractor_->Transform(user_key);
+    Slice upper_bound_xform = prefix_extractor_->Transform(
         *read_options.iterate_upper_bound);
     // first check if user_key and upper_bound all share the same prefix
     if (user_key_xform.compare(upper_bound_xform) != 0) {
@@ -190,7 +189,7 @@ bool FullFilterBlockReader::IsFilterCompatible(
         // fprintf(stdout, "[full filter] BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
         // "%s, upper_bound_xform = %s transformed into different prefix, not "
         // "possible\n",
-        //         table_prefix_extractor->Name(),
+        //         prefix_extractor_->Name(),
         //         user_key.ToString().c_str(),
         //         read_options.iterate_upper_bound->ToString().c_str(),
         //         user_key_xform.ToString().c_str(),

@@ -905,15 +905,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   bool prefix_extractor_changed = PrefixExtractorChanged(
       rep->table_properties.get(), prefix_extractor);
-  const SliceTransform* prefix_extractor_to_use = nullptr;
-  // TODO(Zhongyi): make sure it is the right way to set prefix_extractor
-  // for filters
-  if (prefix_extractor_changed && rep->table_prefix_extractor != nullptr) {
-    prefix_extractor_to_use = rep->table_prefix_extractor.get();
-  }
-  else {
-    prefix_extractor_to_use = prefix_extractor;
-  }
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -973,9 +964,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     }
     if (s.ok() && prefetch_filter) {
       // Hack: Call GetFilter() to implicitly add filter to the block_cache
-      auto filter_entry = new_table->GetFilter(prefix_extractor_to_use);
+      auto filter_entry = new_table->GetFilter(rep->table_prefix_extractor.get());
       if (filter_entry.value != nullptr && prefetch_all) {
-        filter_entry.value->CacheDependencies(pin_all, prefix_extractor_to_use);
+        filter_entry.value->CacheDependencies(pin_all, rep->table_prefix_extractor.get());
       }
       // if pin_filter is true then save it in rep_->filter_entry; it will be
       // released in the destructor only, hence it will be pinned in the
@@ -1007,12 +998,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         const bool is_a_filter_partition = true;
         auto filter =
             new_table->ReadFilter(prefetch_buffer.get(), rep->filter_handle,
-                                  !is_a_filter_partition, prefix_extractor_to_use);
+                                  !is_a_filter_partition, rep->table_prefix_extractor.get());
         rep->filter.reset(filter);
         // Refer to the comment above about paritioned indexes always being
         // cached
         if (filter && (prefetch_index_and_filter_in_cache || level == 0)) {
-          filter->CacheDependencies(pin_all, prefix_extractor_to_use);
+          filter->CacheDependencies(pin_all, rep->table_prefix_extractor.get());
         }
       }
     } else {
@@ -1820,21 +1811,22 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   // First, try check with full filter
   auto filter_entry = GetFilter(rep_->table_prefix_extractor.get());
   FilterBlockReader* filter = filter_entry.value;
-  // set prefix using prefix_extractor from the SST
-  auto prefix = rep_->table_prefix_extractor->Transform(user_key);
+  bool filter_checked = true;
   if (filter != nullptr) {
+    // set prefix using prefix_extractor from the SST
+    auto prefix = rep_->table_prefix_extractor->Transform(user_key);
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
-      if (prefix_extractor_changed &&
-          !filter->IsFilterCompatible(
-              read_options, user_key, rep_->table_prefix_extractor.get(),
-              rep_->internal_comparator.user_comparator())) {
-          return true;
-      }
-      may_match = filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(), kNotValid,
-                                         false, const_ikey_ptr);
+      may_match = filter->RangeMayExist(
+          read_options, user_key, rep_->table_prefix_extractor.get(),
+          rep_->internal_comparator.user_comparator(), prefix, kNotValid,
+          false, const_ikey_ptr, &filter_checked, prefix_extractor_changed);
     } else {
+      // if prefix_extractor changed for block based filter, skip filter
       if (prefix_extractor_changed) {
+        if (!rep_->filter_entry.IsSet()) {
+          filter_entry.Release(rep_->table_options.block_cache.get());
+        }
         return true;
       }
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
@@ -1887,15 +1879,18 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         s = handle.DecodeFrom(&handle_value);
         assert(s.ok());
         may_match =
-            filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(), handle.offset());
+            filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(),
+                                   handle.offset());
       }
     }
   }
 
-  Statistics* statistics = rep_->ioptions.statistics;
-  RecordTick(statistics, BLOOM_FILTER_PREFIX_CHECKED);
-  if (!may_match) {
-    RecordTick(statistics, BLOOM_FILTER_PREFIX_USEFUL);
+  if (filter_checked) {
+    Statistics* statistics = rep_->ioptions.statistics;
+    RecordTick(statistics, BLOOM_FILTER_PREFIX_CHECKED);
+    if (!may_match) {
+      RecordTick(statistics, BLOOM_FILTER_PREFIX_USEFUL);
+    }
   }
 
   // if rep_->filter_entry is not set, we should call Release(); otherwise

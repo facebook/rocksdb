@@ -125,9 +125,25 @@ class FilterBlockReader {
 
   virtual bool IsFilterCompatible(
       const ReadOptions& /*read_options*/, const Slice& /*user_key*/,
-      const SliceTransform* /*prefix_extractor*/,
       const Comparator* /*comparator*/) {
     return true;
+  }
+
+  bool RangeMayExist(const ReadOptions& read_options, const Slice& user_key,
+        const SliceTransform* prefix_extractor, const Comparator* comparator,
+        const Slice& prefix, uint64_t block_offset, const bool no_io,
+        const Slice* const const_ikey_ptr, bool* filter_checked,
+        bool prefix_extractor_changed) {
+    if (prefix_extractor_changed &&
+        !IsFilterCompatible(read_options, user_key, comparator)) {
+      *filter_checked = false;
+      return true;
+    }
+    else {
+      *filter_checked = true;
+      return PrefixMayMatch(prefix, prefix_extractor, block_offset, no_io,
+                            const_ikey_ptr);
+    }
   }
 
  protected:
