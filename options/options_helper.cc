@@ -493,6 +493,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<BlockBasedTableOptions::IndexType>(
           block_base_table_index_type_string_map, value,
           reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
+    case OptionType::kBlockBasedTableBlockFormatType:
+      return ParseEnum<BlockBasedTableOptions::BlockFormatType>(
+          block_base_table_block_format_type_string_map, value,
+          reinterpret_cast<BlockBasedTableOptions::BlockFormatType*>(opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
@@ -670,6 +674,12 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<BlockBasedTableOptions::IndexType>(
           block_base_table_index_type_string_map,
           *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
+              opt_address),
+          value);
+    case OptionType::kBlockBasedTableBlockFormatType:
+      return SerializeEnum<BlockBasedTableOptions::BlockFormatType>(
+          block_base_table_block_format_type_string_map,
+          *reinterpret_cast<const BlockBasedTableOptions::BlockFormatType*>(
               opt_address),
           value);
     case OptionType::kFlushBlockPolicyFactory: {
@@ -1525,6 +1535,13 @@ std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
         {"kTwoLevelIndexSearch",
          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}};
+
+std::unordered_map<std::string, BlockBasedTableOptions::BlockFormatType>
+    OptionsHelper::block_base_table_block_format_type_string_map = {
+        {"kBinarySearchBlockType",
+         BlockBasedTableOptions::BlockFormatType::kBinarySearchBlockType},
+        {"kSuffixHashBlockType",
+         BlockBasedTableOptions::BlockFormatType::kSuffixHashBlockType}};
 
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},

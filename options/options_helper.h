@@ -69,6 +69,7 @@ enum class OptionType {
   kMergeOperator,
   kMemTableRepFactory,
   kBlockBasedTableIndexType,
+  kBlockBasedTableBlockFormatType,
   kFilterPolicy,
   kFlushBlockPolicyFactory,
   kChecksumType,
@@ -159,6 +160,8 @@ struct OptionsHelper {
       lru_cache_options_type_info;
   static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
       block_base_table_index_type_string_map;
+  static std::unordered_map<std::string, BlockBasedTableOptions::BlockFormatType>
+      block_base_table_block_format_type_string_map;
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
   static std::unordered_map<std::string, CompactionStyle>
       compaction_style_string_map;
@@ -199,6 +202,8 @@ static auto& compression_type_string_map =
     OptionsHelper::compression_type_string_map;
 static auto& block_base_table_index_type_string_map =
     OptionsHelper::block_base_table_index_type_string_map;
+static auto& block_base_table_block_format_type_string_map =
+    OptionsHelper::block_base_table_block_format_type_string_map;
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
 static auto& compaction_style_string_map =
     OptionsHelper::compaction_style_string_map;
