@@ -1902,7 +1902,8 @@ class StressTest {
         }
       }
 
-      std::vector<int> rand_column_families = GenerateColumnFamilies(rand_column_family);
+      std::vector<int> rand_column_families =
+          GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (FLAGS_ingest_external_file_one_in > 0 &&
@@ -1982,6 +1983,7 @@ class StressTest {
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
 
   virtual std::vector<int> GenerateColumnFamilies(
+      const int /* num_column_families */,
       int rand_column_family) const {
     return {rand_column_family};
   }
