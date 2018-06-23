@@ -9,9 +9,10 @@
 
 #pragma once
 #include <vector>
-
+#include <memory>
 #include <stdint.h>
 #include "rocksdb/slice.h"
+#include "table/block_suffix_index.h"
 
 namespace rocksdb {
 
@@ -51,7 +52,6 @@ class BlockBuilder {
  private:
   const int          block_restart_interval_;
   const bool         use_delta_encoding_;
-  const bool         use_suffix_index_;
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
@@ -59,6 +59,8 @@ class BlockBuilder {
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
+
+  std::unique_ptr<BlockSuffixIndexBuilder> suffix_index_builder_;
 };
 
 }  // namespace rocksdb

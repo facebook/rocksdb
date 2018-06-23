@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <assert.h>
 #include "rocksdb/comparator.h"
+#include "table/block_suffix_index.h"
 #include "db/dbformat.h"
 #include "util/coding.h"
 
@@ -45,10 +46,13 @@ BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding,
                            bool use_suffix_index)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
-      use_suffix_index_(use_suffix_index),
       restarts_(),
       counter_(0),
-      finished_(false) {
+      finished_(false),
+      suffix_index_builder_(
+          use_suffix_index ?
+          new BlockSuffixIndexBuilder(100 /* num_bucket */) :
+          nullptr){ // TODO(fwu) adjustable bucket_num
   assert(block_restart_interval_ >= 1);
   restarts_.push_back(0);       // First restart point is at offset 0
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
@@ -62,6 +66,8 @@ void BlockBuilder::Reset() {
   counter_ = 0;
   finished_ = false;
   last_key_.clear();
+  if (suffix_index_builder_)
+    suffix_index_builder_->Reset();
 }
 
 size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
@@ -85,6 +91,10 @@ Slice BlockBuilder::Finish() {
     PutFixed32(&buffer_, restarts_[i]);
   }
   PutFixed32(&buffer_, static_cast<uint32_t>(restarts_.size()));
+  if (suffix_index_builder_) {
+    suffix_index_builder_->Finish(buffer_);
+    estimate_ += suffix_index_builder_->EstimateSize();
+  }
   finished_ = true;
   return Slice(buffer_);
 }
