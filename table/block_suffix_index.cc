@@ -24,45 +24,49 @@ void BlockSuffixIndexBuilder::Add(const Slice& key, const uint32_t& pos) {
   buckets_[idx].push_back(pos);
 }
 
-std::string BlockSuffixIndexBuilder::Finish() {
-  std::string index_content;
-
-  // offset is relative to the start of map
+void BlockSuffixIndexBuilder::Finish(std::string& buffer) {
+  // offset is the byte offset within the buffer
   std::vector<uint32_t> bucket_offsets(num_buckets_, 0);
+
+  uint32_t map_start = static_cast<uint32_t>(buffer.size());
 
   // write each bucket to the string
   for (uint32_t i = 0; i < num_buckets_; i++) {
     // remember the start offset of the buckets in bucket_offsets
-    bucket_offsets[i] = static_cast<uint32_t>(index_content.size());
+    bucket_offsets[i] = static_cast<uint32_t>(buffer.size());
     for (uint32_t restart_offset : buckets_[i])
-      PutFixed32(&index_content, restart_offset);
+      PutFixed32(&buffer, restart_offset);
   }
 
   // write the bucket_offsets
   for (uint32_t i = 0; i < num_buckets_; i++) {
-    PutFixed32(&index_content, bucket_offsets[i]);
+    PutFixed32(&buffer, bucket_offsets[i]);
   }
 
   // write NUM_BUCK
-  PutFixed32(&index_content, num_buckets_);
+  PutFixed32(&buffer, num_buckets_);
 
-  // write MAP_SIZE
-  uint32_t map_size = static_cast<uint32_t>(index_content.size() +
-                                            sizeof(uint32_t)); /* MAP_SIZE */;
-  PutFixed32(&index_content, map_size);
-
-  return index_content;
+  // write MAP_START
+  PutFixed32(&buffer, map_start);
 }
 
-BlockSuffixIndex::BlockSuffixIndex(std::string& s) {
-  assert(s.size() >= 2 * sizeof(uint32_t));  // NUM_BUCK and MAP_SIZE
-  suffix_index_ = s;                         // can we avoid this memory copy?
+void BlockSuffixIndexBuilder::Reset() {
+  // TODO(fwu)
+}
 
-  data_ = suffix_index_.data();
-  size_ = static_cast<uint32_t>(suffix_index_.size());
+size_t BlockSuffixIndexBuilder::EstimateSize() {
+  // TODO(fwu)
+  return 0;
+}
 
-  map_size_ = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
-  assert(map_size_ > 0);
+BlockSuffixIndex::BlockSuffixIndex(std::string& buffer) {
+  assert(buffer.size() >= 2 * sizeof(uint32_t));  // NUM_BUCK and MAP_START
+
+  data_ = buffer.data();
+  size_ = static_cast<uint32_t>(buffer.size());
+
+  map_start_ = data_ + DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  assert(map_start_ < data_ + size_);
 
   num_buckets_ = DecodeFixed32(data_ + size_ - 2 * sizeof(uint32_t));
   assert(num_buckets_ > 0);
@@ -70,9 +74,7 @@ BlockSuffixIndex::BlockSuffixIndex(std::string& s) {
   assert(size_ >= sizeof(uint32_t) * (2 + num_buckets_));
   bucket_table_ = data_ + size_ - sizeof(uint32_t) * (2 + num_buckets_);
 
-  assert(size_ >= map_size_);
-  map_start_ = data_ + size_ - map_size_;
-  assert(map_start_ <= bucket_table_);
+  assert(map_start_ <  bucket_table_);
 }
 
 bool BlockSuffixIndex::Seek(const Slice& key,

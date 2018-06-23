@@ -36,9 +36,11 @@ TEST(BlockTest, BlockSuffixTest) {
     builder.Add(key, restart_point);
   }
 
-  std::string suffix_index_content = builder.Finish();
+  std::string buffer, buffer2;
+  builder.Finish(buffer);
+  buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(suffix_index_content);
+  BlockSuffixIndex index(buffer2);
 
   for (uint32_t i = 0; i < 100; i++) {
     Slice key("key" + std::to_string(i));
@@ -57,9 +59,13 @@ TEST(BlockTest, BlockSuffixTestCollision) {
     builder.Add(key, restart_point);
   }
 
-  std::string suffix_index_content = builder.Finish();
+  std::string buffer, buffer2;
+  builder.Finish(buffer);
+  buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(suffix_index_content);
+  builder.Finish(buffer2);
+
+  BlockSuffixIndex index(buffer);
 
   for (uint32_t i = 0; i < 100; i++) {
     Slice key("key" + std::to_string(i));
@@ -81,9 +87,13 @@ TEST(BlockTest, BlockSuffixTestLarge) {
     m[key_str] = restart_point;
   }
 
-  std::string suffix_index_content = builder.Finish();
+  std::string buffer, buffer2;
+  builder.Finish(buffer);
+  buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(suffix_index_content);
+  builder.Finish(buffer2);
+
+  BlockSuffixIndex index(buffer);
 
   for (uint32_t i = 0; i < 100; i++) {
     std::string key_str = "key" + std::to_string(i);

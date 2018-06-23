@@ -13,7 +13,7 @@ namespace rocksdb {
 
 // The format of the suffix hash map is as follows:
 //
-// B B B ... B IDX NUM_BUCK MAP_SIZE
+// B B B ... B IDX NUM_BUCK MAP_START
 //
 // NUM_BUCK: Number of buckets, which is the length of the IDX array.
 //
@@ -24,7 +24,7 @@ namespace rocksdb {
 //           We do not have to store the length of individual buckets, as they
 //           are delimited by the next bucket offset.
 //
-// MAP_SIZE: the size of the hash map.
+// MAP_START: the start offset of the suffix hash map.
 //
 // The suffix hash map is construct right in-place of the block without any data
 // been copied.
@@ -33,7 +33,9 @@ class BlockSuffixIndexBuilder {
  public:
   BlockSuffixIndexBuilder(uint32_t n) : num_buckets_(n), buckets_(n) {}
   void Add(const Slice &suffix, const uint32_t &pos);
-  std::string Finish();
+  void Finish(std::string& buffer);
+  void Reset();
+  size_t EstimateSize();
 
  private:
   uint32_t num_buckets_;
@@ -46,13 +48,11 @@ class BlockSuffixIndex {
   bool Seek(const Slice &key, std::vector<uint32_t> &bucket) const;
 
  private:
-  std::string suffix_index_;
   const char *data_;
   uint32_t size_;
   uint32_t num_buckets_;
-  uint32_t map_size_;
-  const char *map_start_;
-  const char *bucket_table_;
+  const char *map_start_;    // start of the map
+  const char *bucket_table_; // start offset of the bucket index table
 };
 
 }  // namespace rocksdb
