@@ -39,7 +39,10 @@ class BlockBuilder {
 
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
-  inline size_t CurrentSizeEstimate() const { return estimate_; }
+  inline size_t CurrentSizeEstimate() const {
+    return estimate_ +
+      (suffix_index_builder_ ? suffix_index_builder_->EstimateSize() : 0);
+  }
 
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;

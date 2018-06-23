@@ -66,8 +66,9 @@ void BlockBuilder::Reset() {
   counter_ = 0;
   finished_ = false;
   last_key_.clear();
-  if (suffix_index_builder_)
+  if (suffix_index_builder_) {
     suffix_index_builder_->Reset();
+  }
 }
 
 size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
@@ -82,7 +83,8 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
   estimate += VarintLength(key.size()); // varint for key length.
   estimate += VarintLength(value.size()); // varint for value length.
 
-  return estimate;
+  return estimate +
+    (suffix_index_builder_ ? sizeof(uint32_t) : 0) /* one more in bucket */;
 }
 
 Slice BlockBuilder::Finish() {
@@ -93,7 +95,6 @@ Slice BlockBuilder::Finish() {
   PutFixed32(&buffer_, static_cast<uint32_t>(restarts_.size()));
   if (suffix_index_builder_) {
     suffix_index_builder_->Finish(buffer_);
-    estimate_ += suffix_index_builder_->EstimateSize();
   }
   finished_ = true;
   return Slice(buffer_);
@@ -135,6 +136,10 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   // Add string delta to buffer_ followed by value
   buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
+
+  if (suffix_index_builder_) {
+    suffix_index_builder_->Add(key, restarts_.back());
+  }
 
   counter_++;
   estimate_ += buffer_.size() - curr_size;

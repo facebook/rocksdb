@@ -22,6 +22,7 @@ inline uint32_t SuffixToBucket(const Slice& s, uint32_t num_buckets) {
 void BlockSuffixIndexBuilder::Add(const Slice& key, const uint32_t& pos) {
   uint32_t idx = SuffixToBucket(key, num_buckets_);
   buckets_[idx].push_back(pos);
+  estimate_ += sizeof(uint32_t);
 }
 
 void BlockSuffixIndexBuilder::Finish(std::string& buffer) {
@@ -51,12 +52,8 @@ void BlockSuffixIndexBuilder::Finish(std::string& buffer) {
 }
 
 void BlockSuffixIndexBuilder::Reset() {
-  // TODO(fwu)
-}
-
-size_t BlockSuffixIndexBuilder::EstimateSize() {
-  // TODO(fwu)
-  return 0;
+  buckets_.clear();
+  estimate_ = 0;
 }
 
 BlockSuffixIndex::BlockSuffixIndex(std::string& buffer) {

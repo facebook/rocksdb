@@ -31,15 +31,19 @@ namespace rocksdb {
 
 class BlockSuffixIndexBuilder {
  public:
-  BlockSuffixIndexBuilder(uint32_t n) : num_buckets_(n), buckets_(n) {}
+  BlockSuffixIndexBuilder(uint32_t n) :
+      num_buckets_(n),
+      buckets_(n),
+      estimate_((n + 2) * sizeof(uint32_t) /* n buckets, 2 num at the end */){}
   void Add(const Slice &suffix, const uint32_t &pos);
   void Finish(std::string& buffer);
   void Reset();
-  size_t EstimateSize();
+  inline size_t EstimateSize() { return estimate_; }
 
  private:
   uint32_t num_buckets_;
   std::vector<std::vector<uint32_t>> buckets_;
+  size_t estimate_;
 };
 
 class BlockSuffixIndex {
