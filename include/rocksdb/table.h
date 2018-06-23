@@ -96,8 +96,8 @@ struct BlockBasedTableOptions {
   // The format type that will be used for the data block.
   // Now two BlockFormatType supported
   enum BlockFormatType : char {
-    kBinarySearchBlockType, // traditional block type
-    kSuffixHashBlockType, // additional suffix hash index appended to the end.
+    kBinarySearchBlockType,  // traditional block type
+    kSuffixHashBlockType,  // additional suffix hash index appended to the end.
   };
 
   BlockFormatType block_format_type = kBinarySearchBlockType;

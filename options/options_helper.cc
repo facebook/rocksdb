@@ -496,7 +496,8 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
     case OptionType::kBlockBasedTableBlockFormatType:
       return ParseEnum<BlockBasedTableOptions::BlockFormatType>(
           block_base_table_block_format_type_string_map, value,
-          reinterpret_cast<BlockBasedTableOptions::BlockFormatType*>(opt_address));
+          reinterpret_cast<BlockBasedTableOptions::BlockFormatType*>(
+              opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,

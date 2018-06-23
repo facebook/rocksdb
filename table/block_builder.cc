@@ -41,9 +41,11 @@
 
 namespace rocksdb {
 
-BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding)
+BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding,
+                           bool use_suffix_index)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
+      use_suffix_index_(use_suffix_index),
       restarts_(),
       counter_(0),
       finished_(false) {

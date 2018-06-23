@@ -593,10 +593,10 @@ bool AreEqualOptions(
               offset1) ==
           *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(offset2));
     case OptionType::kBlockBasedTableBlockFormatType:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::BlockFormatType*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::BlockFormatType*>(offset2));
+      return (*reinterpret_cast<const BlockBasedTableOptions::BlockFormatType*>(
+                  offset1) ==
+              *reinterpret_cast<const BlockBasedTableOptions::BlockFormatType*>(
+                  offset2));
     case OptionType::kWALRecoveryMode:
       return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==
               *reinterpret_cast<const WALRecoveryMode*>(offset2));
