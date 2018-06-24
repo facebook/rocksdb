@@ -315,9 +315,7 @@ class BlobDBImpl : public BlobDB {
   bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
   bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
 
-  void CopyBlobFiles(
-      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
-      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
+  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
 
