@@ -1434,7 +1434,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   uint64_t now = EpochNow();
 
   std::shared_ptr<Reader> reader =
-      bfptr->OpenSequentialReader(env_, db_options_, env_options_);
+      bfptr->OpenRandomAccessReader(env_, db_options_, env_options_);
   if (!reader) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "File sequential reader could not be opened",

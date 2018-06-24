@@ -181,7 +181,7 @@ class BlobFile {
   Status ReadMetadata(Env* env, const EnvOptions& env_options);
 
  private:
-  std::shared_ptr<Reader> OpenSequentialReader(
+  std::shared_ptr<Reader> OpenRandomAccessReader(
       Env* env, const DBOptions& db_options,
       const EnvOptions& env_options) const;
 
