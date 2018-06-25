@@ -2469,6 +2469,9 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     num_file_reads_++;
     if (enable_readahead_ &&
         num_file_reads_ > start_readahead_after_num_file_reads_) {
+      // TODO (svemuri): Ideally I'd like to get rid of this *if block* and let
+      // the prefetch buffer (i.e. the code in else block) handle everything,
+      // but it fails as of now when compactions reads are bufferred.
       if (!rep->file->use_direct_io() &&
           (data_block_handle.offset() +
                static_cast<size_t>(data_block_handle.size()) +
