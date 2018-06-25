@@ -54,13 +54,7 @@ WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
 
 bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
                                    const std::shared_ptr<BlobFile>& rhs) const {
-  if (lhs->HasTTL() && rhs->HasTTL()) {
-    return lhs->expiration_range_.second > rhs->expiration_range_.second;
-  } else if (!lhs->HasTTL() && !rhs->HasTTL()) {
-    return lhs->BlobFileNumber() > rhs->BlobFileNumber();
-  } else {
-    return !lhs->HasTTL();
-  }
+  return lhs->BlobFileNumber() > rhs->BlobFileNumber();
 }
 
 BlobDBImpl::BlobDBImpl(const std::string& dbname,

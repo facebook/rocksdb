@@ -1128,8 +1128,7 @@ TEST_F(BlobDBTest, FIFOEviction) {
   // key1 will exist until corresponding file be deleted.
   VerifyDB({{"key1", value}, {"key2", value}});
 
-  // Adding another 100 bytes blob without TTL. Data with TTL will get
-  // evicted first.
+  // Adding another 100 bytes blob without TTL. 
   ASSERT_OK(blob_db_->Put(WriteOptions(), "key3", value));
   ASSERT_EQ(2, evict_count);
   // key1 and key2 will exist until corresponding file be deleted.
