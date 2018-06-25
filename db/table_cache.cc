@@ -116,7 +116,8 @@ Status TableCache::GetTableReader(
             file_read_hist, ioptions_.rate_limiter, for_compaction));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
-                           internal_comparator, skip_filters, level),
+                           internal_comparator, skip_filters, immortal_tables_,
+                           level),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");

@@ -132,6 +132,10 @@ class TableCache {
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
 
+  // The tables opened with this TableCache will be immortal, i.e., their
+  // lifetime is as long as that of the DB.
+  void SetTablesAreImmortal() { immortal_tables_ = true; }
+
  private:
   // Build a table reader
   Status GetTableReader(const EnvOptions& env_options,
@@ -149,6 +153,7 @@ class TableCache {
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;
+  bool immortal_tables_;
 };
 
 }  // namespace rocksdb
