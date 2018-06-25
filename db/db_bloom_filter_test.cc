@@ -1167,7 +1167,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
-      // [abcdxx01, abcey) is not valid bound since upper bound is too long
+      // [abcdxx01, abcey) is not valid bound since upper bound is too long for
+      // the BF in SST (capped:4)
       Slice upper_bound("abcey");
       ReadOptions read_options;
       read_options.prefix_same_as_start = true;
@@ -1223,8 +1224,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:4"}}));
     {
-      // [abc, abd) is not a valid bound since the upper bound is too short
-      // for BF (capped:4)
+      // set back to capped:4 and verify BF is always read
       Slice upper_bound("abd");
       ReadOptions read_options;
       read_options.prefix_same_as_start = true;
@@ -1299,7 +1299,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // both counters are incremented because BF is "not changed" for 1 of the
-      // SST files, so filter is checked once and found no match.
+      // 2 SST files, so filter is checked once and found no match.
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
                 3+iteration*2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
@@ -1318,25 +1318,31 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // BF is fixed:2 now
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 9);
+      // the first and last BF are checked
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
                 4+iteration*3);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
+      // only last BF is checked and not found
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
                 5+iteration*3);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
     }
 
-    // TODO(Zhongyi): verify existing iterator cannot see newly inserted keys
+    // iter_old can only see the first SST, so checked plus 1
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
               6+iteration*3);
+    // iter was created after the first setoptions call so only full filter
+    // will check the filter
     ASSERT_EQ(CountIter(iter, "foo"), 2);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
               6+iteration*4);
 
     {
       // keys in all three SSTs are visible to iterator
+      // The range of [foo, foz90000] is compatible with (fixed:1) and (fixed:2)
+      // so +2 for checked counter
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 9);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
@@ -1353,12 +1359,12 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     {
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 6);
+      // all three SST are checked because the current options has the same as
+      // the remaining SST (capped:3)
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
                 9+iteration*7);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
-      // fprintf(stdout, "checked = %" PRId64 "\n", TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
-      // fprintf(stdout, "useful = %" PRId64 "\n", TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL));
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
                 10+iteration*7);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 4);

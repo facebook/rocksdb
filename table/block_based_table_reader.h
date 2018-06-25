@@ -96,6 +96,7 @@ class BlockBasedTable : public TableReader {
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
+                      const SliceTransform* prefix_extractor,
                       const bool prefix_extractor_changed);
 
   // Returns a new iterator over the table contents.
@@ -516,7 +517,8 @@ class BlockBasedTableIterator : public InternalIterator {
   BlockBasedTableIterator(
       BlockBasedTable* table, const ReadOptions& read_options,
       const InternalKeyComparator& icomp, InternalIterator* index_iter,
-      bool check_filter, bool prefix_extractor_changed, bool is_index,
+      bool check_filter, bool prefix_extractor_changed,
+      const SliceTransform* prefix_extractor, bool is_index,
       bool key_includes_seq = true, bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
@@ -526,10 +528,10 @@ class BlockBasedTableIterator : public InternalIterator {
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
         prefix_extractor_changed_(prefix_extractor_changed),
+        prefix_extractor_(prefix_extractor),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
-        for_compaction_(for_compaction),
-        prefix_extractor_(prefix_extractor) {}
+        for_compaction_(for_compaction) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -579,6 +581,7 @@ class BlockBasedTableIterator : public InternalIterator {
   bool CheckPrefixMayMatch(const Slice& ikey) {
     if (check_filter_ &&
         !table_->PrefixMayMatch(ikey, read_options_,
+                                prefix_extractor_,
                                 prefix_extractor_changed_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
@@ -625,8 +628,7 @@ class BlockBasedTableIterator : public InternalIterator {
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool prefix_extractor_changed_;
-  // TODO use block offset instead
-  std::string prev_index_value_;
+  const SliceTransform* prefix_extractor_;
   // If the blocks over which we iterate are index blocks
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
@@ -635,7 +637,6 @@ class BlockBasedTableIterator : public InternalIterator {
   bool for_compaction_;
   // TODO use block offset instead
   std::string prev_index_value_;
-  const SliceTransform* prefix_extractor_;
 
   static const size_t kInitReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on

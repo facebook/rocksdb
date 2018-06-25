@@ -249,7 +249,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           index_block_->NewIterator(icomparator_,
                                     icomparator_->user_comparator(), nullptr,
                                     true, nullptr, index_key_includes_seq_),
-          false, true, kIsIndex, index_key_includes_seq_);
+          false, true, /* prefix_extractor */ nullptr, kIsIndex,
+          index_key_includes_seq_);
     }
     // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
     // on-stack BlockIter while the state is on heap. Currentlly it assumes
@@ -1792,16 +1793,25 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
                                      const ReadOptions& read_options,
+                                     const SliceTransform* prefix_extractor,
                                      const bool prefix_extractor_changed) {
   if (!rep_->filter_policy) {
     return true;
   }
 
+  const SliceTransform* prefix_extractor_to_use;
+
   if (rep_->table_prefix_extractor == nullptr) {
-    return true;
+    if (prefix_extractor_changed) {
+      return true;
+    }
+    prefix_extractor_to_use = prefix_extractor;
+  }
+  else {
+    prefix_extractor_to_use = rep_->table_prefix_extractor.get();
   }
   auto user_key = ExtractUserKey(internal_key);
-  if (!rep_->table_prefix_extractor->InDomain(user_key)) {
+  if (!prefix_extractor_to_use->InDomain(user_key)) {
     return true;
   }
 
@@ -1809,16 +1819,16 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   Status s;
 
   // First, try check with full filter
-  auto filter_entry = GetFilter(rep_->table_prefix_extractor.get());
+  auto filter_entry = GetFilter(prefix_extractor_to_use);
   FilterBlockReader* filter = filter_entry.value;
   bool filter_checked = true;
   if (filter != nullptr) {
     // set prefix using prefix_extractor from the SST
-    auto prefix = rep_->table_prefix_extractor->Transform(user_key);
+    auto prefix = prefix_extractor_to_use->Transform(user_key);
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
-          read_options, user_key, rep_->table_prefix_extractor.get(),
+          read_options, user_key, prefix_extractor_to_use,
           rep_->internal_comparator.user_comparator(), prefix, kNotValid,
           false, const_ikey_ptr, &filter_checked, prefix_extractor_changed);
     } else {
@@ -1879,7 +1889,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         s = handle.DecodeFrom(&handle_value);
         assert(s.ok());
         may_match =
-            filter->PrefixMayMatch(prefix, rep_->table_prefix_extractor.get(),
+            filter->PrefixMayMatch(prefix, prefix_extractor_to_use,
                                    handle.offset());
       }
     }
@@ -2133,8 +2143,8 @@ InternalIterator* BlockBasedTable::NewIterator(
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, kIsNotIndex, true /*key_includes_seq*/,
-        for_compaction);
+        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
+        true /*key_includes_seq*/, for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
@@ -2142,8 +2152,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, kIsNotIndex, true /*key_includes_seq*/,
-        for_compaction);
+        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
+        true /*key_includes_seq*/, for_compaction);
   }
 }
 
