@@ -236,7 +236,7 @@ InternalIterator* TableCache::NewIterator(
       result = NewEmptyInternalIterator(arena);
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
-                                         skip_filters);
+                                         skip_filters, for_compaction);
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);
