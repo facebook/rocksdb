@@ -57,11 +57,11 @@ void BlockSuffixIndexBuilder::Reset() {
   estimate_ = 0;
 }
 
-BlockSuffixIndex::BlockSuffixIndex(std::string& buffer) {
-  assert(buffer.size() >= 2 * sizeof(uint32_t));  // NUM_BUCK and MAP_START
+BlockSuffixIndex::BlockSuffixIndex(Slice block_content) {
+  assert(block_content.size() >= 2 * sizeof(uint32_t));  // NUM_BUCK and MAP_START
 
-  data_ = buffer.data();
-  size_ = static_cast<uint32_t>(buffer.size());
+  data_ = block_content.data();
+  size_ = static_cast<uint32_t>(block_content.size());
 
   map_start_ = data_ + DecodeFixed32(data_ + size_ - sizeof(uint32_t));
   assert(map_start_ < data_ + size_);

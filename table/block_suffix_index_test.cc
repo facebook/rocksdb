@@ -47,7 +47,8 @@ TEST(BlockTest, BlockSuffixTestSmall) {
 
   buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(buffer2);
+  Slice s(buffer2);
+  BlockSuffixIndex index(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.SuffixHashMapStart());
@@ -79,7 +80,8 @@ TEST(BlockTest, BlockSuffixTest) {
 
   buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(buffer2);
+  Slice s(buffer2);
+  BlockSuffixIndex index(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.SuffixHashMapStart());
@@ -111,7 +113,8 @@ TEST(BlockTest, BlockSuffixTestCollision) {
 
   buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(buffer2);
+  Slice s(buffer2);
+  BlockSuffixIndex index(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.SuffixHashMapStart());
@@ -146,7 +149,8 @@ TEST(BlockTest, BlockSuffixTestLarge) {
 
   buffer2 = buffer; // test for the correctness of relative offset
 
-  BlockSuffixIndex index(buffer2);
+  Slice s(buffer2);
+  BlockSuffixIndex index(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.SuffixHashMapStart());

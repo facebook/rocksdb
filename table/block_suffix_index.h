@@ -48,7 +48,7 @@ class BlockSuffixIndexBuilder {
 
 class BlockSuffixIndex {
  public:
-  BlockSuffixIndex(std::string &s);
+  BlockSuffixIndex(Slice  block_content);
   void Seek(const Slice &key, std::vector<uint32_t> &bucket) const;
 
   inline uint32_t SuffixHashMapStart() {
