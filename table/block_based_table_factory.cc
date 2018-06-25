@@ -151,6 +151,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            "  pin_l0_filter_and_index_blocks_in_cache: %d\n",
            table_options_.pin_l0_filter_and_index_blocks_in_cache);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  pin_top_level_index_and_filter: %d\n",
+           table_options_.pin_top_level_index_and_filter);
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_type: %d\n",
            table_options_.index_type);
   ret.append(buffer);

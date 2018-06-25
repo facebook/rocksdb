@@ -444,7 +444,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   Status status = env_->NewSequentialFile(
       fname, &file, env_->OptimizeForLogRead(env_options_));
   unique_ptr<SequentialFileReader> file_reader(
-      new SequentialFileReader(std::move(file)));
+      new SequentialFileReader(std::move(file), fname));
 
   if (!status.ok()) {
     return status;

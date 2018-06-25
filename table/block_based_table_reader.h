@@ -104,7 +104,8 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
-                                bool skip_filters = false) override;
+                                bool skip_filters = false,
+                                bool for_compaction = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -213,19 +214,16 @@ class BlockBasedTable : public TableReader {
   Rep* get_rep() { return rep_; }
 
   // input_iter: if it is not null, update this one and return it as Iterator
-  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                         const Slice& index_value,
-                                         BlockIter* input_iter = nullptr,
-                                         bool is_index = false,
-                                         bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr);
-  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                         const BlockHandle& block_hanlde,
-                                         BlockIter* input_iter = nullptr,
-                                         bool is_index = false,
-                                         bool key_includes_seq = true,
-                                         GetContext* get_context = nullptr,
-                                         Status s = Status());
+  static BlockIter* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const Slice& index_value,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      FilePrefetchBuffer* prefetch_buffer = nullptr);
+  static BlockIter* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
 
   class PartitionedIndexIteratorState;
 
@@ -324,6 +322,9 @@ class BlockBasedTable : public TableReader {
   friend class BlockBasedTableBuilder;
 
   void ReadMeta(const Footer& footer);
+
+  // Figure the index type, update it in rep_, and also return it.
+  BlockBasedTableOptions::IndexType UpdateIndexType();
 
   // Create a index reader based on the index type stored in the table.
   // Optionally, user can pass a preloaded meta_index_iter for the index that
@@ -481,11 +482,12 @@ struct BlockBasedTable::Rep {
   // block to extract prefix without knowing if a key is internal or not.
   unique_ptr<SliceTransform> internal_prefix_transform;
 
-  // only used in level 0 files:
-  // when pin_l0_filter_and_index_blocks_in_cache is true, we do use the
-  // LRU cache, but we always keep the filter & idndex block's handle checked
-  // out here (=we don't call Release()), plus the parsed out objects
-  // the LRU cache will never push flush them out, hence they're pinned
+  // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is
+  // true or in all levels when pin_top_level_index_and_filter is set in
+  // combination with partitioned index/filters: then we do use the LRU cache,
+  // but we always keep the filter & index block's handle checked out here (=we
+  // don't call Release()), plus the parsed out objects the LRU cache will never
+  // push flush them out, hence they're pinned
   CachableEntry<FilterBlockReader> filter_entry;
   CachableEntry<IndexReader> index_entry;
   // range deletion meta-block is pinned through reader's lifetime when LRU
@@ -514,7 +516,8 @@ class BlockBasedTableIterator : public InternalIterator {
                           const InternalKeyComparator& icomp,
                           InternalIterator* index_iter, bool check_filter,
                           const SliceTransform* prefix_extractor, bool is_index,
-                          bool key_includes_seq = true)
+                          bool key_includes_seq = true,
+                          bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -524,6 +527,7 @@ class BlockBasedTableIterator : public InternalIterator {
         check_filter_(check_filter),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
+        for_compaction_(for_compaction),
         prefix_extractor_(prefix_extractor) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
@@ -621,6 +625,8 @@ class BlockBasedTableIterator : public InternalIterator {
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
+  // If this iterator is created for compaction
+  bool for_compaction_;
   // TODO use block offset instead
   std::string prev_index_value_;
   const SliceTransform* prefix_extractor_;
@@ -632,6 +638,7 @@ class BlockBasedTableIterator : public InternalIterator {
   size_t readahead_size_ = kInitReadaheadSize;
   size_t readahead_limit_ = 0;
   int num_file_reads_ = 0;
+  std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
 
 }  // namespace rocksdb
