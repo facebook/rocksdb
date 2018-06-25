@@ -447,7 +447,7 @@ class BlockIter final : public InternalIterator {
 
   bool PrefixSeek(const Slice& target, uint32_t* index);
 
-  bool SuffixSeek(const Slice& target, uint32_t* index);
+  bool SuffixSeek(const Slice& target);
 
 };
 

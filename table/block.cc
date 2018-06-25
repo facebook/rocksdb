@@ -154,7 +154,10 @@ void BlockIter::Seek(const Slice& target) {
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
   } else if (suffix_index_) {
-    ok = SuffixSeek(target, &index); /* TODO (fwu) seek key or target?*/
+    // suffix seek will set the current_ and restart_index_,
+    // no need to pass back `index`, or linear search.
+    SuffixSeek(target);
+    return;
   } else {
     ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index);
   }
@@ -397,13 +400,33 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
   }
 }
 
-bool BlockIter::SuffixSeek(const Slice& target, uint32_t* /* index */) {
+// NOTE: in suffix seek, if the key is not found in the restart intervals,
+// the iterator will simply be set as "invalid", rather than returning
+// the key that is just pass the target key.
+// return value: found
+bool BlockIter::SuffixSeek(const Slice& target) {
   assert(suffix_index_);
   Slice seek_key = target;
   if (!key_includes_seq_) {
     seek_key = ExtractUserKey(target);
   }
-  return false; // TODO(fwu)
+
+  std::vector<uint32_t> restart_points;
+
+  for (auto& restart_point: restart_points) {
+    SeekToRestartPoint(restart_point);
+    while (true) {
+      if (!ParseNextKey() || Compare(key_, seek_key) >= 0) {
+        break;
+      }
+    }
+    if ((current_ != restarts_) /* valid */ &&
+        Compare(key_, seek_key) == 0 /* key match */) {
+      return true; // found
+    }
+  }
+  current_ = restarts_; // not found, Invalidate the iterator
+  return false;
 }
 
 bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
