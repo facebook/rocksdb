@@ -603,7 +603,31 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
         index_key_is_full_(index_key_is_full),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction) {
+    if (for_compaction) {
+      readahead_size_ = table->get_rep()->env_options.compaction_readahead_size;
+    } else {
+      readahead_size_ = read_options.readahead_size;
+    }
+
+    if (readahead_size_ > 0) {
+      max_readahead_size_ = readahead_size_;
+      start_readahead_after_num_file_reads_ = 0;
+    } else {
+      readahead_size_ = kInitReadaheadSize;
+      max_readahead_size_ = kMaxReadaheadSize;
+      start_readahead_after_num_file_reads_ = 2;
+    }
+
+    if (for_compaction) {
+      if (table->get_rep()->env_options.compaction_readahead_size > 0) {
+        enable_readahead_ = true;
+      }
+    } else {
+      // user reads -- always enable readahead
+      enable_readahead_ = true;
+    }
+  }
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -720,10 +744,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   static const size_t kInitReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on
   // experiments.
-  static const size_t kMaxReadaheadSize;
+  static const size_t kMaxReadaheadSize = 256 * 1024;
   size_t readahead_size_ = kInitReadaheadSize;
+  size_t max_readahead_size_ = 0;
   size_t readahead_limit_ = 0;
   int num_file_reads_ = 0;
+  bool enable_readahead_ = false;
+  int start_readahead_after_num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 };
 
