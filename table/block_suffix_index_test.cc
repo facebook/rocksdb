@@ -63,9 +63,7 @@ TEST(BlockTest, BlockSuffixTestCollision) {
   builder.Finish(buffer);
   buffer2 = buffer; // test for the correctness of relative offset
 
-  builder.Finish(buffer2);
-
-  BlockSuffixIndex index(buffer);
+  BlockSuffixIndex index(buffer2);
 
   for (uint32_t i = 0; i < 100; i++) {
     Slice key("key" + std::to_string(i));
@@ -91,9 +89,7 @@ TEST(BlockTest, BlockSuffixTestLarge) {
   builder.Finish(buffer);
   buffer2 = buffer; // test for the correctness of relative offset
 
-  builder.Finish(buffer2);
-
-  BlockSuffixIndex index(buffer);
+  BlockSuffixIndex index(buffer2);
 
   for (uint32_t i = 0; i < 100; i++) {
     std::string key_str = "key" + std::to_string(i);
