@@ -1028,7 +1028,6 @@ void BlockBasedTable::SetupForCompaction() {
     default:
       assert(false);
   }
-  rep_->for_compaction = true;
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
@@ -2004,7 +2003,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     // Automatically prefetch additional data when a range scan (iterator) does
     // more than 2 sequential IOs. This is enabled only for user reads and when
     // ReadOptions.readahead_size is 0.
-    if (!rep->for_compaction && read_options_.readahead_size == 0) {
+    if (!for_compaction_ && read_options_.readahead_size == 0) {
       num_file_reads_++;
       if (num_file_reads_ > 2) {
         if (!rep->file->use_direct_io() &&
@@ -2101,7 +2100,7 @@ void BlockBasedTableIterator::FindKeyBackward() {
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters) {
+    Arena* arena, bool skip_filters, bool for_compaction) {
   bool prefix_extractor_changed =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
@@ -2114,7 +2113,8 @@ InternalIterator* BlockBasedTable::NewIterator(
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr && !prefix_extractor_changed,
-        prefix_extractor, kIsNotIndex);
+        prefix_extractor, kIsNotIndex, true /*key_includes_seq*/,
+        for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
@@ -2122,7 +2122,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         NewIndexIterator(read_options, prefix_extractor_changed),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr && !prefix_extractor_changed,
-        prefix_extractor, kIsNotIndex);
+        prefix_extractor, kIsNotIndex, true /*key_includes_seq*/,
+        for_compaction);
   }
 }
 

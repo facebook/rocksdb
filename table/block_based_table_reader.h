@@ -104,7 +104,8 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
-                                bool skip_filters = false) override;
+                                bool skip_filters = false,
+                                bool for_compaction = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -506,8 +507,6 @@ struct BlockBasedTable::Rep {
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
-
-  bool for_compaction = false;
 };
 
 class BlockBasedTableIterator : public InternalIterator {
@@ -517,7 +516,8 @@ class BlockBasedTableIterator : public InternalIterator {
                           const InternalKeyComparator& icomp,
                           InternalIterator* index_iter, bool check_filter,
                           const SliceTransform* prefix_extractor, bool is_index,
-                          bool key_includes_seq = true)
+                          bool key_includes_seq = true,
+                          bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -527,6 +527,7 @@ class BlockBasedTableIterator : public InternalIterator {
         check_filter_(check_filter),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
+        for_compaction_(for_compaction),
         prefix_extractor_(prefix_extractor) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
@@ -624,6 +625,8 @@ class BlockBasedTableIterator : public InternalIterator {
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
+  // If this iterator is created for compaction
+  bool for_compaction_;
   // TODO use block offset instead
   std::string prev_index_value_;
   const SliceTransform* prefix_extractor_;
