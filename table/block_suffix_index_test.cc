@@ -39,7 +39,8 @@ TEST(BlockTest, BlockSuffixTestSmall) {
   size_t estimated_size = builder.EstimateSize();
 
   std::string buffer("fake"), buffer2;
-  estimated_size += buffer.size();
+  size_t original_size = buffer.size();
+  estimated_size += original_size;
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);
@@ -48,6 +49,8 @@ TEST(BlockTest, BlockSuffixTestSmall) {
 
   BlockSuffixIndex index(buffer2);
 
+  // the additional hash map should start at the end of the buffer
+  ASSERT_EQ(original_size, index.SuffixHashMapStart());
   for (uint32_t i = 0; i < 2; i++) {
     Slice key("key" + std::to_string(i));
     uint32_t restart_point = i;
@@ -68,7 +71,8 @@ TEST(BlockTest, BlockSuffixTest) {
   size_t estimated_size = builder.EstimateSize();
 
   std::string buffer("fake content"), buffer2;
-  estimated_size += buffer.size();
+  size_t original_size = buffer.size();
+  estimated_size += original_size;
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);
@@ -77,6 +81,8 @@ TEST(BlockTest, BlockSuffixTest) {
 
   BlockSuffixIndex index(buffer2);
 
+  // the additional hash map should start at the end of the buffer
+  ASSERT_EQ(original_size, index.SuffixHashMapStart());
   for (uint32_t i = 0; i < 100; i++) {
     Slice key("key" + std::to_string(i));
     uint32_t restart_point = i;
@@ -97,7 +103,8 @@ TEST(BlockTest, BlockSuffixTestCollision) {
   size_t estimated_size = builder.EstimateSize();
 
   std::string buffer("some other fake content to take up space"), buffer2;
-  estimated_size += buffer.size();
+  size_t original_size = buffer.size();
+  estimated_size += original_size;
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);
@@ -106,6 +113,8 @@ TEST(BlockTest, BlockSuffixTestCollision) {
 
   BlockSuffixIndex index(buffer2);
 
+  // the additional hash map should start at the end of the buffer
+  ASSERT_EQ(original_size, index.SuffixHashMapStart());
   for (uint32_t i = 0; i < 100; i++) {
     Slice key("key" + std::to_string(i));
     uint32_t restart_point = i;
@@ -129,7 +138,8 @@ TEST(BlockTest, BlockSuffixTestLarge) {
   size_t estimated_size = builder.EstimateSize();
 
   std::string buffer("filling stuff"), buffer2;
-  estimated_size += buffer.size();
+  size_t original_size = buffer.size();
+  estimated_size += original_size;
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);
@@ -138,6 +148,8 @@ TEST(BlockTest, BlockSuffixTestLarge) {
 
   BlockSuffixIndex index(buffer2);
 
+  // the additional hash map should start at the end of the buffer
+  ASSERT_EQ(original_size, index.SuffixHashMapStart());
   for (uint32_t i = 0; i < 100; i++) {
     std::string key_str = "key" + std::to_string(i);
     Slice key(key_str);

@@ -81,13 +81,14 @@ void BlockSuffixIndex::Seek(const Slice& key,
   uint32_t idx = SuffixToBucket(key, num_buckets_);
   uint32_t bucket_off = DecodeFixed32(bucket_table_ + idx * sizeof(uint32_t));
   const char* limit;
-  if (idx < num_buckets_ - 1)
+  if (idx < num_buckets_ - 1) {
     // limited by the start offset of the next bucket
     limit = data_ +
             DecodeFixed32(bucket_table_ + (idx + 1) * sizeof(uint32_t));
-  else
+  } else {
     // limited by the location of the NUM_BUCK
-    limit = map_start_ + (size_ - 2 * sizeof(uint32_t));
+    limit = data_ + (size_ - 2 * sizeof(uint32_t));
+  }
   for (const char* p = data_ + bucket_off; p < limit;
        p += sizeof(uint32_t)) {
     bucket.push_back(DecodeFixed32(p));

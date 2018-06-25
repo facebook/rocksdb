@@ -52,7 +52,7 @@ class BlockSuffixIndex {
   void Seek(const Slice &key, std::vector<uint32_t> &bucket) const;
 
   inline uint32_t SuffixHashMapStart() {
-    return map_start_ - data_;
+    return static_cast<uint32_t>(map_start_ - data_);
   }
 
  private:
