@@ -417,13 +417,15 @@ uint32_t Block::NumRestarts() const {
 }
 
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
-             size_t read_amp_bytes_per_bit, Statistics* statistics)
+             size_t read_amp_bytes_per_bit, Statistics* statistics,
+             bool use_suffix_index)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
       restart_offset_(0),
       num_restarts_(0),
-      global_seqno_(_global_seqno) {
+      global_seqno_(_global_seqno),
+      use_suffix_index_(use_suffix_index){
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {

@@ -135,7 +135,8 @@ class Block {
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, SequenceNumber _global_seqno,
                  size_t read_amp_bytes_per_bit = 0,
-                 Statistics* statistics = nullptr);
+                 Statistics* statistics = nullptr,
+                 bool use_suffix_index = false);
 
   ~Block() = default;
 
@@ -195,6 +196,7 @@ class Block {
   // All keys in the block will have seqno = global_seqno_, regardless of
   // the encoded value (kDisableGlobalSequenceNumber means disabled)
   const SequenceNumber global_seqno_;
+  bool use_suffix_index_;
 
   // No copying allowed
   Block(const Block&) = delete;

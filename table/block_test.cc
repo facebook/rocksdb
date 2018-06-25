@@ -504,6 +504,71 @@ TEST_F(BlockTest, ReadAmpBitmapPow2) {
   ASSERT_EQ(BlockReadAmpBitmap(100, 35, stats.get()).GetBytesPerBit(), 32);
 }
 
+// Suffix Index Test
+TEST_F(BlockTest, SuffixIndexTest) {
+  Random rnd(301);
+  Options options = Options();
+  std::unique_ptr<InternalKeyComparator> ic;
+  ic.reset(new test::PlainInternalKeyComparator(options.comparator));
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  BlockBuilder builder(16 /* block_restart_interval */,
+                       true /* use_delta_encoding */,
+                       false /* use_sufffix_index */);
+  int num_records = 100000;
+
+  GenerateRandomKVs(&keys, &values, 0, num_records);
+  // add a bunch of records to a block
+  for (int i = 0; i < num_records; i++) {
+    builder.Add(keys[i], values[i]);
+  }
+
+  // read serialized contents of the block
+  Slice rawblock = builder.Finish();
+
+  // create block reader
+  BlockContents contents;
+  contents.data = rawblock;
+  contents.cachable = false;
+  Block reader(std::move(contents), kDisableGlobalSequenceNumber,
+               0 /* read_amp_bytes_per_bit */,
+               nullptr /* statistics */,
+               false /* use_suffix_index */);
+
+  // read contents of block sequentially
+  int count = 0;
+  InternalIterator *iter =
+      reader.NewIterator(options.comparator, options.comparator);
+  for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
+
+    // read kv from block
+    Slice k = iter->key();
+    Slice v = iter->value();
+
+    // compare with lookaside array
+    ASSERT_EQ(k.ToString().compare(keys[count]), 0);
+    ASSERT_EQ(v.ToString().compare(values[count]), 0);
+  }
+  delete iter;
+
+  // read block contents randomly
+  iter = reader.NewIterator(options.comparator, options.comparator);
+  for (int i = 0; i < num_records; i++) {
+
+    // find a random key in the lookaside array
+    int index = rnd.Uniform(num_records);
+    Slice k(keys[index]);
+
+    // search in block for this key
+    iter->Seek(k);
+    ASSERT_TRUE(iter->Valid());
+    Slice v = iter->value();
+    ASSERT_EQ(v.ToString().compare(values[index]), 0);
+  }
+  delete iter;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char **argv) {
