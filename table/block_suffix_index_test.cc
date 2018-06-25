@@ -26,6 +26,35 @@ bool SearchForOffset(BlockSuffixIndex& index, Slice& key,
   return false;
 }
 
+TEST(BlockTest, BlockSuffixTestSmall) {
+  // bucket_num = 5, #keys = 2. 40% utilization
+  BlockSuffixIndexBuilder builder(5);
+
+  for (uint32_t i = 0; i < 2; i++) {
+    Slice key("key" + std::to_string(i));
+    uint32_t restart_point = i;
+    builder.Add(key, restart_point);
+  }
+
+  size_t estimated_size = builder.EstimateSize();
+
+  std::string buffer("fake"), buffer2;
+  estimated_size += buffer.size();
+  builder.Finish(buffer);
+
+  ASSERT_EQ(buffer.size(), estimated_size);
+
+  buffer2 = buffer; // test for the correctness of relative offset
+
+  BlockSuffixIndex index(buffer2);
+
+  for (uint32_t i = 0; i < 2; i++) {
+    Slice key("key" + std::to_string(i));
+    uint32_t restart_point = i;
+    ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+  }
+}
+
 TEST(BlockTest, BlockSuffixTest) {
   // bucket_num = 200, #keys = 100. 50% utilization
   BlockSuffixIndexBuilder builder(200);
@@ -38,7 +67,8 @@ TEST(BlockTest, BlockSuffixTest) {
 
   size_t estimated_size = builder.EstimateSize();
 
-  std::string buffer, buffer2;
+  std::string buffer("fake content"), buffer2;
+  estimated_size += buffer.size();
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);
@@ -66,7 +96,8 @@ TEST(BlockTest, BlockSuffixTestCollision) {
 
   size_t estimated_size = builder.EstimateSize();
 
-  std::string buffer, buffer2;
+  std::string buffer("some other fake content to take up space"), buffer2;
+  estimated_size += buffer.size();
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);
@@ -97,7 +128,8 @@ TEST(BlockTest, BlockSuffixTestLarge) {
 
   size_t estimated_size = builder.EstimateSize();
 
-  std::string buffer, buffer2;
+  std::string buffer("filling stuff"), buffer2;
+  estimated_size += buffer.size();
   builder.Finish(buffer);
 
   ASSERT_EQ(buffer.size(), estimated_size);

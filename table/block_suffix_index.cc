@@ -35,8 +35,9 @@ void BlockSuffixIndexBuilder::Finish(std::string& buffer) {
   for (uint32_t i = 0; i < num_buckets_; i++) {
     // remember the start offset of the buckets in bucket_offsets
     bucket_offsets[i] = static_cast<uint32_t>(buffer.size());
-    for (uint32_t restart_offset : buckets_[i])
+    for (uint32_t restart_offset : buckets_[i]) {
       PutFixed32(&buffer, restart_offset);
+    }
   }
 
   // write the bucket_offsets
@@ -74,7 +75,7 @@ BlockSuffixIndex::BlockSuffixIndex(std::string& buffer) {
   assert(map_start_ <  bucket_table_);
 }
 
-bool BlockSuffixIndex::Seek(const Slice& key,
+void BlockSuffixIndex::Seek(const Slice& key,
                             std::vector<uint32_t>& bucket) const {
   assert(bucket.size() == 0);
   uint32_t idx = SuffixToBucket(key, num_buckets_);
@@ -82,16 +83,15 @@ bool BlockSuffixIndex::Seek(const Slice& key,
   const char* limit;
   if (idx < num_buckets_ - 1)
     // limited by the start offset of the next bucket
-    limit = map_start_ +
+    limit = data_ +
             DecodeFixed32(bucket_table_ + (idx + 1) * sizeof(uint32_t));
   else
     // limited by the location of the NUM_BUCK
     limit = map_start_ + (size_ - 2 * sizeof(uint32_t));
-  for (const char* p = map_start_ + bucket_off; p < limit;
+  for (const char* p = data_ + bucket_off; p < limit;
        p += sizeof(uint32_t)) {
     bucket.push_back(DecodeFixed32(p));
   }
-  return false;
 }
 
 }  // namespace rocksdb
