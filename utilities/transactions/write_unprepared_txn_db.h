@@ -24,15 +24,14 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
   Transaction* BeginTransaction(const WriteOptions& write_options, const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
+  // Struct to hold ownership of snapshot and read callback for cleanup.
+  struct IteratorState;
+
   using WritePreparedTxnDB::NewIterator;
   Iterator* NewIterator(const ReadOptions& options,
                         ColumnFamilyHandle* column_family,
                         WriteUnpreparedTxn* txn);
 
- protected:
-  virtual ReadCallback* GetReadCallback(
-      const Snapshot* snapshot, WritePreparedTxn* txn,
-      WritePreparedTxnReadCallback* populate) override;
 };
 
 }  //  namespace rocksdb

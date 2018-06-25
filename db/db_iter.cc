@@ -1247,7 +1247,7 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
 
 bool DBIter::IsVisible(SequenceNumber sequence) {
   return sequence <= MaxVisibleSequenceNumber() &&
-         (read_callback_ == nullptr || read_callback_->IsCommitted(sequence));
+         (read_callback_ == nullptr || read_callback_->IsVisible(sequence));
 }
 
 bool DBIter::CanReseekToSkip() {

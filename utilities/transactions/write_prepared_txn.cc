@@ -23,51 +23,33 @@
 #include "util/cast_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
-#include "utilities/transactions/write_unprepared_txn.h"
 
 namespace rocksdb {
 
 struct WriteOptions;
 
-bool WritePreparedTxnReadCallback::IsCommitted(SequenceNumber seq) {
-  if (txn_ != nullptr) {
-    auto unprep_seqs = txn_->GetUnpreparedSequenceNumbers();
-
-    for (const auto& it : unprep_seqs) {
-      if (it.first <= seq || seq < it.first + it.second) {
-        return true;
-      }
-    }
-  }
-  return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
-}
-
-SequenceNumber WritePreparedTxnReadCallback::MaxUnpreparedSequenceNumber() {
-  if (txn_ != nullptr) {
-    auto unprep_seqs = txn_->GetUnpreparedSequenceNumbers();
-
-    if (unprep_seqs.size()) {
-      return unprep_seqs.rbegin()->first + unprep_seqs.rbegin()->second - 1;
-    }
-  }
-  return 0;
-}
-
 WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
                                    const WriteOptions& write_options,
                                    const TransactionOptions& txn_options)
     : PessimisticTransaction(txn_db, write_options, txn_options),
-      wpt_db_(txn_db),
-      callback_(txn_db, 0, 0) {}
+      wpt_db_(txn_db) {}
 
 Status WritePreparedTxn::Get(const ReadOptions& read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  return write_batch_.GetFromBatchAndDB(
-      db_, read_options, column_family, key, pinnable_val,
-      wpt_db_->GetReadCallback(read_options.snapshot,
-                               this /* WritePreparedTxn */,
-                               nullptr /* WritePreparedTxnReadCallback */));
+  auto snapshot = read_options.snapshot;
+  auto snap_seq =
+      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
+  SequenceNumber min_uncommitted = 0;  // by default disable the optimization
+  if (snapshot != nullptr) {
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+            ->min_uncommitted_;
+  }
+
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
+  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
+                                        pinnable_val, &callback);
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {

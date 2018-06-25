@@ -13,6 +13,28 @@
 namespace rocksdb {
 
 class WriteUnpreparedTxnDB;
+class WriteUnpreparedTxn;
+
+class WriteUnpreparedTxnReadCallback : public ReadCallback {
+ public:
+  WriteUnpreparedTxnReadCallback(WritePreparedTxnDB* db,
+                                 SequenceNumber snapshot,
+                                 SequenceNumber min_uncommitted,
+                                 WriteUnpreparedTxn* txn)
+      : db_(db),
+        snapshot_(snapshot),
+        min_uncommitted_(min_uncommitted),
+        txn_(txn) {}
+
+  virtual bool IsVisible(SequenceNumber seq) override;
+  virtual SequenceNumber MaxUnpreparedSequenceNumber() override;
+
+ private:
+  WritePreparedTxnDB* db_;
+  SequenceNumber snapshot_;
+  SequenceNumber min_uncommitted_;
+  WriteUnpreparedTxn* txn_;
+};
 
 class WriteUnpreparedTxn : public WritePreparedTxn {
  public:
@@ -21,6 +43,13 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                      const TransactionOptions& txn_options);
 
   virtual ~WriteUnpreparedTxn() {}
+
+  // Get and GetIterator needs to be overriden so that a ReadCallback to
+  // handle read-your-own-write is used.
+  using Transaction::Get;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
 
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;

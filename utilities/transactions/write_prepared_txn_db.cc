@@ -280,33 +280,8 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
   return stat_list;
 }
 
-ReadCallback* WritePreparedTxnDB::GetReadCallback(
-    const Snapshot* snapshot, WritePreparedTxn* txn,
-    WritePreparedTxnReadCallback* populate) {
-  assert(txn || populate);
-
-  auto snap_seq =
-      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
-  SequenceNumber min_uncommitted = 0;  // by default disable the optimization
-  if (snapshot != nullptr) {
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
-  }
-
-  // If WritePreparedTxnReadCallback is not given, use the one on the
-  // transaction.
-  if (!populate) {
-    populate = &txn->callback_;
-  }
-
-  *populate = WritePreparedTxnReadCallback(this, snap_seq, min_uncommitted);
-  return populate;
-}
-
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
 struct WritePreparedTxnDB::IteratorState {
-  IteratorState() : callback(nullptr, 0, 0), snapshot(nullptr) {}
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted)
@@ -322,43 +297,38 @@ static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 }
 }  // anonymous namespace
 
-Iterator* WritePreparedTxnDB::NewIteratorInternal(
-    const ReadOptions& options, ColumnFamilyHandle* column_family,
-    WritePreparedTxn* txn) {
-  constexpr bool ALLOW_BLOB = true;
-  constexpr bool ALLOW_REFRESH = true;
-
-  IteratorState* state = nullptr;
-  const Snapshot* snapshot = nullptr;
-  ReadCallback* callback = nullptr;
-  std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
-
-  if (options.snapshot == nullptr) {
-    snapshot = GetSnapshot();
-    own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
-  } else {
-    snapshot = options.snapshot;
-  }
-
-  if (txn == nullptr || options.snapshot == nullptr) {
-    state = new IteratorState();
-  }
-
-  callback = GetReadCallback(snapshot, txn, state ? &state->callback : nullptr);
-  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-  auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot->GetSequenceNumber(),
-                                callback, !ALLOW_BLOB, !ALLOW_REFRESH);
-
-  if (state) {
-    db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
-  }
-  return db_iter;
-}
-
 Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
                                           ColumnFamilyHandle* column_family) {
-  return NewIteratorInternal(options, column_family, nullptr);
+  constexpr bool ALLOW_BLOB = true;
+  constexpr bool ALLOW_REFRESH = true;
+  std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
+  SequenceNumber snapshot_seq = kMaxSequenceNumber;
+  SequenceNumber min_uncommitted = 0;
+  if (options.snapshot != nullptr) {
+    snapshot_seq = options.snapshot->GetSequenceNumber();
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(
+            options.snapshot)
+            ->min_uncommitted_;
+  } else {
+    auto* snapshot = GetSnapshot();
+    // We take a snapshot to make sure that the related data in the commit map
+    // are not deleted.
+    snapshot_seq = snapshot->GetSequenceNumber();
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+            ->min_uncommitted_;
+    own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
+  }
+  assert(snapshot_seq != kMaxSequenceNumber);
+  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto* state =
+      new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
+  auto* db_iter =
+      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
+                                !ALLOW_BLOB, !ALLOW_REFRESH);
+  db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
+  return db_iter;
 }
 
 Status WritePreparedTxnDB::NewIterators(

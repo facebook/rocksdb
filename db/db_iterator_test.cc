@@ -20,7 +20,7 @@ namespace rocksdb {
 
 // A dumb ReadCallback which saying every key is committed.
 class DummyReadCallback : public ReadCallback {
-  bool IsCommitted(SequenceNumber /*seq*/) override { return true; }
+  bool IsVisible(SequenceNumber /*seq*/) override { return true; }
   SequenceNumber MaxUnpreparedSequenceNumber() override { return 0; }
 };
 
@@ -2418,7 +2418,7 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
     explicit TestReadCallback(SequenceNumber last_visible_seq)
         : last_visible_seq_(last_visible_seq) {}
 
-    bool IsCommitted(SequenceNumber seq) override {
+    bool IsVisible(SequenceNumber seq) override {
       return seq <= last_visible_seq_;
     }
 
