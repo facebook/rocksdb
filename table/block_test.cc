@@ -513,12 +513,17 @@ TEST_F(BlockTest, SuffixIndexTest) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
+
+  bool use_suffix_index = false;
+
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
-                       false /* use_sufffix_index */);
+                       use_suffix_index);
   int num_records = 100000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);
+//  keys.push_back("key1");
+//  values.push_back("value1");
   // add a bunch of records to a block
   for (int i = 0; i < num_records; i++) {
     builder.Add(keys[i], values[i]);
@@ -534,7 +539,7 @@ TEST_F(BlockTest, SuffixIndexTest) {
   Block reader(std::move(contents), kDisableGlobalSequenceNumber,
                0 /* read_amp_bytes_per_bit */,
                nullptr /* statistics */,
-               false /* use_suffix_index */);
+               use_suffix_index);
 
   // read contents of block sequentially
   int count = 0;

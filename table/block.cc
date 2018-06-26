@@ -413,6 +413,8 @@ bool BlockIter::SuffixSeek(const Slice& target) {
 
   std::vector<uint32_t> restart_points;
 
+  suffix_index_->Seek(seek_key, restart_points);
+
   for (auto& restart_point: restart_points) {
     SeekToRestartPoint(restart_point);
     while (true) {

@@ -51,7 +51,7 @@ BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding,
       finished_(false),
       suffix_index_builder_(
           use_suffix_index ?
-          new BlockSuffixIndexBuilder(100 /* num_bucket */) :
+          new BlockSuffixIndexBuilder(100000 /* num_bucket */) :
           nullptr){ // TODO(fwu) adjustable bucket_num
   assert(block_restart_interval_ >= 1);
   restarts_.push_back(0);       // First restart point is at offset 0
@@ -138,7 +138,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   buffer_.append(value.data(), value.size());
 
   if (suffix_index_builder_) {
-    suffix_index_builder_->Add(key, restarts_.back());
+    suffix_index_builder_->Add(key, restarts_.size() - 1 /* restart index */);
   }
 
   counter_++;
