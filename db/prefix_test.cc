@@ -212,6 +212,10 @@ class SamePrefixTransform : public SliceTransform {
   virtual bool InRange(const Slice& dst) const override {
     return dst == prefix_;
   }
+
+  virtual bool FullLengthEnabled(size_t* /*len*/) const override {
+    return false;
+  }
 };
 
 }  // namespace
