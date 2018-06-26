@@ -659,6 +659,10 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
   size_t start_index = 0;
   const SortedRun* sr = nullptr;
 
+  if (sorted_runs.back().being_compacted) {
+    return nullptr;
+  }
+
   // Skip files that are already being compacted
   for (size_t loop = 0; loop < sorted_runs.size() - 1; loop++) {
     sr = &sorted_runs[loop];
