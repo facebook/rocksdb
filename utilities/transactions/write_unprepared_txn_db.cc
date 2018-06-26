@@ -46,10 +46,11 @@ static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
                                             ColumnFamilyHandle* column_family,
                                             WriteUnpreparedTxn* txn) {
+  // TODO(lth): Refactor so that this logic is shared with WritePrepared.
   constexpr bool ALLOW_BLOB = true;
   constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
-  SequenceNumber snapshot_seq = kMaxSequenceNumber;
+  SequenceNumber snapshot_seq;
   SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();

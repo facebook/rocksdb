@@ -21,11 +21,12 @@ bool WriteUnpreparedTxnReadCallback::IsVisible(SequenceNumber seq) {
 
   // Since unprep_seqs maps prep_seq => prepare_batch_cnt, to check if seq is
   // in unprep_seqs, we have to check if seq is equal to prep_seq or any of
-  // the prepare_batch_cnt seqnos after it.
+  // the prepare_batch_cnt seq nums after it.
   //
-  // Can be optimized with std::lower_bound if unprep_seqs is large.
+  // TODO(lth): Can be optimized with std::lower_bound if unprep_seqs is
+  // large.
   for (const auto& it : unprep_seqs) {
-    if (it.first <= seq || seq < it.first + it.second) {
+    if (it.first <= seq && seq < it.first + it.second) {
       return true;
     }
   }

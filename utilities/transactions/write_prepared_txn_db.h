@@ -618,8 +618,6 @@ class WritePreparedTxnReadCallback : public ReadCallback {
     return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
   }
 
-  inline virtual SequenceNumber MaxUnpreparedSequenceNumber() { return 0; }
-
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;

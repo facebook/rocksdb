@@ -20,7 +20,7 @@ class WriteUnpreparedTransactionTestBase : public TransactionTestBase {
   WriteUnpreparedTransactionTestBase(bool use_stackable_db,
                                      bool two_write_queue,
                                      TxnDBWritePolicy write_policy)
-      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){};
+      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){}
 };
 
 class WriteUnpreparedTransactionTest
@@ -31,7 +31,7 @@ class WriteUnpreparedTransactionTest
   WriteUnpreparedTransactionTest()
       : WriteUnpreparedTransactionTestBase(std::get<0>(GetParam()),
                                            std::get<1>(GetParam()),
-                                           std::get<2>(GetParam())){};
+                                           std::get<2>(GetParam())){}
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -51,6 +51,14 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   options.disable_auto_compactions = true;
   ReOpen();
 
+  // The following tests checks whether reading your own write for
+  // a transaction works for write unprepared, when there are uncommitted
+  // values written into DB.
+  //
+  // Although the values written by DB::Put are technically committed, we add
+  // their seq num to unprep_seqs_ to pretend that they were written into DB
+  // as part of an unprepared batch, and then check if they are visible to the
+  // transaction.
   auto snapshot0 = db->GetSnapshot();
   ASSERT_OK(db->Put(WriteOptions(), "a", "v1"));
   ASSERT_OK(db->Put(WriteOptions(), "b", "v2"));
@@ -130,7 +138,14 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
 
   wup_txn->unprep_seqs_.clear();
 
-  // Test Prev().
+  // Test Prev(). For Prev(), we need to adjust the snapshot to match what is
+  // possible in WriteUnpreparedTxn.
+  //
+  // Because of row locks and ValidateSnapshot, there cannot be any committed
+  // entries after snapshot, but before the first prepared key.
+  delete iter;
+  roptions.snapshot = snapshot2;
+  iter = txn->GetIterator(roptions);
   wup_txn->unprep_seqs_[snapshot2->GetSequenceNumber() + 1] =
       snapshot4->GetSequenceNumber() - snapshot2->GetSequenceNumber();
 
@@ -146,6 +161,9 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   iter->Prev();
   verify_state(iter, "a", "v3");
 
+  delete iter;
+  roptions.snapshot = snapshot6;
+  iter = txn->GetIterator(roptions);
   wup_txn->unprep_seqs_[snapshot6->GetSequenceNumber() + 1] =
       snapshot8->GetSequenceNumber() - snapshot6->GetSequenceNumber();
 

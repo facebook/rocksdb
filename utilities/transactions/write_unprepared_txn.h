@@ -44,7 +44,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   virtual ~WriteUnpreparedTxn() {}
 
-  // Get and GetIterator needs to be overriden so that a ReadCallback to
+  // Get and GetIterator needs to be overridden so that a ReadCallback to
   // handle read-your-own-write is used.
   using Transaction::Get;
   virtual Status Get(const ReadOptions& options,
@@ -63,7 +63,11 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   WriteUnpreparedTxnDB* wupt_db_;
 
-  // List of unprep_seq sequence numbers that we have already written to DB.
+  // Ordered list of unprep_seq sequence numbers that we have already written
+  // to DB.
+  //
+  // This maps unprep_seq => prepare_batch_cnt for each prepared batch written
+  // by this transactioin.
   std::map<SequenceNumber, size_t> unprep_seqs_;
 };
 

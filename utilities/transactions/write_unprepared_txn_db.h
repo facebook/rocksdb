@@ -31,7 +31,6 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
   Iterator* NewIterator(const ReadOptions& options,
                         ColumnFamilyHandle* column_family,
                         WriteUnpreparedTxn* txn);
-
 };
 
 }  //  namespace rocksdb
