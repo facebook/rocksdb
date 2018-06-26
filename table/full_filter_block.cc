@@ -158,10 +158,29 @@ size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
   return contents_.size();
 }
 
-bool FullFilterBlockReader::IsFilterCompatible(const Slice* iterate_upper_bound,
-                                               const Slice& prefix,
-                                               const Comparator* comparator) {
-  // TODO (Zhongyi): consider removing table_prefix_extractor
+bool FullFilterBlockReader::RangeMayExist(const Slice* iterate_upper_bound,
+    const Slice& user_key, const SliceTransform* prefix_extractor,
+    const Comparator* comparator, const Slice* const const_ikey_ptr,
+    bool* filter_checked, bool need_upper_bound_check) {
+  if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
+    *filter_checked = false;
+    return true;
+  }
+  Slice prefix = prefix_extractor->Transform(user_key);
+  if (need_upper_bound_check &&
+      !IsFilterCompatible(iterate_upper_bound, prefix, comparator)) {
+    *filter_checked = false;
+    return true;
+  } else {
+    *filter_checked = true;
+    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
+                          const_ikey_ptr);
+  }
+}
+
+bool FullFilterBlockReader::IsFilterCompatible(
+    const Slice* iterate_upper_bound, const Slice& prefix,
+    const Comparator* comparator) {
   // Try to reuse the bloom filter in the SST table if prefix_extractor in
   // mutable_cf_options has changed. If range [user_key, upper_bound) all
   // share the same prefix then we may still be able to use the bloom filter.
