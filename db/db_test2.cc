@@ -2512,6 +2512,8 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
 
   PinnableSlice pinned_value;
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  // It is not safe to pin mmap files as they might disappear by compaction
+  ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
   dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
@@ -2519,7 +2521,15 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
                               true /* disallow_trivial_move */);
 
   // Ensure pinned_value doesn't rely on memory munmap'd by the above
-  // compaction.
+  // compaction. It crashes if it does.
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+
+  pinned_value.Reset();
+  // In read-only mode it should pin the value and avoid the memcpy
+  Close();
+  ReadOnlyReopen(options);
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_TRUE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 }
 
