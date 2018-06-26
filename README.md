@@ -3,7 +3,7 @@
 [![Linux/Mac Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
 [![Windows Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
 [![PPC64le Build Status](http://140.211.168.68:8080/buildStatus/icon?job=Rocksdb)](http://140.211.168.68:8080/job/Rocksdb)
-
+[![Language Grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/facebook/rocksdb.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/facebook/rocksdb/context:cpp)
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)
