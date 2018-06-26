@@ -619,7 +619,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
       start_readahead_after_num_file_reads_ = 2;
     }
 
-    if (for_compaction) {
+    if (for_compaction_) {
       if (table->get_rep()->env_options.compaction_readahead_size > 0) {
         enable_readahead_ = true;
       }
