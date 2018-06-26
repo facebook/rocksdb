@@ -65,7 +65,10 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const EnvOptions& env_options, Cache* const cache)
-    : ioptions_(ioptions), env_options_(env_options), cache_(cache) {
+    : ioptions_(ioptions),
+      env_options_(env_options),
+      cache_(cache),
+      immortal_tables_(false) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
