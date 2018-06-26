@@ -23,7 +23,8 @@ class BlobDBImpl;
 
 class BlobFile {
   friend class BlobDBImpl;
-  friend struct blobf_compare_ttl;
+  friend struct BlobFileComparator;
+  friend struct BlobFileComparatorTTL;
 
  private:
   // access to parent
