@@ -123,25 +123,29 @@ class FilterBlockReader {
   virtual void CacheDependencies(bool /*pin*/,
                                  const SliceTransform* /*prefix_extractor*/) {}
 
-  virtual bool IsFilterCompatible(
-      const ReadOptions& /*read_options*/, const Slice& /*user_key*/,
-      const Comparator* /*comparator*/) {
+  virtual bool IsFilterCompatible(const Slice* /*iterate_upper_bound*/,
+                                  const Slice& /*prefix*/,
+                                  const Comparator* /*comparator*/) {
     return true;
   }
 
-  bool RangeMayExist(const ReadOptions& read_options, const Slice& user_key,
-        const SliceTransform* prefix_extractor, const Comparator* comparator,
-        const Slice& prefix, uint64_t block_offset, const bool no_io,
-        const Slice* const const_ikey_ptr, bool* filter_checked,
-        bool prefix_extractor_changed) {
-    if (prefix_extractor_changed &&
-        !IsFilterCompatible(read_options, user_key, comparator)) {
+  bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
+                     const SliceTransform* prefix_extractor,
+                     const Comparator* comparator,
+                     const Slice* const const_ikey_ptr, bool* filter_checked,
+                     bool need_upper_bound_check) {
+    if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
       *filter_checked = false;
       return true;
     }
-    else {
+    Slice prefix = prefix_extractor->Transform(user_key);
+    if (need_upper_bound_check &&
+        !IsFilterCompatible(iterate_upper_bound, prefix, comparator)) {
+      *filter_checked = false;
+      return true;
+    } else {
       *filter_checked = true;
-      return PrefixMayMatch(prefix, prefix_extractor, block_offset, no_io,
+      return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
                             const_ikey_ptr);
     }
   }

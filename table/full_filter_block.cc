@@ -158,42 +158,30 @@ size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
   return contents_.size();
 }
 
-bool FullFilterBlockReader::IsFilterCompatible(
-    const ReadOptions& read_options, const Slice& user_key,
-    const Comparator* comparator) {
+bool FullFilterBlockReader::IsFilterCompatible(const Slice* iterate_upper_bound,
+                                               const Slice& prefix,
+                                               const Comparator* comparator) {
   // TODO (Zhongyi): consider removing table_prefix_extractor
   // Try to reuse the bloom filter in the SST table if prefix_extractor in
   // mutable_cf_options has changed. If range [user_key, upper_bound) all
   // share the same prefix then we may still be able to use the bloom filter.
-  if (read_options.iterate_upper_bound != nullptr && prefix_extractor_) {
-    if (!prefix_extractor_->InDomain(user_key) ||
-        !prefix_extractor_->InDomain(
-            *read_options.iterate_upper_bound)) {
+  if (iterate_upper_bound != nullptr && prefix_extractor_) {
+    if (!prefix_extractor_->InDomain(*iterate_upper_bound)) {
       return false;
     }
-    Slice user_key_xform = prefix_extractor_->Transform(user_key);
-    Slice upper_bound_xform = prefix_extractor_->Transform(
-        *read_options.iterate_upper_bound);
+    Slice upper_bound_xform =
+        prefix_extractor_->Transform(*iterate_upper_bound);
     // first check if user_key and upper_bound all share the same prefix
-    if (user_key_xform.compare(upper_bound_xform) != 0) {
+    if (!comparator->Equal(prefix, upper_bound_xform)) {
       // second check if user_key's prefix is the immediate predecessor of
       // upper_bound and have the same length. If so, we know for sure all
       // keys in the range [user_key, upper_bound) share the same prefix.
       // Also need to make sure upper_bound are full length to ensure
       // correctness
       if (!full_length_enabled_ ||
-          read_options.iterate_upper_bound->size() != prefix_extractor_full_length_ ||
-            !comparator->IsSameLengthImmediateSuccessor(
-                user_key_xform, *read_options.iterate_upper_bound)) {
-        // TODO(Zhongyi): delete debug code before merging
-        // fprintf(stdout, "[full filter] BF = %s, internal_key = %s, upper_bound = %s, user_key_xform = "
-        // "%s, upper_bound_xform = %s transformed into different prefix, not "
-        // "possible\n",
-        //         prefix_extractor_->Name(),
-        //         user_key.ToString().c_str(),
-        //         read_options.iterate_upper_bound->ToString().c_str(),
-        //         user_key_xform.ToString().c_str(),
-        //         upper_bound_xform.ToString().c_str());
+          iterate_upper_bound->size() != prefix_extractor_full_length_ ||
+          !comparator->IsSameLengthImmediateSuccessor(prefix,
+                                                      *iterate_upper_bound)) {
         return false;
       }
     }

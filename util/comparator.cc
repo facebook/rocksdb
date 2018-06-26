@@ -101,7 +101,9 @@ class BytewiseComparatorImpl : public Comparator {
 
   virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
                                               const Slice& t) const override {
-    if (s.size() != t.size() || s.size() == 0) { return false; }
+    if (s.size() != t.size() || s.size() == 0) {
+      return false;
+    }
     size_t diff_ind = s.difference_offset(t);
     // same slice
     if (diff_ind >= s.size()) return false;
@@ -109,7 +111,6 @@ class BytewiseComparatorImpl : public Comparator {
     uint8_t byte_t = static_cast<uint8_t>(t[diff_ind]);
     // first different byte must be consecutive, and remaining bytes must be
     // 0xff for s and 0x00 for t
-    // TODO: what if byte_s is 0xff?
     if (byte_s != uint8_t{0xff} && byte_s + 1 == byte_t) {
       for (size_t i = diff_ind + 1; i < s.size(); ++i) {
         byte_s = static_cast<uint8_t>(s[i]);
@@ -119,8 +120,7 @@ class BytewiseComparatorImpl : public Comparator {
         }
       }
       return true;
-    }
-    else {
+    } else {
       return false;
     }
   }

@@ -451,72 +451,65 @@ TEST_P(ComparatorDBTest, TwoStrComparator) {
 
 TEST_P(ComparatorDBTest, IsSameLengthImmediateSuccessor) {
   {
+    // different length
     Slice s("abcxy");
     Slice t("abcxyz");
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              false);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     Slice s("abcxyz");
     Slice t("abcxy");
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              false);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
+    // not last byte different
     Slice s("abc1xyz");
     Slice t("abc2xyz");
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              false);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
+    // same string
     Slice s("abcxyz");
     Slice t("abcxyz");
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              false);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     Slice s("abcxy");
     Slice t("abcxz");
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              true);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     Slice s("abcxz");
     Slice t("abcxy");
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              false);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     const char s_array[] = "\x50\x8a\xac";
     const char t_array[] = "\x50\x8a\xad";
     Slice s(s_array);
     Slice t(t_array);
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              true);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     const char s_array[] = "\x50\x8a\xff";
     const char t_array[] = "\x50\x8b\x00";
     Slice s(s_array, 3);
     Slice t(t_array, 3);
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              true);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     const char s_array[] = "\x50\x8a\xff\xff";
     const char t_array[] = "\x50\x8b\x00\x00";
     Slice s(s_array, 4);
     Slice t(t_array, 4);
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              true);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
   {
     const char s_array[] = "\x50\x8a\xff\xff";
     const char t_array[] = "\x50\x8b\x00\x01";
     Slice s(s_array, 4);
     Slice t(t_array, 4);
-    ASSERT_EQ(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t),
-              false);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
 }
 

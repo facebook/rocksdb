@@ -904,8 +904,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                                 rep->ioptions.info_log);
   }
 
-  bool prefix_extractor_changed = PrefixExtractorChanged(
-      rep->table_properties.get(), prefix_extractor);
+  bool need_upper_bound_check =
+      PrefixExtractorChanged(rep->table_properties.get(), prefix_extractor);
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -944,7 +944,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // check prefix_extractor match only if hash based index is used
       bool disable_prefix_seek =
           rep->index_type == BlockBasedTableOptions::kHashSearch &&
-          prefix_extractor_changed;
+          need_upper_bound_check;
       unique_ptr<InternalIterator> iter(new_table->NewIndexIterator(
           ReadOptions(), disable_prefix_seek, nullptr, &index_entry));
       s = iter->status();
@@ -965,9 +965,11 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     }
     if (s.ok() && prefetch_filter) {
       // Hack: Call GetFilter() to implicitly add filter to the block_cache
-      auto filter_entry = new_table->GetFilter(rep->table_prefix_extractor.get());
+      auto filter_entry =
+          new_table->GetFilter(rep->table_prefix_extractor.get());
       if (filter_entry.value != nullptr && prefetch_all) {
-        filter_entry.value->CacheDependencies(pin_all, rep->table_prefix_extractor.get());
+        filter_entry.value->CacheDependencies(
+            pin_all, rep->table_prefix_extractor.get());
       }
       // if pin_filter is true then save it in rep_->filter_entry; it will be
       // released in the destructor only, hence it will be pinned in the
@@ -997,9 +999,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // Set filter block
       if (rep->filter_policy) {
         const bool is_a_filter_partition = true;
-        auto filter =
-            new_table->ReadFilter(prefetch_buffer.get(), rep->filter_handle,
-                                  !is_a_filter_partition, rep->table_prefix_extractor.get());
+        auto filter = new_table->ReadFilter(
+            prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition,
+            rep->table_prefix_extractor.get());
         rep->filter.reset(filter);
         // Refer to the comment above about paritioned indexes always being
         // cached
@@ -1791,27 +1793,26 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // Otherwise, this method guarantees no I/O will be incurred.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
-bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
-                                     const ReadOptions& read_options,
-                                     const SliceTransform* prefix_extractor,
-                                     const bool prefix_extractor_changed) {
+bool BlockBasedTable::PrefixMayMatch(
+    const Slice& internal_key, const ReadOptions& read_options,
+    const SliceTransform* options_prefix_extractor,
+    const bool need_upper_bound_check) {
   if (!rep_->filter_policy) {
     return true;
   }
 
-  const SliceTransform* prefix_extractor_to_use;
+  const SliceTransform* prefix_extractor;
 
   if (rep_->table_prefix_extractor == nullptr) {
-    if (prefix_extractor_changed) {
+    if (need_upper_bound_check) {
       return true;
     }
-    prefix_extractor_to_use = prefix_extractor;
-  }
-  else {
-    prefix_extractor_to_use = rep_->table_prefix_extractor.get();
+    prefix_extractor = options_prefix_extractor;
+  } else {
+    prefix_extractor = rep_->table_prefix_extractor.get();
   }
   auto user_key = ExtractUserKey(internal_key);
-  if (!prefix_extractor_to_use->InDomain(user_key)) {
+  if (!prefix_extractor->InDomain(user_key)) {
     return true;
   }
 
@@ -1819,26 +1820,25 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
   Status s;
 
   // First, try check with full filter
-  auto filter_entry = GetFilter(prefix_extractor_to_use);
+  auto filter_entry = GetFilter(prefix_extractor);
   FilterBlockReader* filter = filter_entry.value;
   bool filter_checked = true;
   if (filter != nullptr) {
-    // set prefix using prefix_extractor from the SST
-    auto prefix = prefix_extractor_to_use->Transform(user_key);
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
-          read_options, user_key, prefix_extractor_to_use,
-          rep_->internal_comparator.user_comparator(), prefix, kNotValid,
-          false, const_ikey_ptr, &filter_checked, prefix_extractor_changed);
+          read_options.iterate_upper_bound, user_key, prefix_extractor,
+          rep_->internal_comparator.user_comparator(), const_ikey_ptr,
+          &filter_checked, need_upper_bound_check);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
-      if (prefix_extractor_changed) {
+      if (need_upper_bound_check) {
         if (!rep_->filter_entry.IsSet()) {
           filter_entry.Release(rep_->table_options.block_cache.get());
         }
         return true;
       }
+      auto prefix = prefix_extractor->Transform(user_key);
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
 
@@ -1853,7 +1853,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
       // because `CheckPrefixMayMatch` first checks `check_filter_ == true`
       unique_ptr<InternalIterator> iiter(
           NewIndexIterator(no_io_read_options,
-                           /* prefix_extractor_changed */ false));
+                           /* need_upper_bound_check */ false));
       iiter->Seek(internal_prefix);
 
       if (!iiter->Valid()) {
@@ -1889,8 +1889,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key,
         s = handle.DecodeFrom(&handle_value);
         assert(s.ok());
         may_match =
-            filter->PrefixMayMatch(prefix, prefix_extractor_to_use,
-                                   handle.offset());
+            filter->PrefixMayMatch(prefix, prefix_extractor, handle.offset());
       }
     }
   }
@@ -2131,7 +2130,7 @@ void BlockBasedTableIterator::FindKeyBackward() {
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
     Arena* arena, bool skip_filters, bool for_compaction) {
-  bool prefix_extractor_changed =
+  bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   const bool kIsNotIndex = false;
   if (arena == nullptr) {
@@ -2139,20 +2138,20 @@ InternalIterator* BlockBasedTable::NewIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(
             read_options,
-            prefix_extractor_changed &&
+            need_upper_bound_check &&
                 rep_->index_type == BlockBasedTableOptions::kHashSearch),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
+        need_upper_bound_check, prefix_extractor, kIsNotIndex,
         true /*key_includes_seq*/, for_compaction);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options, prefix_extractor_changed),
+        NewIndexIterator(read_options, need_upper_bound_check),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        prefix_extractor_changed, prefix_extractor, kIsNotIndex,
+        need_upper_bound_check, prefix_extractor, kIsNotIndex,
         true /*key_includes_seq*/, for_compaction);
   }
 }
@@ -2240,14 +2239,14 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     BlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
-    bool prefix_extractor_changed = false;
+    bool need_upper_bound_check = false;
     if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
-      prefix_extractor_changed = PrefixExtractorChanged(
+      need_upper_bound_check = PrefixExtractorChanged(
           rep_->table_properties.get(), prefix_extractor);
     }
-    auto iiter = NewIndexIterator(read_options, prefix_extractor_changed,
-                                  &iiter_on_stack, /* index_entry */ nullptr,
-                                  get_context);
+    auto iiter =
+        NewIndexIterator(read_options, need_upper_bound_check, &iiter_on_stack,
+                         /* index_entry */ nullptr, get_context);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
@@ -2509,7 +2508,7 @@ Status BlockBasedTable::CreateIndexReader(
 
   // kHashSearch requires non-empty prefix_extractor but bypass checking
   // prefix_extractor here since we have no access to MutableCFOptions.
-  // Add prefix_extractor_changed flag in  BlockBasedTable::NewIndexIterator.
+  // Add need_upper_bound_check flag in  BlockBasedTable::NewIndexIterator.
   // If prefix_extractor does not match prefix_extractor_name from table
   // properties, turn off Hash Index by setting total_order_seek to true
 
