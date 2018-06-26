@@ -474,12 +474,17 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     TransactionID leaf_id =
         dlock_entry[dlock_entry.size() - 1].m_txn_id - offset_root;
 
+    decltype(DeadlockInfo::m_deadlock_time) pre_m_deadlock_time = 0;
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
       auto dl_node = *it;
+      auto cur_m_deadlock_time = dl_node.m_deadlock_time;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
       ASSERT_EQ(dl_node.m_cf_id, 0);
       ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
+      ASSERT_NE(cur_m_deadlock_time, 0);
+      ASSERT_TRUE(cur_m_deadlock_time >= pre_m_deadlock_time);
+      pre_m_deadlock_time = cur_m_deadlock_time;
 
       if (curr_waiting_key == 0) {
         curr_waiting_key = leaf_id;
@@ -671,12 +676,17 @@ TEST_P(TransactionTest, DeadlockCycle) {
     ASSERT_EQ(dlock_buffer[0].limit_exceeded, check_limit_flag);
 
     // Iterates backwards over path verifying decreasing txn_ids.
+    decltype(DeadlockInfo::m_deadlock_time) pre_m_deadlock_time = 0;
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
       auto dl_node = *it;
+      auto cur_m_deadlock_time = dl_node.m_deadlock_time;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
       ASSERT_EQ(dl_node.m_cf_id, 0);
       ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
+      ASSERT_NE(cur_m_deadlock_time, 0);
+      ASSERT_TRUE(cur_m_deadlock_time >= pre_m_deadlock_time);
+      pre_m_deadlock_time = cur_m_deadlock_time;
 
       curr_txn_id--;
       if (curr_waiting_key == 0) {

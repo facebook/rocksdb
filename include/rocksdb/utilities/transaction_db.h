@@ -164,6 +164,7 @@ struct DeadlockInfo {
   uint32_t m_cf_id;
   std::string m_waiting_key;
   bool m_exclusive;
+  int64_t m_deadlock_time;
 };
 
 struct DeadlockPath {
