@@ -52,9 +52,23 @@ WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
   return WalFilter::WalProcessingOption::kContinueProcessing;
 }
 
-bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
-                                   const std::shared_ptr<BlobFile>& rhs) const {
+bool BlobFileComparator::operator()(
+    const std::shared_ptr<BlobFile>& lhs,
+    const std::shared_ptr<BlobFile>& rhs) const {
   return lhs->BlobFileNumber() > rhs->BlobFileNumber();
+}
+
+bool BlobFileComparatorTTL::operator()(
+    const std::shared_ptr<BlobFile>& lhs,
+    const std::shared_ptr<BlobFile>& rhs) const {
+  assert(lhs->HasTTL() && rhs->HasTTL());
+  if (lhs->expiration_range_.first < rhs->expiration_range_.first) {
+    return true;
+  }
+  if (lhs->expiration_range_.first > rhs->expiration_range_.first) {
+    return false;
+  }
+  return lhs->BlobFileNumber() < rhs->BlobFileNumber();
 }
 
 BlobDBImpl::BlobDBImpl(const std::string& dbname,
@@ -847,7 +861,7 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
   std::vector<std::shared_ptr<BlobFile>> candidate_files;
   CopyBlobFiles(&candidate_files);
   std::sort(candidate_files.begin(), candidate_files.end(),
-            blobf_compare_ttl());
+            BlobFileComparator());
   fifo_eviction_seq_ = GetLatestSequenceNumber();
 
   WriteLock l(&mutex_);
@@ -871,25 +885,13 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
     }
     assert(blob_file->Immutable());
     auto expiration_range = blob_file->GetExpirationRange();
-    if (blob_file->HasTTL()) {
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "Evict oldest blob file since DB out of space. Current "
-                     "live SST file size: %" PRIu64
-                     ", total blob size: %" PRIu64 ", max db size: %" PRIu64
-                     ", evicted blob file #%" PRIu64
-                     " with expiration range (%" PRIu64 ", %" PRIu64 ").",
-                     live_sst_size, total_blob_size_.load(),
-                     bdb_options_.max_db_size, blob_file->BlobFileNumber(),
-                     expiration_range.first, expiration_range.second);
-    } else {
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "Evict oldest blob file since DB out of space. Current "
-                     "live SST file size: %" PRIu64
-                     ", total blob size: %" PRIu64 ", max db size: %" PRIu64
-                     ", evicted blob file #%" PRIu64 " without TTL.",
-                     live_sst_size, total_blob_size_.load(),
-                     bdb_options_.max_db_size, blob_file->BlobFileNumber());
-    }
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Evict oldest blob file since DB out of space. Current "
+                   "live SST file size: %" PRIu64 ", total blob size: %" PRIu64
+                   ", max db size: %" PRIu64 ", evicted blob file #%" PRIu64
+                   ".",
+                   live_sst_size, total_blob_size_.load(),
+                   bdb_options_.max_db_size, blob_file->BlobFileNumber());
     ObsoleteBlobFile(blob_file, fifo_eviction_seq_, true /*update_size*/);
     evict_expiration_up_to_ = expiration_range.first;
     RecordTick(statistics_, BLOB_DB_FIFO_NUM_FILES_EVICTED);
