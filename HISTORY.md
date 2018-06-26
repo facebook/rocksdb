@@ -11,6 +11,7 @@
 * Introduce a new IOError subcode, PathNotFound, to indicate trying to open a nonexistent file or directory for read.
 * Add initial support for multiple db instances sharing the same data in single-writer, multi-reader mode.
 * Removed some "using std::xxx" from public headers.
+* LDBCommandRunner::RunCommand() returns an error code instead of directly exiting.
 
 ### Bug Fixes
 * Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
