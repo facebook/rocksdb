@@ -2505,7 +2505,7 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.allow_mmap_reads = true;
-  options.max_open_files = -1;
+  options.max_open_files = 100;
   options.compression = kNoCompression;
   Reopen(options);
 
@@ -2527,20 +2527,21 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
   pinned_value.Reset();
-  // In read-only mode it should pin the value and avoid the memcpy
-  Close();
-  ReadOnlyReopen(options);
-  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
-  ASSERT_TRUE(pinned_value.IsPinned());
-  ASSERT_EQ(pinned_value.ToString(), "bar");
-
-  pinned_value.Reset();
-  options.max_open_files = 100;
   // Unsafe to pin mmap files when they could be kicked out of table cache
   Close();
   ReadOnlyReopen(options);
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
   ASSERT_FALSE(pinned_value.IsPinned());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+
+  pinned_value.Reset();
+  // In read-only mode with infinite capacity on table cache it should pin the
+  // value and avoid the memcpy
+  Close();
+  options.max_open_files = -1;
+  ReadOnlyReopen(options);
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_TRUE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 }
 
