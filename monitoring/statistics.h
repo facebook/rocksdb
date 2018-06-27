@@ -60,6 +60,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) StatisticsImpl : public Statistics {
   virtual std::string ToString() const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
+  void* operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
+  void* operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
+  void operator delete(void* p) { port::cacheline_aligned_free(p); }
+  void operator delete[](void* p) { port::cacheline_aligned_free(p); }
+
  private:
   // If non-nullptr, forwards updates to the object pointed to by `stats_`.
   std::shared_ptr<Statistics> stats_;
