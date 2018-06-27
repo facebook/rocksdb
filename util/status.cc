@@ -10,17 +10,14 @@
 #include "rocksdb/status.h"
 #include <stdio.h>
 #include <cstring>
-#include <string.h>
 #include "port/port.h"
 
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
-#ifdef OS_WIN
-  return _strdup(state);
-#else
-  return strdup(state);
-#endif
+  const size_t cch =
+      std::strlen(state) + 1; // +1 for the null terminator
+  return std::strncpy(new char[cch], state, cch);
 }
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2)
@@ -30,7 +27,7 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2
   const size_t len1 = msg.size();
   const size_t len2 = msg2.size();
   const size_t size = len1 + (len2 ? (2 + len2) : 0);
-  char* const result = (char*) malloc(size + 1);  // +1 for null terminator
+  char* const result = new char[size + 1];  // +1 for null terminator
   memcpy(result, msg.data(), len1);
   if (len2) {
     result[len1] = ':';
