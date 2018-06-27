@@ -54,6 +54,8 @@ int main() {
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
@@ -142,6 +144,8 @@ DEFINE_int32(value_size_mult, 8,
              "Size of value will be this number times rand_int(1,3) bytes");
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+
+DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
 
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
@@ -381,6 +385,24 @@ DEFINE_bool(rate_limit_bg_reads, false,
 DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
+
+DEFINE_int32(backup_one_in, 0,
+             "If non-zero, then CreateNewBackup() will be called once for "
+             "every N operations on average.  0 indicates CreateNewBackup() "
+             "is disabled.");
+
+DEFINE_int32(checkpoint_one_in, 0,
+             "If non-zero, then CreateCheckpoint() will be called once for "
+             "every N operations on average.  0 indicates CreateCheckpoint() "
+             "is disabled.");
+
+DEFINE_int32(ingest_external_file_one_in, 0,
+             "If non-zero, then IngestExternalFile() will be called once for "
+             "every N operations on average.  0 indicates IngestExternalFile() "
+             "is disabled.");
+
+DEFINE_int32(ingest_external_file_width, 1000,
+             "The width of the ingested external files.");
 
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
@@ -1756,7 +1778,50 @@ class StressTest {
 
       MaybeClearOneColumnFamily(thread);
 
-#ifndef ROCKSDB_LITE  // Lite does not support GetColumnFamilyMetaData
+#ifndef ROCKSDB_LITE
+      if (FLAGS_checkpoint_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_checkpoint_one_in) == 0) {
+        std::string checkpoint_dir =
+            FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+        DestroyDB(checkpoint_dir, Options());
+        Checkpoint* checkpoint;
+        Status s = Checkpoint::Create(db_, &checkpoint);
+        if (s.ok()) {
+          s = checkpoint->CreateCheckpoint(checkpoint_dir);
+        }
+        std::vector<std::string> files;
+        if (s.ok()) {
+          s = FLAGS_env->GetChildren(checkpoint_dir, &files);
+        }
+        DestroyDB(checkpoint_dir, Options());
+        delete checkpoint;
+        if (!s.ok()) {
+          printf("A checkpoint operation failed with: %s\n",
+                 s.ToString().c_str());
+        }
+      }
+
+      if (FLAGS_backup_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
+        std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
+        BackupableDBOptions backup_opts(backup_dir);
+        BackupEngine* backup_engine = nullptr;
+        Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
+        if (s.ok()) {
+          s = backup_engine->CreateNewBackup(db_);
+        }
+        if (s.ok()) {
+          s = backup_engine->PurgeOldBackups(0 /* num_backups_to_keep */);
+        }
+        if (!s.ok()) {
+          printf("A BackupEngine operation failed with: %s\n",
+                 s.ToString().c_str());
+        }
+        if (backup_engine != nullptr) {
+          delete backup_engine;
+        }
+      }
+
       if (FLAGS_compact_files_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_files_one_in) == 0) {
         auto* random_cf =
@@ -1838,6 +1903,11 @@ class StressTest {
           printf("Unable to perform CompactRange(): %s\n",
                  status.ToString().c_str());
         }
+      }
+
+      if (FLAGS_ingest_external_file_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_ingest_external_file_one_in) == 0) {
+        TestIngestExternalFile(thread, {rand_column_family}, {rand_key}, lock);
       }
 
       if (FLAGS_acquire_snapshot_one_in > 0 &&
@@ -1934,6 +2004,11 @@ class StressTest {
   virtual Status TestDeleteRange(ThreadState* thread,
       WriteOptions& write_opts,
       const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys,
+      std::unique_ptr<MutexLock>& lock) = 0;
+
+  virtual void TestIngestExternalFile(
+      ThreadState* thread, const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys,
       std::unique_ptr<MutexLock>& lock) = 0;
 
@@ -2119,6 +2194,7 @@ class StressTest {
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =
           FLAGS_allow_concurrent_memtable_write;
+      options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
       options_.enable_write_thread_adaptive_yield =
           FLAGS_enable_write_thread_adaptive_yield;
       options_.compaction_options_universal.size_ratio =
@@ -2715,6 +2791,82 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
+#ifdef ROCKSDB_LITE
+  virtual void TestIngestExternalFile(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+    assert(false);
+    fprintf(stderr,
+            "RocksDB lite does not support "
+            "TestIngestExternalFile\n");
+    std::terminate();
+  }
+#else
+  virtual void TestIngestExternalFile(
+      ThreadState* thread, const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys, std::unique_ptr<MutexLock>& lock) {
+    const std::string sst_filename =
+        FLAGS_db + "/." + ToString(thread->tid) + ".sst";
+    Status s;
+    if (FLAGS_env->FileExists(sst_filename).ok()) {
+      // Maybe we terminated abnormally before, so cleanup to give this file
+      // ingestion a clean slate
+      s = FLAGS_env->DeleteFile(sst_filename);
+    }
+
+    SstFileWriter sst_file_writer(EnvOptions(), options_);
+    if (s.ok()) {
+      s = sst_file_writer.Open(sst_filename);
+    }
+    int64_t key_base = rand_keys[0];
+    int column_family = rand_column_families[0];
+    std::vector<std::unique_ptr<MutexLock> > range_locks;
+    std::vector<uint32_t> values;
+    SharedState* shared = thread->shared;
+
+    // Grab locks, set pending state on expected values, and add keys
+    for (int64_t key = key_base;
+         s.ok() && key < std::min(key_base + FLAGS_ingest_external_file_width,
+                                  shared->GetMaxKey());
+         ++key) {
+      if (key == key_base) {
+        range_locks.emplace_back(std::move(lock));
+      } else if ((key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+        range_locks.emplace_back(
+            new MutexLock(shared->GetMutexForKey(column_family, key)));
+      }
+
+      uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+      values.push_back(value_base);
+      shared->Put(column_family, key, value_base, true /* pending */);
+
+      char value[100];
+      size_t value_len = GenerateValue(value_base, value, sizeof(value));
+      auto key_str = Key(key);
+      s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
+    }
+
+    if (s.ok()) {
+      s = sst_file_writer.Finish();
+    }
+    if (s.ok()) {
+      s = db_->IngestExternalFile(column_families_[column_family],
+                                  {sst_filename}, IngestExternalFileOptions());
+    }
+    if (!s.ok()) {
+      fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
+      std::terminate();
+    }
+    int64_t key = key_base;
+    for (int32_t value : values) {
+      shared->Put(column_family, key, value, false /* pending */);
+      ++key;
+    }
+  }
+#endif  // ROCKSDB_LITE
+
   bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                    SharedState* shared, const std::string& value_from_db,
                    Status s, bool strict = false) const {
@@ -2841,6 +2993,18 @@ class BatchedOpsStressTest : public StressTest {
     assert(false);
     return Status::NotSupported("BatchedOpsStressTest does not support "
         "TestDeleteRange");
+  }
+
+  virtual void TestIngestExternalFile(
+      ThreadState* /* thread */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+    assert(false);
+    fprintf(stderr,
+            "BatchedOpsStressTest does not support "
+            "TestIngestExternalFile\n");
+    std::terminate();
   }
 
   // Given a key K, this gets values for "0"+K, "1"+K,..."9"+K
@@ -3068,6 +3232,11 @@ int main(int argc, char** argv) {
     fprintf(
         stderr,
         "Error: nooverwritepercent must not be 100 when using merge operands");
+    exit(1);
+  }
+  if (FLAGS_ingest_external_file_one_in > 0 && FLAGS_nooverwritepercent > 0) {
+    fprintf(stderr,
+            "Error: nooverwritepercent must be 0 when using file ingestion\n");
     exit(1);
   }
 
