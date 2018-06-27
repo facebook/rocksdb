@@ -1037,12 +1037,19 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
-    // Note: In WritePrepared txns this is not necessary but not harmful either.
-    // Because prep_seq > snapshot => commit_seq > snapshot so if a snapshot is
-    // specified we should be fine with skipping seq numbers that are greater
-    // than that.
+    // Note: In WritePrepared txns this is not necessary but not harmful
+    // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
+    // a snapshot is specified we should be fine with skipping seq numbers
+    // that are greater than that.
+    //
+    // In WriteUnprepared, we cannot set snapshot in the lookup key because we
+    // may skip uncommitted data that should be visible to the transaction for
+    // reading own writes.
     snapshot =
         reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+    if (callback) {
+      snapshot = std::max(snapshot, callback->MaxUnpreparedSequenceNumber());
+    }
   } else {
     // Since we get and reference the super version before getting
     // the snapshot number, without a mutex protection, it is possible
@@ -1050,10 +1057,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // data for this snapshot is available. But it will contain all
     // the data available in the super version we have, which is also
     // a valid snapshot to read from.
-    // We shouldn't get snapshot before finding and referencing the
-    // super versipon because a flush happening in between may compact
-    // away data for the snapshot, but the snapshot is earlier than the
-    // data overwriting it, so users may see wrong results.
+    // We shouldn't get snapshot before finding and referencing the super
+    // version because a flush happening in between may compact away data for
+    // the snapshot, but the snapshot is earlier than the data overwriting it,
+    // so users may see wrong results.
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();

@@ -20,7 +20,7 @@ class TestReadCallback : public ReadCallback {
                    SequenceNumber snapshot_seq)
       : snapshot_checker_(snapshot_checker), snapshot_seq_(snapshot_seq) {}
 
-  bool IsCommitted(SequenceNumber seq) override {
+  bool IsVisible(SequenceNumber seq) override {
     return snapshot_checker_->IsInSnapshot(seq, snapshot_seq_);
   }
 
