@@ -492,16 +492,16 @@ bool TransactionLockMgr::IncrementWaiters(
       while (head != -1) {
         assert(wait_txn_map_.Contains(queue_values[head]));
 
-        env->GetCurrentTime(&deadlock_time);
         auto extracted_info = wait_txn_map_.Get(queue_values[head]);
         path.push_back({queue_values[head], extracted_info.m_cf_id,
                         extracted_info.m_waiting_key,
-                        extracted_info.m_exclusive, deadlock_time});
+                        extracted_info.m_exclusive});
         head = queue_parents[head];
-        deadlock_time = 0;
       }
+      env->GetCurrentTime(&deadlock_time);
       std::reverse(path.begin(), path.end());
-      dlock_buffer_.AddNewPath(DeadlockPath(path));
+      dlock_buffer_.AddNewPath(DeadlockPath(path, deadlock_time));
+      deadlock_time = 0;
       DecrementWaitersImpl(txn, wait_ids);
       return true;
     } else if (!wait_txn_map_.Contains(next)) {
@@ -514,7 +514,8 @@ bool TransactionLockMgr::IncrementWaiters(
   }
 
   // Wait cycle too big, just assume deadlock.
-  dlock_buffer_.AddNewPath(DeadlockPath(true));
+  env->GetCurrentTime(&deadlock_time);
+  dlock_buffer_.AddNewPath(DeadlockPath(deadlock_time, true));
   DecrementWaitersImpl(txn, wait_ids);
   return true;
 }

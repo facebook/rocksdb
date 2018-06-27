@@ -164,18 +164,20 @@ struct DeadlockInfo {
   uint32_t m_cf_id;
   std::string m_waiting_key;
   bool m_exclusive;
-  int64_t m_deadlock_time;
 };
 
 struct DeadlockPath {
   std::vector<DeadlockInfo> path;
   bool limit_exceeded;
+  int64_t deadlock_time;
 
-  explicit DeadlockPath(std::vector<DeadlockInfo> path_entry)
-      : path(path_entry), limit_exceeded(false) {}
+  explicit DeadlockPath(
+      std::vector<DeadlockInfo> path_entry, const int64_t& dl_time)
+      : path(path_entry), limit_exceeded(false), deadlock_time(dl_time) {}
 
   // empty path, limit exceeded constructor and default constructor
-  explicit DeadlockPath(bool limit = false) : path(0), limit_exceeded(limit) {}
+  explicit DeadlockPath(const int64_t& dl_time = 0, bool limit = false)
+      : path(0), limit_exceeded(limit), deadlock_time(dl_time) {}
 
   bool empty() { return path.empty() && !limit_exceeded; }
 };
