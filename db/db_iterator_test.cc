@@ -1537,9 +1537,84 @@ TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
   delete iter;
 }
 
+class SliceTransformLimitedDomainGeneric : public SliceTransform {
+  const char* Name() const override {
+    return "SliceTransformLimitedDomainGeneric";
+  }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data(), 1);
+  }
+
+  bool InDomain(const Slice& src) const override {
+    // prefix will be x????
+    return src.size() >= 1;
+  }
+
+  bool InRange(const Slice& dst) const override {
+    // prefix will be x????
+    return dst.size() == 1;
+  }
+};
+
 TEST_P(DBIteratorTest, IterSeekForPrevCrossingFiles) {
   Options options = CurrentOptions();
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.disable_auto_compactions = true;
+  // Enable prefix bloom for SST files
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a1", "va1"));
+  ASSERT_OK(Put("a2", "va2"));
+  ASSERT_OK(Put("a3", "va3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("b1", "vb1"));
+  ASSERT_OK(Put("b2", "vb2"));
+  ASSERT_OK(Put("b3", "vb3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("b4", "vb4"));
+  ASSERT_OK(Put("d1", "vd1"));
+  ASSERT_OK(Put("d2", "vd2"));
+  ASSERT_OK(Put("d4", "vd4"));
+  ASSERT_OK(Flush());
+
+  MoveFilesToLevel(1);
+  {
+    ReadOptions ro;
+    Iterator* iter = NewIterator(ro);
+
+    iter->SeekForPrev("a4");
+    ASSERT_EQ(iter->key().ToString(), "a3");
+    ASSERT_EQ(iter->value().ToString(), "va3");
+
+    iter->SeekForPrev("c2");
+    ASSERT_EQ(iter->key().ToString(), "b3");
+    iter->SeekForPrev("d3");
+    ASSERT_EQ(iter->key().ToString(), "d2");
+    iter->SeekForPrev("b5");
+    ASSERT_EQ(iter->key().ToString(), "b4");
+    delete iter;
+  }
+
+  {
+    ReadOptions ro;
+    ro.prefix_same_as_start = true;
+    Iterator* iter = NewIterator(ro);
+    iter->SeekForPrev("c2");
+    ASSERT_TRUE(!iter->Valid());
+    delete iter;
+  }
+}
+
+TEST_P(DBIteratorTest, IterSeekForPrevCrossingFilesCustomPrefixExtractor) {
+  Options options = CurrentOptions();
+  options.prefix_extractor =
+      std::make_shared<SliceTransformLimitedDomainGeneric>();
   options.disable_auto_compactions = true;
   // Enable prefix bloom for SST files
   BlockBasedTableOptions table_options;
