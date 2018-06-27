@@ -20,11 +20,11 @@ namespace rocksdb {
 std::shared_ptr<Statistics> CreateDBStatistics() {
   // C++ default 'new' does not work with over alignment, i.e. alignment
   // greater than std::max_align_t (16). Thus we need to overload the new
-  // operator of StatisticsImpl. We cannot use std::make_shared either since it
-  // does not call the overloaded new. Similar problem observed here:
+  // operator of StatisticsImpl if over-alignment is required (e.g. alignas)
+  // (currently no). Note that std::make_shared
+  // does not call overloaded new. Similar problem observed here:
   // https://github.com/MRtrix3/mrtrix3/issues/957
-  std::shared_ptr<Statistics> ret(new StatisticsImpl(nullptr, false));
-  return ret;
+  return std::make_shared<StatisticsImpl>(nullptr, false);
 }
 
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats,
