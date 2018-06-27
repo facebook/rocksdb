@@ -2649,7 +2649,7 @@ struct VersionSet::ManifestWriter {
   const autovector<VersionEdit*>& edit_list;
 
   explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const MutableCFOptions cf_options,
+                          const MutableCFOptions& cf_options,
                           const autovector<VersionEdit*>& e)
       : done(false),
         cv(mu),
@@ -2734,6 +2734,7 @@ Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     Directory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
+  assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
 
@@ -2757,6 +2758,7 @@ Status VersionSet::ProcessManifestWrites(
         break;
       }
       last_writer = *(it++);
+      assert(last_writer != nullptr);
       if (last_writer->cfd != nullptr && last_writer->cfd->IsDropped()) {
         continue;
       }
@@ -2768,6 +2770,8 @@ Status VersionSet::ProcessManifestWrites(
         uint32_t cf_id = last_writer->cfd->GetID();
         if (versions[i]->cfd()->GetID() == cf_id) {
           version = versions[i];
+          assert(!builder_guards.empty() &&
+                 builder_guards.size() == versions.size());
           builder = builder_guards[i]->version_builder();
           TEST_SYNC_POINT_CALLBACK(
               "VersionSet::ProcessManifestWrites:SameColumnFamily", &cf_id);
@@ -2788,6 +2792,9 @@ Status VersionSet::ProcessManifestWrites(
         LogAndApplyHelper(last_writer->cfd, builder, version, e, mu);
         batch_edits.push_back(e);
       }
+    }
+    if (!versions.empty()) {
+      assert(builder_guards.size() == versions.size());
     }
     for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
       auto* builder = builder_guards[i]->version_builder();
@@ -2825,6 +2832,10 @@ Status VersionSet::ProcessManifestWrites(
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
         column_family_set_->get_table_cache()->GetCapacity() ==
             TableCache::kInfiniteCapacity) {
+      if (!versions.empty()) {
+        assert(versions.size() == builder_guards.size());
+        assert(versions.size() == mutable_cf_options_ptrs.size());
+      }
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
@@ -3045,6 +3056,10 @@ Status VersionSet::LogAndApply(
     assert(new_cf_options != nullptr);
   }
   std::deque<ManifestWriter> writers;
+  if (num_cfds > 0) {
+    assert(static_cast<size_t>(num_cfds) == mutable_cf_options_list.size());
+    assert(static_cast<size_t>(num_cfds) == edit_lists.size());
+  }
   for (int i = 0; i < num_cfds; ++i) {
     writers.emplace_back(mu, column_family_datas[i], mutable_cf_options_list[i],
                          edit_lists[i]);

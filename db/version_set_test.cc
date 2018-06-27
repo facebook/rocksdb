@@ -467,7 +467,7 @@ class ManifestWriterTest : public testing::Test {
                                  table_cache_.get(), &write_buffer_manager_,
                                  &write_controller_)),
         shutting_down_(false),
-        mock_table_factory_(new mock::MockTableFactory()) {
+        mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
