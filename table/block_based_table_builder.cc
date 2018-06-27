@@ -444,9 +444,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.info_log);
 
   } else if (value_type == kTypeRangeDeletion) {
-    // TODO(wanning&andrewkr) add num_tomestone to table properties
     r->range_del_block.Add(key, value);
-    ++r->props.num_entries;
+    ++r->props.num_range_deletions;
     r->props.raw_key_size += key.size();
     r->props.raw_value_size += value.size();
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
