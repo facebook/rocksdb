@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/log_writer.h"
 #include "db/version_set.h"
+#include "db/log_writer.h"
 #include "table/mock_table.h"
 #include "util/logging.h"
 #include "util/testharness.h"
@@ -458,18 +458,19 @@ class ManifestWriterTest : public testing::Test {
  public:
   ManifestWriterTest()
       : env_(Env::Default()),
-      dbname_(test::TmpDir() + "/version_set_test"),
-      db_options_(),
-      mutable_cf_options_(cf_options_),
-      table_cache_(NewLRUCache(50000, 16)),
-      write_buffer_manager_(db_options_.db_write_buffer_size),
-      versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                               table_cache_.get(), &write_buffer_manager_,
-                               &write_controller_)),
-      shutting_down_(false),
-      mock_table_factory_(new mock::MockTableFactory()) {
+        dbname_(test::TmpDir() + "/version_set_test"),
+        db_options_(),
+        mutable_cf_options_(cf_options_),
+        table_cache_(NewLRUCache(50000, 16)),
+        write_buffer_manager_(db_options_.db_write_buffer_size),
+        versions_(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_buffer_manager_,
+                                 &write_controller_)),
+        shutting_down_(false),
+        mock_table_factory_(new mock::MockTableFactory()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
-    db_options_.db_paths.emplace_back(dbname_, std::numeric_limits<uint64_t>::max());
+    db_options_.db_paths.emplace_back(dbname_,
+                                      std::numeric_limits<uint64_t>::max());
   }
 
   // Create DB with 3 column families.
@@ -479,7 +480,8 @@ class ManifestWriterTest : public testing::Test {
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
 
-    const std::vector<std::string> cf_names = {kDefaultColumnFamilyName, "alice", "bob"};
+    const std::vector<std::string> cf_names = {kDefaultColumnFamilyName,
+                                               "alice", "bob"};
     const int kInitialNumOfCfs = static_cast<int>(cf_names.size());
     autovector<VersionEdit> new_cfs;
     uint64_t last_seq = 1;
@@ -499,7 +501,8 @@ class ManifestWriterTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(std::move(file), env_options_));
+    unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(file), env_options_));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -522,7 +525,8 @@ class ManifestWriterTest : public testing::Test {
     }
 
     EXPECT_OK(versions_->Recover(column_families, false));
-    EXPECT_EQ(kInitialNumOfCfs, versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    EXPECT_EQ(kInitialNumOfCfs,
+              versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       cfds_.emplace_back(cfd);
     }
@@ -543,6 +547,34 @@ class ManifestWriterTest : public testing::Test {
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
   std::vector<ColumnFamilyData*> cfds_;
 };
+
+TEST_F(ManifestWriterTest, SameColumnFamilyGroupCommit) {
+  NewDB();
+  const int kGroupSize = 5;
+  std::vector<VersionEdit> edits(kGroupSize);
+  std::vector<ColumnFamilyData*> cfds(kGroupSize, cfds_[0]);
+  std::vector<MutableCFOptions> all_mutable_cf_options(kGroupSize,
+                                                       mutable_cf_options_);
+  std::vector<autovector<VersionEdit*>> edit_lists(kGroupSize);
+  for (int i = 0; i != kGroupSize; ++i) {
+    edit_lists[i].emplace_back(&edits[i]);
+  }
+
+  int count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
+        uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
+        EXPECT_EQ(0, *cf_id);
+        ++count;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  mutex_.Lock();
+  Status s =
+      versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists, &mutex_);
+  mutex_.Unlock();
+  EXPECT_OK(s);
+  EXPECT_EQ(kGroupSize - 1, count);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

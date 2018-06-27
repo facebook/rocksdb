@@ -415,7 +415,7 @@ Status MemTableList::InstallMemtableFlushResults(
       // on a dropped column family, and we must be able to
       // read full data as long as column family handle is not deleted, even if
       // the column family is dropped.
-      if (s.ok() && !cfd->IsDropped()) {         // commit new state
+      if (s.ok() && !cfd->IsDropped()) {  // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();
           ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64

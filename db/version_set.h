@@ -749,11 +749,11 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     std::vector<ColumnFamilyData*> cfds(1, column_family_data);
-    std::vector<MutableCFOptions>
-        mutable_cf_options_list(1, mutable_cf_options);
+    std::vector<MutableCFOptions> mutable_cf_options_list(1,
+                                                          mutable_cf_options);
     std::vector<autovector<VersionEdit*>> edit_lists(1, {edit});
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-        db_directory, new_descriptor_log, column_family_options);
+                       db_directory, new_descriptor_log, column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
@@ -764,22 +764,22 @@ class VersionSet {
       Directory* db_directory = nullptr, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     std::vector<ColumnFamilyData*> cfds(1, column_family_data);
-    std::vector<MutableCFOptions>
-        mutable_cf_options_list(1, mutable_cf_options);
+    std::vector<MutableCFOptions> mutable_cf_options_list(1,
+                                                          mutable_cf_options);
     std::vector<autovector<VersionEdit*>> edit_lists(1, edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-        db_directory, new_descriptor_log, column_family_options);
+                       db_directory, new_descriptor_log, column_family_options);
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
   // 1 version edits, caller must ensure that no edit in the []list is column
   // family manipulation.
   Status LogAndApply(const std::vector<ColumnFamilyData*>& cfds,
-      const std::vector<MutableCFOptions>& mutable_cf_options,
-      const std::vector<autovector<VersionEdit*>>& edit_lists,
-      InstrumentedMutex* mu,
-      Directory* db_directory = nullptr, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* new_cf_options = nullptr);
+                     const std::vector<MutableCFOptions>& mutable_cf_options,
+                     const std::vector<autovector<VersionEdit*>>& edit_lists,
+                     InstrumentedMutex* mu, Directory* db_directory = nullptr,
+                     bool new_descriptor_log = false,
+                     const ColumnFamilyOptions* new_cf_options = nullptr);
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
@@ -985,8 +985,9 @@ class VersionSet {
                                        VersionEdit* edit);
 
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
-      InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
-      const ColumnFamilyOptions* new_cf_options);
+                               InstrumentedMutex* mu, Directory* db_directory,
+                               bool new_descriptor_log,
+                               const ColumnFamilyOptions* new_cf_options);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
