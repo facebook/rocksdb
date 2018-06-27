@@ -7,7 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/log_writer.h"
 #include "db/version_set.h"
+#include "table/mock_table.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -452,6 +454,95 @@ TEST_F(FindLevelFileTest, LevelOverlappingFiles) {
   ASSERT_TRUE(Overlaps("600", "700"));
 }
 
+class ManifestWriterTest : public testing::Test {
+ public:
+  ManifestWriterTest()
+      : env_(Env::Default()),
+      dbname_(test::TmpDir() + "/version_set_test"),
+      db_options_(),
+      mutable_cf_options_(cf_options_),
+      table_cache_(NewLRUCache(50000, 16)),
+      write_buffer_manager_(db_options_.db_write_buffer_size),
+      versions_(new VersionSet(dbname_, &db_options_, env_options_,
+                               table_cache_.get(), &write_buffer_manager_,
+                               &write_controller_)),
+      shutting_down_(false),
+      mock_table_factory_(new mock::MockTableFactory()) {
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    db_options_.db_paths.emplace_back(dbname_, std::numeric_limits<uint64_t>::max());
+  }
+
+  // Create DB with 3 column families.
+  void NewDB() {
+    VersionEdit new_db;
+    new_db.SetLogNumber(0);
+    new_db.SetNextFile(2);
+    new_db.SetLastSequence(0);
+
+    const std::vector<std::string> cf_names = {kDefaultColumnFamilyName, "alice", "bob"};
+    const int kInitialNumOfCfs = static_cast<int>(cf_names.size());
+    autovector<VersionEdit> new_cfs;
+    uint64_t last_seq = 1;
+    uint32_t cf_id = 1;
+    for (int i = 1; i != kInitialNumOfCfs; ++i) {
+      VersionEdit new_cf;
+      new_cf.AddColumnFamily(cf_names[i]);
+      new_cf.SetColumnFamily(cf_id++);
+      new_cf.SetLogNumber(0);
+      new_cf.SetNextFile(2);
+      new_cf.SetLastSequence(last_seq++);
+      new_cfs.emplace_back(new_cf);
+    }
+
+    const std::string manifest = DescriptorFileName(dbname_, 1);
+    unique_ptr<WritableFile> file;
+    Status s = env_->NewWritableFile(
+        manifest, &file, env_->OptimizeForManifestWrite(env_options_));
+    ASSERT_OK(s);
+    unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(std::move(file), env_options_));
+    {
+      log::Writer log(std::move(file_writer), 0, false);
+      std::string record;
+      new_db.EncodeTo(&record);
+      s = log.AddRecord(record);
+      for (const auto& e : new_cfs) {
+        e.EncodeTo(&record);
+        s = log.AddRecord(record);
+        ASSERT_OK(s);
+      }
+    }
+    ASSERT_OK(s);
+    // Make "CURRENT" file point to the new manifest file.
+    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+
+    std::vector<ColumnFamilyDescriptor> column_families;
+    cf_options_.table_factory = mock_table_factory_;
+    for (const auto& cf_name : cf_names) {
+      column_families.emplace_back(cf_name, cf_options_);
+    }
+
+    EXPECT_OK(versions_->Recover(column_families, false));
+    EXPECT_EQ(kInitialNumOfCfs, versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cfds_.emplace_back(cfd);
+    }
+  }
+
+  Env* env_;
+  const std::string dbname_;
+  EnvOptions env_options_;
+  ImmutableDBOptions db_options_;
+  ColumnFamilyOptions cf_options_;
+  MutableCFOptions mutable_cf_options_;
+  std::shared_ptr<Cache> table_cache_;
+  WriteController write_controller_;
+  WriteBufferManager write_buffer_manager_;
+  std::unique_ptr<VersionSet> versions_;
+  InstrumentedMutex mutex_;
+  std::atomic<bool> shutting_down_;
+  std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+  std::vector<ColumnFamilyData*> cfds_;
+};
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

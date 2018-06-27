@@ -2752,6 +2752,11 @@ Status VersionSet::ProcessManifestWrites(
     while (it != manifest_writers_.cend()) {
       if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
         // no group commits for column family add or drop
+#ifndef NDEBUG
+        uint32_t cf_id = (*it)->cfd->GetID();
+#endif
+        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:ColumnFamilyAdd", &cf_id);
+        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:ColumnFamilyDrop", &cf_id);
         break;
       }
       last_writer = *(it++);
