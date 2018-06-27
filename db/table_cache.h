@@ -134,7 +134,11 @@ class TableCache {
 
   // The tables opened with this TableCache will be immortal, i.e., their
   // lifetime is as long as that of the DB.
-  void SetTablesAreImmortal() { immortal_tables_ = true; }
+  void SetTablesAreImmortal() {
+    if (cache_->GetCapacity() >= kInfiniteCapacity) {
+      immortal_tables_ = true;
+    }
+  }
 
  private:
   // Build a table reader

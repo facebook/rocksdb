@@ -2505,6 +2505,7 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.allow_mmap_reads = true;
+  options.max_open_files = -1;
   Reopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
@@ -2530,6 +2531,15 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   ReadOnlyReopen(options);
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
   ASSERT_TRUE(pinned_value.IsPinned());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+
+  pinned_value.Reset();
+  options.max_open_files = 100;
+  // Unsafe to pin mmap files when they could be kicked out of table cache
+  Close();
+  ReadOnlyReopen(options);
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 }
 

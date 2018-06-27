@@ -30,14 +30,14 @@ struct TableReaderOptions {
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false, bool _immportal = false,
+                     bool _skip_filters = false, bool _immortal = false,
                      int _level = -1)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
-        immortal(_immportal),
+        immortal(_immortal),
         level(_level) {}
 
   const ImmutableCFOptions& ioptions;

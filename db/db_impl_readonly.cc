@@ -162,7 +162,6 @@ Status DB::OpenForReadOnly(
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
-      cfd->table_cache()->SetTablesAreImmortal();
     }
   }
   impl->mutex_.Unlock();
