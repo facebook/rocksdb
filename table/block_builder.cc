@@ -51,7 +51,7 @@ BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding,
       finished_(false),
       suffix_index_builder_(
           use_suffix_index ?
-          new BlockSuffixIndexBuilder(100000 /* num_bucket */) :
+          new BlockSuffixIndexBuilder(500 /* num_bucket */) :
           nullptr){ // TODO(fwu) adjustable bucket_num
   assert(block_restart_interval_ >= 1);
   restarts_.push_back(0);       // First restart point is at offset 0

@@ -20,11 +20,16 @@ namespace rocksdb {
 // IDX:      Array of offsets, each pointing to the starting offset (relative to
 //           MAP_START) of one hash bucket.
 //
-// B:        Bucket, an array consisting of a list of restart interval offsets.
+// B:        B = bucket, an array consisting of a list of restart index, and the
+//           second hash tag value as tagBucket, an array consisting of a list
+//           of restart interval offsets.
 //           We do not have to store the length of individual buckets, as they
 //           are delimited by the next bucket offset.
 //
 // MAP_START: the start offset of the suffix hash map.
+//
+// Each bucket B has the following structure:
+// [TAG RESTART_INDEX][TAG RESTART_INDEX]...[TAG RESTART_INDEX]
 //
 // The suffix hash map is construct right in-place of the block without any data
 // been copied.

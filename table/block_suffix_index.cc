@@ -20,12 +20,13 @@ inline uint32_t SuffixToBucket(const Slice& s, uint32_t num_buckets) {
   return rocksdb::Hash(s.data(), s.size(), kSeed) % num_buckets;
 }
 
-void BlockSuffixIndexBuilder::Add(const Slice& key, const uint32_t& pos) {
+void BlockSuffixIndexBuilder::Add(const Slice& key,
+                                  const uint32_t& restart_index) {
   uint32_t idx = SuffixToBucket(key, num_buckets_);
   /* push a TAG to avoid false postive */
   /* the TAG is the hash function value of another seed */
   buckets_[idx].push_back(rocksdb::Hash(key.data(), key.size(), kSeed_tag));
-  buckets_[idx].push_back(pos);
+  buckets_[idx].push_back(restart_index);
   estimate_ += 2 * sizeof(uint32_t);
 }
 
@@ -63,7 +64,8 @@ void BlockSuffixIndexBuilder::Reset() {
 }
 
 BlockSuffixIndex::BlockSuffixIndex(Slice block_content) {
-  assert(block_content.size() >= 2 * sizeof(uint32_t));  // NUM_BUCK and MAP_START
+  assert(block_content.size() >=
+         2 * sizeof(uint32_t));  // NUM_BUCK and MAP_START
 
   data_ = block_content.data();
   size_ = static_cast<uint32_t>(block_content.size());
@@ -99,7 +101,7 @@ void BlockSuffixIndex::Seek(const Slice& key,
   for (const char* p = data_ + bucket_off; p < limit;
        p += 2 * sizeof(uint32_t)) {
     if (DecodeFixed32(p) == tag) {
-      // only if the tag matches the string do we return the restart point
+      // only if the tag matches the string do we return the restart_index
       bucket.push_back(DecodeFixed32(p + sizeof(uint32_t)));
     }
   }
