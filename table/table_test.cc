@@ -358,10 +358,12 @@ class TableConstructor: public Constructor {
     uniq_id_ = cur_uniq_id_++;
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
-    const bool skip_filters = false;
+    const bool kSkipFilters = true;
+    const bool kImmortal = true;
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
-                           internal_comparator, skip_filters, level_),
+                           internal_comparator, !kSkipFilters, !kImmortal,
+                           level_),
         std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
