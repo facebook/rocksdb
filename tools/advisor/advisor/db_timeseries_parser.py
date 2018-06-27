@@ -3,7 +3,7 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-from abs import abstractmethod
+from abc import abstractmethod
 from advisor.db_log_parser import DataSource
 from enum import Enum
 import math
@@ -45,12 +45,10 @@ class TimeSeriesData(DataSource):
         window_samples = math.ceil(window_sec / self.stats_freq_sec)
         burst_epochs = {}
         for entity in self.keys_ts:
-            timestamps = sorted(self.keys_ts[entity][statistic].keys())
-            for ix, timestamp in enumerate(timestamps):
-                if (ix + window_samples) >= len(timestamps):
-                    break
-                first_ts = timestamp
-                last_ts = timestamps[ix + window_samples]
+            timestamps = sorted(list(self.keys_ts[entity][statistic].keys()))
+            for ix in range(window_samples, len(timestamps), 1):
+                first_ts = timestamps[ix - window_samples]
+                last_ts = timestamps[ix]
                 first_val = self.keys_ts[entity][statistic][first_ts]
                 last_val = self.keys_ts[entity][statistic][last_ts]
                 diff = last_val - first_val
@@ -60,7 +58,7 @@ class TimeSeriesData(DataSource):
                 if rate >= threshold:
                     if entity not in burst_epochs:
                         burst_epochs[entity] = {}
-                    burst_epochs[entity][first_ts] = rate
+                    burst_epochs[entity][last_ts] = rate
         return burst_epochs
 
     def fetch_aggregated_values(self, statistics, aggregation_op):

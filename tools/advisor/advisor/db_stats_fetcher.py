@@ -26,10 +26,10 @@ class DBBenchStatsParser(TimeSeriesData):
                 stat_dict[stat_name] = float(metric)
         return stat_dict
 
-    def __init__(self, logs_path_prefix):
+    def __init__(self, logs_path_prefix, stats_freq_sec):
         super().__init__()
         self.logs_file_prefix = logs_path_prefix
-        self.stats_freq_sec = 60
+        self.stats_freq_sec = stats_freq_sec
         self.duration_sec = 60
 
     def get_keys_from_conditions(self, conditions):
@@ -131,6 +131,7 @@ class OdsStatsFetcher(TimeSeriesData):
         )
         self.execute_script(command)
         # Parse ODS output and populate the 'keys_ts' map
+        self.keys_ts = {}
         with open(self.OUTPUT_FILE, 'r') as fp:
             for line in fp:
                 token_list = line.strip().split('\t')
@@ -154,9 +155,12 @@ class OdsStatsFetcher(TimeSeriesData):
         return reqd_stats
 
     def fetch_rate_url(self, entities, keys, window_len, display, percent):
+        print(entities)
+        print(keys)
+        print(window_len)
         # type: (List[str], List[str], str, str, bool) -> str
         transform_desc = (
-            "rate(" + window_len + ",duration=" + str(self.duration_sec)
+            "rate(" + str(window_len) + ",duration=" + str(self.duration_sec)
         )
         if percent:
             transform_desc = transform_desc + ",%)"
