@@ -3,9 +3,11 @@
 ### Public API Change
 * For users of `Statistics` objects created via `CreateDBStatistics()`, the format of the string returned by its `ToString()` method has changed.
 * With LRUCache, when high_pri_pool_ratio > 0, midpoint insertion strategy will be enabled to put low-pri items to the tail of low-pri list (the midpoint) when they first inserted into the cache. This is to make cache entries never get hit age out faster, improving cache efficiency when large background scan presents.
+* The "rocksdb.num.entries" table property no longer counts range deletion tombstones as entries.
 
 ### New Features
 * Changes the format of index blocks by storing the key in their raw form rather than converting them to InternalKey. This saves 8 bytes per index key. The feature is backward compatbile but not forward compatible. It is disabled by default unless format_version 3 or above is used.
+* Add a new table property, "rocksdb.num.range-deletions", which counts the number of range deletion tombstones in the table.
 * Improve the performance of iterators doing long range scans by using readahead, when using direct IO.
 * pin_top_level_index_and_filter (default true) in BlockBasedTableOptions can be used in combination with cache_index_and_filter_blocks to prefetch and pin the top-level index of partitioned index and filter blocks in cache. It has no impact when cache_index_and_filter_blocks is false.
 
