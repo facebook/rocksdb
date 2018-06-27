@@ -1183,6 +1183,7 @@ class DB {
 
   // Replay operations from a trace file. Use EndReplay() to stop replaying.
   virtual Status StartReplay(const ReplayOptions& /*options*/,
+                             std::vector<ColumnFamilyHandle*>& /*handles*/,
                              const std::string& /*trace_filename*/) {
     return Status::NotSupported("StartReplay() is not implmented.");
   }

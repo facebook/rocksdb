@@ -5,12 +5,14 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
 #include <utility>
 
 #include "rocksdb/env.h"
 
 namespace rocksdb {
 
+class ColumnFamilyHandle;
 class DBImpl;
 class RandomAccessFileReader;
 class Slice;
@@ -47,7 +49,7 @@ class Tracer {
   ~Tracer();
 
   Status TraceWrite(WriteBatch* write_batch);
-  Status TraceGet(const Slice& key);
+  Status TraceGet(ColumnFamilyHandle* cfname, const Slice& key);
 
   Status Close();
 
@@ -58,14 +60,16 @@ class Tracer {
 
 class Replayer {
  public:
-  Replayer(DBImpl* db, std::unique_ptr<TraceReader>&& reader);
+  Replayer(DBImpl* db, std::vector<ColumnFamilyHandle*>& handles,
+           std::unique_ptr<TraceReader>&& reader);
   ~Replayer();
 
  private:
   Status Replay();
 
   DBImpl* db_;
-  unique_ptr<TraceReader> trace_reader_;
+  std::unique_ptr<TraceReader> trace_reader_;
+  std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
 };
 
 class TraceReader {

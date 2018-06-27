@@ -338,6 +338,7 @@ class DBImpl : public DB {
 
   using DB::StartReplay;
   virtual Status StartReplay(const ReplayOptions& options,
+                             std::vector<ColumnFamilyHandle*>& handles,
                              const std::string& trace_filename) override;
 
   using DB::EndReplay;

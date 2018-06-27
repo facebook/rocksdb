@@ -1030,7 +1030,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
 
   if (tracer_) {
-    tracer_->TraceGet(key);
+    tracer_->TraceGet(column_family, key);
   }
 
   // Acquire SuperVersion
@@ -3083,6 +3083,7 @@ Status DBImpl::EndTrace(const TraceOptions& /* options */) {
 }
 
 Status DBImpl::StartReplay(const ReplayOptions& /* options */,
+                           std::vector<ColumnFamilyHandle*>& handles,
                            const std::string& trace_filename) {
   EnvOptions env_options;
   unique_ptr<RandomAccessFile> trace_file;
@@ -3094,7 +3095,7 @@ Status DBImpl::StartReplay(const ReplayOptions& /* options */,
         new RandomAccessFileReader(std::move(trace_file), trace_filename));
     unique_ptr<TraceReader> trace_reader;
     trace_reader.reset(new TraceReader(std::move(trace_file_reader)));
-    replayer_.reset(new Replayer(this, std::move(trace_reader)));
+    replayer_.reset(new Replayer(this, handles, std::move(trace_reader)));
     return Status::OK();
   }
   return s;

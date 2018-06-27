@@ -2507,15 +2507,15 @@ TEST_F(DBTest2, TraceAndReplay) {
   WriteOptions wo;
   TraceOptions trace_opt;
   ReplayOptions replay_opt;
-  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
 
   ASSERT_OK(db_->StartTrace(trace_opt, dbname_ + "/rocksdb.trace"));
 
-  ASSERT_OK(Put("a", "1"));
-  ASSERT_OK(Merge("b", "2"));
-  ASSERT_OK(Delete("c"));
-  ASSERT_OK(SingleDelete("d"));
+  ASSERT_OK(Put(0, "a", "1"));
+  ASSERT_OK(Merge(0, "b", "2"));
+  ASSERT_OK(Delete(0, "c"));
+  ASSERT_OK(SingleDelete(0, "d"));
   ASSERT_OK(db_->DeleteRange(wo, dbfull()->DefaultColumnFamily(), "e", "f"));
 
   WriteBatch batch;
@@ -2526,8 +2526,11 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(batch.DeleteRange("j", "k"));
   ASSERT_OK(db_->Write(wo, &batch));
 
-  ASSERT_EQ("1", Get("a"));
-  ASSERT_EQ("12", Get("g"));
+  ASSERT_EQ("1", Get(0, "a"));
+  ASSERT_EQ("12", Get(0, "g"));
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "rocksdb", "rocks"));
 
   ASSERT_OK(db_->EndTrace(trace_opt));
   // These should not get into the trace file as it is after EndTrace.
@@ -2538,23 +2541,47 @@ TEST_F(DBTest2, TraceAndReplay) {
   std::string value;
   std::string dbname2 = test::TmpDir(env_) + "/db_replay";
   ASSERT_OK(DestroyDB(dbname2, options));
+
   DB* db2 = nullptr;
+  options.create_if_missing = true;
   ASSERT_OK(DB::Open(options, dbname2, &db2));
+  ColumnFamilyHandle* cf;
+  ASSERT_OK(db2->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
+  delete cf;
+  delete db2;
+
+  std::vector<ColumnFamilyDescriptor> column_families;
+  ColumnFamilyOptions cf_options;
+  cf_options.merge_operator = MergeOperators::CreatePutOperator();
+  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
+  column_families.push_back(
+      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(DB::Open(DBOptions(), dbname2, column_families, &handles, &db2));
+
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
-  ASSERT_TRUE(db2->Get(ro, "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, "g", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
 
-  ASSERT_OK(db2->StartReplay(replay_opt, dbname_ + "/rocksdb.trace"));
+  ASSERT_OK(db2->StartReplay(replay_opt, handles_, dbname_ + "/rocksdb.trace"));
   ASSERT_OK(db2->EndReplay(replay_opt));
 
-  ASSERT_OK(db2->Get(ro, "a", &value));
+  ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
   ASSERT_EQ("1", value);
-  ASSERT_OK(db2->Get(ro, "g", &value));
+  ASSERT_OK(db2->Get(ro, handles[0], "g", &value));
   ASSERT_EQ("12", value);
-  ASSERT_TRUE(db2->Get(ro, "hello", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, "world", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "hello", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0], "world", &value).IsNotFound());
 
+  ASSERT_OK(db2->Get(ro, handles[1], "foo", &value));
+  ASSERT_EQ("bar", value);
+  ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
+  ASSERT_EQ("rocks", value);
+
+  for (auto handle : handles) {
+    delete handle;
+  }
   delete db2;
   ASSERT_OK(DestroyDB(dbname2, options));
 }

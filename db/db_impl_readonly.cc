@@ -36,7 +36,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   if (tracer_) {
-    tracer_->TraceGet(key);
+    tracer_->TraceGet(column_family, key);
   }
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;

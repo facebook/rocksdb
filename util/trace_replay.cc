@@ -16,6 +16,20 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+
+namespace {
+void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
+  PutFixed32(dst, cf_id);
+  PutLengthPrefixedSlice(dst, key);
+}
+
+void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
+  Slice buf(buffer);
+  GetFixed32(&buf, cf_id);
+  GetLengthPrefixedSlice(&buf, key);
+}
+}  // namespace
+
 TraceWriter::~TraceWriter() { file_writer_.reset(); }
 
 Status TraceWriter::WriteHeader() {
@@ -164,11 +178,11 @@ Status Tracer::TraceWrite(WriteBatch* write_batch) {
   return trace_writer_->WriteRecord(trace);
 }
 
-Status Tracer::TraceGet(const Slice& key) {
+Status Tracer::TraceGet(ColumnFamilyHandle* column_family, const Slice& key) {
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceGet;
-  trace.payload = key.ToString();
+  EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
   return trace_writer_->WriteRecord(trace);
 }
 
@@ -178,8 +192,12 @@ Status Tracer::Close() {
   return s;
 }
 
-Replayer::Replayer(DBImpl* db, unique_ptr<TraceReader>&& reader)
+Replayer::Replayer(DBImpl* db, std::vector<ColumnFamilyHandle*>& handles,
+                   unique_ptr<TraceReader>&& reader)
     : db_(db), trace_reader_(std::move(reader)) {
+  for (ColumnFamilyHandle* cfh : handles) {
+    cf_map_[cfh->GetID()] = cfh;
+  }
   Replay();
 }
 
@@ -219,8 +237,15 @@ Status Replayer::Replay() {
       db_->Write(woptions, &batch);
       ops++;
     } else if (trace.type == kTraceGet) {
+      uint32_t cf_id = 0;
+      Slice key;
+      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      if (cf_map_.find(cf_id) == cf_map_.end()) {
+        return Status::Corruption("Invalid Column Family ID");
+      }
+
       std::string value;
-      db_->Get(roptions, trace.payload, &value);
+      db_->Get(roptions, cf_map_[cf_id], key, &value);
       ops++;
     }
   }
