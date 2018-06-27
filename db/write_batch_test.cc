@@ -290,7 +290,7 @@ namespace {
     virtual void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual Status MarkBeginPrepare() override {
+    virtual Status MarkBeginPrepare(bool) override {
       seen += "MarkBeginPrepare()";
       return Status::OK();
     }

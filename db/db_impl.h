@@ -561,25 +561,36 @@ class DBImpl : public DB {
   // these will then be passed to TransactionDB so that
   // locks can be reacquired before writing can resume.
   struct RecoveredTransaction {
-    uint64_t log_number_;
     std::string name_;
-    WriteBatch* batch_;
-    // The seq number of the first key in the batch
-    SequenceNumber seq_;
-    // Number of sub-batched. A new sub-batch is created if we txn attempts to
-    // inserts a duplicate key,seq to memtable. This is currently used in
-    // WritePrparedTxn
-    size_t batch_cnt_;
+    bool unprepared_;
+
+    struct BatchInfo {
+      uint64_t log_number_;
+      // TODO(lth): For unprepared, the memory usage here can be big for
+      // unprepared transactions. This is only useful for rollbacks, and we
+      // can in theory just keep keyset for that.
+      WriteBatch* batch_;
+      // Number of sub-batched. A new sub-batch is created if we txn attempts to
+      // inserts a duplicate key,seq to memtable. This is currently used in
+      // WritePrparedTxn
+      size_t batch_cnt_;
+
+      ~BatchInfo() { delete batch_; }
+    };
+
+    // This maps the seq of the first key in the batch to BatchInfo, which
+    // contains WriteBatch and other information relevant to the batch.
+    //
+    // For WriteUnprepared, batches_ can have size greater than 1, but for
+    // other write policies, it must be of size 1.
+    std::map<SequenceNumber, BatchInfo> batches_;
+
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
-                                  size_t batch_cnt)
-        : log_number_(log),
-          name_(name),
-          batch_(batch),
-          seq_(seq),
-          batch_cnt_(batch_cnt) {}
-
-    ~RecoveredTransaction() { delete batch_; }
+                                  size_t batch_cnt, bool unprepared)
+        : name_(name), unprepared_(unprepared) {
+      batches_[seq] = {log, batch, batch_cnt};
+    }
   };
 
   bool allow_2pc() const { return immutable_db_options_.allow_2pc; }
@@ -600,9 +611,14 @@ class DBImpl : public DB {
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
-                                  size_t batch_cnt) {
-    recovered_transactions_[name] =
-        new RecoveredTransaction(log, name, batch, seq, batch_cnt);
+                                  size_t batch_cnt, bool unprepared) {
+    if (recovered_transactions_.find(name) == recovered_transactions_.end()) {
+      recovered_transactions_[name] = new RecoveredTransaction(
+          log, name, batch, seq, batch_cnt, unprepared);
+    } else {
+      recovered_transactions_[name]->batches_[seq] = {log, batch, batch_cnt};
+      recovered_transactions_[name]->unprepared_ = unprepared;
+    }
     logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }
 
@@ -611,7 +627,10 @@ class DBImpl : public DB {
     assert(it != recovered_transactions_.end());
     auto* trx = it->second;
     recovered_transactions_.erase(it);
-    logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(trx->log_number_);
+    for (const auto& info : trx->batches_) {
+      logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(
+          info.second.log_number_);
+    }
     delete trx;
   }
 
@@ -751,6 +770,7 @@ class DBImpl : public DB {
   friend class WritePreparedTxn;
   friend class WritePreparedTxnDB;
   friend class WriteBatchWithIndex;
+  friend class WriteUnpreparedTxnDB;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
@@ -762,6 +782,7 @@ class DBImpl : public DB {
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
+  friend class WriteUnpreparedTransactionTest_RecoveryRollbackUnprepared_Test;
 #endif
   struct CompactionState;
 

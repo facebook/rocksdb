@@ -142,6 +142,7 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class TransactionTest_TwoPhaseLongPrepareTest_Test;
   friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
   friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
+  friend class WriteUnpreparedTransactionTest_RecoveryRollbackUnprepared_Test;
   TransactionLockMgr lock_mgr_;
 
   // Must be held when adding/dropping column families.

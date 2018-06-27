@@ -21,6 +21,9 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
  public:
   using WritePreparedTxnDB::WritePreparedTxnDB;
 
+  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
+                    const std::vector<ColumnFamilyHandle*>& handles) override;
+
   Transaction* BeginTransaction(const WriteOptions& write_options, const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
@@ -31,6 +34,9 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
   Iterator* NewIterator(const ReadOptions& options,
                         ColumnFamilyHandle* column_family,
                         WriteUnpreparedTxn* txn);
+
+ private:
+  Status RollbackRecoveredTransaction(const DBImpl::RecoveredTransaction* rtxn);
 };
 
 }  //  namespace rocksdb

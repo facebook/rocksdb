@@ -188,6 +188,55 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   delete txn;
 }
 
+TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
+  WriteOptions write_options;
+  write_options.disableWAL = false;
+  uint64_t seq_used = kMaxSequenceNumber;
+  uint64_t log_number;
+  WriteBatch batch;
+  std::vector<Transaction*> prepared_trans;
+  WriteUnpreparedTxnDB* wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+  options.disable_auto_compactions = true;
+
+  // Try unprepared batches.
+  for (int num_batches = 0; num_batches < 10; num_batches++) {
+    // Reset database.
+    prepared_trans.clear();
+    ReOpen();
+    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+
+    // Write num_batches unprepared batches into the WAL.
+    for (int i = 0; i < num_batches; i++) {
+      batch.Clear();
+      ASSERT_OK(WriteBatchInternal::InsertNoop(&batch));
+      ASSERT_OK(WriteBatchInternal::Put(
+          &batch, db->DefaultColumnFamily()->GetID(), "k" + i, "value"));
+      ASSERT_OK(WriteBatchInternal::MarkEndPrepare(
+          &batch, Slice("xid1"), /* write after commit */ false,
+          /* unprepared batch */ true));
+      ASSERT_OK(wup_db->db_impl_->WriteImpl(
+          write_options, &batch, /*callback*/ nullptr, &log_number,
+          /*log ref*/ 0, /* disable memtable */ true, &seq_used,
+          /* prepare_batch_cnt_ */ 1));
+    }
+
+    // Crash and run recovery code paths.
+    wup_db->db_impl_->FlushWAL(true);
+    wup_db->TEST_Crash();
+    ReOpenNoDelete();
+    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+
+    db->GetAllPreparedTransactions(&prepared_trans);
+    ASSERT_EQ(prepared_trans.size(), 0);
+
+    // Check that DB is empty.
+    Iterator* iter = db->NewIterator(ReadOptions());
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    delete iter;
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
