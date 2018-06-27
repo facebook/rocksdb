@@ -95,7 +95,9 @@ class BlockBasedTable : public TableReader {
                      bool skip_filters = false, int level = -1);
 
   bool PrefixMayMatch(const Slice& internal_key,
-                      const SliceTransform* prefix_extractor = nullptr);
+                      const ReadOptions& read_options,
+                      const SliceTransform* options_prefix_extractor,
+                      const bool need_upper_bound_check);
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -104,7 +106,8 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
-                                bool skip_filters = false) override;
+                                bool skip_filters = false,
+                                bool for_compaction = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -276,7 +279,7 @@ class BlockBasedTable : public TableReader {
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
   InternalIterator* NewIndexIterator(
-      const ReadOptions& read_options, bool prefix_extractor_changed = false,
+      const ReadOptions& read_options, bool need_upper_bound_check = false,
       BlockIter* input_iter = nullptr,
       CachableEntry<IndexReader>* index_entry = nullptr,
       GetContext* get_context = nullptr);
@@ -480,6 +483,7 @@ struct BlockBasedTable::Rep {
   // and compatible with existing code, we introduce a wrapper that allows
   // block to extract prefix without knowing if a key is internal or not.
   unique_ptr<SliceTransform> internal_prefix_transform;
+  std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is
   // true or in all levels when pin_top_level_index_and_filter is set in
@@ -506,8 +510,6 @@ struct BlockBasedTable::Rep {
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
-
-  bool for_compaction = false;
 };
 
 class BlockBasedTableIterator : public InternalIterator {
@@ -516,8 +518,10 @@ class BlockBasedTableIterator : public InternalIterator {
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
                           InternalIterator* index_iter, bool check_filter,
+                          bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor, bool is_index,
-                          bool key_includes_seq = true)
+                          bool key_includes_seq = true,
+                          bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -525,9 +529,11 @@ class BlockBasedTableIterator : public InternalIterator {
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
+        need_upper_bound_check_(need_upper_bound_check),
+        prefix_extractor_(prefix_extractor),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
-        prefix_extractor_(prefix_extractor) {}
+        for_compaction_(for_compaction) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
@@ -574,9 +580,10 @@ class BlockBasedTableIterator : public InternalIterator {
            block_iter_points_to_real_block_;
   }
 
-  bool CheckPrefixMayMatch(const Slice& ikey,
-                           const SliceTransform* prefix_extractor = nullptr) {
-    if (check_filter_ && !table_->PrefixMayMatch(ikey, prefix_extractor)) {
+  bool CheckPrefixMayMatch(const Slice& ikey) {
+    if (check_filter_ &&
+        !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
+                                need_upper_bound_check_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to
@@ -620,13 +627,17 @@ class BlockBasedTableIterator : public InternalIterator {
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
   bool check_filter_;
+  // TODO(Zhongyi): pick a better name
+  bool need_upper_bound_check_;
+  const SliceTransform* prefix_extractor_;
   // If the blocks over which we iterate are index blocks
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
+  // If this iterator is created for compaction
+  bool for_compaction_;
   // TODO use block offset instead
   std::string prev_index_value_;
-  const SliceTransform* prefix_extractor_;
 
   static const size_t kInitReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on

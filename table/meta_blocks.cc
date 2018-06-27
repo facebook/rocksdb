@@ -77,6 +77,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   }
   Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
+  Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
@@ -224,6 +225,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       {TablePropertiesNames::kNumDataBlocks,
        &new_table_properties->num_data_blocks},
       {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
+      {TablePropertiesNames::kNumRangeDeletions,
+       &new_table_properties->num_range_deletions},
       {TablePropertiesNames::kFormatVersion,
        &new_table_properties->format_version},
       {TablePropertiesNames::kFixedKeyLen,

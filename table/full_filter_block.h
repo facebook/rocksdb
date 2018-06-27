@@ -108,18 +108,27 @@ class FullFilterBlockReader : public FilterBlockReader {
       uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
-
+  virtual bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
+                             const SliceTransform* prefix_extractor,
+                             const Comparator* comparator,
+                             const Slice* const const_ikey_ptr, bool* filter_checked,
+                             bool need_upper_bound_check) override;
  private:
   const SliceTransform* prefix_extractor_;
   Slice contents_;
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   BlockContents block_contents_;
   std::unique_ptr<const char[]> filter_data_;
+  bool full_length_enabled_;
+  size_t prefix_extractor_full_length_;
 
   // No copying allowed
   FullFilterBlockReader(const FullFilterBlockReader&);
   bool MayMatch(const Slice& entry);
   void operator=(const FullFilterBlockReader&);
+  bool IsFilterCompatible(const Slice* iterate_upper_bound,
+                          const Slice& prefix, const Comparator* comparator);
+
 };
 
 }  // namespace rocksdb

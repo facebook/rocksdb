@@ -38,9 +38,7 @@ struct BlobDBOptions {
 
   // When max_db_size is reached, evict blob files to free up space
   // instead of returnning NoSpace error on write. Blob files will be
-  // evicted in this order until enough space is free up:
-  //  * the TTL blob file cloeset to expire,
-  //  * the oldest non-TTL blob file.
+  // evicted from oldest to newest, based on file creation time.
   bool is_fifo = false;
 
   // Maximum size of the database (including SST files and blob files).

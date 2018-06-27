@@ -1221,7 +1221,12 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   sub_compact->outfile.reset();
 
-  if (s.ok() && current_entries == 0) {
+  TableProperties tp;
+  if (s.ok()) {
+    tp = sub_compact->builder->GetTableProperties();
+  }
+
+  if (s.ok() && current_entries == 0 && tp.num_range_deletions == 0) {
     // If there is nothing to output, no necessary to generate a sst file.
     // This happens when the output level is bottom level, at the same time
     // the sub_compact output nothing.
@@ -1240,10 +1245,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  TableProperties tp;
-  if (s.ok() && current_entries > 0) {
+  if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
     // Output to event logger and fire events.
-    tp = sub_compact->builder->GetTableProperties();
     sub_compact->current_output()->table_properties =
         std::make_shared<TableProperties>(tp);
     ROCKS_LOG_INFO(db_options_.info_log,

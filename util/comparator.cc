@@ -98,6 +98,32 @@ class BytewiseComparatorImpl : public Comparator {
     }
     // *key is a run of 0xffs.  Leave it alone.
   }
+
+  virtual bool IsSameLengthImmediateSuccessor(const Slice& s,
+                                              const Slice& t) const override {
+    if (s.size() != t.size() || s.size() == 0) {
+      return false;
+    }
+    size_t diff_ind = s.difference_offset(t);
+    // same slice
+    if (diff_ind >= s.size()) return false;
+    uint8_t byte_s = static_cast<uint8_t>(s[diff_ind]);
+    uint8_t byte_t = static_cast<uint8_t>(t[diff_ind]);
+    // first different byte must be consecutive, and remaining bytes must be
+    // 0xff for s and 0x00 for t
+    if (byte_s != uint8_t{0xff} && byte_s + 1 == byte_t) {
+      for (size_t i = diff_ind + 1; i < s.size(); ++i) {
+        byte_s = static_cast<uint8_t>(s[i]);
+        byte_t = static_cast<uint8_t>(t[i]);
+        if (byte_s != uint8_t{0xff} || byte_t != uint8_t{0x00}) {
+          return false;
+        }
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
 };
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {

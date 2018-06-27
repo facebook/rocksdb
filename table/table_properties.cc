@@ -78,6 +78,8 @@ std::string TableProperties::ToString(
   AppendProperty(result, "# data blocks", num_data_blocks, prop_delim,
                  kv_delim);
   AppendProperty(result, "# entries", num_entries, prop_delim, kv_delim);
+  AppendProperty(result, "# range deletions", num_range_deletions, prop_delim,
+                 kv_delim);
 
   AppendProperty(result, "raw key size", raw_key_size, prop_delim, kv_delim);
   AppendProperty(result, "raw average key size",
@@ -166,6 +168,7 @@ void TableProperties::Add(const TableProperties& tp) {
   raw_value_size += tp.raw_value_size;
   num_data_blocks += tp.num_data_blocks;
   num_entries += tp.num_entries;
+  num_range_deletions += tp.num_range_deletions;
 }
 
 const std::string TablePropertiesNames::kDataSize  =
@@ -188,6 +191,8 @@ const std::string TablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
 const std::string TablePropertiesNames::kNumEntries =
     "rocksdb.num.entries";
+const std::string TablePropertiesNames::kNumRangeDeletions =
+    "rocksdb.num.range-deletions";
 const std::string TablePropertiesNames::kFilterPolicy =
     "rocksdb.filter.policy";
 const std::string TablePropertiesNames::kFormatVersion =

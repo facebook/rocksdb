@@ -1805,7 +1805,7 @@ class StressTest {
           thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
         std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
         BackupableDBOptions backup_opts(backup_dir);
-        BackupEngine* backup_engine;
+        BackupEngine* backup_engine = nullptr;
         Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
         if (s.ok()) {
           s = backup_engine->CreateNewBackup(db_);
@@ -1816,6 +1816,9 @@ class StressTest {
         if (!s.ok()) {
           printf("A BackupEngine operation failed with: %s\n",
                  s.ToString().c_str());
+        }
+        if (backup_engine != nullptr) {
+          delete backup_engine;
         }
       }
 

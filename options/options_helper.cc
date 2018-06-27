@@ -379,6 +379,7 @@ bool ParseStructOptions(
   }
   return true;
 }
+}  // anonymouse namespace
 
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
@@ -434,7 +435,6 @@ bool ParseSliceTransform(
   //                 SliceTransforms here.
   return false;
 }
-}  // anonymouse namespace
 
 bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                        const std::string& value) {
