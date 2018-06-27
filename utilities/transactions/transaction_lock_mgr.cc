@@ -352,7 +352,6 @@ Status TransactionLockMgr::AcquireWithTimeout(
     // If we weren't able to acquire the lock, we will keep retrying as long
     // as the timeout allows.
     bool timed_out = false;
-    int64_t unix_time = 0;
     do {
       // Decide how long to wait
       int64_t cv_end_time = -1;
@@ -372,14 +371,12 @@ Status TransactionLockMgr::AcquireWithTimeout(
       // detection.
       if (wait_ids.size() != 0) {
         if (txn->IsDeadlockDetect()) {
-          env->GetCurrentTime(&unix_time);
           if (IncrementWaiters(txn, wait_ids, key, column_family_id,
-                               lock_info.exclusive, unix_time)) {
+                               lock_info.exclusive, env)) {
             result = Status::Busy(Status::SubCode::kDeadlock);
             stripe->stripe_mutex->UnLock();
             return result;
           }
-          unix_time = 0;
         }
         txn->SetWaitingTxn(wait_ids, column_family_id, &key);
       }
@@ -447,8 +444,7 @@ void TransactionLockMgr::DecrementWaitersImpl(
 bool TransactionLockMgr::IncrementWaiters(
     const PessimisticTransaction* txn,
     const autovector<TransactionID>& wait_ids, const std::string& key,
-    const uint32_t& cf_id, const bool& exclusive,
-    const int64_t& deadlock_time) {
+    const uint32_t& cf_id, const bool& exclusive, Env* const env) {
   auto id = txn->GetID();
   std::vector<int> queue_parents(txn->GetDeadlockDetectDepth());
   std::vector<TransactionID> queue_values(txn->GetDeadlockDetectDepth());
@@ -472,6 +468,7 @@ bool TransactionLockMgr::IncrementWaiters(
 
   const auto* next_ids = &wait_ids;
   int parent = -1;
+  int64_t deadlock_time = 0;
   for (int tail = 0, head = 0; head < txn->GetDeadlockDetectDepth(); head++) {
     int i = 0;
     if (next_ids) {
@@ -495,11 +492,13 @@ bool TransactionLockMgr::IncrementWaiters(
       while (head != -1) {
         assert(wait_txn_map_.Contains(queue_values[head]));
 
+        env->GetCurrentTime(&deadlock_time);
         auto extracted_info = wait_txn_map_.Get(queue_values[head]);
         path.push_back({queue_values[head], extracted_info.m_cf_id,
                         extracted_info.m_waiting_key,
                         extracted_info.m_exclusive, deadlock_time});
         head = queue_parents[head];
+        deadlock_time = 0;
       }
       std::reverse(path.begin(), path.end());
       dlock_buffer_.AddNewPath(DeadlockPath(path));

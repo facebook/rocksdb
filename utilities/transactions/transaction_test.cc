@@ -474,7 +474,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     TransactionID leaf_id =
         dlock_entry[dlock_entry.size() - 1].m_txn_id - offset_root;
 
-    decltype(DeadlockInfo::m_deadlock_time) pre_m_deadlock_time = 0;
+    int64_t pre_m_deadlock_time = 0;
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
       auto dl_node = *it;
       auto cur_m_deadlock_time = dl_node.m_deadlock_time;
@@ -676,7 +676,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
     ASSERT_EQ(dlock_buffer[0].limit_exceeded, check_limit_flag);
 
     // Iterates backwards over path verifying decreasing txn_ids.
-    decltype(DeadlockInfo::m_deadlock_time) pre_m_deadlock_time = 0;
+    int64_t pre_m_deadlock_time = 0;
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
       auto dl_node = *it;
       auto cur_m_deadlock_time = dl_node.m_deadlock_time;
