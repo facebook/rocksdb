@@ -55,6 +55,7 @@ enum ValueType : unsigned char {
   // is not mistakenly read by another, which would result into data
   // inconsistency.
   kTypeBeginPersistedPrepareXID = 0x12,  // WAL only.
+  kTypeBeginUnprepareXID = 0x13,         // WAL only.
   kMaxValue = 0x7F                       // Not used for storing records.
 };
 
