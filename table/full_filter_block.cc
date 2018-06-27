@@ -135,9 +135,6 @@ bool FullFilterBlockReader::PrefixMayMatch(
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  if (!prefix_extractor_) {
-    return true;
-  }
   return MayMatch(prefix);
 }
 
