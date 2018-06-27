@@ -52,8 +52,15 @@ WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
   return WalFilter::WalProcessingOption::kContinueProcessing;
 }
 
-bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
-                                   const std::shared_ptr<BlobFile>& rhs) const {
+bool BlobFileComparator::operator()(
+    const std::shared_ptr<BlobFile>& lhs,
+    const std::shared_ptr<BlobFile>& rhs) const {
+  return lhs->BlobFileNumber() > rhs->BlobFileNumber();
+}
+
+bool BlobFileComparatorTTL::operator()(
+    const std::shared_ptr<BlobFile>& lhs,
+    const std::shared_ptr<BlobFile>& rhs) const {
   assert(lhs->HasTTL() && rhs->HasTTL());
   if (lhs->expiration_range_.first < rhs->expiration_range_.first) {
     return true;
@@ -852,14 +859,9 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
   }
 
   std::vector<std::shared_ptr<BlobFile>> candidate_files;
-  CopyBlobFiles(&candidate_files,
-                [&](const std::shared_ptr<BlobFile>& blob_file) {
-                  // Only evict TTL files
-                  return blob_file->HasTTL();
-                });
+  CopyBlobFiles(&candidate_files);
   std::sort(candidate_files.begin(), candidate_files.end(),
-            blobf_compare_ttl());
-  std::reverse(candidate_files.begin(), candidate_files.end());
+            BlobFileComparator());
   fifo_eviction_seq_ = GetLatestSequenceNumber();
 
   WriteLock l(&mutex_);
@@ -887,10 +889,9 @@ Status BlobDBImpl::CheckSizeAndEvictBlobFiles(uint64_t blob_size,
                    "Evict oldest blob file since DB out of space. Current "
                    "live SST file size: %" PRIu64 ", total blob size: %" PRIu64
                    ", max db size: %" PRIu64 ", evicted blob file #%" PRIu64
-                   " with expiration range (%" PRIu64 ", %" PRIu64 ").",
+                   ".",
                    live_sst_size, total_blob_size_.load(),
-                   bdb_options_.max_db_size, blob_file->BlobFileNumber(),
-                   expiration_range.first, expiration_range.second);
+                   bdb_options_.max_db_size, blob_file->BlobFileNumber());
     ObsoleteBlobFile(blob_file, fifo_eviction_seq_, true /*update_size*/);
     evict_expiration_up_to_ = expiration_range.first;
     RecordTick(statistics_, BLOB_DB_FIFO_NUM_FILES_EVICTED);
@@ -1741,18 +1742,10 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 }
 
 void BlobDBImpl::CopyBlobFiles(
-    std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
-    std::function<bool(const std::shared_ptr<BlobFile>&)> predicate) {
+    std::vector<std::shared_ptr<BlobFile>>* bfiles_copy) {
   ReadLock rl(&mutex_);
-
   for (auto const& p : blob_files_) {
-    bool pred_value = true;
-    if (predicate) {
-      pred_value = predicate(p.second);
-    }
-    if (pred_value) {
-      bfiles_copy->push_back(p.second);
-    }
+    bfiles_copy->push_back(p.second);
   }
 }
 
