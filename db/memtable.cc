@@ -579,7 +579,7 @@ struct Saver {
 
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
-      return callback_->IsCommitted(_seq);
+      return callback_->IsVisible(_seq);
     }
     return true;
   }

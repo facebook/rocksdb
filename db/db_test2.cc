@@ -2422,7 +2422,7 @@ TEST_F(DBTest2, ReadCallbackTest) {
   class TestReadCallback : public ReadCallback {
    public:
     explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
-    virtual bool IsCommitted(SequenceNumber seq) override {
+    virtual bool IsVisible(SequenceNumber seq) override {
       return seq <= snapshot_;
     }
 
