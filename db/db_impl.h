@@ -654,8 +654,6 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
-  // table_cache_ provides its own synchronization
-  std::shared_ptr<Cache> table_cache_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
@@ -976,6 +974,9 @@ class DBImpl : public DB {
   Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
 
   Status CloseHelper();
+
+  // table_cache_ provides its own synchronization
+  std::shared_ptr<Cache> table_cache_;
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
