@@ -26,7 +26,7 @@ class Status {
  public:
   // Create a success status.
   Status() : code_(kOk), subcode_(kNone), state_(nullptr) {}
-  ~Status() { delete[] state_; }
+  ~Status() { free((void *) state_); }
 
   // Copy the specified status.
   Status(const Status& s);
@@ -284,7 +284,7 @@ inline Status& Status::operator=(const Status& s) {
   if (this != &s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
-    delete[] state_;
+    free((void *) state_);
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
   }
   return *this;
@@ -308,7 +308,7 @@ inline Status& Status::operator=(Status&& s)
     s.code_ = kOk;
     subcode_ = std::move(s.subcode_);
     s.subcode_ = kNone;
-    delete[] state_;
+    free((void *)state_);
     state_ = nullptr;
     std::swap(state_, s.state_);
   }
