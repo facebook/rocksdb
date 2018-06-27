@@ -512,9 +512,9 @@ void LRUCache::DisownData() {
 #else   // __clang__
 #ifndef __SANITIZE_ADDRESS__
   shards_ = nullptr;
-  num_shards_ = 0;
 #endif  // !__SANITIZE_ADDRESS__
 #endif  // __clang__
+  num_shards_ = 0;
 }
 
 size_t LRUCache::TEST_GetLRUSize() {
