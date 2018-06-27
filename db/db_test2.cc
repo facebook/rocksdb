@@ -2506,6 +2506,7 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.allow_mmap_reads = true;
   options.max_open_files = -1;
+  options.compression = kNoCompression;
   Reopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
