@@ -89,6 +89,8 @@ struct ImmutableCFOptions {
 
   CompressionType bottommost_compression;
 
+  CompressionOptions bottommost_compression_opts;
+
   CompressionOptions compression_opts;
 
   bool level_compaction_dynamic_level_bytes;

@@ -3419,6 +3419,9 @@ Status VersionSet::Recover(
       if (cfd->IsDropped()) {
         continue;
       }
+      if (read_only) {
+        cfd->table_cache()->SetTablesAreImmortal();
+      }
       assert(cfd->initialized());
       auto builders_iter = builders.find(cfd->GetID());
       assert(builders_iter != builders.end());

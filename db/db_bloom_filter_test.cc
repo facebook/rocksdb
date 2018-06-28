@@ -39,6 +39,26 @@ class DBBloomFilterTestWithParam
   }
 };
 
+class SliceTransformLimitedDomainGeneric : public SliceTransform {
+  const char* Name() const override {
+    return "SliceTransformLimitedDomainGeneric";
+  }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data(), 5);
+  }
+
+  bool InDomain(const Slice& src) const override {
+    // prefix will be x????
+    return src.size() >= 5;
+  }
+
+  bool InRange(const Slice& dst) const override {
+    // prefix will be x????
+    return dst.size() == 5;
+  }
+};
+
 // KeyMayExist can lead to a few false positives, but not false negatives.
 // To make test deterministic, use a much larger number of bits per key-20 than
 // bits in the key, so that false positives are eliminated
@@ -115,6 +135,53 @@ TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
     // by plain table format.
   } while (
       ChangeOptions(kSkipPlainTable | kSkipHashIndex | kSkipFIFOCompaction));
+}
+
+TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
+  for (bool partition_filters : {true, false}) {
+    Options options = last_options_;
+    options.prefix_extractor =
+        std::make_shared<SliceTransformLimitedDomainGeneric>();
+    options.statistics = rocksdb::CreateDBStatistics();
+    BlockBasedTableOptions bbto;
+    bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    if (partition_filters) {
+      bbto.partition_filters = true;
+      bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+    bbto.whole_key_filtering = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+
+    WriteOptions wo;
+    ReadOptions ro;
+    FlushOptions fo;
+    fo.wait = true;
+    std::string value;
+
+    ASSERT_OK(dbfull()->Put(wo, "barbarbar", "foo"));
+    ASSERT_OK(dbfull()->Put(wo, "barbarbar2", "foo2"));
+    ASSERT_OK(dbfull()->Put(wo, "foofoofoo", "bar"));
+
+    dbfull()->Flush(fo);
+
+    ASSERT_EQ("foo", Get("barbarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ("foo2", Get("barbarbar2"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+
+    ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+
+    ro.total_order_seek = true;
+    ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+  }
 }
 
 TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {

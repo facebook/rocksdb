@@ -65,7 +65,10 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const EnvOptions& env_options, Cache* const cache)
-    : ioptions_(ioptions), env_options_(env_options), cache_(cache) {
+    : ioptions_(ioptions),
+      env_options_(env_options),
+      cache_(cache),
+      immortal_tables_(false) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -116,7 +119,8 @@ Status TableCache::GetTableReader(
             file_read_hist, ioptions_.rate_limiter, for_compaction));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
-                           internal_comparator, skip_filters, level),
+                           internal_comparator, skip_filters, immortal_tables_,
+                           level),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");

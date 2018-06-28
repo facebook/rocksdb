@@ -30,12 +30,14 @@ struct TableReaderOptions {
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false, int _level = -1)
+                     bool _skip_filters = false, bool _immortal = false,
+                     int _level = -1)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
+        immortal(_immortal),
         level(_level) {}
 
   const ImmutableCFOptions& ioptions;
@@ -44,6 +46,8 @@ struct TableReaderOptions {
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
+  // Whether the table will be valid as long as the DB is open
+  bool immortal;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
 };
