@@ -2526,10 +2526,11 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   // compaction. It crashes if it does.
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
+#ifndef ROCKSDB_LITE
   pinned_value.Reset();
   // Unsafe to pin mmap files when they could be kicked out of table cache
   Close();
-  ReadOnlyReopen(options);
+  ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
   ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
@@ -2539,10 +2540,11 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   // value and avoid the memcpy
   Close();
   options.max_open_files = -1;
-  ReadOnlyReopen(options);
+  ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
   ASSERT_TRUE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
+#endif
 }
 
 }  // namespace rocksdb
