@@ -40,7 +40,7 @@ enum HistogramsInternal : uint32_t {
 };
 
 
-class ALIGN_AS(CACHE_LINE_SIZE) StatisticsImpl : public Statistics {
+class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats,
                  bool enable_internal_stats);
