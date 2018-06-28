@@ -742,7 +742,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
-  rep->block_format_type = table_options.block_format_type;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
@@ -1150,8 +1149,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (s.ok()) {
     block->value =
         new Block(std::move(contents), compressed_block->global_seqno(),
-                  read_amp_bytes_per_bit,
-                  statistics);  // uncompressed block
+                  read_amp_bytes_per_bit, statistics);  // uncompressed block
     assert(block->value->compression_type() == kNoCompression);
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {

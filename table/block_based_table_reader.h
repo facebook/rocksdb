@@ -430,8 +430,9 @@ struct BlockBasedTable::Rep {
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
         index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
-        block_format_type(
-            BlockBasedTableOptions::BlockFormatType::kBinarySearchBlockType),
+        block_uses_suffix_index(_table_opt.block_format_type ==
+                 BlockBasedTableOptions::BlockFormatType::
+                 kSuffixHashBlockType),
         hash_index_allow_collision(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
@@ -480,7 +481,9 @@ struct BlockBasedTable::Rep {
   // another member ("allocation").
   std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
-  BlockBasedTableOptions::BlockFormatType block_format_type;
+  // if true, data_block uses suffix hash index format
+  const bool block_uses_suffix_index;
+
   bool hash_index_allow_collision;
   bool whole_key_filtering;
   bool prefix_filtering;
