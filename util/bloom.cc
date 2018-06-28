@@ -251,7 +251,7 @@ bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
   for (uint32_t i = 0; i < num_probes; ++i) {
     // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
     //  to a simple and operation by compiler.
-    const uint32_t bitpos = b + (h & ((1 << log2_cache_line_size_) - 1));
+    const uint32_t bitpos = b + (h & ((1 << (log2_cache_line_size_ + 3)) - 1));
     if (((data[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
       return false;
     }
