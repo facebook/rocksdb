@@ -170,6 +170,8 @@ class DB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  virtual Status Resume() { return Status::NotSupported(); }
+
   // Close the DB by releasing resources, closing files etc. This should be
   // called before calling the destructor so that the caller can get back a
   // status in case there are any errors. This will not fsync the WAL files.
