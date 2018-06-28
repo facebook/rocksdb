@@ -109,7 +109,7 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   ASSERT_EQ(s, Status::OK());
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"BackgroundCallCompaction:0", "FlushMemTableFinished"}});
+      {{"FlushMemTableFinished", "BackgroundCallCompaction:0"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void *) {
       fault_env->SetFilesystemActive(false, Status::Corruption("Corruption"));
