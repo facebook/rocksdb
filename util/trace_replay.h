@@ -21,8 +21,6 @@ class Slice;
 class WritableFileWriter;
 class WriteBatch;
 
-const std::string kTraceMagic = "feedcafedeadbeef";
-
 enum TraceType : char {
   kTraceBegin = 1,
   kTraceEnd = 2,
@@ -60,9 +58,6 @@ class Tracer {
 
   Env* env_;
   unique_ptr<TraceWriter> trace_writer_;
-
-  // Timestamp 8 bytes + TraceType 1 byte
-  const unsigned int kMetadataSize = 9;
 };
 
 class Replayer {

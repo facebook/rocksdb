@@ -18,6 +18,14 @@
 
 namespace rocksdb {
 
+const std::string kTraceMagic = "feedcafedeadbeef";
+const unsigned int kTraceTimestampSize = 8;
+const unsigned int kTraceTypeSize = 1;
+const unsigned int kTracePayloadLengthSize = 4;
+const unsigned int kTraceMetadataSize =
+    kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
+const unsigned int FileTraceReader::kBufferSize = 1024;  // 1KB
+
 namespace {
 void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
   PutFixed32(dst, cf_id);
@@ -42,8 +50,6 @@ Status FileTraceWriter::Write(const Slice& data) {
   return file_writer_->Append(data);
 }
 
-const unsigned int FileTraceReader::kBufferSize = 1024;  // 1KB
-
 FileTraceReader::FileTraceReader(
     std::unique_ptr<RandomAccessFileReader>&& reader)
     : file_reader_(std::move(reader)),
@@ -59,7 +65,7 @@ Status FileTraceReader::Close() {
 
 Status FileTraceReader::Read(std::string* data) {
   assert(file_reader_ != nullptr);
-  Status s = file_reader_->Read(offset_, 13, &result_, buffer_);
+  Status s = file_reader_->Read(offset_, kTraceMetadataSize, &result_, buffer_);
   if (!s.ok()) {
     return s;
   }
@@ -69,13 +75,14 @@ Status FileTraceReader::Read(std::string* data) {
     // could be avoided once footer is introduced.
     return Status::Incomplete();
   }
-  if (result_.size() < 13) {
+  if (result_.size() < kTraceMetadataSize) {
     return Status::Corruption("Corrupted trace file.");
   }
   *data = result_.ToString();
-  offset_ += 13;
+  offset_ += kTraceMetadataSize;
 
-  uint32_t payload_len = DecodeFixed32(&buffer_[9]);
+  uint32_t payload_len =
+      DecodeFixed32(&buffer_[kTraceTimestampSize + kTraceTypeSize]);
 
   // Read Payload
   unsigned int bytes_to_read = payload_len;
@@ -199,7 +206,7 @@ Status Replayer::Replay() {
       Slice key;
       DecodeCFAndKey(trace.payload, &cf_id, &key);
       if (cf_map_.find(cf_id) == cf_map_.end()) {
-        return Status::Corruption("Invalid Column Family ID");
+        return Status::Corruption("Invalid Column Family ID.");
       }
 
       std::string value;
@@ -229,7 +236,7 @@ Status Replayer::ReadHeader(Trace& header) {
   if (header.type != kTraceBegin) {
     return Status::Corruption("Corrupted trace file. Incorrect header.");
   }
-  if (header.payload.substr(0, 16) != kTraceMagic) {
+  if (header.payload.substr(0, kTraceMagic.length()) != kTraceMagic) {
     return Status::Corruption("Corrupted trace file. Incorrect magic.");
   }
 
@@ -259,7 +266,7 @@ Status Replayer::ReadTrace(Trace& trace) {
   Slice enc_slice = Slice(encoded_trace);
   GetFixed64(&enc_slice, &trace.ts);
   trace.type = static_cast<TraceType>(enc_slice[0]);
-  enc_slice.remove_prefix(5);
+  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
   trace.payload = enc_slice.ToString();
   return s;
 }
