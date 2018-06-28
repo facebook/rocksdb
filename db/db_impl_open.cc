@@ -1004,10 +1004,10 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-  const bool seq_per_batch = true;
-  const bool batch_per_txn = true;
+  const bool kSeqPerBatch = true;
+  const bool kBatchPerTxn = true;
   return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                      !seq_per_batch, batch_per_txn);
+                      !kSeqPerBatch, kBatchPerTxn);
 }
 
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
