@@ -2788,15 +2788,15 @@ Status VersionSet::ProcessManifestWrites(
             new BaseReferencedVersionBuilder(last_writer->cfd));
         builder = builder_guards.back()->version_builder();
       }
+      assert(last_writer != nullptr);  // make checker happy
       for (const auto& e : last_writer->edit_list) {
         LogAndApplyHelper(last_writer->cfd, builder, version, e, mu);
         batch_edits.push_back(e);
       }
     }
-    if (!versions.empty()) {
-      assert(builder_guards.size() == versions.size());
-    }
     for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+      assert(!builder_guards.empty() &&
+             builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
       builder->SaveTo(versions[i]->storage_info());
     }
@@ -2832,11 +2832,11 @@ Status VersionSet::ProcessManifestWrites(
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
         column_family_set_->get_table_cache()->GetCapacity() ==
             TableCache::kInfiniteCapacity) {
-      if (!versions.empty()) {
-        assert(versions.size() == builder_guards.size());
-        assert(versions.size() == mutable_cf_options_ptrs.size());
-      }
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+        assert(!builder_guards.empty() &&
+               builder_guards.size() == versions.size());
+        assert(!mutable_cf_options_ptrs.empty() &&
+               builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
@@ -3065,6 +3065,7 @@ Status VersionSet::LogAndApply(
                          edit_lists[i]);
     manifest_writers_.push_back(&writers[i]);
   }
+  assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
   while (!first_writer.done && &first_writer != manifest_writers_.front()) {
     first_writer.cv.Wait();
