@@ -39,7 +39,6 @@ enum HistogramsInternal : uint32_t {
   INTERNAL_HISTOGRAM_ENUM_MAX
 };
 
-
 class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats,

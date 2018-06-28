@@ -510,7 +510,7 @@ void LRUCache::DisownData() {
   shards_ = nullptr;
   num_shards_ = 0;
 #endif
-#else   // __clang__
+#else  // __clang__
 #ifndef __SANITIZE_ADDRESS__
   shards_ = nullptr;
   num_shards_ = 0;
