@@ -118,7 +118,6 @@ class FullFilterBlockReader : public FilterBlockReader {
   Slice contents_;
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   BlockContents block_contents_;
-  std::unique_ptr<const char[]> filter_data_;
   bool full_length_enabled_;
   size_t prefix_extractor_full_length_;
 

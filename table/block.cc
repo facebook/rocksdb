@@ -486,8 +486,16 @@ void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
 
 size_t Block::ApproximateMemoryUsage() const {
   size_t usage = usable_size();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
   if (prefix_index_) {
     usage += prefix_index_->ApproximateMemoryUsage();
+  }
+  if (read_amp_bitmap_) {
+    usage += read_amp_bitmap_->ApproximateMemoryUsage();
   }
   return usage;
 }
