@@ -6,7 +6,7 @@ import subprocess
 import time
 
 
-class DBBenchStatsParser(TimeSeriesData):
+class LogStatsParser(TimeSeriesData):
     STATS = 'STATISTICS:'
 
     @staticmethod

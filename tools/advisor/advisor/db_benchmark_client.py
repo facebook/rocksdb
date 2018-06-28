@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from advisor.db_log_parser import DatabaseLogs, NO_FAM
 from advisor.db_options_parser import DatabaseOptions
-from advisor.db_stats_fetcher import DBBenchStatsParser
+from advisor.db_stats_fetcher import LogStatsParser
 import re
 import subprocess
 
@@ -105,7 +105,7 @@ class DBBenchRunner(BenchmarkRunner):
             logs_file_prefix, db_options.get_column_families()
         )
         # Create the STATS object
-        db_stats = DBBenchStatsParser(logs_file_prefix, stats_freq_sec)
+        db_stats = LogStatsParser(logs_file_prefix, stats_freq_sec)
         return [db_options, db_logs, db_stats]
 
     def get_available_workloads(self):
