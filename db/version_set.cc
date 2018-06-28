@@ -2788,7 +2788,7 @@ Status VersionSet::ProcessManifestWrites(
             new BaseReferencedVersionBuilder(last_writer->cfd));
         builder = builder_guards.back()->version_builder();
       }
-      assert(last_writer != nullptr);  // make checker happy
+      assert(builder != nullptr);  // make checker happy
       for (const auto& e : last_writer->edit_list) {
         LogAndApplyHelper(last_writer->cfd, builder, version, e, mu);
         batch_edits.push_back(e);
