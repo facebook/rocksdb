@@ -2531,6 +2531,7 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "rocksdb", "rocks"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
 
   ASSERT_OK(db_->EndTrace(trace_opt));
   // These should not get into the trace file as it is after EndTrace.
@@ -2564,7 +2565,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
   ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
 
-  ASSERT_OK(db2->StartReplay(replay_opt, handles_, dbname_ + "/rocksdb.trace"));
+  ASSERT_OK(db2->StartReplay(replay_opt, dbname_ + "/rocksdb.trace", handles_));
   ASSERT_OK(db2->EndReplay(replay_opt));
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));

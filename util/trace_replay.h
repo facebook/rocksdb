@@ -2,6 +2,7 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+
 #pragma once
 
 #include <memory>
@@ -9,6 +10,7 @@
 #include <utility>
 
 #include "rocksdb/env.h"
+#include "rocksdb/utilities/trace_reader_writer.h"
 
 namespace rocksdb {
 
@@ -16,10 +18,8 @@ class ColumnFamilyHandle;
 class DBImpl;
 class RandomAccessFileReader;
 class Slice;
-class TraceReader;
-class TraceWriter;
-class WriteBatch;
 class WritableFileWriter;
+class WriteBatch;
 
 const std::string kTraceMagic = "feedcafedeadbeef";
 
@@ -48,14 +48,21 @@ class Tracer {
   Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
-  Status TraceWrite(WriteBatch* write_batch);
-  Status TraceGet(ColumnFamilyHandle* cfname, const Slice& key);
+  Status Write(WriteBatch* write_batch);
+  Status Get(ColumnFamilyHandle* cfname, const Slice& key);
 
   Status Close();
 
  private:
+  Status WriteHeader();
+  Status WriteFooter();
+  Status WriteTrace(Trace& trace);
+
   Env* env_;
   unique_ptr<TraceWriter> trace_writer_;
+
+  // Timestamp 8 bytes + TraceType 1 byte
+  const unsigned int kMetadataSize = 9;
 };
 
 class Replayer {
@@ -67,19 +74,22 @@ class Replayer {
  private:
   Status Replay();
 
+  Status ReadHeader(Trace& header);
+  Status ReadFooter(Trace& footer);
+  Status ReadTrace(Trace& trace);
+
   DBImpl* db_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
 };
 
-class TraceReader {
+class FileTraceReader : public TraceReader {
  public:
-  TraceReader(std::unique_ptr<RandomAccessFileReader>&& reader);
-  ~TraceReader();
+  FileTraceReader(std::unique_ptr<RandomAccessFileReader>&& reader);
+  ~FileTraceReader();
 
-  Status ReadHeader(Trace& header);
-  Status ReadFooter(Trace& footer);
-  Status ReadRecord(Trace& trace);
+  virtual Status Read(std::string* data) override;
+  virtual Status Close() override;
 
  private:
   unique_ptr<RandomAccessFileReader> file_reader_;
@@ -90,21 +100,18 @@ class TraceReader {
   static const unsigned int kBufferSize;
 };
 
-class TraceWriter {
+class FileTraceWriter : public TraceWriter {
  public:
-  TraceWriter(Env* env, std::unique_ptr<WritableFileWriter>&& file_writer)
+  FileTraceWriter(Env* env, std::unique_ptr<WritableFileWriter>&& file_writer)
       : env_(env), file_writer_(std::move(file_writer)) {}
-  ~TraceWriter();
+  ~FileTraceWriter();
 
-  Status WriteHeader();
-  Status WriteFooter();
-  Status WriteRecord(Trace& trace);
+  virtual Status Write(const Slice& data) override;
+  virtual Status Close() override;
 
  private:
   Env* env_;
   unique_ptr<WritableFileWriter> file_writer_;
-
-  const unsigned int kMetadataSize = 9;
 };
 
 }  // namespace rocksdb

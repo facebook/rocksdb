@@ -45,6 +45,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/utilities/trace_reader_writer.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
@@ -332,14 +333,20 @@ class DBImpl : public DB {
   using DB::StartTrace;
   virtual Status StartTrace(const TraceOptions& options,
                             const std::string& trace_filename) override;
+  virtual Status StartTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndTrace;
   virtual Status EndTrace(const TraceOptions& options) override;
 
   using DB::StartReplay;
-  virtual Status StartReplay(const ReplayOptions& options,
-                             std::vector<ColumnFamilyHandle*>& handles,
-                             const std::string& trace_filename) override;
+  virtual Status StartReplay(
+      const ReplayOptions& options, const std::string& trace_filename,
+      std::vector<ColumnFamilyHandle*>& handles) override;
+  virtual Status StartReplay(
+      const ReplayOptions& options, std::unique_ptr<TraceReader>&& trace_reader,
+      std::vector<ColumnFamilyHandle*>& handles) override;
 
   using DB::EndReplay;
   virtual Status EndReplay(const ReplayOptions& options) override;
