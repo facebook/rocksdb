@@ -238,7 +238,6 @@ bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
   // It is ensured the params are valid before calling it
   assert(num_probes != 0);
   assert(num_lines != 0 && (len - 5) % num_lines == 0);
-  uint32_t cache_line_size = 1 << log2_cache_line_size_;
   const char* data = filter.data();
 
   uint32_t h = hash;
@@ -246,7 +245,8 @@ bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
   // Left shift by an extra 3 to convert bytes to bits
   uint32_t b = (h % num_lines) << (log2_cache_line_size_ + 3);
   PREFETCH(&data[b / 8], 0 /* rw */, 1 /* locality */);
-  PREFETCH(&data[b / 8 + cache_line_size - 1], 0 /* rw */, 1 /* locality */);
+  PREFETCH(&data[b / 8 + (1 << log2_cache_line_size_) - 1], 0 /* rw */,
+           1 /* locality */);
 
   for (uint32_t i = 0; i < num_probes; ++i) {
     // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
