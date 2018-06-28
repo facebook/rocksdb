@@ -136,8 +136,11 @@ class PartitionedFilterBlockTest : public testing::Test {
     const ImmutableCFOptions ioptions(options);
     const MutableCFOptions moptions(options);
     const EnvOptions env_options;
-    table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
-        ioptions, env_options, table_options_, icomp, false)));
+    const bool kSkipFilters = true;
+    const bool kImmortal = true;
+    table.reset(new MockedBlockBasedTable(
+        new BlockBasedTable::Rep(ioptions, env_options, table_options_, icomp,
+                                 !kSkipFilters, !kImmortal)));
     auto reader = new PartitionedFilterBlockReader(
         prefix_extractor, true, BlockContents(slice, false, kNoCompression),
         nullptr, nullptr, icomp, table.get(), pib->seperator_is_key_plus_seq());

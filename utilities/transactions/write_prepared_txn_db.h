@@ -612,9 +612,9 @@ class WritePreparedTxnReadCallback : public ReadCallback {
                                SequenceNumber min_uncommitted)
       : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
 
-  // Will be called to see if the seq number accepted; if not it moves on to the
-  // next seq number.
-  inline virtual bool IsCommitted(SequenceNumber seq) override {
+  // Will be called to see if the seq number visible; if not it moves on to
+  // the next seq number.
+  inline virtual bool IsVisible(SequenceNumber seq) override {
     return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
   }
 

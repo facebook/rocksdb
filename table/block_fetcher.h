@@ -23,10 +23,10 @@ class BlockFetcher {
   BlockFetcher(RandomAccessFileReader* file,
                FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                const ReadOptions& read_options, const BlockHandle& handle,
-               BlockContents* contents,
-               const ImmutableCFOptions& ioptions,
+               BlockContents* contents, const ImmutableCFOptions& ioptions,
                bool do_uncompress, const Slice& compression_dict,
-               const PersistentCacheOptions& cache_options)
+               const PersistentCacheOptions& cache_options,
+               const bool immortal_source = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -35,6 +35,7 @@ class BlockFetcher {
         contents_(contents),
         ioptions_(ioptions),
         do_uncompress_(do_uncompress),
+        immortal_source_(immortal_source),
         compression_dict_(compression_dict),
         cache_options_(cache_options) {}
   Status ReadBlockContents();
@@ -50,6 +51,7 @@ class BlockFetcher {
   BlockContents* contents_;
   const ImmutableCFOptions& ioptions_;
   bool do_uncompress_;
+  const bool immortal_source_;
   const Slice& compression_dict_;
   const PersistentCacheOptions& cache_options_;
   Status status_;

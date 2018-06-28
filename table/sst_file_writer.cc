@@ -150,13 +150,21 @@ Status SstFileWriter::Open(const std::string& file_path) {
   sst_file->SetIOPriority(r->io_priority);
 
   CompressionType compression_type;
+  CompressionOptions compression_opts;
   if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
     compression_type = r->ioptions.bottommost_compression;
+    if (r->ioptions.bottommost_compression_opts.enabled) {
+      compression_opts = r->ioptions.bottommost_compression_opts;
+    } else {
+      compression_opts = r->ioptions.compression_opts;
+    }
   } else if (!r->ioptions.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
     compression_type = *(r->ioptions.compression_per_level.rbegin());
+    compression_opts = r->ioptions.compression_opts;
   } else {
     compression_type = r->mutable_cf_options.compression;
+    compression_opts = r->ioptions.compression_opts;
   }
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -190,9 +198,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
-      &int_tbl_prop_collector_factories, compression_type,
-      r->ioptions.compression_opts, nullptr /* compression_dict */,
-      r->skip_filters, r->column_family_name, unknown_level);
+      &int_tbl_prop_collector_factories, compression_type, compression_opts,
+      nullptr /* compression_dict */, r->skip_filters, r->column_family_name,
+      unknown_level);
   r->file_writer.reset(
       new WritableFileWriter(std::move(sst_file), r->env_options));
 

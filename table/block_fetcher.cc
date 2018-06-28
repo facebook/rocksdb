@@ -163,8 +163,8 @@ inline
 void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
-    *contents_ = BlockContents(Slice(slice_.data(), block_size_), false,
-                               compression_type);
+    *contents_ = BlockContents(Slice(slice_.data(), block_size_),
+                               immortal_source_, compression_type);
   } else {
     // page is uncompressed, the buffer either stack or heap provided
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {

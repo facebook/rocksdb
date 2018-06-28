@@ -1,4 +1,3 @@
-import optparse
 import re
 import sys
 

@@ -110,6 +110,24 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
   }
 }
 
+CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
+                                         const VersionStorageInfo* vstorage,
+                                         int level,
+                                         const bool enable_compression) {
+  if (!enable_compression) {
+    return ioptions.compression_opts;
+  }
+  // If bottommost_compression is set and we are compacting to the
+  // bottommost level then we should use the specified compression options
+  // for the bottmomost_compression.
+  if (ioptions.bottommost_compression != kDisableCompressionOption &&
+      level >= (vstorage->num_non_empty_levels() - 1) &&
+      ioptions.bottommost_compression_opts.enabled) {
+    return ioptions.bottommost_compression_opts;
+  }
+  return ioptions.compression_opts;
+}
+
 CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
@@ -301,7 +319,7 @@ Compaction* CompactionPicker::CompactFiles(
       new Compaction(vstorage, ioptions_, mutable_cf_options, input_files,
                      output_level, compact_options.output_file_size_limit,
                      mutable_cf_options.max_compaction_bytes, output_path_id,
-                     compact_options.compression,
+                     compact_options.compression, ioptions_.compression_opts,
                      compact_options.max_subcompactions,
                      /* grandparents */ {}, true);
   RegisterCompaction(c);
@@ -569,11 +587,13 @@ Compaction* CompactionPicker::CompactRange(
 
     Compaction* c = new Compaction(
         vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-        output_level, MaxFileSizeForLevel(mutable_cf_options, output_level,
-            ioptions_.compaction_style),
+        output_level,
+        MaxFileSizeForLevel(mutable_cf_options, output_level,
+                            ioptions_.compaction_style),
         /* max_compaction_bytes */ LLONG_MAX, output_path_id,
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
+        GetCompressionOptions(ioptions_, vstorage, output_level),
         max_subcompactions, /* grandparents */ {}, /* is manual */ true);
     RegisterCompaction(c);
     return c;
@@ -679,11 +699,12 @@ Compaction* CompactionPicker::CompactRange(
       vstorage, ioptions_, mutable_cf_options, std::move(compaction_inputs),
       output_level,
       MaxFileSizeForLevel(mutable_cf_options, output_level,
-          ioptions_.compaction_style, vstorage->base_level(),
-          ioptions_.level_compaction_dynamic_level_bytes),
+                          ioptions_.compaction_style, vstorage->base_level(),
+                          ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options.max_compaction_bytes, output_path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
+      GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, std::move(grandparents),
       /* is manual compaction */ true);
 
@@ -1329,12 +1350,13 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       vstorage_, ioptions_, mutable_cf_options_, std::move(compaction_inputs_),
       output_level_,
       MaxFileSizeForLevel(mutable_cf_options_, output_level_,
-          ioptions_.compaction_style, vstorage_->base_level(),
-          ioptions_.level_compaction_dynamic_level_bytes),
+                          ioptions_.compaction_style, vstorage_->base_level(),
+                          ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options_.max_compaction_bytes,
       GetPathId(ioptions_, mutable_cf_options_, output_level_),
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level_, vstorage_->base_level()),
+      GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       start_level_score_, false /* deletion_compaction */, compaction_reason_);
 
@@ -1584,9 +1606,9 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
-      kNoCompression, /* max_subcompactions */ 0, {}, /* is manual */ false,
-      vstorage->CompactionScore(0), /* is deletion compaction */ true,
-      CompactionReason::kFIFOTtl);
+      kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
+      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
   return c;
 }
 
@@ -1624,8 +1646,9 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
             0 /* output path ID */, mutable_cf_options.compression,
-            0 /* max_subcompactions */, {}, /* is manual */ false,
-            vstorage->CompactionScore(0), /* is deletion compaction */ false,
+            ioptions_.compression_opts, 0 /* max_subcompactions */, {},
+            /* is manual */ false, vstorage->CompactionScore(0),
+            /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
         return c;
       }
@@ -1671,9 +1694,9 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
-      kNoCompression, /* max_subcompactions */ 0, {}, /* is manual */ false,
-      vstorage->CompactionScore(0), /* is deletion compaction */ true,
-      CompactionReason::kFIFOMaxSize);
+      kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
+      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
 
