@@ -1174,40 +1174,33 @@ Status BlockBasedTable::GetDataBlockFromCache(
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {
       size_t charge = block->value->ApproximateMemoryUsage();
-      s = block_cache->Insert(
-          block_cache_key, block->value, charge,
-          &DeleteCachedEntry<Block>, &(block->cache_handle));
-      block_cache->TEST_mark_as_data_block(block_cache_key,
-                                           charge);
+      s = block_cache->Insert(block_cache_key, block->value, charge,
+                              &DeleteCachedEntry<Block>,
+                              &(block->cache_handle));
+      block_cache->TEST_mark_as_data_block(block_cache_key, charge);
       if (s.ok()) {
         if (get_context != nullptr) {
           get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE,
-                                      charge);
+          get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, charge);
         } else {
           RecordTick(statistics, BLOCK_CACHE_ADD);
-          RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
-                     charge);
+          RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);
         }
         if (is_index) {
           if (get_context != nullptr) {
             get_context->RecordCounters(BLOCK_CACHE_INDEX_ADD, 1);
-            get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT,
-                                        charge);
+            get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
           } else {
             RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
-            RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
-                       charge);
+            RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
           }
         } else {
           if (get_context != nullptr) {
             get_context->RecordCounters(BLOCK_CACHE_DATA_ADD, 1);
-            get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT,
-                                        charge);
+            get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT, charge);
           } else {
             RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
-            RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
-                       charge);
+            RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
           }
         }
       } else {
@@ -1279,41 +1272,34 @@ Status BlockBasedTable::PutDataBlockToCache(
   assert((block->value->compression_type() == kNoCompression));
   if (block_cache != nullptr && block->value->cachable()) {
     size_t charge = block->value->ApproximateMemoryUsage();
-    s = block_cache->Insert(
-        block_cache_key, block->value, charge,
-        &DeleteCachedEntry<Block>, &(block->cache_handle), priority);
-    block_cache->TEST_mark_as_data_block(block_cache_key,
-                                         charge);
+    s = block_cache->Insert(block_cache_key, block->value, charge,
+                            &DeleteCachedEntry<Block>, &(block->cache_handle),
+                            priority);
+    block_cache->TEST_mark_as_data_block(block_cache_key, charge);
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       if (get_context != nullptr) {
         get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
-        get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE,
-                                    charge);
+        get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, charge);
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD);
-        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
-                   charge);
+        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, charge);
       }
       if (is_index) {
         if (get_context != nullptr) {
           get_context->RecordCounters(BLOCK_CACHE_INDEX_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT,
-                                      charge);
+          get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
         } else {
           RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
-          RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
-                     charge);
+          RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, charge);
         }
       } else {
         if (get_context != nullptr) {
           get_context->RecordCounters(BLOCK_CACHE_DATA_ADD, 1);
-          get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT,
-                                      charge);
+          get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT, charge);
         } else {
           RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
-          RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
-                     charge);
+          RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, charge);
         }
       }
       assert(reinterpret_cast<Block*>(
@@ -1450,7 +1436,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     filter = ReadFilter(prefetch_buffer, filter_blk_handle,
                         is_a_filter_partition, prefix_extractor);
     if (filter != nullptr) {
-size_t usage = filter->ApproximateMemoryUsage();
+      size_t usage = filter->ApproximateMemoryUsage();
       Status s = block_cache->Insert(
           key, filter, usage, &DeleteCachedFilterEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
@@ -1532,13 +1518,12 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread1:1");
     TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread2:3");
     TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread1:4");
-size_t charge = 0;
+    size_t charge = 0;
     if (s.ok()) {
       assert(index_reader != nullptr);
       charge = index_reader->ApproximateMemoryUsage();
       s = block_cache->Insert(
-          key, index_reader, charge,
-          &DeleteCachedIndexEntry, &cache_handle,
+          key, index_reader, charge, &DeleteCachedIndexEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
               ? Cache::Priority::HIGH
               : Cache::Priority::LOW);
