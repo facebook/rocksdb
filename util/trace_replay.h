@@ -97,15 +97,14 @@ class FileTraceReader : public TraceReader {
 
 class FileTraceWriter : public TraceWriter {
  public:
-  FileTraceWriter(Env* env, std::unique_ptr<WritableFileWriter>&& file_writer)
-      : env_(env), file_writer_(std::move(file_writer)) {}
+  FileTraceWriter(std::unique_ptr<WritableFileWriter>&& file_writer)
+      : file_writer_(std::move(file_writer)) {}
   ~FileTraceWriter();
 
   virtual Status Write(const Slice& data) override;
   virtual Status Close() override;
 
  private:
-  Env* env_;
   unique_ptr<WritableFileWriter> file_writer_;
 };
 

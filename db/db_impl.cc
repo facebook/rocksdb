@@ -3070,7 +3070,7 @@ Status DBImpl::StartTrace(const TraceOptions& options,
   unique_ptr<WritableFileWriter> file_writer;
   file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
   unique_ptr<TraceWriter> trace_writer;
-  trace_writer.reset(new FileTraceWriter(env_, std::move(file_writer)));
+  trace_writer.reset(new FileTraceWriter(std::move(file_writer)));
 
   return StartTrace(options, std::move(trace_writer));
 }
