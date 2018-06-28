@@ -2758,7 +2758,8 @@ Status VersionSet::ProcessManifestWrites(
         break;
       }
       last_writer = *(it++);
-      assert(last_writer != nullptr && last_writer->cfd != nullptr);
+      assert(last_writer != nullptr);
+      assert(last_writer->cfd != nullptr);
       if (last_writer->cfd != nullptr && last_writer->cfd->IsDropped()) {
         continue;
       }
