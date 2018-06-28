@@ -97,10 +97,13 @@ class Rule(Section):
         trigger_ix = 0
         overlap_pair = None
         for key1_lb in key1_lower_bounds:
-            while key2_trigger_epochs[trigger_ix] < key1_lb:
+            while (
+                key2_trigger_epochs[trigger_ix] < key1_lb and
+                trigger_ix < len(key2_trigger_epochs)
+            ):
                 trigger_ix += 1
-                if trigger_ix >= len(key2_trigger_epochs):
-                    break
+            if trigger_ix >= len(key2_trigger_epochs):
+                break
             if (
                 key2_trigger_epochs[trigger_ix] <=
                 key1_lb + (2 * self.overlap_time_seconds)
@@ -149,6 +152,8 @@ class Rule(Section):
                 if overlap_timestamps_pair:
                     self.trigger_entities[entity] = overlap_timestamps_pair
                     is_triggered = True
+            if is_triggered:
+                self.trigger_column_families = set(column_families)
             return is_triggered
         else:
             all_conditions_triggered = True
@@ -179,6 +184,9 @@ class Rule(Section):
                 if not (self.trigger_entities or self.trigger_column_families):
                     all_conditions_triggered = False
                     break
+            if not all_conditions_triggered:  # clean up if rule not triggered
+                self.trigger_column_families = None
+                self.trigger_entities = None
             return all_conditions_triggered
 
     def __repr__(self):
@@ -225,7 +233,10 @@ class Suggestion(Section):
                 raise ValueError(self.name + ': provide action for option')
             self.action = self.Action[value]
         elif key == 'suggested_value':
-            self.suggested_value = value
+            if isinstance(value, str):
+                self.suggested_value = [value]
+            else:
+                self.suggested_value = value
         elif key == 'description':
             self.description = value
 
@@ -301,10 +312,6 @@ class LogCondition(Condition):
         base_condition.__class__ = cls
         return base_condition
 
-    class Scope(Enum):
-        database = 1
-        column_family = 2
-
     def set_parameter(self, key, value):
         if key == 'regex':
             self.regex = value
@@ -358,11 +365,16 @@ class TimeSeriesCondition(Condition):
 
     def set_parameter(self, key, value):
         if key == 'keys':
-            self.keys = value
+            if isinstance(value, str):
+                self.keys = [value]
+            else:
+                self.keys = value
         elif key == 'behavior':
             self.behavior = TimeSeriesData.Behavior[value]
         elif key == 'rate_threshold':
-            self.rate_threshold = value
+            self.rate_threshold = float(value)
+        elif key == 'window_sec':
+            self.window_sec = int(value)
         elif key == 'evaluate':
             self.expression = value
         elif key == 'aggregation_op':
@@ -376,7 +388,9 @@ class TimeSeriesCondition(Condition):
         if self.behavior is TimeSeriesData.Behavior.bursty:
             if not self.rate_threshold:
                 raise ValueError(self.name + ': specify rate burst threshold')
-            if not isinstance(self.keys, str):
+            if not self.window_sec:
+                self.window_sec = 300  # default window length is 5 minutes
+            if len(self.keys) > 1:
                 raise ValueError(self.name + ': specify only one key')
         elif self.behavior is TimeSeriesData.Behavior.evaluate_expression:
             if not (self.expression and self.aggregation_op):

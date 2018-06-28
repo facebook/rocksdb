@@ -4,9 +4,11 @@
 #  (found in the LICENSE.Apache file in the root directory).
 
 from abc import ABC, abstractmethod
+from calendar import timegm
+from enum import Enum
 import glob
 import re
-from enum import Enum
+import time
 
 
 NO_FAM = 'DB_WIDE'
@@ -41,15 +43,18 @@ class Log:
         self.message = " ".join(token_list[2:])
         self.column_family = None
         for col_fam in column_families:
-            search_for_str = '[' + col_fam + ']'
+            search_for_str = '\[' + col_fam + '\]'
             if re.search(search_for_str, self.message):
                 self.column_family = col_fam
                 break
         if not self.column_family:
             self.column_family = NO_FAM
 
-    def get_time(self):
+    def get_human_readable_time(self):
         return self.time
+
+    def get_column_family(self):
+        return self.column_family
 
     def get_context(self):
         return self.context
@@ -58,11 +63,25 @@ class Log:
         return self.message
 
     def append_message(self, remaining_log):
-        self.message = self.message + remaining_log
+        self.message = self.message + '\n' + remaining_log.strip()
+
+    def get_timestamp(self):
+        # assumes that the LOG timestamp is in GMT; this means that if this
+        # timestamp is to be converted to a human-readable value, one could
+        # either use the method get_human_readable_time() in this class or
+        # one can use 'datetime.utcfromtimestamp(<timestamp>).isoformat()';
+        # in either case the value returned would match the Log time in the LOG
+        # file
+        hr_time = self.time + 'GMT'
+        timestamp = timegm(time.strptime(hr_time, "%Y/%m/%d-%H:%M:%S.%f%Z"))
+        return timestamp
 
     def __repr__(self):
-        return 'time: ' + self.time + ', context: ' + self.context +\
-             ', message: ' + self.message
+        return (
+            'time: ' + self.time + '; context: ' + self.context +
+            '; col_fam: ' + self.column_family +
+            '; message: ' + self.message
+        )
 
 
 class DatabaseLogs(DataSource):
@@ -77,9 +96,9 @@ class DatabaseLogs(DataSource):
                 trigger = cond.get_trigger()
                 if not trigger:
                     trigger = {}
-                if log.column_family not in trigger:
-                    trigger[log.column_family] = []
-                trigger[log.column_family].append(log)
+                if log.get_column_family() not in trigger:
+                    trigger[log.get_column_family()] = []
+                trigger[log.get_column_family()].append(log)
                 cond.set_trigger(trigger)
 
     def check_and_trigger_conditions(self, conditions):
