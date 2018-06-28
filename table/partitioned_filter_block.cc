@@ -186,7 +186,7 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 #endif
   assert(const_ikey_ptr != nullptr);
   assert(block_offset == kNotValid);
-  if (!prefix_extractor_) {
+  if (!prefix_extractor_ && !prefix_extractor) {
     return true;
   }
   if (UNLIKELY(idx_on_fltr_blk_->size() == 0)) {
