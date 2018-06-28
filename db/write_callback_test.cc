@@ -159,7 +159,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               std::vector<ColumnFamilyHandle*> handles;
               auto open_s =
                   DBImpl::Open(db_options, dbname, column_families, &handles,
-                               &db, seq_per_batch, true /* batch_per_trx */);
+                               &db, seq_per_batch, true /* batch_per_txn */);
               ASSERT_OK(open_s);
               assert(handles.size() == 1);
               delete handles[0];
@@ -307,7 +307,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                   const size_t ONE_BATCH = 1;
                   s = db_impl->WriteImpl(
                       woptions, &write_op.write_batch_, &write_op.callback_,
-                      nullptr, 1, false, nullptr, ONE_BATCH,
+                      nullptr, 0, false, nullptr, ONE_BATCH,
                       two_queues ? &publish_seq_callback : nullptr);
                 } else {
                   s = db_impl->WriteWithCallback(

@@ -1090,7 +1090,7 @@ class MemTableInserter : public WriteBatch::Handler {
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
                    bool* has_valid_writes = nullptr, bool seq_per_batch = false,
-                   bool batch_per_trx = true)
+                   bool batch_per_txn = true)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -1109,8 +1109,8 @@ class MemTableInserter : public WriteBatch::Handler {
         // approach.
         write_after_commit_(!seq_per_batch),
         // WriteUnprepared can write WriteBatches per transaction, so
-        // batch_per_trx being false indicates write_before_prepare.
-        write_before_prepare_(!batch_per_trx),
+        // batch_per_txn being false indicates write_before_prepare.
+        write_before_prepare_(!batch_per_txn),
         duplicate_detector_(),
         dup_dectector_on_(false) {
     assert(cf_mems_);
@@ -1732,11 +1732,11 @@ Status WriteBatchInternal::InsertInto(
     WriteThread::WriteGroup& write_group, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_trx) {
+    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, ignore_missing_column_families,
       recovery_log_number, db, concurrent_memtable_writes,
-      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_trx);
+      nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {
       continue;
@@ -1764,7 +1764,7 @@ Status WriteBatchInternal::InsertInto(
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
-    bool batch_per_trx) {
+    bool batch_per_txn) {
 #ifdef NDEBUG
   (void)batch_cnt;
 #endif
@@ -1772,7 +1772,7 @@ Status WriteBatchInternal::InsertInto(
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, ignore_missing_column_families,
       log_number, db, concurrent_memtable_writes, nullptr /*has_valid_writes*/,
-      seq_per_batch, batch_per_trx);
+      seq_per_batch, batch_per_txn);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
@@ -1789,11 +1789,11 @@ Status WriteBatchInternal::InsertInto(
     FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
     uint64_t log_number, DB* db, bool concurrent_memtable_writes,
     SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch,
-    bool batch_per_trx) {
+    bool batch_per_txn) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes,
-                            seq_per_batch, batch_per_trx);
+                            seq_per_batch, batch_per_txn);
   Status s = batch->Iterate(&inserter);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();

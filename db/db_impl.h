@@ -72,7 +72,7 @@ struct MemTableInfo;
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false, const bool batch_per_trx = true);
+         const bool seq_per_batch = false, const bool batch_per_txn = true);
   virtual ~DBImpl();
 
   using DB::Resume;
@@ -640,7 +640,7 @@ class DBImpl : public DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                     const bool seq_per_batch, const bool batch_per_trx);
+                     const bool seq_per_batch, const bool batch_per_txn);
 
   virtual Status Close() override;
 
@@ -1416,7 +1416,7 @@ class DBImpl : public DB {
   // batches can exist per transaction.
   //
   // Default: true
-  const bool batch_per_trx_;
+  const bool batch_per_txn_;
   // LastSequence also indicates last published sequence visibile to the
   // readers. Otherwise LastPublishedSequence should be used.
   const bool last_seq_same_as_publish_seq_;
