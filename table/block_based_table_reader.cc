@@ -79,11 +79,11 @@ Status ReadBlockFromFile(
     std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, const Slice& compression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit) {
+    size_t read_amp_bytes_per_bit, const bool immortal_file = false) {
   BlockContents contents;
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
                              &contents, ioptions, do_uncompress,
-                             compression_dict, cache_options);
+                             compression_dict, cache_options, immortal_file);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
@@ -694,7 +694,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              unique_ptr<TableReader>* table_reader,
                              const SliceTransform* prefix_extractor,
                              const bool prefetch_index_and_filter_in_cache,
-                             const bool skip_filters, const int level) {
+                             const bool skip_filters, const int level,
+                             const bool immortal_table) {
   table_reader->reset();
 
   Footer footer;
@@ -736,7 +737,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
   Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters);
+                                      internal_comparator, skip_filters,
+                                      immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
@@ -1622,7 +1624,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
           &block_value, rep->ioptions, rep->blocks_maybe_compressed,
           compression_dict, rep->persistent_cache_options,
           is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
-          rep->table_options.read_amp_bytes_per_bit);
+          rep->table_options.read_amp_bytes_per_bit, rep->immortal_table);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1723,7 +1725,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
             compression_dict, rep->persistent_cache_options,
             is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
-            rep->table_options.read_amp_bytes_per_bit);
+            rep->table_options.read_amp_bytes_per_bit, rep->immortal_table);
       }
 
       if (s.ok()) {

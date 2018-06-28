@@ -92,7 +92,8 @@ class BlockBasedTable : public TableReader {
                      uint64_t file_size, unique_ptr<TableReader>* table_reader,
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
-                     bool skip_filters = false, int level = -1);
+                     bool skip_filters = false, int level = -1,
+                     const bool immortal_table = false);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -420,7 +421,8 @@ struct BlockBasedTable::CachableEntry {
 struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
-      const InternalKeyComparator& _internal_comparator, bool skip_filters)
+      const InternalKeyComparator& _internal_comparator, bool skip_filters,
+      const bool _immortal_table)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
@@ -432,7 +434,8 @@ struct BlockBasedTable::Rep {
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
         range_del_handle(BlockHandle::NullBlockHandle()),
-        global_seqno(kDisableGlobalSequenceNumber) {}
+        global_seqno(kDisableGlobalSequenceNumber),
+        immortal_table(_immortal_table) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
@@ -510,6 +513,7 @@ struct BlockBasedTable::Rep {
   bool blocks_maybe_compressed = true;
 
   bool closed = false;
+  const bool immortal_table;
 };
 
 class BlockBasedTableIterator : public InternalIterator {
