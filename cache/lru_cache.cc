@@ -505,10 +505,17 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
 
 void LRUCache::DisownData() {
 // Do not drop data if compile with ASAN to suppress leak warning.
+#if defined(__clang__)
+#if !defined(__has_feature) || !__has_feature(address_sanitizer)
+  shards_ = nullptr;
+  num_shards_ = 0;
+#endif
+#else   // __clang__
 #ifndef __SANITIZE_ADDRESS__
   shards_ = nullptr;
   num_shards_ = 0;
 #endif  // !__SANITIZE_ADDRESS__
+#endif  // __clang__
 }
 
 size_t LRUCache::TEST_GetLRUSize() {
