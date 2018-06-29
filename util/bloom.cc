@@ -158,8 +158,8 @@ class FullFilterBitsReader : public FilterBitsReader {
             (data_len_ - 5) >> log2_cache_line_size_;
         if (num_lines_at_curr_cache_size == 0) {
           // The cache line size seems not a power of two. It's not supported
-          // and indicates a corruption that we can't report from here.
-          abort();
+          // and indicates a corruption so disable using this filter.
+          num_lines_ = 0;
         }
         if (num_lines_at_curr_cache_size == num_lines_) {
           break;
