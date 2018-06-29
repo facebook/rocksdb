@@ -217,14 +217,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // as well.
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
-<<<<<<< HEAD
       closed_(false),
       error_handler_(immutable_db_options_, &mutex_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
-=======
-      closed_(false) {
-  // !batch_per_txn_ implies seq_per_batch_ because it is only unset for
->>>>>>> review comments
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
