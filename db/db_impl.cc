@@ -139,7 +139,7 @@ int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
-               const bool seq_per_batch)
+               const bool seq_per_batch, const bool batch_per_txn)
     : env_(options.env),
       dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
@@ -200,6 +200,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       seq_per_batch_(seq_per_batch),
+      batch_per_txn_(batch_per_txn),
       // last_sequencee_ is always maintained by the main queue that also writes
       // to the memtable. When two_write_queues_ is disabled last seq in
       // memtable is the same as last seq published to the readers. When it is
@@ -218,6 +219,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(immutable_db_options_, &mutex_) {
+  // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
+  // WriteUnprepared, which should use seq_per_batch_.
+  assert(batch_per_txn_ || seq_per_batch_);
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.

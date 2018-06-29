@@ -594,6 +594,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeLogData:
       case kTypeBeginPrepareXID:
       case kTypeBeginPersistedPrepareXID:
+      case kTypeBeginUnprepareXID:
       case kTypeEndPrepareXID:
       case kTypeCommitXID:
       case kTypeRollbackXID:
