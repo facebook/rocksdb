@@ -6,6 +6,8 @@
 import copy
 from advisor.db_log_parser import DataSource, NO_FAM
 from advisor.ini_parser import IniParser
+from advisor.rule_parser import Condition, OptionCondition
+import os
 
 
 class OptionsSpecParser(IniParser):
@@ -56,22 +58,16 @@ class OptionsSpecParser(IniParser):
 class DatabaseOptions(DataSource):
     def __init__(self, rocksdb_options):
         super().__init__(DataSource.Type.DB_OPTIONS)
-        self.options_path = rocksdb_options
         # The options are stored in the following data structure:
-        # Dict[str, Dict[str, Dict[str, Any]]].
-        # The above strings are:
-        # ConfigurationOptimizer, column_family, option, value(s).
+        # Dict[section_type, Dict[section_name, Dict[option_name, value]]]
         self.options_dict = None
         self.column_families = None
         # Load the options from the given file to a dictionary.
-        self.load_from_source()
+        self.load_from_source(rocksdb_options)
 
-    def get_original_file(self):
-        return self.options_path
-
-    def load_from_source(self):
+    def load_from_source(self, options_path):
         self.options_dict = {}
-        with open(self.options_path, 'r') as db_options:
+        with open(options_path, 'r') as db_options:
             for line in db_options:
                 line = OptionsSpecParser.remove_trailing_comment(line)
                 if not line:
@@ -107,25 +103,16 @@ class DatabaseOptions(DataSource):
         # List[option] -> Dict[option, Dict[col_fam, value]]
         reqd_options_dict = {}
         for option in reqd_options:
-            sec_name = '.'.join(option.split('.')[:-1])
+            sec_type = '.'.join(option.split('.')[:-1])
             opt_name = option.split('.')[-1]
-            if sec_name not in self.options_dict:
+            if sec_type not in self.options_dict:
                 continue
-            if (
-                NO_FAM in self.options_dict[sec_name] and
-                opt_name in self.options_dict[sec_name][NO_FAM]
-            ):
-                if option not in reqd_options_dict:
-                    reqd_options_dict[option] = {}
-                reqd_options_dict[option][NO_FAM] = (
-                    self.options_dict[sec_name][NO_FAM][opt_name]
-                )
-            for col_fam in self.options_dict[sec_name]:
-                if opt_name in self.options_dict[sec_name][col_fam]:
+            for col_fam in self.options_dict[sec_type]:
+                if opt_name in self.options_dict[sec_type][col_fam]:
                     if option not in reqd_options_dict:
                         reqd_options_dict[option] = {}
                     reqd_options_dict[option][col_fam] = (
-                        self.options_dict[sec_name][col_fam][opt_name]
+                        self.options_dict[sec_type][col_fam][opt_name]
                     )
         return reqd_options_dict
 
@@ -148,9 +135,12 @@ class DatabaseOptions(DataSource):
                     copy.deepcopy(options[option][col_fam])
                 )
 
-    def generate_options_config(self, file_name):
+    def generate_options_config(self, nonce):
         # type: str -> str
-        with open(file_name, 'w') as fp:
+        this_path = os.path.abspath(os.path.dirname(__file__))
+        file_name = '../temp/OPTIONS_' + str(nonce) + '.tmp'
+        file_path = os.path.join(this_path, file_name)
+        with open(file_path, 'w') as fp:
             for section in self.options_dict:
                 for col_fam in self.options_dict[section]:
                     fp.write(
@@ -163,7 +153,8 @@ class DatabaseOptions(DataSource):
                             OptionsSpecParser.get_option_str(option, values) +
                             '\n'
                         )
-        return file_name
+                fp.write('\n')
+        return file_path
 
     def check_and_trigger_conditions(self, conditions):
         for cond in conditions:
@@ -214,3 +205,75 @@ class DatabaseOptions(DataSource):
                         print('DatabaseOptions check_and_trigger: ' + str(e))
             if col_fam_options_dict:
                 cond.set_trigger(col_fam_options_dict)
+
+
+# TODO: remove these methods once the unit tests for this class are in place
+def main():
+    options_file = 'temp/OPTIONS-000005.tmp'
+    db_options = DatabaseOptions(options_file)
+    print(db_options.get_column_families())
+    get_op = db_options.get_options([
+        'DBOptions.db_log_dir',
+        'DBOptions.is_fd_close_on_exec',
+        'CFOptions.memtable_prefix_bloom_size_ratio',
+        'TableOptions.BlockBasedTable.verify_compression'
+    ])
+    print(get_op)
+    get_op['DBOptions.db_log_dir'][NO_FAM] = 'some_random_path :)'
+    get_op['CFOptions.memtable_prefix_bloom_size_ratio']['default'] = 2.31
+    get_op['TableOptions.BlockBasedTable.verify_compression']['default'] = 4.4
+    db_options.update_options(get_op)
+    db_options.generate_options_config(nonce=123)
+
+    options_file = 'temp/OPTIONS_345.tmp'
+    db_options = DatabaseOptions(options_file)
+    # only CFOptions
+    cond1 = Condition('opt-cond-1')
+    cond1 = OptionCondition.create(cond1)
+    cond1.set_parameter(
+        'options', [
+            'CFOptions.level0_file_num_compaction_trigger',
+            'CFOptions.write_buffer_size',
+            'CFOptions.max_bytes_for_level_base'
+        ]
+    )
+    cond1.set_parameter(
+        'evaluate',
+        'int(options[0])*int(options[1])-int(options[2])>=0'
+    )
+    # only DBOptions
+    cond2 = Condition('opt-cond-2')
+    cond2 = OptionCondition.create(cond2)
+    cond2.set_parameter(
+        'options', [
+            'DBOptions.max_file_opening_threads',
+            'DBOptions.table_cache_numshardbits'
+        ]
+    )
+    cond2.set_parameter(
+        'evaluate',
+        'int(options[0])-(4*int(options[1]))>=0'
+    )
+    # mix of CFOptions and DBOptions
+    cond3 = Condition('opt-cond-3')
+    cond3 = OptionCondition.create(cond3)
+    cond3.set_parameter(
+        'options', [
+            'DBOptions.max_background_jobs',  # 2
+            'DBOptions.write_thread_slow_yield_usec',  # 3
+            'CFOptions.num_levels'  # 7
+        ]
+    )
+    cond3.set_parameter(
+        'evaluate',
+        'int(options[2])-(int(options[1])*int(options[0]))>0'
+    )
+
+    db_options.check_and_trigger_conditions([cond1, cond2, cond3])
+    print(cond1.get_trigger())
+    print(cond2.get_trigger())
+    print(cond3.get_trigger())
+
+
+if __name__ == "__main__":
+    main()

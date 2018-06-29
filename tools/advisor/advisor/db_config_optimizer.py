@@ -1,3 +1,8 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from advisor.db_log_parser import NO_FAM
 from advisor.rule_parser import Suggestion
 import copy
@@ -36,9 +41,9 @@ class ConfigOptimizer:
     # TODO: try other algorithms for improving the database configuration
     @staticmethod
     def improve_db_config(current_config, guidelines):
-        # note: if the guideline option did not exist in the current_config,
-        # no change made to it
         # pick an option to change, at random
+        # note: if an option is not in the current config, it's not chosen
+        # for update
         option = random.choice(list(current_config.keys()))
         better_config = {option: copy.deepcopy(current_config[option])}
         chosen_sugg_val = None
@@ -112,6 +117,8 @@ class ConfigOptimizer:
             for sugg_name in rule.get_suggestions():
                 option = suggestions_dict[sugg_name].option
                 action = suggestions_dict[sugg_name].action
+                if not (option or action):  # suggestion not in required format
+                    continue
                 sugg_values = suggestions_dict[sugg_name].suggested_value
                 if not sugg_values:
                     sugg_values = []
@@ -137,7 +144,7 @@ class ConfigOptimizer:
             data_sources = self.bench_runner.run_experiment(
                 self.benchmarks, new_options
             )
-            # check the obtained data sources to for triggered rules
+            # check the obtained data sources for triggered rules
             triggered_rules = self.rule_parser.get_triggered_rules(
                 data_sources, new_options.get_column_families()
             )
