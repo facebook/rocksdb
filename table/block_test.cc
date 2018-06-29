@@ -522,11 +522,13 @@ TEST_F(BlockTest, SuffixIndexTest) {
   int num_records = 100000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);
-//  keys.push_back("key1");
-//  values.push_back("value1");
-  // add a bunch of records to a block
+
+  // Generate keys. Adding a trailing "1" to indicate existent keys.
+  // Later will Seeking for keys with a trailing "0" to test seeking
+  // non-existent keys.
   for (int i = 0; i < num_records; i++) {
-    builder.Add(keys[i], values[i]);
+    builder.Add(keys[i] + "1",
+                values[i]);
   }
 
   // read serialized contents of the block
@@ -541,29 +543,13 @@ TEST_F(BlockTest, SuffixIndexTest) {
                nullptr /* statistics */,
                use_suffix_index);
 
-  // read contents of block sequentially
-  int count = 0;
-  InternalIterator *iter =
-      reader.NewIterator(options.comparator, options.comparator);
-  for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
-
-    // read kv from block
-    Slice k = iter->key();
-    Slice v = iter->value();
-
-    // compare with lookaside array
-    ASSERT_EQ(k.ToString().compare(keys[count]), 0);
-    ASSERT_EQ(v.ToString().compare(values[count]), 0);
-  }
-  delete iter;
-
-  // read block contents randomly
-  iter = reader.NewIterator(options.comparator, options.comparator);
+  // random seek existent keys
+  auto iter = reader.NewIterator(options.comparator, options.comparator);
   for (int i = 0; i < num_records; i++) {
 
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
-    Slice k(keys[index]);
+    Slice k(keys[index] + "1"); // existing keys
 
     // search in block for this key
     iter->Seek(k);
@@ -571,6 +557,19 @@ TEST_F(BlockTest, SuffixIndexTest) {
     Slice v = iter->value();
     ASSERT_EQ(v.ToString().compare(values[index]), 0);
   }
+
+  // random seek non-existent keys
+  for (int i = 0; i < num_records; i++) {
+
+    // find a random key in the lookaside array
+    int index = rnd.Uniform(num_records);
+    Slice k(keys[index] + "0"); // no keys ends by "0"
+
+    // search in block for this key
+    iter->Seek(k);
+    ASSERT_FALSE(iter->Valid());
+  }
+
   delete iter;
 }
 
