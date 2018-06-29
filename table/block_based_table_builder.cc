@@ -659,7 +659,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               (end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    block_cache_compressed->Insert(key, block, block->usable_size(),
+    block_cache_compressed->Insert(key, block, block->ApproximateMemoryUsage(),
                                    &DeleteCachedBlock);
 
     // Invalidate OS cache.
