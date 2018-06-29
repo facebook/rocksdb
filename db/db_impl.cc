@@ -1030,7 +1030,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
 
   if (tracer_) {
-    tracer_->Get(column_family, key);
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(column_family, key);
+    }
   }
 
   // Acquire SuperVersion
@@ -3077,11 +3080,13 @@ Status DBImpl::StartTrace(const TraceOptions& options,
 
 Status DBImpl::StartTrace(const TraceOptions& /* options */,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
+  InstrumentedMutexLock lock(&trace_mutex_);
   tracer_.reset(new Tracer(env_, std::move(trace_writer)));
   return Status::OK();
 }
 
 Status DBImpl::EndTrace(const TraceOptions& /* options */) {
+  InstrumentedMutexLock lock(&trace_mutex_);
   Status s = tracer_->Close();
   tracer_.reset();
   return s;
@@ -3111,7 +3116,7 @@ Status DBImpl::StartReplay(const ReplayOptions& /* options */,
                            std::unique_ptr<TraceReader>&& trace_reader,
                            std::vector<ColumnFamilyHandle*>& handles) {
   replayer_.reset(new Replayer(this, handles, std::move(trace_reader)));
-  return Status::OK();
+  return replayer_->Replay();
 }
 
 Status DBImpl::EndReplay(const ReplayOptions& /* options */) {

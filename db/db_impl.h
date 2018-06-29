@@ -679,6 +679,7 @@ class DBImpl : public DB {
       recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   std::unique_ptr<Replayer> replayer_;
+  InstrumentedMutex trace_mutex_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
