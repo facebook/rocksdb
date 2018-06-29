@@ -195,7 +195,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
   uint64_t log_number;
   WriteBatch batch;
   std::vector<Transaction*> prepared_trans;
-  WriteUnpreparedTxnDB* wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+  WriteUnpreparedTxnDB* wup_db;
   options.disable_auto_compactions = true;
 
   // Try unprepared batches.
@@ -224,7 +224,6 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
     wup_db->db_impl_->FlushWAL(true);
     wup_db->TEST_Crash();
     ReOpenNoDelete();
-    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
 
     db->GetAllPreparedTransactions(&prepared_trans);
     ASSERT_EQ(prepared_trans.size(), 0);
