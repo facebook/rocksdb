@@ -114,7 +114,6 @@ class FullFilterBlockReader : public FilterBlockReader {
   Slice contents_;
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   BlockContents block_contents_;
-  std::unique_ptr<const char[]> filter_data_;
 
   // No copying allowed
   FullFilterBlockReader(const FullFilterBlockReader&);

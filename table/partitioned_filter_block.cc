@@ -5,6 +5,13 @@
 
 #include "table/partitioned_filter_block.h"
 
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
+#include <malloc.h>
+#endif
+#endif
 #include <utility>
 
 #include "monitoring/perf_context_imp.h"
@@ -265,7 +272,14 @@ PartitionedFilterBlockReader::GetFilterPartition(
 }
 
 size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
-  return idx_on_fltr_blk_->size();
+  size_t usage = idx_on_fltr_blk_->usable_size();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  return usage;
+  // TODO(myabandeh): better estimation for filter_map_ size
 }
 
 // Release the cached entry and decrement its ref count.

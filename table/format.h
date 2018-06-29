@@ -10,6 +10,13 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
+#include <malloc.h>
+#endif
+#endif
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -198,6 +205,19 @@ struct BlockContents {
         cachable(_cachable),
         compression_type(_compression_type),
         allocation(std::move(_data)) {}
+
+  // The additional memory space taken by the block data.
+  size_t usable_size() const {
+    if (allocation.get() != nullptr) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      return malloc_usable_size(allocation.get());
+#else
+      return sizeof(*allocation.get());
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    } else {
+      return 0;  // no extra memory is occupied by the data
+    }
+  }
 
   BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT {
     *this = std::move(other);
