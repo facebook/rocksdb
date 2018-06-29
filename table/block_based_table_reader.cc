@@ -941,7 +941,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       prefetch_all || (table_options.pin_top_level_index_and_filter &&
                        rep->filter_type == Rep::FilterType::kPartitionedFilter);
   // Partition fitlers cannot be enabled without partition indexes
-  assert(!prefetch_index || prefetch_filter);
+  assert(!prefetch_filter || prefetch_index);
   // pin both index and filters, down to all partitions
   const bool pin_all =
       rep->table_options.pin_l0_filter_and_index_blocks_in_cache && level == 0;
