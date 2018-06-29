@@ -210,7 +210,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
       batch.Clear();
       ASSERT_OK(WriteBatchInternal::InsertNoop(&batch));
       ASSERT_OK(WriteBatchInternal::Put(
-          &batch, db->DefaultColumnFamily()->GetID(), "k" + i, "value"));
+          &batch, db->DefaultColumnFamily()->GetID(), "k" + ToString(i), "value"));
       ASSERT_OK(WriteBatchInternal::MarkEndPrepare(
           &batch, Slice("xid1"), /* write after commit */ false,
           /* unprepared batch */ true));
