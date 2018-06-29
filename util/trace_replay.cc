@@ -6,7 +6,6 @@
 #include "util/trace_replay.h"
 
 #include <chrono>
-#include <iostream>
 #include <sstream>
 #include <thread>
 #include "db/db_impl.h"
@@ -169,7 +168,6 @@ Replayer::Replayer(DBImpl* db, std::vector<ColumnFamilyHandle*>& handles,
   for (ColumnFamilyHandle* cfh : handles) {
     cf_map_[cfh->GetID()] = cfh;
   }
-  Replay();
 }
 
 Replayer::~Replayer() { trace_reader_.reset(); }
@@ -205,24 +203,28 @@ Status Replayer::Replay() {
       uint32_t cf_id = 0;
       Slice key;
       DecodeCFAndKey(trace.payload, &cf_id, &key);
-      if (cf_map_.find(cf_id) == cf_map_.end()) {
+      if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
 
       std::string value;
-      db_->Get(roptions, cf_map_[cf_id], key, &value);
+      if (cf_id == 0) {
+        db_->Get(roptions, key, &value);
+      } else {
+        db_->Get(roptions, cf_map_[cf_id], key, &value);
+      }
       ops++;
+    } else if (trace.type == kTraceEnd) {
+      // Do nothing for now.
+      // TODO: Add some validations later.
+      break;
     }
   }
 
-  Trace footer;
-  s = ReadFooter(footer);
-  if (!s.ok()) {
-    return s;
-  }
-
   if (s.IsIncomplete()) {
-    // Fix it: Reaching eof returns Incomplete status at the moment.
+    // Reaching eof returns Incomplete status at the moment.
+    // Could happen when killing a process with calling EndTrace() API.
+    // TODO: Add better error handling.
     return Status::OK();
   }
   return s;

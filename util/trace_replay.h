@@ -66,9 +66,9 @@ class Replayer {
            std::unique_ptr<TraceReader>&& reader);
   ~Replayer();
 
- private:
   Status Replay();
 
+ private:
   Status ReadHeader(Trace& header);
   Status ReadFooter(Trace& footer);
   Status ReadTrace(Trace& trace);
