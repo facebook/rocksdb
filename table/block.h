@@ -104,6 +104,13 @@ class BlockReadAmpBitmap {
 
   uint32_t GetBytesPerBit() { return 1 << bytes_per_bit_pow_; }
 
+  size_t ApproximateMemoryUsage() const {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    return malloc_usable_size((void*)this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    return sizeof(*this);
+  }
+
  private:
   // Get the current value of bit at `bit_idx` and set it to 1
   inline bool GetAndSet(uint32_t bit_idx) {
@@ -142,14 +149,8 @@ class Block {
   size_t size() const { return size_; }
   const char* data() const { return data_; }
   bool cachable() const { return contents_.cachable; }
-  size_t usable_size() const {
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    if (contents_.allocation.get() != nullptr) {
-      return malloc_usable_size(contents_.allocation.get());
-    }
-#endif  // ROCKSDB_MALLOC_USABLE_SIZE
-    return size_;
-  }
+  // The additional memory space taken by the block data.
+  size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const;
   CompressionType compression_type() const {
     return contents_.compression_type;
