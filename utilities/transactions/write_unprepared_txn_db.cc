@@ -15,8 +15,12 @@
 
 namespace rocksdb {
 
+// Instead of reconstructing a Transaction object, and calling rollback on it,
+// we can be more efficient with RollbackRecoveredTransaction by skipping
+// unnecessary steps (eg. updating CommitMap, reconstructing keyset)
 Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
     const DBImpl::RecoveredTransaction* rtxn) {
+  // TODO(lth): Reduce duplicate code with WritePrepared rollback logic.
   assert(rtxn->unprepared_);
   auto cf_map_shared_ptr = WritePreparedTxnDB::GetCFHandleMap();
   auto cf_comp_map_shared_ptr = WritePreparedTxnDB::GetCFComparatorMap();
@@ -149,38 +153,10 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       return s;
     }
 
-    // If two_write_queues, then a second write must be done to release
-    // sequence number to readers.
+    // If two_write_queues, we must manually release the sequence number to
+    // readers.
     if (db_impl_->immutable_db_options().two_write_queues) {
-      class PublishSeqPreReleaseCallback : public PreReleaseCallback {
-       public:
-        explicit PublishSeqPreReleaseCallback(DBImpl* db_impl)
-            : db_impl_(db_impl) {}
-        virtual Status Callback(SequenceNumber seq,
-                                bool is_mem_disabled) override {
-#ifdef NDEBUG
-          (void)is_mem_disabled;
-#endif
-          assert(is_mem_disabled);
-          assert(db_impl_->immutable_db_options().two_write_queues);
-          db_impl_->SetLastPublishedSequence(seq);
-          return Status::OK();
-        }
-
-       private:
-        DBImpl* db_impl_;
-      } publish_seq_callback(db_impl_);
-
-      WriteBatch empty_batch;
-      empty_batch.PutLogData(Slice());
-      // In the absence of Prepare markers, use Noop as a batch separator
-      WriteBatchInternal::InsertNoop(&empty_batch);
-      s = db_impl_->WriteImpl(w_options, &empty_batch, nullptr, nullptr,
-                              kNoLogRef, kDisableMemtable, &seq_used, kOneBatch,
-                              &publish_seq_callback);
-      if (!s.ok()) {
-        return s;
-      }
+      db_impl_->SetLastPublishedSequence(seq_used);
     }
   }
 
@@ -193,9 +169,6 @@ Status WriteUnpreparedTxnDB::Initialize(
   // TODO(lth): Reduce code duplication in this function.
   auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
   assert(dbimpl != nullptr);
-  SequenceNumber prev_max = max_evicted_seq_;
-  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
-  AdvanceMaxEvictedSeq(prev_max, last_seq);
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
   // A callback to commit a single sub-batch
@@ -257,14 +230,10 @@ Status WriteUnpreparedTxnDB::Initialize(
     assert(recovered_trx->batches_.size() >= 1);
     assert(recovered_trx->name_.length());
 
+    // We can only rollback transactions after AdvanceMaxEvictedSeq is called,
+    // but AddPrepared must occur before AdvanceMaxEvictedSeq, which is why
+    // two iterations is required.
     if (recovered_trx->unprepared_) {
-      // The keyset of all recovered transactions should be disjoint because
-      // of locking, so we can rollback transactions at any time, without the
-      // risk of reading prepared keys as the "previous" version.
-      s = RollbackRecoveredTransaction(recovered_trx);
-      if (!s.ok()) {
-        return s;
-      }
       continue;
     }
 
@@ -272,20 +241,24 @@ Status WriteUnpreparedTxnDB::Initialize(
     w_options.sync = true;
     TransactionOptions t_options;
 
-    uint64_t first_log_number =
+    auto first_log_number =
         recovered_trx->batches_.begin()->second.log_number_;
+    auto last_seq = 
+        recovered_trx->batches_.rbegin()->first;
+    auto last_prepare_batch_cnt = recovered_trx->batches_.begin()->second.batch_cnt_; 
+
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
-    real_trx->SetLogNumber(first_log_number);
-    real_trx->SetId(0);
+    auto wupt =
+        static_cast_with_check<WriteUnpreparedTxn, Transaction>(real_trx);
 
+    real_trx->SetLogNumber(first_log_number);
+    real_trx->SetId(last_seq);
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
       break;
     }
-
-    auto wupt =
-        static_cast_with_check<WriteUnpreparedTxn, Transaction>(real_trx);
+    wupt->prepare_batch_cnt_ = last_prepare_batch_cnt;
 
     for (auto batch : recovered_trx->batches_) {
       const auto& seq = batch.first;
@@ -300,15 +273,35 @@ Status WriteUnpreparedTxnDB::Initialize(
       wupt->unprep_seqs_[seq] = cnt;
     }
 
+    wupt->write_batch_.Clear();
+    WriteBatchInternal::InsertNoop(wupt->write_batch_.GetWriteBatch());
+
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
       break;
     }
   }
 
+  SequenceNumber prev_max = max_evicted_seq_;
+  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
+  AdvanceMaxEvictedSeq(prev_max, last_seq);
+
+  // Rollback unprepared transactions.
+  for (auto rtxn : rtxns) {
+    auto recovered_trx = rtxn.second;
+    if (recovered_trx->unprepared_) {
+      s = RollbackRecoveredTransaction(recovered_trx);
+      if (!s.ok()) {
+        return s;
+      }
+      continue;
+    }
+  }
+
   if (s.ok()) {
     dbimpl->DeleteAllRecoveredTransactions();
   }
+
   return s;
 }
 

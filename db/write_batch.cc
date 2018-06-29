@@ -536,8 +536,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeBeginUnprepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
-               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE |
-                ContentFlags::HAS_BEGIN_UNPREPARE));
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_UNPREPARE));
         handler->MarkBeginPrepare(true /* unprepared */);
         empty_batch = false;
         if (handler->WriteAfterCommit()) {
@@ -1610,6 +1609,7 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
+      assert(!unprepared_batch_);
       unprepared_batch_ = unprepare;
 
       if (has_valid_writes_ != nullptr) {

@@ -570,12 +570,10 @@ class DBImpl : public DB {
       // unprepared transactions. This is only useful for rollbacks, and we
       // can in theory just keep keyset for that.
       WriteBatch* batch_;
-      // Number of sub-batched. A new sub-batch is created if we txn attempts to
-      // inserts a duplicate key,seq to memtable. This is currently used in
-      // WritePrparedTxn
+      // Number of sub-batches. A new sub-batch is created if txn attempts to
+      // insert a duplicate key,seq to memtable. This is currently used in
+      // WritePreparedTxn/WriteUnpreparedTxn.
       size_t batch_cnt_;
-
-      ~BatchInfo() { delete batch_; }
     };
 
     // This maps the seq of the first key in the batch to BatchInfo, which
@@ -590,6 +588,22 @@ class DBImpl : public DB {
                                   size_t batch_cnt, bool unprepared)
         : name_(name), unprepared_(unprepared) {
       batches_[seq] = {log, batch, batch_cnt};
+    }
+
+    ~RecoveredTransaction() {
+      for (auto& it : batches_) {
+        delete it.second.batch_;
+      }
+    }
+
+    void AddBatch(SequenceNumber seq, uint64_t log_number, WriteBatch* batch, size_t batch_cnt, bool unprepared)
+    {
+      assert(batches_.count(seq) == 0);
+      batches_[seq] = {log_number, batch, batch_cnt};
+      // Prior state must be unprepared, since the prepare batch must be the
+      // last batch.
+      assert(unprepared_);
+      unprepared_ = unprepared;
     }
   };
 
@@ -612,12 +626,12 @@ class DBImpl : public DB {
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
                                   size_t batch_cnt, bool unprepared) {
-    if (recovered_transactions_.find(name) == recovered_transactions_.end()) {
+    auto rtxn = recovered_transactions_.find(name);
+    if (rtxn == recovered_transactions_.end()) {
       recovered_transactions_[name] = new RecoveredTransaction(
           log, name, batch, seq, batch_cnt, unprepared);
     } else {
-      recovered_transactions_[name]->batches_[seq] = {log, batch, batch_cnt};
-      recovered_transactions_[name]->unprepared_ = unprepared;
+      rtxn->second->AddBatch(seq, log, batch, batch_cnt, unprepared);
     }
     logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }

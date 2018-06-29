@@ -198,7 +198,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
   WriteUnpreparedTxnDB* wup_db;
   options.disable_auto_compactions = true;
 
-  // Try unprepared batches.
+  // Try unprepared batches with empty database.
   for (int num_batches = 0; num_batches < 10; num_batches++) {
     // Reset database.
     prepared_trans.clear();
@@ -231,6 +231,48 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
     // Check that DB is empty.
     Iterator* iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    delete iter;
+  }
+
+  // Try unprepared batches with empty database.
+  for (int num_batches = 0; num_batches < 10; num_batches++) {
+    // Reset database.
+    prepared_trans.clear();
+    ReOpen();
+    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+    ASSERT_OK(db->Put(WriteOptions(), "k0", "before value"));
+
+    // Write num_batches unprepared batches into the WAL.
+    for (int i = 0; i < num_batches; i++) {
+      batch.Clear();
+      ASSERT_OK(WriteBatchInternal::InsertNoop(&batch));
+      ASSERT_OK(WriteBatchInternal::Put(
+          &batch, db->DefaultColumnFamily()->GetID(), "k" + ToString(i), "value"));
+      ASSERT_OK(WriteBatchInternal::MarkEndPrepare(
+          &batch, Slice("xid1"), /* write after commit */ false,
+          /* unprepared batch */ true));
+      ASSERT_OK(wup_db->db_impl_->WriteImpl(
+          write_options, &batch, /*callback*/ nullptr, &log_number,
+          /*log ref*/ 0, /* disable memtable */ true, &seq_used,
+          /* prepare_batch_cnt_ */ 1));
+    }
+
+    // Crash and run recovery code paths.
+    wup_db->db_impl_->FlushWAL(true);
+    wup_db->TEST_Crash();
+    ReOpenNoDelete();
+
+    db->GetAllPreparedTransactions(&prepared_trans);
+    ASSERT_EQ(prepared_trans.size(), 0);
+
+    // Check that DB has k0.
+    Iterator* iter = db->NewIterator(ReadOptions());
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "k0");
+    ASSERT_EQ(iter->value().ToString(), "before value");
+    iter->Next();
     ASSERT_FALSE(iter->Valid());
     delete iter;
   }
