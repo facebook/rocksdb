@@ -79,7 +79,8 @@ Status ReadBlockFromFile(
     std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, const Slice& compression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit, const bool immortal_file = false) {
+    size_t read_amp_bytes_per_bit, const bool immortal_file = false,
+    bool block_uses_suffix_index = false) {
   BlockContents contents;
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
                              &contents, ioptions, do_uncompress,
@@ -87,7 +88,8 @@ Status ReadBlockFromFile(
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
-                            read_amp_bytes_per_bit, ioptions.statistics));
+                            read_amp_bytes_per_bit, ioptions.statistics,
+                            block_uses_suffix_index));
   }
 
   return s;
@@ -1094,7 +1096,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
     const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
     BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
     const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
-    GetContext* get_context) {
+    GetContext* get_context, bool block_uses_suffix_index) {
   Status s;
   Block* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
@@ -1149,7 +1151,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (s.ok()) {
     block->value =
         new Block(std::move(contents), compressed_block->global_seqno(),
-                  read_amp_bytes_per_bit, statistics);  // uncompressed block
+                  read_amp_bytes_per_bit,
+                  statistics, block_uses_suffix_index);  // uncompressed block
     assert(block->value->compression_type() == kNoCompression);
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {
@@ -1208,7 +1211,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     const ReadOptions& /*read_options*/, const ImmutableCFOptions& ioptions,
     CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
     const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
-    Cache::Priority priority, GetContext* get_context) {
+    Cache::Priority priority, GetContext* get_context,
+    bool block_uses_suffix_index) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -1230,8 +1234,8 @@ Status BlockBasedTable::PutDataBlockToCache(
 
   if (raw_block->compression_type() != kNoCompression) {
     block->value = new Block(std::move(contents), raw_block->global_seqno(),
-                             read_amp_bytes_per_bit,
-                             statistics);  // uncompressed block
+                             read_amp_bytes_per_bit, statistics,
+                             block_uses_suffix_index);  // uncompressed block
   } else {
     block->value = raw_block;
     raw_block = nullptr;

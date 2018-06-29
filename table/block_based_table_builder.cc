@@ -655,7 +655,10 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
     BlockContents results(std::move(ubuf), size, true, type);
 
-    Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+    Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber,
+                             0 /* read_amp_bytes_per_bit */,
+                             nullptr /* statistics */,
+                             r->block_uses_suffix_index);
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(
