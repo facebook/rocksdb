@@ -100,7 +100,13 @@ class DBBenchRunner(BenchmarkRunner):
         self._run_command(command)
 
         # Create the LOGS object
-        logs_file_prefix = log_dir_path + '/LOG'
+        token_list = log_dir_path.split('/')
+        file_name = "/"
+        for token in token_list:
+            if token:
+                file_name = file_name + token + '_'
+        file_name = file_name + 'LOG'
+        logs_file_prefix = log_dir_path + file_name
         db_logs = DatabaseLogs(
             logs_file_prefix, db_options.get_column_families()
         )
