@@ -506,7 +506,7 @@ TEST_F(BlockTest, ReadAmpBitmapPow2) {
 
 // Suffix Index Test
 TEST_F(BlockTest, SuffixIndexTest) {
-  Random rnd(301);
+  Random rnd(1019);
   Options options = Options();
   std::unique_ptr<InternalKeyComparator> ic;
   ic.reset(new test::PlainInternalKeyComparator(options.comparator));
@@ -514,7 +514,7 @@ TEST_F(BlockTest, SuffixIndexTest) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
 
-  bool use_suffix_index = false;
+  bool use_suffix_index = true;
 
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
