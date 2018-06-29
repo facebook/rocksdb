@@ -65,8 +65,11 @@ public class WriteBatch extends AbstractWriteBatch {
    * Retrieve the serialized version of this batch.
    *
    * @return the serialized representation of this write batch.
+   *
+   * @throws RocksDBException if an error occurs whilst retrieving
+   *   the serialized batch data.
    */
-  public byte[] data() {
+  public byte[] data() throws RocksDBException {
     return data(nativeHandle_);
   }
 
@@ -253,7 +256,7 @@ public class WriteBatch extends AbstractWriteBatch {
       final int serializedLength);
   private native void iterate(final long handle, final long handlerHandle)
       throws RocksDBException;
-  private native byte[] data(final long nativeHandle);
+  private native byte[] data(final long nativeHandle) throws RocksDBException;
   private native long getDataSize(final long nativeHandle);
   private native boolean hasPut(final long nativeHandle);
   private native boolean hasDelete(final long nativeHandle);
