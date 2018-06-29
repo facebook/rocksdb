@@ -45,6 +45,8 @@ class TimeSeriesData(DataSource):
         window_samples = math.ceil(window_sec / self.stats_freq_sec)
         burst_epochs = {}
         for entity in self.keys_ts:
+            if statistic not in self.keys_ts[entity]:
+                continue
             timestamps = sorted(list(self.keys_ts[entity][statistic].keys()))
             for ix in range(window_samples, len(timestamps), 1):
                 first_ts = timestamps[ix - window_samples]
@@ -66,15 +68,16 @@ class TimeSeriesData(DataSource):
         # returned object is Dict[entity, Dict[key, aggregated_value]]
         result = {}
         for et in self.keys_ts:
-            result[et] = {}
             for stat in statistics:
+                if stat not in self.keys_ts[et]:
+                    continue
                 agg_val = None
                 if aggregation_op is self.AggregationOperator.latest:
                     latest_timestamp = max(list(self.keys_ts[et][stat].keys()))
-                    agg_val = self.keys_ts[stat][latest_timestamp]
+                    agg_val = self.keys_ts[et][stat][latest_timestamp]
                 elif aggregation_op is self.AggregationOperator.oldest:
                     oldest_timestamp = min(list(self.keys_ts[et][stat].keys()))
-                    agg_val = self.keys_ts[stat][oldest_timestamp]
+                    agg_val = self.keys_ts[et][stat][oldest_timestamp]
                 elif aggregation_op is self.AggregationOperator.max:
                     agg_val = max(list(self.keys_ts[et][stat].values()))
                 elif aggregation_op is self.AggregationOperator.min:
@@ -82,6 +85,8 @@ class TimeSeriesData(DataSource):
                 elif aggregation_op is self.AggregationOperator.avg:
                     values = list(self.keys_ts[et][stat].values())
                     agg_val = sum(values) / len(values)
+                if et not in result:
+                    result[et] = {}
                 result[et][stat] = agg_val
         return result
 
@@ -106,7 +111,13 @@ class TimeSeriesData(DataSource):
                 )
                 entity_evaluation_dict = {}
                 for entity in result:
-                    keys = [result[entity][key] for key in complete_keys]
+                    keys = [
+                        result[entity][key]
+                        for key in complete_keys
+                        if key in result[entity]
+                    ]  # keys should be in the same order as complete_keys
+                    if len(keys) != len(complete_keys):
+                        continue
                     try:
                         if eval(cond.expression):
                             entity_evaluation_dict[entity] = keys
