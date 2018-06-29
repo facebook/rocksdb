@@ -1167,6 +1167,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   // Check for iterator errors
   Status s = input_status;
   auto meta = &sub_compact->current_output()->meta;
+  assert(meta != nullptr);
   if (s.ok()) {
     Slice lower_bound_guard, upper_bound_guard;
     std::string smallest_user_key;
