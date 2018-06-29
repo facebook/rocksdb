@@ -208,6 +208,10 @@ class Rule(Section):
                 is_first = False
             else:
                 rule_string += (", " + sugg)
+        if self.trigger_entities:
+            rule_string += (', entities:: ' + str(self.trigger_entities))
+        if self.trigger_column_families:
+            rule_string += (', col_fam:: ' + str(self.trigger_column_families))
         # Return constructed string
         return rule_string
 
@@ -302,7 +306,7 @@ class Condition(Section):
 
     def set_parameter(self, key, value):
         # must be defined by the subclass
-        raise ValueError(self.name + ': provide source for condition')
+        raise NotImplementedError(self.name + ': provide source for condition')
 
 
 class LogCondition(Condition):
@@ -338,7 +342,10 @@ class OptionCondition(Condition):
 
     def set_parameter(self, key, value):
         if key == 'options':
-            self.options = value
+            if isinstance(value, str):
+                self.options = [value]
+            else:
+                self.options = value
         elif key == 'evaluate':
             self.eval_expr = value
 

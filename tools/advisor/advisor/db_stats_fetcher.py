@@ -1,5 +1,11 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from advisor.db_log_parser import Log
 from advisor.db_timeseries_parser import TimeSeriesData, NO_ENTITY
+from advisor.rule_parser import Condition, TimeSeriesCondition
 import glob
 import re
 import subprocess
@@ -36,9 +42,10 @@ class LogStatsParser(TimeSeriesData):
         reqd_stats = []
         for cond in conditions:
             reqd_stats.extend(cond.keys)
+        reqd_stats = list(set(reqd_stats))  # deduplicate required stats
         return reqd_stats
 
-    def add_to_timeseries(self, log):
+    def add_to_timeseries(self, log, reqd_stats):
         # type: (Log, List[str]) -> Dict[int, float]
         new_lines = log.get_message().split('\n')
         log_ts = log.get_timestamp()
@@ -46,13 +53,14 @@ class LogStatsParser(TimeSeriesData):
         for line in new_lines[1:]:
             stats_on_line = self.parse_log_line_for_stats(line)
             for stat in stats_on_line:
-                if stat in self.keys_ts:
-                    self.keys_ts[stat][log_ts] = stats_on_line[stat]
+                if stat in reqd_stats:
+                    if stat not in self.keys_ts[NO_ENTITY]:
+                        self.keys_ts[NO_ENTITY][stat] = {}
+                    self.keys_ts[NO_ENTITY][stat][log_ts] = stats_on_line[stat]
 
     def fetch_timeseries(self, statistics):
         self.keys_ts = {NO_ENTITY: {}}
-        self.keys_ts[NO_ENTITY] = {stat: {} for stat in statistics}
-        for file_name in glob.glob(self.logs_path_prefix + '*'):
+        for file_name in glob.glob(self.logs_file_prefix + '*'):
             with open(file_name, 'r') as db_logs:
                 new_log = None
                 for line in db_logs:
@@ -61,14 +69,14 @@ class LogStatsParser(TimeSeriesData):
                             new_log and
                             re.search(self.STATS, new_log.get_message())
                         ):
-                            self.add_to_timeseries(new_log)
-                        new_log = Log(line, self.column_families)
+                            self.add_to_timeseries(new_log, statistics)
+                        new_log = Log(line, column_families=[])
                     else:
                         # To account for logs split into multiple lines
                         new_log.append_message(line)
             # Check for the last log in the file.
             if new_log and re.search(self.STATS, new_log.get_message()):
-                self.add_to_timeseries(new_log)
+                self.add_to_timeseries(new_log, statistics)
 
 
 class OdsStatsFetcher(TimeSeriesData):
@@ -152,12 +160,10 @@ class OdsStatsFetcher(TimeSeriesData):
         reqd_stats = []
         for cond in conditions:
             reqd_stats.extend(self.attach_prefix_to_keys(cond.keys))
+        reqd_stats = list(set(reqd_stats))  # deduplicate required stats
         return reqd_stats
 
     def fetch_rate_url(self, entities, keys, window_len, display, percent):
-        print(entities)
-        print(keys)
-        print(window_len)
         # type: (List[str], List[str], str, str, bool) -> str
         transform_desc = (
             "rate(" + str(window_len) + ",duration=" + str(self.duration_sec)
@@ -183,3 +189,66 @@ class OdsStatsFetcher(TimeSeriesData):
         with open(self.OUTPUT_FILE, 'r') as fp:
             url = fp.readline()
         return url
+
+
+# TODO: remove these blocks once the unittests for LogStatsParser are in place
+def main():
+    # populating the statistics
+    log_stats = LogStatsParser('/dev/shm/dbbench/LOG', 60)
+    print(log_stats.type)
+    print(log_stats.keys_ts)
+    print(log_stats.logs_file_prefix)
+    print(log_stats.stats_freq_sec)
+    print(log_stats.duration_sec)
+    statistics = [
+        'rocksdb.number.rate_limiter.drains.COUNT',
+        'rocksdb.number.block.decompressed.COUNT',
+        'rocksdb.db.write.micros.P50',
+        'rocksdb.manifest.file.sync.micros.P99'
+    ]
+    log_stats.fetch_timeseries(statistics)
+    print()
+    print(log_stats.keys_ts)
+    # aggregated statistics
+    print()
+    print(log_stats.fetch_aggregated_values(
+        statistics, TimeSeriesData.AggregationOperator.latest
+    ))
+    print(log_stats.fetch_aggregated_values(
+        statistics, TimeSeriesData.AggregationOperator.oldest
+    ))
+    print(log_stats.fetch_aggregated_values(
+        statistics, TimeSeriesData.AggregationOperator.max
+    ))
+    print(log_stats.fetch_aggregated_values(
+        statistics, TimeSeriesData.AggregationOperator.min
+    ))
+    print(log_stats.fetch_aggregated_values(
+        statistics, TimeSeriesData.AggregationOperator.avg
+    ))
+    # condition 'evaluate_expression' that evaluates to true
+    cond1 = Condition('cond-1')
+    cond1 = TimeSeriesCondition.create(cond1)
+    cond1.set_parameter('keys', statistics)
+    cond1.set_parameter('behavior', 'evaluate_expression')
+    cond1.set_parameter('evaluate', 'keys[2]-keys[3]>=0')
+    cond1.set_parameter('aggregation_op', 'avg')
+    # condition 'evaluate_expression' that evaluates to false
+    cond2 = Condition('cond-2')
+    cond2 = TimeSeriesCondition.create(cond2)
+    cond2.set_parameter('keys', statistics)
+    cond2.set_parameter('behavior', 'evaluate_expression')
+    cond2.set_parameter('evaluate', '((keys[1]-(2*keys[0]))/100)<3000')
+    cond2.set_parameter('aggregation_op', 'latest')
+    # check remaining methods
+    conditions = [cond1, cond2]
+    print()
+    print(log_stats.get_keys_from_conditions(conditions))
+    log_stats.check_and_trigger_conditions(conditions)
+    print()
+    print(cond1.get_trigger())
+    print(cond2.get_trigger())
+
+
+if __name__ == '__main__':
+    main()
