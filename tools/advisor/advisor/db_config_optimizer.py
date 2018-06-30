@@ -70,11 +70,10 @@ class ConfigOptimizer:
             better_config[option][col_fam] = new_value
         return better_config
 
-    def __init__(self, bench_runner, db_options, rule_parser, benchmarks):
+    def __init__(self, bench_runner, db_options, rule_parser):
         self.bench_runner = bench_runner
         self.db_options = db_options
         self.rule_parser = rule_parser
-        self.benchmarks = benchmarks
 
     def disambiguate_guidelines(self, guidelines):
         final_guidelines = copy.deepcopy(guidelines)
@@ -138,26 +137,31 @@ class ConfigOptimizer:
     # TODO: try other stopping conditions for the loop in this method
     def run(self, num_iterations):
         new_options = copy.deepcopy(self.db_options)
-        suggestions_dict = self.rule_parser.get_suggestions_dict()
         for _ in range(num_iterations):
             # run the benchmarking tool for the given database configuration
-            data_sources = self.bench_runner.run_experiment(
-                self.benchmarks, new_options
-            )
-            # check the obtained data sources for triggered rules
+            print('\nbenchrunner experiment: ')
+            data_sources = self.bench_runner.run_experiment(new_options)
+            # load and run the rule parser with the obtained data sources
+            self.rule_parser.load_rules_from_spec()
+            self.rule_parser.perform_section_checks()
             triggered_rules = self.rule_parser.get_triggered_rules(
                 data_sources, new_options.get_column_families()
             )
             if not triggered_rules:
                 print('No rules triggered, exiting optimizer!')
                 break
+            print('Triggered:')
+            self.rule_parser.print_rules(triggered_rules)
             # convert triggered rules to optimizer understandable advisor
             # guidelines
-            guidelines = self.get_guidelines(triggered_rules, suggestions_dict)
+            guidelines = self.get_guidelines(
+                triggered_rules, self.rule_parser.get_suggestions_dict()
+            )
             # use the guidelines to improve the database configuration
             working_config = new_options.get_options(list(guidelines.keys()))
             updated_config = ConfigOptimizer.improve_db_config(
                 working_config, guidelines
             )
+            print('db config changes:\n' + repr(updated_config))
             new_options.update_options(updated_config)
         return new_options

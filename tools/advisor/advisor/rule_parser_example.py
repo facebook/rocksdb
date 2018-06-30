@@ -6,10 +6,9 @@
 import argparse
 from advisor.db_log_parser import DatabaseLogs
 from advisor.db_options_parser import DatabaseOptions
-from advisor.db_stats_fetcher import OdsTimeSeriesData
+from advisor.db_stats_fetcher import OdsStatsFetcher
 import pickle
 from advisor.rule_parser import RulesSpec
-import time
 
 
 def main(args):
@@ -31,18 +30,10 @@ def main(args):
         )
     )
     if args.ods_client:
-        ods_start_time = args.ods_start_time
-        ods_end_time = args.ods_end_time
-        if not ods_end_time:
-            ods_end_time = int(time.time())
-        if not ods_start_time:
-            ods_start_time = ods_end_time - (3 * 60 * 60)
         data_sources.append(
-            OdsTimeSeriesData(
+            OdsStatsFetcher(
                 args.ods_client,
                 args.ods_entities,
-                ods_start_time,
-                ods_end_time,
                 args.ods_key_prefix)
         )
 
@@ -57,26 +48,7 @@ def main(args):
         pickle.dump(suggestions_dict, fp, protocol=pickle.HIGHEST_PROTOCOL)
         pickle.dump(triggered_rules, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
-    for rule in triggered_rules:
-        print('Rule: ' + rule.name + ' has been triggered because:')
-        # printing the triggering reason(s) of the rule
-        if rule.overlap_time_seconds:
-            entities = list(rule.get_trigger_entities().keys())
-            keys = [
-                conditions_dict[rule.conditions[0]].keys,
-                conditions_dict[rule.conditions[1]].keys
-            ]
-            print(data_sources[2].fetch_rate_url(entities, keys, 'chart'))
-        else:
-            for condition in rule.conditions:
-                print(conditions_dict[condition].get_trigger())
-        # printing the suggestions given by the rule
-        for suggestion in rule.suggestions:
-            print(repr(suggestions_dict[suggestion]))
-        print('rule triggered for:')
-        print(rule.get_trigger_entities())
-        print(rule.get_trigger_column_families())
-        print()
+    db_rules.print_rules(triggered_rules)
 
 
 if __name__ == "__main__":
@@ -98,7 +70,5 @@ if __name__ == "__main__":
     parser.add_argument('--ods_client', type=str)
     parser.add_argument('--ods_entities', type=str)
     parser.add_argument('--ods_key_prefix', type=str)
-    parser.add_argument('--ods_start_time', type=str)
-    parser.add_argument('--ods_end_time', type=str)
     args = parser.parse_args()
     main(args)
