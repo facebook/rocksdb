@@ -41,7 +41,11 @@ class LogStatsParser(TimeSeriesData):
     def get_keys_from_conditions(self, conditions):
         reqd_stats = []
         for cond in conditions:
-            reqd_stats.extend(cond.keys)
+            for key in cond.keys:
+                if key.startswith('[]'):
+                    reqd_stats.append(key[2:])
+                else:
+                    reqd_stats.append(key)
         reqd_stats = list(set(reqd_stats))  # deduplicate required stats
         return reqd_stats
 
@@ -106,6 +110,7 @@ class OdsStatsFetcher(TimeSeriesData):
         self.key_prefix = key_prefix
         self.stats_freq_sec = 60
         self.duration_sec = 60
+        # Fetch last 3 hours data by default
         self.end_time = int(time.time())
         self.start_time = self.end_time - (3 * 60 * 60)
 
@@ -117,17 +122,6 @@ class OdsStatsFetcher(TimeSeriesData):
         subprocess.call(command, shell=True, stdout=out_file, stderr=err_file)
         out_file.close()
         err_file.close()
-
-    def attach_prefix_to_keys(self, keys):
-        complete_keys = []
-        for key in keys:
-            if key.startswith('[]'):
-                if not self.key_prefix:
-                    raise ValueError('OdsStatsFetcher: need key prefix')
-                complete_keys.append(self.key_prefix + key[2:])
-            else:
-                complete_keys.append(key)
-        return complete_keys
 
     def fetch_timeseries(self, statistics):
         command = self.COMMAND % (
@@ -159,11 +153,25 @@ class OdsStatsFetcher(TimeSeriesData):
     def get_keys_from_conditions(self, conditions):
         reqd_stats = []
         for cond in conditions:
-            reqd_stats.extend(self.attach_prefix_to_keys(cond.keys))
+            for key in cond.keys:
+                use_prefix = False
+                if key.startswith('[]'):
+                    use_prefix = True
+                    key = key[2:]
+                # TODO: this is very hacky and needs to be improved
+                if key.startswith("rocksdb"):
+                    key += ".sum.60"
+                if use_prefix:
+                    if not self.key_prefix:
+                        print('Warning: OdsStatsFetcher might need key prefix')
+                        print('for the key: ' + key)
+                    else:
+                        key = self.key_prefix + "." + key
+                reqd_stats.append(key)
         reqd_stats = list(set(reqd_stats))  # deduplicate required stats
         return reqd_stats
 
-    def fetch_rate_url(self, entities, keys, window_len, display, percent):
+    def fetch_rate_url(self, entities, keys, window_len, percent, display):
         # type: (List[str], List[str], str, str, bool) -> str
         transform_desc = (
             "rate(" + str(window_len) + ",duration=" + str(self.duration_sec)
@@ -172,7 +180,6 @@ class OdsStatsFetcher(TimeSeriesData):
             transform_desc = transform_desc + ",%)"
         else:
             transform_desc = transform_desc + ")"
-        keys = self.attach_prefix_to_keys(keys)
 
         command = self.COMMAND + " --transform=%s --url=%s"
         command = command % (
