@@ -3513,6 +3513,76 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   ASSERT_NOK(rocksdb::DB::Open(options, kDBPath, &db));
 }
 
+TEST_P(BlockBasedTableTest, BlockSuffixIndex) {
+  const int kNumKeys = 10000;
+  const int kKeySize = 100;
+  const int kValSize = 500;
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.block_format_type =
+    BlockBasedTableOptions::kSuffixHashBlockType;
+
+  Options options;
+  options.comparator = BytewiseComparator();
+
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewNoopTransform());
+
+  TableConstructor c(options.comparator);
+
+  static Random rnd(1048);
+  for (int i = 0; i < kNumKeys; i++) {
+    // padding one "0" to mark existent keys.
+    InternalKey k(RandomString(&rnd, kKeySize - 1) + "1", 0, kTypeValue);
+    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+
+
+  auto reader = c.GetTableReader();
+  for (int i = 0; i < 2; ++i) {
+    ReadOptions ro;
+
+    for (auto& kv : kvmap) {
+      PinnableSlice value;
+      std::string user_key = ExtractUserKey(kv.first).ToString();
+      GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, user_key, &value, nullptr,
+                             nullptr, nullptr, nullptr);
+      ASSERT_OK(reader->Get(ro, kv.first, &get_context,
+                            moptions.prefix_extractor.get()));
+      ASSERT_EQ(get_context.State(), GetContext::kFound);
+      ASSERT_EQ(value, Slice(kv.second));
+      value.Reset();
+    }
+
+    for (auto& kv : kvmap) {
+      PinnableSlice value;
+      std::string user_key = ExtractUserKey(kv.first).ToString();
+      user_key.back() = '0'; // make it non-existent key
+      GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, user_key, &value, nullptr,
+                             nullptr, nullptr, nullptr);
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+
+      ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
+                            moptions.prefix_extractor.get()));
+      ASSERT_EQ(get_context.State(), GetContext::kNotFound);
+      value.Reset();
+    }
+  }
+}
+
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -79,8 +79,8 @@ Status ReadBlockFromFile(
     std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, const Slice& compression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit, const bool immortal_file = false,
-    bool block_uses_suffix_index = false) {
+    size_t read_amp_bytes_per_bit, bool block_uses_suffix_index,
+    const bool immortal_file = false) {
   BlockContents contents;
   BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
                              &contents, ioptions, do_uncompress,
@@ -219,7 +219,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
         file, prefetch_buffer, footer, ReadOptions(), index_handle,
         &index_block, ioptions, true /* decompress */,
         Slice() /*compression dict*/, cache_options,
-        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
+        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */,
+        false /* block_uses_suffix_index */);
 
     if (s.ok()) {
       *index_reader = new PartitionIndexReader(
@@ -391,7 +392,8 @@ class BinarySearchIndexReader : public IndexReader {
         file, prefetch_buffer, footer, ReadOptions(), index_handle,
         &index_block, ioptions, true /* decompress */,
         Slice() /*compression dict*/, cache_options,
-        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
+        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */,
+        false /* block_uses_suffix_index */);
 
     if (s.ok()) {
       *index_reader = new BinarySearchIndexReader(
@@ -453,7 +455,8 @@ class HashIndexReader : public IndexReader {
         file, prefetch_buffer, footer, ReadOptions(), index_handle,
         &index_block, ioptions, true /* decompress */,
         Slice() /*compression dict*/, cache_options,
-        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
+        kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */,
+        false /* block_uses_suffix_index */);
 
     if (!s.ok()) {
       return s;
@@ -744,6 +747,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
+  if (table_options.block_format_type ==
+      BlockBasedTableOptions::BlockFormatType::kSuffixHashBlockType) {
+    rep->block_uses_suffix_index = true;
+  }
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
@@ -1073,7 +1080,7 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
       rep->footer.metaindex_handle(), &meta, rep->ioptions,
       true /* decompress */, Slice() /*compression dict*/,
       rep->persistent_cache_options, kDisableGlobalSequenceNumber,
-      0 /* read_amp_bytes_per_bit */);
+      0 /* read_amp_bytes_per_bit */, false /* block_uses_suffix_index */);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
@@ -1095,8 +1102,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
     Cache* block_cache, Cache* block_cache_compressed,
     const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
     BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
-    const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
-    GetContext* get_context, bool block_uses_suffix_index) {
+    const Slice& compression_dict, size_t read_amp_bytes_per_bit,
+    bool block_uses_suffix_index, bool is_index,
+    GetContext* get_context) {
   Status s;
   Block* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
@@ -1210,9 +1218,9 @@ Status BlockBasedTable::PutDataBlockToCache(
     Cache* block_cache, Cache* block_cache_compressed,
     const ReadOptions& /*read_options*/, const ImmutableCFOptions& ioptions,
     CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-    const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
-    Cache::Priority priority, GetContext* get_context,
-    bool block_uses_suffix_index) {
+    const Slice& compression_dict, size_t read_amp_bytes_per_bit,
+    bool block_uses_suffix_index, bool is_index,
+    Cache::Priority priority, GetContext* get_context) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -1627,7 +1635,8 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
           &block_value, rep->ioptions, rep->blocks_maybe_compressed,
           compression_dict, rep->persistent_cache_options,
           is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
-          rep->table_options.read_amp_bytes_per_bit, rep->immortal_table);
+          rep->table_options.read_amp_bytes_per_bit,
+          rep->block_uses_suffix_index, rep->immortal_table);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1716,7 +1725,8 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
     s = GetDataBlockFromCache(
         key, ckey, block_cache, block_cache_compressed, rep->ioptions, ro,
         block_entry, rep->table_options.format_version, compression_dict,
-        rep->table_options.read_amp_bytes_per_bit, is_index, get_context);
+        rep->table_options.read_amp_bytes_per_bit, rep->block_uses_suffix_index,
+        is_index, get_context);
 
     if (block_entry->value == nullptr && !no_io && ro.fill_cache) {
       std::unique_ptr<Block> raw_block;
@@ -1728,7 +1738,8 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
             compression_dict, rep->persistent_cache_options,
             is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
-            rep->table_options.read_amp_bytes_per_bit, rep->immortal_table);
+            rep->table_options.read_amp_bytes_per_bit,
+            rep->block_uses_suffix_index, rep->immortal_table);
       }
 
       if (s.ok()) {
@@ -1736,6 +1747,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             key, ckey, block_cache, block_cache_compressed, ro, rep->ioptions,
             block_entry, raw_block.release(), rep->table_options.format_version,
             compression_dict, rep->table_options.read_amp_bytes_per_bit,
+            rep->block_uses_suffix_index,
             is_index,
             is_index && rep->table_options
                             .cache_index_and_filter_blocks_with_high_priority
@@ -2469,7 +2481,8 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
       rep_->table_options.format_version,
       rep_->compression_dict_block ? rep_->compression_dict_block->data
                                    : Slice(),
-      0 /* read_amp_bytes_per_bit */);
+      0 /* read_amp_bytes_per_bit */,
+      rep_->block_uses_suffix_index);
   assert(s.ok());
   bool in_cache = block.value != nullptr;
   if (in_cache) {

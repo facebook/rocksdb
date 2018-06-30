@@ -297,8 +297,8 @@ class BlockBasedTable : public TableReader {
       const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, GetContext* get_context = nullptr,
-      bool block_uses_suffix_index = false);
+      bool block_uses_suffix_index, bool is_index = false,
+      GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -316,8 +316,9 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
-      GetContext* get_context = nullptr, bool block_uses_suffix_index = false);
+      bool block_uses_suffix_index, bool is_index = false,
+      Cache::Priority pri = Cache::Priority::LOW,
+      GetContext* get_context = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -431,9 +432,7 @@ struct BlockBasedTable::Rep {
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
         index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
-        block_uses_suffix_index(_table_opt.block_format_type ==
-                 BlockBasedTableOptions::BlockFormatType::
-                 kSuffixHashBlockType),
+        block_uses_suffix_index(false),
         hash_index_allow_collision(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
@@ -483,7 +482,7 @@ struct BlockBasedTable::Rep {
   std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
   // if true, data_block uses suffix hash index format
-  const bool block_uses_suffix_index;
+  bool block_uses_suffix_index;
 
   bool hash_index_allow_collision;
   bool whole_key_filtering;
