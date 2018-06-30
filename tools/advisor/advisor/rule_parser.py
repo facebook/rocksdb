@@ -256,18 +256,12 @@ class Suggestion(Section):
                 )
 
     def __repr__(self):
+        sugg_string = "Suggestion: " + self.name
         if self.description:
-            return self.name + ' description : ' + self.description
-        sugg_string = ""
-        if self.action is self.Action.set:
-            sugg_string = (
-                self.name + ' option : ' + self.option +
-                ' action : set suggested_value : ' + self.suggested_value
-            )
+            sugg_string += (' description : ' + self.description)
         else:
-            sugg_string = (
-                self.name + ' option : ' + self.option +
-                ' action : ' + self.action.name
+            sugg_string += (
+                ' option : ' + self.option + ' action : ' + self.action.name
             )
             if self.suggested_value:
                 sugg_string += (' suggested_value : ' + self.suggested_value)
@@ -326,10 +320,10 @@ class LogCondition(Condition):
             raise ValueError(self.name + ': provide regex for log condition')
 
     def __repr__(self):
-        log_cond_str = (
-            self.name + ' checks if the regex ' + self.regex + ' is found in' +
-            ' the LOG file'
-        )
+        log_cond_str = "LogCondition: " + self.name
+        log_cond_str += (" regex: " + self.regex)
+        if self.trigger:
+            log_cond_str += (" trigger: " + str(self.trigger))
         return log_cond_str
 
 
@@ -357,10 +351,12 @@ class OptionCondition(Condition):
             raise ValueError(self.name + ': expression missing in condition')
 
     def __repr__(self):
-        log_cond_str = (
-            self.name + ' checks if the given expression evaluates to true'
-        )
-        return log_cond_str
+        opt_cond_str = "OptionCondition: " + self.name
+        opt_cond_str += (" options: " + str(self.options))
+        opt_cond_str += (" expression: " + self.evaluate)
+        if self.trigger:
+            opt_cond_str += (" trigger: " + str(self.trigger))
+        return opt_cond_str
 
 
 class TimeSeriesCondition(Condition):
@@ -409,10 +405,26 @@ class TimeSeriesCondition(Condition):
         else:
             raise ValueError(self.name + ': trigger behavior not supported')
 
+    def __repr__(self):
+        ts_cond_str = "TimeSeriesCondition: " + self.name
+        ts_cond_str += (" statistics: " + str(self.keys))
+        ts_cond_str += (" behavior: " + self.behavior.name)
+        if self.behavior is TimeSeriesData.Behavior.bursty:
+            ts_cond_str += (" rate_threshold: " + str(self.rate_threshold))
+            ts_cond_str += (" window_sec: " + str(self.window_sec))
+        if self.behavior is TimeSeriesData.Behavior.evaluate_expression:
+            ts_cond_str += (" expression: " + self.expression)
+            ts_cond_str += (" aggregation_op: " + self.aggregation_op.name)
+        if self.trigger:
+            ts_cond_str += (" trigger: " + str(self.trigger))
+        return ts_cond_str
+
 
 class RulesSpec:
     def __init__(self, rules_path):
         self.file_path = rules_path
+
+    def initialise_fields(self):
         self.rules_dict = {}
         self.conditions_dict = {}
         self.suggestions_dict = {}
@@ -426,6 +438,7 @@ class RulesSpec:
             sugg.perform_checks()
 
     def load_rules_from_spec(self):
+        self.initialise_fields()
         with open(self.file_path, 'r') as db_rules:
             curr_section = None
             for line in db_rules:
@@ -491,3 +504,17 @@ class RulesSpec:
             if not cond_subset:
                 continue
             source.check_and_trigger_conditions(cond_subset)
+
+    def print_rules(self, rules):
+        for rule in rules:
+            print('Rule: ' + rule.name)
+            for cond_name in rule.conditions:
+                print(repr(self.conditions_dict[cond_name]))
+            for sugg_name in rule.suggestions:
+                print(repr(self.suggestions_dict[sugg_name]))
+            if rule.trigger_entities:
+                print('scope: entities:')
+                print(rule.trigger_entities)
+            if rule.trigger_column_families:
+                print('scope: col_fam:')
+                print(rule.trigger_column_families)
