@@ -39,6 +39,13 @@
 #if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
 #include <zdict.h>
 #endif  // ZSTD_VERSION_NUMBER >= 800
+
+#ifdef __clang__
+#define ROCKSDB_FIELD_UNUSED __attribute__((__unused__))
+#else
+#define ROCKSDB_FIELD_UNUSED
+#endif  // __clang__
+
 namespace rocksdb {
 // Need this for the context allocation override
 // On windows we need to do this explicitly
@@ -107,7 +114,7 @@ class ZSTDUncompressCachedData {
 #if !(defined ZSTD) || !(ZSTD_VERSION_NUMBER >= 500)
 namespace rocksdb {
 class ZSTDUncompressCachedData {
-  void* padding;  // unused
+  void* padding ROCKSDB_FIELD_UNUSED;
  public:
   using ZSTDNativeContext = void*;
   ZSTDUncompressCachedData() {}
