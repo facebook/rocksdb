@@ -5,21 +5,30 @@
 
 import argparse
 from advisor.db_config_optimizer import ConfigOptimizer
-from advisor.db_benchmark_client import DBBenchRunner
 from advisor.db_log_parser import NO_FAM
 from advisor.db_options_parser import DatabaseOptions
 from advisor.rule_parser import RulesSpec
 
 
+CONFIG_OPT_NUM_ITER = 10
+
+
 def main(args):
     # initialise the RulesSpec parser
     rule_spec_parser = RulesSpec(args.rules_spec)
-    rule_spec_parser.load_rules_from_spec()
-    rule_spec_parser.perform_section_checks()
     # initialise the benchmark runner
-    db_bench_runner = DBBenchRunner(
-        args.db_bench_script, args.db_bench_env_var
+    bench_runner_module = __import__(
+        args.benchrunner_module, fromlist=[args.benchrunner_class]
     )
+    bench_runner_class = getattr(bench_runner_module, args.benchrunner_class)
+    ods_args = {'client_script': None, 'entity': None, 'key_prefix': None}
+    if args.ods_client:
+        ods_args['client_script'] = args.ods_client
+    if args.ods_entity:
+        ods_args['entity'] = args.ods_entity
+    if args.ods_key_prefix:
+        ods_args['key_prefix'] = args.ods_key_prefix
+    db_bench_runner = bench_runner_class(args.benchrunner_pos_args, ods_args)
     # initialise the database configuration
     db_options = DatabaseOptions(args.rocksdb_options)
     # set the frequency at which stats are dumped in the LOG file and the
@@ -31,11 +40,11 @@ def main(args):
     db_options.update_options(db_log_dump_settings)
     # initialise the configuration optimizer
     config_optimizer = ConfigOptimizer(
-        db_bench_runner, db_options, rule_spec_parser, [args.benchmark]
+        db_bench_runner, db_options, rule_spec_parser
     )
     # run the optimiser to improve the database configuration for given
     # benchmarks, with the help of expert-specified rules
-    config_optimizer.run(num_iterations=3)
+    config_optimizer.run(num_iterations=CONFIG_OPT_NUM_ITER)
 
 
 if __name__ == '__main__':
@@ -45,13 +54,12 @@ if __name__ == '__main__':
     parser.add_argument('--rules_spec', required=True, type=str)
     # ODS arguments
     parser.add_argument('--ods_client', type=str)
-    parser.add_argument('--ods_entities', type=str)
+    parser.add_argument('--ods_entity', type=str)
     parser.add_argument('--ods_key_prefix', type=str)
-    parser.add_argument('--ods_start_time', type=str)
-    parser.add_argument('--ods_end_time', type=str)
-    # db_bench_script: absolute path to the db_bench script
-    parser.add_argument('--db_bench_script', required=True, type=str)
-    parser.add_argument('--benchmark', required=True, type=str)
-    parser.add_argument('--db_bench_env_var', nargs='*')
+    # benchrunner_module example: advisor.db_benchmark_client
+    parser.add_argument('--benchrunner_module', required=True, type=str)
+    # benchrunner_class example: DBBenchRunner
+    parser.add_argument('--benchrunner_class', required=True, type=str)
+    parser.add_argument('--benchrunner_pos_args', nargs='*')
     args = parser.parse_args()
     main(args)
