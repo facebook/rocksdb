@@ -635,7 +635,7 @@ Status CompactionJob::Run() {
         // to cache it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
-            files_meta[file_idx]->fd, nullptr /* range_del_agg */,
+            *files_meta[file_idx], nullptr /* range_del_agg */,
             prefix_extractor, nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),

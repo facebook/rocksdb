@@ -19,6 +19,7 @@ namespace {
 struct ExpectedPoint {
   Slice begin;
   SequenceNumber seq;
+  bool expectAlive;
 };
 
 enum Direction {
@@ -29,7 +30,9 @@ enum Direction {
 static auto icmp = InternalKeyComparator(BytewiseComparator());
 
 void AddTombstones(RangeDelAggregator* range_del_agg,
-                   const std::vector<RangeTombstone>& range_dels) {
+                   const std::vector<RangeTombstone>& range_dels,
+                   const InternalKey* smallest = nullptr,
+                   const InternalKey* largest = nullptr) {
   std::vector<std::string> keys, values;
   for (const auto& range_del : range_dels) {
     auto key_and_value = range_del.Serialize();
@@ -38,7 +41,7 @@ void AddTombstones(RangeDelAggregator* range_del_agg,
   }
   std::unique_ptr<test::VectorIterator> range_del_iter(
       new test::VectorIterator(keys, values));
-  range_del_agg->AddTombstones(std::move(range_del_iter));
+  range_del_agg->AddTombstones(std::move(range_del_iter), smallest, largest);
 }
 
 void VerifyTombstonesEq(const RangeTombstone& a, const RangeTombstone& b) {
@@ -62,7 +65,9 @@ void VerifyRangeDelIter(
 void VerifyRangeDels(
     const std::vector<RangeTombstone>& range_dels_in,
     const std::vector<ExpectedPoint>& expected_points,
-    const std::vector<RangeTombstone>& expected_collapsed_range_dels) {
+    const std::vector<RangeTombstone>& expected_collapsed_range_dels,
+    const InternalKey* smallest = nullptr,
+    const InternalKey* largest = nullptr) {
   // Test same result regardless of which order the range deletions are added
   // and regardless of collapsed mode.
   for (bool collapsed : {false, true}) {
@@ -73,7 +78,7 @@ void VerifyRangeDels(
       if (dir == kReverse) {
         std::reverse(range_dels.begin(), range_dels.end());
       }
-      AddTombstones(&range_del_agg, range_dels);
+      AddTombstones(&range_del_agg, range_dels, smallest, largest);
 
       auto mode = RangeDelPositioningMode::kFullScan;
       if (collapsed) {
@@ -88,22 +93,29 @@ void VerifyRangeDels(
         ASSERT_FALSE(range_del_agg.ShouldDelete(parsed_key, mode));
         if (parsed_key.sequence > 0) {
           --parsed_key.sequence;
-          ASSERT_TRUE(range_del_agg.ShouldDelete(parsed_key, mode));
+          if (expected_point.expectAlive) {
+            ASSERT_FALSE(range_del_agg.ShouldDelete(parsed_key, mode));
+          } else {
+            ASSERT_TRUE(range_del_agg.ShouldDelete(parsed_key, mode));
+          }
         }
       }
 
       if (collapsed) {
         range_dels = expected_collapsed_range_dels;
-      } else {
-        // Tombstones in an uncollapsed map are presented in start key order.
-        // Tombstones with the same start key are presented in insertion order.
+        VerifyRangeDelIter(range_del_agg.NewIterator().get(), range_dels);
+      } else if (smallest == nullptr && largest == nullptr) {
+        // Tombstones in an uncollapsed map are presented in start key
+        // order. Tombstones with the same start key are presented in
+        // insertion order. We don't handle tombstone truncation here, so the
+        // verification is only performed if no truncation was requested.
         std::stable_sort(range_dels.begin(), range_dels.end(),
                          [&](const RangeTombstone& a, const RangeTombstone& b) {
                            return icmp.user_comparator()->Compare(
                                       a.start_key_, b.start_key_) < 0;
                          });
+        VerifyRangeDelIter(range_del_agg.NewIterator().get(), range_dels);
       }
-      VerifyRangeDelIter(range_del_agg.NewIterator().get(), range_dels);
     }
   }
 
@@ -273,6 +285,19 @@ TEST_F(RangeDelAggregatorTest, MergingIteratorSeek) {
   it->Seek("c");
   VerifyRangeDelIter(it.get(),
                      {{"c", "d", 20}, {"e", "f", 20}, {"f", "g", 10}});
+}
+
+TEST_F(RangeDelAggregatorTest, TruncateTombstones) {
+  const InternalKey smallest("b", 1, kTypeRangeDeletion);
+  const InternalKey largest("e", kMaxSequenceNumber, kTypeRangeDeletion);
+  VerifyRangeDels(
+      {{"a", "c", 10}, {"d", "f", 10}},
+      {{"a", 10, true},  // truncated
+       {"b", 10, false}, // not truncated
+       {"d", 10, false}, // not truncated
+       {"e", 10, true}}, // truncated
+      {{"b", "c", 10}, {"d", "e", 10}},
+      &smallest, &largest);
 }
 
 }  // namespace rocksdb
