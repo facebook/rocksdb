@@ -280,44 +280,6 @@ InternalIterator* TableCache::NewIterator(
   return result;
 }
 
-InternalIterator* TableCache::NewRangeTombstoneIterator(
-    const ReadOptions& options, const EnvOptions& env_options,
-    const InternalKeyComparator& icomparator, const FileDescriptor& fd,
-    HistogramImpl* file_read_hist, bool skip_filters, int level,
-    const SliceTransform* prefix_extractor) {
-  Status s;
-  Cache::Handle* handle = nullptr;
-  TableReader* table_reader = fd.table_reader;
-  if (table_reader == nullptr) {
-    s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
-                  options.read_tier == kBlockCacheTier /* no_io */,
-                  true /* record read_stats */, file_read_hist, skip_filters,
-                  level);
-    if (s.ok()) {
-      table_reader = GetTableReaderFromHandle(handle);
-    }
-  }
-  InternalIterator* result = nullptr;
-  if (s.ok()) {
-    result = table_reader->NewRangeTombstoneIterator(options);
-    if (result != nullptr) {
-      if (handle != nullptr) {
-        result->RegisterCleanup(&UnrefEntry, cache_, handle);
-      }
-    }
-  }
-  if (result == nullptr && handle != nullptr) {
-    // the range deletion block didn't exist, or there was a failure between
-    // getting handle and getting iterator.
-    ReleaseHandle(handle);
-  }
-  if (!s.ok()) {
-    assert(result == nullptr);
-    result = NewErrorInternalIterator(s);
-  }
-  return result;
-}
-
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileDescriptor& fd, const Slice& k,
