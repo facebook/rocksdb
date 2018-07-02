@@ -492,7 +492,8 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
 
 BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
                               BlockIter* iter, bool total_order_seek,
-                              Statistics* stats, bool key_includes_seq) {
+                              Statistics* stats, bool key_includes_seq,
+                              bool can_use_suffix_index) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -513,7 +514,7 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
                          read_amp_bitmap_.get(), key_includes_seq, cachable(),
-                         suffix_index_.get());
+                         can_use_suffix_index ? suffix_index_.get() : nullptr);
 
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {

@@ -1577,6 +1577,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 
 BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
+    bool can_use_suffix_index,
     BlockIter* input_iter, bool is_index, bool key_includes_seq,
     GetContext* get_context,
     FilePrefetchBuffer* prefetch_buffer) {
@@ -1585,7 +1586,8 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
   // We intentionally allow extra stuff in index_value so that we
   // can add more features in the future.
   Status s = handle.DecodeFrom(&input);
-  return NewDataBlockIterator(rep, ro, handle, input_iter, is_index,
+  return NewDataBlockIterator(rep, ro, handle, can_use_suffix_index,
+                              input_iter, is_index,
                               key_includes_seq, get_context, s,
                               prefetch_buffer);
 }
@@ -1596,6 +1598,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
 // If input_iter is not null, update this iter and return it
 BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
+    bool can_use_suffix_index,
     BlockIter* input_iter, bool is_index, bool key_includes_seq,
     GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
@@ -1647,7 +1650,8 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
     assert(block.value != nullptr);
     iter = block.value->NewIterator(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-        iter, true, rep->ioptions.statistics, key_includes_seq);
+        iter, true, rep->ioptions.statistics, key_includes_seq,
+        can_use_suffix_index);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
@@ -2076,6 +2080,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     }
 
     BlockBasedTable::NewDataBlockIterator(rep, read_options_, data_block_handle,
+                                          false /* can_use_suffix_index */,
                                           &data_block_iter_, is_index_,
                                           key_includes_seq_,
                                           /* get_context */ nullptr, s,
@@ -2201,7 +2206,8 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
   rep_->range_del_handle.EncodeTo(&str);
   // The meta-block exists but isn't in uncompressed block cache (maybe
   // because it is disabled), so go through the full lookup process.
-  return NewDataBlockIterator(rep_, read_options, Slice(str));
+  return NewDataBlockIterator(rep_, read_options, Slice(str),
+                              false /* can_use_suffix_index */);
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(
@@ -2289,7 +2295,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         BlockIter biter;
-        NewDataBlockIterator(rep_, read_options, iiter->value(), &biter, false,
+        NewDataBlockIterator(rep_, read_options, iiter->value(),
+                             true /* can_use_suffix_index */, &biter, false,
                              true /* key_includes_seq */, get_context);
 
         if (read_options.read_tier == kBlockCacheTier &&
@@ -2387,7 +2394,10 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 
     // Load the block specified by the block_handle into the block cache
     BlockIter biter;
-    NewDataBlockIterator(rep_, ReadOptions(), block_handle, &biter);
+    NewDataBlockIterator(rep_, ReadOptions(), block_handle,
+                         false /* can_use_suffix
+                                  doesn't matter as this iter is never used */,
+                         &biter);
 
     if (!biter.status().ok()) {
       // there was an unexpected error while pre-fetching
@@ -2647,7 +2657,8 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
 
     std::unique_ptr<InternalIterator> datablock_iter;
     datablock_iter.reset(
-        NewDataBlockIterator(rep_, ReadOptions(), blockhandles_iter->value()));
+        NewDataBlockIterator(rep_, ReadOptions(), blockhandles_iter->value(),
+                             false /* can_use_suffix_index */));
     s = datablock_iter->status();
 
     if (!s.ok()) {
@@ -2929,7 +2940,8 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
 
     std::unique_ptr<InternalIterator> datablock_iter;
     datablock_iter.reset(
-        NewDataBlockIterator(rep_, ReadOptions(), blockhandles_iter->value()));
+        NewDataBlockIterator(rep_, ReadOptions(), blockhandles_iter->value(),
+                             false /* can_use_suffix_index */));
     s = datablock_iter->status();
 
     if (!s.ok()) {

@@ -544,7 +544,12 @@ TEST_F(BlockTest, SuffixIndexTest) {
                use_suffix_index);
 
   // random seek existent keys
-  auto iter = reader.NewIterator(options.comparator, options.comparator);
+  auto iter = reader.NewIterator(options.comparator, options.comparator,
+                                 nullptr /* iter */,
+                                 true /* total_order_seek */,
+                                 nullptr /* stats */,
+                                 true /* key_includes_seq */,
+                                 true /* can_use_suffix_index */);
   for (int i = 0; i < num_records; i++) {
 
     // find a random key in the lookaside array

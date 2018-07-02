@@ -59,7 +59,8 @@ void BlockSuffixIndexBuilder::Finish(std::string& buffer) {
 }
 
 void BlockSuffixIndexBuilder::Reset() {
-  buckets_.clear();
+//  buckets_.clear();
+  std::fill(buckets_.begin(), buckets_.end(), std::vector<uint32_t>());
   estimate_ = 0;
 }
 

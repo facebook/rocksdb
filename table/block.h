@@ -173,12 +173,21 @@ class Block {
   // If total_order_seek is true, hash_index_ and prefix_index_ are ignored.
   // This option only applies for index block. For data block, hash_index_
   // and prefix_index_ are null, so this option does not matter.
+
+  // param: can_use_suffix_index if true, the iterator will seek using
+  // hash; if false it use traditional binary seek.
+  // The difference is it the seek_key does not exist, hash seek will
+  // invalidate the iterator, but binaryseek will set still have the
+  // iterator valid but point to the closest location.
+  // If caller only want single point query, i.e. Get(), set it true
+  // If caller use it to iterator backward or forwad, set it false.
   BlockIter* NewIterator(const Comparator* comparator,
                          const Comparator* user_comparator,
                          BlockIter* iter = nullptr,
                          bool total_order_seek = true,
                          Statistics* stats = nullptr,
-                         bool key_includes_seq = true);
+                         bool key_includes_seq = true,
+                         bool can_use_suffix_index = false);
   void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 
   // Report an approximation of how much memory has been used.
