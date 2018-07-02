@@ -220,8 +220,11 @@ Status TransactionDB::Open(
   const bool use_seq_per_batch =
       txn_db_options.write_policy == WRITE_PREPARED ||
       txn_db_options.write_policy == WRITE_UNPREPARED;
+  const bool use_batch_per_txn =
+      txn_db_options.write_policy == WRITE_COMMITTED ||
+      txn_db_options.write_policy == WRITE_PREPARED;
   s = DBImpl::Open(db_options_2pc, dbname, column_families_copy, handles, &db,
-                   use_seq_per_batch);
+                   use_seq_per_batch, use_batch_per_txn);
   if (s.ok()) {
     s = WrapDB(db, txn_db_options, compaction_enabled_cf_indices, *handles,
                dbptr);

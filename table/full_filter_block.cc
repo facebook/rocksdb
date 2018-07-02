@@ -5,6 +5,14 @@
 
 #include "table/full_filter_block.h"
 
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
+#include <malloc.h>
+#endif
+#endif
+
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
@@ -152,7 +160,15 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry) {
 }
 
 size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
-  return contents_.size();
+  size_t usage = block_contents_.usable_size();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+  usage += malloc_usable_size(filter_bits_reader_.get());
+#else
+  usage += sizeof(*this);
+  usage += sizeof(*filter_bits_reader_.get());
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  return usage;
 }
 
 bool FullFilterBlockReader::RangeMayExist(const Slice* iterate_upper_bound,

@@ -272,6 +272,7 @@ class WriteBatch : public WriteBatchBase {
    protected:
     friend class WriteBatch;
     virtual bool WriteAfterCommit() const { return true; }
+    virtual bool WriteBeforePrepare() const { return false; }
   };
   Status Iterate(Handler* handler) const;
 

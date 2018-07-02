@@ -228,6 +228,8 @@ bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
   uint32_t h = hash;
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   uint32_t b = (h % num_lines) * (cache_line_size * 8);
+  PREFETCH(&data[b / 8], 0 /* rw */, 1 /* locality */);
+  PREFETCH(&data[b / 8 + cache_line_size - 1], 0 /* rw */, 1 /* locality */);
 
   for (uint32_t i = 0; i < num_probes; ++i) {
     // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
