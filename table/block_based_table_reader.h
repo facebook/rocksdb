@@ -108,6 +108,8 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
+                                RangeDelAggregator* range_del_agg = nullptr,
+                                const FileMetaData* file_meta = nullptr,
                                 Arena* arena = nullptr,
                                 bool skip_filters = false,
                                 bool for_compaction = false) override;
@@ -526,6 +528,8 @@ class BlockBasedTableIterator : public InternalIterator {
   BlockBasedTableIterator(BlockBasedTable* table,
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
+                          RangeDelAggregator* range_del_agg,
+                          const FileMetaData* file_meta,
                           InternalIterator* index_iter, bool check_filter,
                           bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor, bool is_index,
@@ -534,6 +538,11 @@ class BlockBasedTableIterator : public InternalIterator {
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
+        range_del_agg_(range_del_agg),
+        file_meta_(file_meta),
+        range_tombstone_start_(nullptr),
+        range_tombstone_end_(nullptr),
+        range_tombstone_seq_(0),
         index_iter_(index_iter),
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
@@ -626,10 +635,40 @@ class BlockBasedTableIterator : public InternalIterator {
   void FindKeyForward();
   void FindKeyBackward();
 
+private:
+  // Find the range tombstone that contains the target. The target key is
+  // guaranteed to be within the bounds of the tombstone (note the special
+  // handling of the empty key for tombstone bounds). If we have a non-zero
+  // sequence number the tombstone applies to all key sequence numbers within
+  // the current file, allowing us to skip over a swath of deleted keys.
+  void InitRangeTombstone(const Slice& target);
+
+  std::string tombstone_internal_start_key() const;
+  std::string tombstone_internal_end_key() const;
+
+  Slice user_key() const {
+    assert(Valid());
+    auto ukey = block_iter_.key();
+    if (key_includes_seq_) {
+      ukey = ExtractUserKey(ukey);
+    }
+    return ukey;
+  }
+
  private:
   BlockBasedTable* table_;
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
+  RangeDelAggregator* const range_del_agg_;
+  const FileMetaData* const file_meta_;
+  // The range tombstone that covers the current key. Note that this is a
+  // cooked value, not the raw tombstone as retrieved from
+  // RangeDelAggregator::GetTombstone(). In particular, the start and end keys
+  // will be nullptr to indicate the tombstone extends past the beginning or
+  // end of the sstable.
+  const Slice* range_tombstone_start_;
+  const Slice* range_tombstone_end_;
+  SequenceNumber range_tombstone_seq_;
   InternalIterator* index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   TBlockIter block_iter_;

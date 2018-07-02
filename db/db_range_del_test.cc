@@ -310,8 +310,6 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GT(NumTableFilesAtLevel(1), 0);
-  ASSERT_EQ((kNumFiles - 1) * kNumPerFile / 2,
-            TestGetTickerCount(opts, COMPACTION_KEY_DROP_RANGE_DEL));
 
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kNumPerFile; ++j) {
@@ -807,30 +805,120 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   db_->ReleaseSnapshot(snapshot);
 }
 
-TEST_F(DBRangeDelTest, IteratorCoveredSst) {
-  Options options = CurrentOptions();
-  options.statistics = rocksdb::CreateDBStatistics();
-  DestroyAndReopen(options);
+TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
+  struct TestCase {
+    const Comparator* comparator;
+    std::vector<std::string> table_keys;
+    std::vector<Range> range_del;
+    std::vector<std::string> expected_keys;
+  };
 
-  // TODO(peter): generate multiple sstables with some being covered
-  // by tombstones and some that aren't.
-  db_->Put(WriteOptions(), "key", "val");
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+  std::vector<TestCase> test_cases = {
+    // Range tombstone covers the sstable.
+    {
+      BytewiseComparator(),
+      { "a", "b", "c" },
+      { { "a", "d" } },
+      { },
+    },
+    // Range tombstone overlaps the start of the sstable.
+    {
+      BytewiseComparator(),
+      { "a", "b", "c" },
+      { { "", "b" } },
+      { "b", "c" },
+    },
+    // Empty range tombstone start key and empty key.
+    {
+      BytewiseComparator(),
+      { "", "b", "c" },
+      { { "", "b" } },
+      { "b", "c" },
+    },
+    // Range tombstone overlaps the end of the sstable.
+    {
+      BytewiseComparator(),
+      { "a", "b", "c" },
+      { { "c", "d" } },
+      { "a", "b" },
+    },
+    // Range tombstones overlap both the start and the end of the
+    // sstable.
+    {
+      BytewiseComparator(),
+      { "a", "b", "c" },
+      { { "", "b" }, { "c", "d" } },
+      { "b" },
+    },
+    // Range tombstone overlaps the middle of the sstable.
+    {
+      BytewiseComparator(),
+      { "a", "b", "c" },
+      { { "b", "c" } },
+      { "a", "c" },
+    },
+    // Multiple range tombstones overlapping the sstable.
+    {
+      BytewiseComparator(),
+      { "a", "b", "c", "d", "e" },
+      { { "b", "c" }, { "d", "e" } },
+      { "a", "c", "e" },
+    },
+    // Reverse comparator with empty range tombstone end key.
+    {
+      ReverseBytewiseComparator(),
+      { "b", "a", "" },
+      { { "a", "" }, { "b", "a" } },
+      { "" },
+    },
+  };
+  for (auto tc : test_cases) {
+    Options options = CurrentOptions();
+    options.comparator = tc.comparator;
+    DestroyAndReopen(options);
 
-  ReadOptions read_opts;
-  auto* iter = db_->NewIterator(read_opts);
+    for (auto key : tc.table_keys) {
+      db_->Put(WriteOptions(), key, "");
+    }
 
-  int count = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ++count;
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+    for (auto d : tc.range_del) {
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), d.start, d.limit);
+    }
+
+    {
+      unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> keys;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys.emplace_back(iter->key().ToString());
+      }
+      ASSERT_EQ(tc.expected_keys, keys);
+    }
+
+    {
+      unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> keys;
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        keys.emplace_back(iter->key().ToString());
+      }
+      std::reverse(keys.begin(), keys.end());
+      ASSERT_EQ(tc.expected_keys, keys);
+    }
+
+    {
+      unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      for (auto key : tc.expected_keys) {
+        iter->Seek(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key());
+        iter->SeekForPrev(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key());
+      }
+    }
   }
-  delete iter;
-
-  ASSERT_EQ(0, count);
-  // Note that the statistics are updated when the iter is deleted.
-  ASSERT_EQ(0, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 }
 
 #ifndef ROCKSDB_UBSAN_RUN

@@ -14,6 +14,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "db/dbformat.h"
+#include "db/range_del_aggregator.h"
 #include "table/internal_iterator.h"
 #include "util/arena.h"
 
@@ -121,6 +122,7 @@ class ForwardIterator : public InternalIterator {
   const SliceTransform* const prefix_extractor_;
   const Comparator* user_comparator_;
   MinIterHeap immutable_min_heap_;
+  RangeDelAggregator range_del_agg_;
 
   SuperVersion* sv_;
   InternalIterator* mutable_iter_;

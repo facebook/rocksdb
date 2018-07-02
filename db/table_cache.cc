@@ -240,8 +240,9 @@ InternalIterator* TableCache::NewIterator(
         !options.table_filter(*table_reader->GetTableProperties())) {
       result = NewEmptyInternalIterator(arena);
     } else {
-      result = table_reader->NewIterator(options, prefix_extractor, arena,
-                                         skip_filters, for_compaction);
+      result = table_reader->NewIterator(
+          options, prefix_extractor, range_del_agg, &file_meta,
+          arena, skip_filters, for_compaction);
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);

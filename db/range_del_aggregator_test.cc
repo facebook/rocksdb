@@ -162,6 +162,7 @@ void VerifyGetTombstone(const std::vector<RangeTombstone>& range_dels,
                         const ExpectedPoint& expected_point,
                         const RangeTombstone& expected_tombstone) {
   RangeDelAggregator range_del_agg(icmp, {} /* snapshots */, true);
+  ASSERT_TRUE(range_del_agg.IsEmpty());
   std::vector<std::string> keys, values;
   for (const auto& range_del : range_dels) {
     auto key_and_value = range_del.Serialize();
@@ -173,9 +174,11 @@ void VerifyGetTombstone(const std::vector<RangeTombstone>& range_dels,
   range_del_agg.AddTombstones(std::move(range_del_iter));
 
   auto tombstone = range_del_agg.GetTombstone(expected_point.begin, expected_point.seq);
-  ASSERT_EQ(expected_tombstone.start_key_.ToString(), tombstone.start_key_.ToString());
-  ASSERT_EQ(expected_tombstone.end_key_.ToString(), tombstone.end_key_.ToString());
-  ASSERT_EQ(expected_tombstone.seq_, tombstone.seq_);
+  auto start = tombstone.first.start ? tombstone.first.start->ToString() : "";
+  auto end = tombstone.first.limit ? tombstone.first.limit->ToString() : "";
+  ASSERT_EQ(expected_tombstone.start_key_.ToString(), start);
+  ASSERT_EQ(expected_tombstone.end_key_.ToString(), end);
+  ASSERT_EQ(expected_tombstone.seq_, tombstone.second);
 }
 
 }  // anonymous namespace
@@ -414,6 +417,25 @@ TEST_F(RangeDelAggregatorTest, GetTombstone) {
       {{"a", "c", 10}, {"e", "h", 20}},
       {"e", 9},
       {"e", "h", 20});
+}
+
+TEST_F(RangeDelAggregatorTest, IsEmpty) {
+  const std::vector<SequenceNumber> snapshots;
+  RangeDelAggregator range_del_agg1(
+      icmp, snapshots, false /* collapse_deletions */);
+  ASSERT_TRUE(range_del_agg1.IsEmpty());
+
+  RangeDelAggregator range_del_agg2(
+      icmp, snapshots, true /* collapse_deletions */);
+  ASSERT_TRUE(range_del_agg2.IsEmpty());
+
+  RangeDelAggregator range_del_agg3(
+      icmp, kMaxSequenceNumber, false /* collapse_deletions */);
+  ASSERT_TRUE(range_del_agg3.IsEmpty());
+
+  RangeDelAggregator range_del_agg4(
+      icmp, kMaxSequenceNumber, true /* collapse_deletions */);
+  ASSERT_TRUE(range_del_agg4.IsEmpty());
 }
 
 }  // namespace rocksdb
