@@ -1063,7 +1063,10 @@ DEFINE_bool(use_plain_table, false, "if use plain table "
 DEFINE_bool(use_cuckoo_table, false, "if use cuckoo table format");
 DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
-            "instead of kBinarySearch. "
+            "instead of kBinarySearch."
+            "This is valid if only we use BlockTable");
+DEFINE_bool(block_uses_suffix_index, false, "if use kSuffixHashBlockType "
+            "instead of kBinarySearchBlockType."
             "This is valid if only we use BlockTable");
 DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
             "instead of kFullFilter for filter block. "
@@ -3169,6 +3172,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+      }
+      if (FLAGS_block_uses_suffix_index) {
+        block_based_options.block_format_type =
+          BlockBasedTableOptions::kSuffixHashBlockType;
+      } else {
+        block_based_options.block_format_type =
+          BlockBasedTableOptions::kBinarySearchBlockType;
       }
       if (FLAGS_partition_index_and_filters || FLAGS_partition_index) {
         if (FLAGS_use_hash_search) {
