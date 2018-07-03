@@ -2320,7 +2320,14 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (biter.Seek(key); biter.Valid(); biter.Next()) {
+        for (biter.Seek(key); ; biter.Next()) {
+          if (!biter.Valid()) {
+            if (rep_->block_uses_suffix_index) {
+              done = true;
+            }
+            break;
+          }
+
           ParsedInternalKey parsed_key;
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
