@@ -137,8 +137,10 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
 
-  if (suffix_index_builder_) {
-    suffix_index_builder_->Add(key, restarts_.size() - 1 /* restart index */);
+if (suffix_index_builder_) {
+  // use user_key to calcualte the hash
+    suffix_index_builder_->Add(ExtractUserKey(key),
+                               restarts_.size() - 1 /* restart index */);
   }
 
   counter_++;
