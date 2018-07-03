@@ -465,6 +465,14 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     ASSERT_EQ(dlock_buffer.size(), curr_dlock_buffer_len_);
     auto dlock_entry = dlock_buffer[0].path;
     ASSERT_EQ(dlock_entry.size(), kInitialMaxDeadlocks);
+    int64_t pre_deadlock_time = dlock_buffer[0].deadlock_time;
+    int64_t cur_deadlock_time = 0;
+    for (auto const& dl_path_rec : dlock_buffer) {
+      cur_deadlock_time = dl_path_rec.deadlock_time;
+      ASSERT_NE(cur_deadlock_time, 0);
+      ASSERT_TRUE(cur_deadlock_time <= pre_deadlock_time);
+      pre_deadlock_time = cur_deadlock_time;
+    }
 
     int64_t curr_waiting_key = 0;
 
@@ -669,6 +677,15 @@ TEST_P(TransactionTest, DeadlockCycle) {
     auto dlock_entry = dlock_buffer[0].path;
     ASSERT_EQ(dlock_entry.size(), check_len);
     ASSERT_EQ(dlock_buffer[0].limit_exceeded, check_limit_flag);
+
+    int64_t pre_deadlock_time = dlock_buffer[0].deadlock_time;
+    int64_t cur_deadlock_time = 0;
+    for (auto const& dl_path_rec : dlock_buffer) {
+      cur_deadlock_time = dl_path_rec.deadlock_time;
+      ASSERT_NE(cur_deadlock_time, 0);
+      ASSERT_TRUE(cur_deadlock_time <= pre_deadlock_time);
+      pre_deadlock_time = cur_deadlock_time;
+    }
 
     // Iterates backwards over path verifying decreasing txn_ids.
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
@@ -2639,7 +2656,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   string value;
   Status s;
 
@@ -3285,7 +3301,6 @@ TEST_P(TransactionTest, LockLimitTest) {
 TEST_P(TransactionTest, IteratorTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   std::string value;
   Status s;
 
@@ -3466,7 +3481,6 @@ TEST_P(TransactionTest, DisableIndexingTest) {
 TEST_P(TransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   std::string value;
   Status s;
 
@@ -4721,7 +4735,6 @@ TEST_P(TransactionTest, ClearSnapshotTest) {
 TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   Status s;
 
-  TransactionOptions txn_options;
   ColumnFamilyHandle *cfa, *cfb;
   ColumnFamilyOptions cf_options;
 

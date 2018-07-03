@@ -146,8 +146,11 @@ class TransactionTestBase : public ::testing::Test {
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED ||
         txn_db_options.write_policy == WRITE_UNPREPARED;
+    const bool use_batch_per_txn =
+        txn_db_options.write_policy == WRITE_COMMITTED ||
+        txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
-                            use_seq_per_batch);
+                            use_seq_per_batch, use_batch_per_txn);
     StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
@@ -176,8 +179,11 @@ class TransactionTestBase : public ::testing::Test {
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED ||
         txn_db_options.write_policy == WRITE_UNPREPARED;
+    const bool use_batch_per_txn =
+        txn_db_options.write_policy == WRITE_COMMITTED ||
+        txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
-                            &root_db, use_seq_per_batch);
+                            &root_db, use_seq_per_batch, use_batch_per_txn);
     StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);

@@ -23,6 +23,8 @@
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/error_handler.h"
+#include "db/event_helpers.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -70,8 +72,11 @@ struct MemTableInfo;
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false);
+         const bool seq_per_batch = false, const bool batch_per_txn = true);
   virtual ~DBImpl();
+
+  using DB::Resume;
+  virtual Status Resume() override;
 
   // Implementations of the DB interface
   using DB::Put;
@@ -635,7 +640,7 @@ class DBImpl : public DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                     const bool seq_per_batch);
+                     const bool seq_per_batch, const bool batch_per_txn);
 
   virtual Status Close() override;
 
@@ -1265,9 +1270,6 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
-  // Have we encountered a background error in paranoid mode?
-  Status bg_error_;
-
   // shall we disable deletion of obsolete files
   // if 0 the deletion is enabled.
   // if non-zero, files will not be getting deleted
@@ -1408,6 +1410,13 @@ class DBImpl : public DB {
   //
   // Default: false
   const bool seq_per_batch_;
+  // This determines during recovery whether we expect one writebatch per
+  // recovered transaction, or potentially multiple writebatches per
+  // transaction. For WriteUnprepared, this is set to false, since multiple
+  // batches can exist per transaction.
+  //
+  // Default: true
+  const bool batch_per_txn_;
   // LastSequence also indicates last published sequence visibile to the
   // readers. Otherwise LastPublishedSequence should be used.
   const bool last_seq_same_as_publish_seq_;
@@ -1425,6 +1434,8 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
+
+  ErrorHandler error_handler_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

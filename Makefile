@@ -85,6 +85,10 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
 	DEBUG_LEVEL=0
 endif
 
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
+        DEBUG_LEVEL=0
+endif
+
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 	DEBUG_LEVEL=0
 endif
@@ -96,6 +100,10 @@ OPT += -O2 -fno-omit-frame-pointer
 ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
 endif
+endif
+
+ifeq (,$(shell $(CXX) -fsyntax-only -faligned-new -xc++ /dev/null 2>&1))
+CXXFLAGS += -faligned-new -DHAVE_ALIGNED_NEW
 endif
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
@@ -421,6 +429,7 @@ TESTS = \
 	db_table_properties_test \
 	db_statistics_test \
 	db_write_test \
+	error_handler_test \
 	autovector_test \
 	blob_db_test \
 	cleanable_test \
@@ -1184,6 +1193,9 @@ db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TE
 	$(AM_LINK)
 
 db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+error_handler_test: db/error_handler_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

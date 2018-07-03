@@ -25,6 +25,7 @@ LIB_SOURCES =                                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
+  db/error_handler.cc						\
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
@@ -293,6 +294,7 @@ MAIN_SOURCES =                                                          \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
+  db/error_handler_test.cc                                        	\
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \

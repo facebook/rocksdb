@@ -72,7 +72,7 @@ class GetContext {
 
   bool CheckCallback(SequenceNumber seq) {
     if (callback_) {
-      return callback_->IsCommitted(seq);
+      return callback_->IsVisible(seq);
     }
     return true;
   }

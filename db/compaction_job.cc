@@ -25,8 +25,10 @@
 #include <vector>
 
 #include "db/builder.h"
+#include "db/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -307,7 +309,7 @@ CompactionJob::CompactionJob(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
-    InstrumentedMutex* db_mutex, Status* db_bg_error,
+    InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
@@ -331,7 +333,7 @@ CompactionJob::CompactionJob(
       output_directory_(output_directory),
       stats_(stats),
       db_mutex_(db_mutex),
-      db_bg_error_(db_bg_error),
+      db_error_handler_(db_error_handler),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
@@ -823,10 +825,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // zstd's dictionary trainer, or just use them directly. Then, the dictionary
   // is used for compressing subsequent output files in the same subcompaction.
   const bool kUseZstdTrainer =
-      cfd->ioptions()->compression_opts.zstd_max_train_bytes > 0;
+      sub_compact->compaction->output_compression_opts().zstd_max_train_bytes >
+      0;
   const size_t kSampleBytes =
-      kUseZstdTrainer ? cfd->ioptions()->compression_opts.zstd_max_train_bytes
-                      : cfd->ioptions()->compression_opts.max_dict_bytes;
+      kUseZstdTrainer
+          ? sub_compact->compaction->output_compression_opts()
+                .zstd_max_train_bytes
+          : sub_compact->compaction->output_compression_opts().max_dict_bytes;
   const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
   std::set<size_t> sample_begin_offsets;
   if (bottommost_level_ && kSampleBytes > 0) {
@@ -1029,7 +1034,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         if (kUseZstdTrainer) {
           sub_compact->compression_dict = ZSTD_TrainDictionary(
               dict_sample_data, kSampleLenShift,
-              cfd->ioptions()->compression_opts.max_dict_bytes);
+              sub_compact->compaction->output_compression_opts()
+                  .max_dict_bytes);
         } else {
           sub_compact->compression_dict = std::move(dict_sample_data);
         }
@@ -1161,6 +1167,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   // Check for iterator errors
   Status s = input_status;
   auto meta = &sub_compact->current_output()->meta;
+  assert(meta != nullptr);
   if (s.ok()) {
     Slice lower_bound_guard, upper_bound_guard;
     std::string smallest_user_key;
@@ -1217,7 +1224,12 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   sub_compact->outfile.reset();
 
-  if (s.ok() && current_entries == 0) {
+  TableProperties tp;
+  if (s.ok()) {
+    tp = sub_compact->builder->GetTableProperties();
+  }
+
+  if (s.ok() && current_entries == 0 && tp.num_range_deletions == 0) {
     // If there is nothing to output, no necessary to generate a sst file.
     // This happens when the output level is bottom level, at the same time
     // the sub_compact output nothing.
@@ -1236,10 +1248,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  TableProperties tp;
-  if (s.ok() && current_entries > 0) {
+  if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
     // Output to event logger and fire events.
-    tp = sub_compact->builder->GetTableProperties();
     sub_compact->current_output()->table_properties =
         std::make_shared<TableProperties>(tp);
     ROCKS_LOG_INFO(db_options_.info_log,
@@ -1275,21 +1285,12 @@ Status CompactionJob::FinishCompactionOutputFile(
     if (sfm->IsMaxAllowedSpaceReached()) {
       // TODO(ajkr): should we return OK() if max space was reached by the final
       // compaction output file (similarly to how flush works when full)?
-      s = Status::NoSpace("Max allowed space was reached");
+      s = Status::SpaceLimit("Max allowed space was reached");
       TEST_SYNC_POINT(
           "CompactionJob::FinishCompactionOutputFile:"
           "MaxAllowedSpaceReached");
       InstrumentedMutexLock l(db_mutex_);
-      if (db_bg_error_->ok()) {
-        Status new_bg_error = s;
-        // may temporarily unlock and lock the mutex.
-        EventHelpers::NotifyOnBackgroundError(
-            cfd->ioptions()->listeners, BackgroundErrorReason::kCompaction,
-            &new_bg_error, db_mutex_);
-        if (!new_bg_error.ok()) {
-          *db_bg_error_ = new_bg_error;
-        }
-      }
+      db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction);
     }
   }
 #endif
@@ -1429,7 +1430,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
-      cfd->ioptions()->compression_opts,
+      sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), &sub_compact->compression_dict,
       skip_filters, output_file_creation_time));
   LogFlush(db_options_.info_log);
