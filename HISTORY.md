@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Change default value of `bytes_max_delete_chunk` to 0 in NewSstFileManager() as it doesn't work well with checkpoints.
+
 ## 5.14.1 (6/20/2018)
 ### Bug Fixes
 * Fix block-based table reader pinning blocks throughout its lifetime, causing memory usage increase.
