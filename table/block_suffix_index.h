@@ -51,14 +51,18 @@ class BlockSuffixIndexBuilder {
   size_t estimate_;
 };
 
+class BlockSuffixIndexIterator;
+
 class BlockSuffixIndex {
  public:
   BlockSuffixIndex(Slice  block_content);
-  void Seek(const Slice &key, std::vector<uint32_t> &bucket) const;
+  void Seek(Slice& key, std::vector<uint32_t>& bucket) const;
 
-  inline uint32_t SuffixHashMapStart() {
+  inline uint32_t SuffixHashMapStart() const {
     return static_cast<uint32_t>(map_start_ - data_);
   }
+
+  BlockSuffixIndexIterator* NewIterator(const Slice& key) const;
 
  private:
   const char *data_;
@@ -66,6 +70,24 @@ class BlockSuffixIndex {
   uint32_t num_buckets_;
   const char *map_start_;    // start of the map
   const char *bucket_table_; // start offset of the bucket index table
+};
+
+class BlockSuffixIndexIterator {
+ public:
+  BlockSuffixIndexIterator(const char* start, const char* end,
+                           const uint32_t tag):
+      start_(start), end_(end), tag_(tag) {
+    current_ = start - 2 * sizeof(uint32_t);
+    Next();
+  }
+  bool Valid();
+  void Next();
+  uint32_t Value();
+ private:
+  const char* start_; // [start_,  end_) defines the bucket range
+  const char* end_;
+  const uint32_t tag_; // the fingerprint (2nd hash value) of the searching key
+  const char* current_;
 };
 
 }  // namespace rocksdb

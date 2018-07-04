@@ -407,13 +407,12 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
 bool BlockIter::SuffixSeek(const Slice& target) {
   assert(suffix_index_);
   Slice user_key = ExtractUserKey(target);
+  std::unique_ptr<BlockSuffixIndexIterator> suffix_iter(
+      suffix_index_->NewIterator(user_key));
 
-  std::vector<uint32_t> restart_points;
-
-  suffix_index_->Seek(user_key, restart_points);
-
-  for (auto& restart_point: restart_points) {
-    SeekToRestartPoint(restart_point);
+  for (; suffix_iter->Valid(); suffix_iter->Next()) {
+    uint32_t restart_index = suffix_iter->Value();
+    SeekToRestartPoint(restart_index);
     while (true) {
       if (!ParseNextKey() || Compare(key_, target) >= 0) {
         break;
@@ -425,6 +424,7 @@ bool BlockIter::SuffixSeek(const Slice& target) {
       return true; // found
     }
   }
+
   current_ = restarts_; // not found, Invalidate the iterator
   return false;
 }

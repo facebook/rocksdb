@@ -83,8 +83,7 @@ BlockSuffixIndex::BlockSuffixIndex(Slice block_content) {
   assert(map_start_ <  bucket_table_);
 }
 
-void BlockSuffixIndex::Seek(const Slice& key,
-                            std::vector<uint32_t>& bucket) const {
+void BlockSuffixIndex::Seek(Slice& key, std::vector<uint32_t>& bucket) const {
   assert(bucket.size() == 0);
   uint32_t idx = SuffixToBucket(key, num_buckets_);
   uint32_t bucket_off = DecodeFixed32(bucket_table_ + idx * sizeof(uint32_t));
@@ -106,6 +105,43 @@ void BlockSuffixIndex::Seek(const Slice& key,
       bucket.push_back(DecodeFixed32(p + sizeof(uint32_t)));
     }
   }
+}
+
+BlockSuffixIndexIterator* BlockSuffixIndex::NewIterator(
+    const Slice& key) const {
+  uint32_t idx = SuffixToBucket(key, num_buckets_);
+  uint32_t bucket_off = DecodeFixed32(bucket_table_ + idx * sizeof(uint32_t));
+  const char* limit;
+  if (idx < num_buckets_ - 1) {
+    // limited by the start offset of the next bucket
+    limit = data_ +
+            DecodeFixed32(bucket_table_ + (idx + 1) * sizeof(uint32_t));
+  } else {
+    // limited by the location of the NUM_BUCK
+    limit = data_ + (size_ - 2 * sizeof(uint32_t));
+  }
+
+  uint32_t tag = rocksdb::Hash(key.data(), key.size(), kSeed_tag);
+
+  return new BlockSuffixIndexIterator(data_ + bucket_off, limit, tag);
+}
+
+bool BlockSuffixIndexIterator::Valid() {
+  return current_ < end_;
+}
+
+void BlockSuffixIndexIterator::Next() {
+  for (current_ += 2 * sizeof(uint32_t); current_ < end_;
+       current_ += 2 * sizeof(uint32_t)) {
+    // stop at a offset that match the tag, i.e. a possible match
+    if (DecodeFixed32(current_) == tag_) {
+      break;
+    }
+  }
+}
+
+uint32_t BlockSuffixIndexIterator::Value() {
+  return DecodeFixed32(current_+ sizeof(uint32_t));
 }
 
 }  // namespace rocksdb
