@@ -705,7 +705,7 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(ioptions_, vstorage, output_level),
-      /* max_subcompactions */ 0, std::move(grandparents),
+      max_subcompactions, std::move(grandparents),
       /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
