@@ -168,8 +168,8 @@ void BlockFetcher::GetBlockContents() {
   } else {
     // page is uncompressed, the buffer either stack or heap provided
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      heap_buf_.reset(new char[block_size_]);
-      memcpy(heap_buf_.get(), used_buf_, block_size_);
+      heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
+      memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
                                compression_type);
