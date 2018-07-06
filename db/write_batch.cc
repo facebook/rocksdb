@@ -1611,8 +1611,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
-      // We only call MarkBeginPrepare once per batch, and the batch is
-      // initialized to false by default.
+      // We only call MarkBeginPrepare once per batch, and unprepared_batch_
+      // is initialized to false by default.
       assert(!unprepared_batch_);
       unprepared_batch_ = unprepare;
 

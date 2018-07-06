@@ -67,8 +67,8 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
           auto cmp = comparators_[cf];
           keys_[cf] = CFKeys(SetComparator(cmp));
         }
-        auto it = cf_keys.insert(key);
-        if (it.second ==
+        auto res = cf_keys.insert(key);
+        if (res.second ==
             false) {  // second is false if a element already existed.
           return s;
         }

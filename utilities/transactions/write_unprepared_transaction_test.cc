@@ -252,7 +252,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
     }
 
     // Write num_batches unprepared batches into the WAL.
-    for (int i = 1; i < num_batches; i++) {
+    for (int i = 0; i < num_batches; i++) {
       batch.Clear();
       // TODO(lth): Instead of manually calling WriteImpl with a write batch,
       // use methods on Transaction instead once it is implemented.
@@ -282,7 +282,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
     // Check that DB has before values.
     Iterator* iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
-    for (int i = 1; i < num_batches; i++) {
+    for (int i = 0; i < num_batches; i++) {
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(iter->key().ToString(), "k" + ToString(i));
       ASSERT_EQ(iter->value().ToString(), "before value " + ToString(i));
