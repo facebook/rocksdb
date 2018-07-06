@@ -116,9 +116,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       }
 
       // Recovered batches do not contain 2PC markers.
-      Status MarkNoop(bool) override {
-        return Status::InvalidArgument();
-      }
+      Status MarkNoop(bool) override { return Status::InvalidArgument(); }
       Status MarkBeginPrepare(bool) override {
         return Status::InvalidArgument();
       }
@@ -241,11 +239,10 @@ Status WriteUnpreparedTxnDB::Initialize(
     w_options.sync = true;
     TransactionOptions t_options;
 
-    auto first_log_number =
-        recovered_trx->batches_.begin()->second.log_number_;
-    auto last_seq = 
-        recovered_trx->batches_.rbegin()->first;
-    auto last_prepare_batch_cnt = recovered_trx->batches_.begin()->second.batch_cnt_; 
+    auto first_log_number = recovered_trx->batches_.begin()->second.log_number_;
+    auto last_seq = recovered_trx->batches_.rbegin()->first;
+    auto last_prepare_batch_cnt =
+        recovered_trx->batches_.begin()->second.batch_cnt_;
 
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);

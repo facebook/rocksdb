@@ -291,7 +291,8 @@ namespace {
       seen += "LogData(" + blob.ToString() + ")";
     }
     virtual Status MarkBeginPrepare(bool unprepare) override {
-      seen += "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
+      seen +=
+          "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
       return Status::OK();
     }
     virtual Status MarkEndPrepare(const Slice& xid) override {

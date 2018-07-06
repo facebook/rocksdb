@@ -24,7 +24,8 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
   Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
                     const std::vector<ColumnFamilyHandle*>& handles) override;
 
-  Transaction* BeginTransaction(const WriteOptions& write_options, const TransactionOptions& txn_options,
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
   // Struct to hold ownership of snapshot and read callback for cleanup.

@@ -596,8 +596,8 @@ class DBImpl : public DB {
       }
     }
 
-    void AddBatch(SequenceNumber seq, uint64_t log_number, WriteBatch* batch, size_t batch_cnt, bool unprepared)
-    {
+    void AddBatch(SequenceNumber seq, uint64_t log_number, WriteBatch* batch,
+                  size_t batch_cnt, bool unprepared) {
       assert(batches_.count(seq) == 0);
       batches_[seq] = {log_number, batch, batch_cnt};
       // Prior state must be unprepared, since the prepare batch must be the
@@ -625,13 +625,18 @@ class DBImpl : public DB {
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
-                                  size_t batch_cnt, bool unprepared) {
+                                  size_t batch_cnt, bool unprepared_batch) {
+    // For WriteUnpreparedTxn, InsertRecoveredTransaction is called multiple
+    // times for every unprepared batch encountered during recovery.
+    //
+    // If the transaction is prepared, then the last call to
+    // InsertRecoveredTransaction will have unprepared_batch = false.
     auto rtxn = recovered_transactions_.find(name);
     if (rtxn == recovered_transactions_.end()) {
       recovered_transactions_[name] = new RecoveredTransaction(
-          log, name, batch, seq, batch_cnt, unprepared);
+          log, name, batch, seq, batch_cnt, unprepared_batch);
     } else {
-      rtxn->second->AddBatch(seq, log, batch, batch_cnt, unprepared);
+      rtxn->second->AddBatch(seq, log, batch, batch_cnt, unprepared_batch);
     }
     logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }

@@ -1593,6 +1593,8 @@ class MemTableInserter : public WriteBatch::Handler {
     }
   }
 
+  // The write batch handler calls MarkBeginPrepare with unprepare set to true
+  // if it encounters the kTypeBeginUnprepareXID marker.
   Status MarkBeginPrepare(bool unprepare) override {
     assert(rebuilding_trx_ == nullptr);
     assert(db_);
@@ -1609,6 +1611,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
+      // We only call MarkBeginPrepare once per batch, and the batch is
+      // initialized to false by default.
       assert(!unprepared_batch_);
       unprepared_batch_ = unprepare;
 
