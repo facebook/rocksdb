@@ -340,6 +340,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
         ExternalSstFilePropertyNames::kGlobalSeqno);
     if (offsets_iter == props->properties_offsets.end() ||
         offsets_iter->second == 0) {
+      file_to_ingest->global_seqno_offset = 0;
       return Status::Corruption("Was not able to find file global seqno field");
     }
     file_to_ingest->global_seqno_offset = offsets_iter->second;
