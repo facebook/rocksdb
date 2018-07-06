@@ -246,7 +246,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
     prepared_trans.clear();
     ReOpen();
     wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
-    for (int i = 1; i < num_batches; i++) {
+    for (int i = 0; i < num_batches; i++) {
       ASSERT_OK(db->Put(WriteOptions(), "k" + ToString(i),
                         "before value " + ToString(i)));
     }
