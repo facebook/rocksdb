@@ -104,7 +104,6 @@ extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
-    double max_trash_db_ratio = 0.25,
-    uint64_t bytes_max_delete_chunk = 0);
+    double max_trash_db_ratio = 0.25, uint64_t bytes_max_delete_chunk = 0);
 
 }  // namespace rocksdb
