@@ -63,6 +63,7 @@ class AnalyzerOptions {
   bool output_time_serial;
   bool output_prefix_cut;
   bool output_trace_sequence;
+  bool output_io_stats;
   bool input_key_space;
   bool use_get;
   bool use_put;
@@ -94,10 +95,19 @@ struct TraceStats {
   std::string cf_name;
   uint64_t a_count;
   uint64_t akey_id;
+  uint64_t a_key_size_sqsum;
+  uint64_t a_key_size_sum;
+  uint64_t a_key_mid;
+  uint64_t a_value_size_sqsum;
+  uint64_t a_value_size_sum;
+  uint64_t a_value_mid;
+  uint32_t a_peak_io;
+  double a_ave_io;
   std::map<std::string, StatsUnit> a_key_stats;
   std::map<uint64_t, uint64_t> a_count_stats;
   std::map<uint64_t, uint64_t> a_key_size_stats;
   std::map<uint64_t, uint64_t> a_value_size_stats;
+  std::map<uint32_t, uint32_t> a_io_stats;
   std::priority_queue<std::pair<uint64_t, std::string>,
                   std::vector<std::pair<uint64_t, std::string>>,
                   std::greater<std::pair<uint64_t, std::string>>> top_k_queue;
@@ -108,12 +118,14 @@ struct TraceStats {
   FILE* a_count_dist_f;
   FILE* a_prefix_cut_f;
   FILE* a_value_size_f;
+  FILE* a_io_f;
   FILE* w_key_f;
   FILE* w_prefix_cut_f;
 
   TraceStats();
   ~TraceStats();
 };
+
 
 struct TypeUnit {
   std::string type_name;
@@ -173,10 +185,15 @@ class TraceAnalyzer {
   uint64_t total_access_keys_;
   uint64_t total_gets_;
   uint64_t total_writes_;
+  uint64_t begin_time_;
+  uint64_t end_time_;
   FILE* trace_sequence_f;  // output the trace sequence for further process
+  FILE* iops_f;            // output the requests per second
   std::ifstream wkey_input_f;
   std::vector<TypeUnit> ta_;  // The main statistic collecting data structure
   std::map<uint32_t, CfUnit> cfs_;  // All the cf_id appears in this trace;
+  std::vector<uint32_t> io_peak_;
+  std::vector<double> io_ave_;
 
   Status KeyStatsInsertion(const uint32_t& type, const uint32_t& cf_id,
                            const std::string& key, const size_t value_size,
@@ -193,6 +210,7 @@ class TraceAnalyzer {
   Status WriteTraceSequence(const uint32_t& type, const uint32_t& cf_id,
                             const std::string& key, const size_t value_size,
                             const uint64_t ts);
+  Status MakeStatisticIO();
 };
 
 // write bach handler to be used for WriteBache iterator
@@ -217,7 +235,7 @@ class TraceWriteHandler : public WriteBatch::Handler {
   }
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    return ta_ptr->HandleDeleteCF(column_family_id, key);
+    return ta_ptr->HandleSingleDeleteCF(column_family_id, key);
   }
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,

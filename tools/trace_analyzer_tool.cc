@@ -17,6 +17,7 @@
 #include <vector>
 #include <stdexcept>
 #include <sys/stat.h>
+#include <math.h>
 
 #include "db/db_impl.h"
 #include "db/memtable.h"
@@ -66,6 +67,7 @@ AnalyzerOptions::AnalyzerOptions() {
   output_time_serial = false;
   output_prefix_cut = false;
   output_trace_sequence = false;
+  output_io_stats = false;
   input_key_space = false;
   use_get = false;
   use_put = false;
@@ -95,11 +97,20 @@ TraceStats::TraceStats() {
   cf_name = "0";
   a_count = 0;
   akey_id = 0;
+  a_key_size_sqsum = 0;
+  a_key_size_sum = 0;
+  a_key_mid = 0;
+  a_value_size_sqsum = 0;
+  a_value_size_sum = 0;
+  a_value_mid = 0;
+  a_peak_io = 0;
+  a_ave_io = 0.0;
   time_serial_f = nullptr;
   a_key_f = nullptr;
   a_count_dist_f = nullptr;
   a_prefix_cut_f = nullptr;
   a_value_size_f = nullptr;
+  a_io_f = nullptr;
   w_key_f = nullptr;
   w_prefix_cut_f = nullptr;
 }
@@ -121,6 +132,8 @@ TraceAnalyzer::TraceAnalyzer(std::string &trace_path, std::string &output_path,
   total_access_keys_ = 0;
   total_gets_ = 0;
   total_writes_ = 0;
+  begin_time_ = 0;
+  end_time_ = 0;
   trace_sequence_f = nullptr;
   ta_.resize(taTypeNum);
   ta_[0].type_name = "get";
@@ -189,6 +202,17 @@ Status TraceAnalyzer::PrepareProcessing() {
       fprintf(stderr, "Cannot open the trace sequence output file\n");
     }
   }
+
+  // prepare the general IO statistic file writer
+  if (analyzer_opts_.output_io_stats) {
+    std::string io_stats_name;
+    io_stats_name = output_path_ + "/" + analyzer_opts_.output_prefix +
+                        "-io_stats.txt";
+    iops_f = fopen(io_stats_name.c_str(), "w");
+    if (iops_f == nullptr) {
+      fprintf(stderr, "Cannot open the general IO statistic output file\n");
+    }
+  }
   return Status::OK();
 }
 
@@ -218,6 +242,7 @@ Status TraceAnalyzer::StartProcessing() {
     }
 
     total_requests_++;
+    end_time_ = trace.ts;
     if (trace.type == kTraceWrite) {
       total_writes_++;
       c_time_ = trace.ts;
@@ -259,6 +284,7 @@ Status TraceAnalyzer::StartProcessing() {
 // distribution, are processed here.
 Status TraceAnalyzer::MakeStatistics() {
   int ret;
+  Status s;
   for (int type = 0; type < taTypeNum; type++) {
     if (!ta_[type].enabled) {
       continue;
@@ -335,14 +361,31 @@ Status TraceAnalyzer::MakeStatistics() {
         }
       }
 
+      //find the medium of the key size
+      uint64_t k_count = 0;
+      for(auto it = i->second.a_key_size_stats.begin();
+          it != i->second.a_key_size_stats.end(); it++) {
+        k_count += it->second;
+        if (k_count >= i->second.a_key_mid) {
+          i->second.a_key_mid = it->first;
+          break;
+        }
+      }
+
       //output the value size distribution
-      if (analyzer_opts_.print_value_distribution &&
-          i->second.a_value_size_f != nullptr) {
-        uint64_t v_begin = 0, v_end = 0;
-        for (auto it = i->second.a_value_size_stats.begin();
-            it != i->second.a_value_size_stats.end(); it++) {
-          v_begin = v_end;
-          v_end = (it->first+1)*analyzer_opts_.value_interval;
+      uint64_t v_begin = 0, v_end = 0, v_count = 0;
+      bool get_mid = false;
+      for (auto it = i->second.a_value_size_stats.begin();
+          it != i->second.a_value_size_stats.end(); it++) {
+        v_begin = v_end;
+        v_end = (it->first+1)*analyzer_opts_.value_interval;
+        v_count += it->second;
+        if(!get_mid  &&v_count >= i->second.a_count/2) {
+          i->second.a_value_mid = (v_begin + v_end)/2;
+          get_mid = true;
+        }
+        if (analyzer_opts_.print_value_distribution &&
+                i->second.a_value_size_f != nullptr) {
           ret = fprintf(i->second.a_value_size_f, "Number_of_value_size_between %" PRIu64
               " and %" PRIu64 " is: %" PRIu64 "\n", v_begin, v_end, it->second);
           if (ret < 0) {
@@ -354,8 +397,94 @@ Status TraceAnalyzer::MakeStatistics() {
     }
   }
 
+  if (analyzer_opts_.output_io_stats) {
+    s = MakeStatisticIO();
+    if(!s.ok()) {
+      return s;
+    }
+  }
+
   return Status::OK();
 }
+
+
+// Process the statistics of IO
+Status TraceAnalyzer::MakeStatisticIO() {
+  uint32_t duration = (end_time_ - begin_time_)/1000000;
+  int ret;
+  std::vector<std::vector<uint32_t>> type_io(duration,
+            std::vector<uint32_t>(taTypeNum+1, 0));
+  std::vector<uint64_t> io_sum(taTypeNum+1, 0);
+  std::vector<uint32_t> io_peak(taTypeNum+1, 0);
+  io_ave_.resize(taTypeNum+1);
+
+  for (int type = 0; type < taTypeNum; type++) {
+    if (!ta_[type].enabled) {
+      continue;
+    }
+    for (auto i = ta_[type].stats.begin(); i != ta_[type].stats.end(); i++) {
+      uint32_t time_line = 0;
+      uint64_t cf_io_sum = 0;
+      for (auto time_it = i->second.a_io_stats.begin();
+            time_it != i->second.a_io_stats.end(); time_it++) {
+        if(time_it->first>=duration) {
+          std::cout<<time_it->first;
+          continue;
+        }
+        type_io[time_it->first][taTypeNum] += time_it->second;
+        type_io[time_it->first][type] += time_it->second;
+        cf_io_sum += time_it->second;
+        if (time_it->second > i->second.a_peak_io) {
+          i->second.a_peak_io = time_it->second;
+        }
+        if(i->second.a_io_f != nullptr) {
+          while(time_line < time_it->first) {
+            ret = fprintf(i->second.a_io_f, "%u\n", 0);
+            if (ret < 0) {
+              return Status::IOError("write file failed");
+            }
+            time_line ++;
+          }
+          ret = fprintf(i->second.a_io_f, "%u\n", time_it->second);
+          if (ret < 0) {
+            return Status::IOError("write file failed");
+          }
+          if (time_line == time_it->first) {
+            time_line ++;
+          }
+        }
+      }
+      i->second.a_ave_io = (static_cast<double>(cf_io_sum))/duration;
+    }
+  }
+
+  if (iops_f != nullptr) {
+    for(uint32_t i = 0; i<duration; i++) {
+      for(int type = 0; type <= taTypeNum; type++) {
+        if(type < taTypeNum) {
+          ret = fprintf(iops_f, "%u ", type_io[i][type]);
+        } else {
+          ret = fprintf(iops_f, "%u\n", type_io[i][type]);
+        }
+        if (ret < 0) {
+          return Status::IOError("write file failed");
+        }
+        io_sum[type] += type_io[i][type];
+        if (type_io[i][type] > io_peak[type]) {
+          io_peak[type] = type_io[i][type];
+        }
+      }
+    }
+  }
+
+  io_peak_ = io_peak;
+  for(int type = 0; type <= taTypeNum; type++) {
+    io_ave_[type] = (static_cast<double>(io_sum[type]))/duration;
+  }
+
+  return Status::OK();
+}
+
 
 // In reprocessing, if we have the whole key space
 // we can output the access count of all keys in a cf
@@ -399,7 +528,8 @@ Status TraceAnalyzer::ReProcessing() {
     if (analyzer_opts_.input_key_space) {
       std::string whole_key_path =
           analyzer_opts_.key_space_dir + "/" + std::to_string(cf_id) + ".txt";
-      std::string input_key, get_key, prefix;
+      std::string input_key, get_key;
+      std::vector<std::string> prefix(taTypeNum);
       wkey_input_f.open(whole_key_path.c_str());
       if (wkey_input_f.fail()) {
         printf("Cannot open the whole key space file of CF: %u\n", cf_id);
@@ -425,11 +555,11 @@ Status TraceAnalyzer::ReProcessing() {
             }
             if (analyzer_opts_.output_prefix_cut &&
                 stats.w_prefix_cut_f != nullptr) {
-              if (input_key.compare(0, analyzer_opts_.prefix_cut, prefix) !=
+              if (input_key.compare(0, analyzer_opts_.prefix_cut, prefix[i]) !=
                   0) {
-                prefix = input_key.substr(0, analyzer_opts_.prefix_cut);
+                prefix[i] = input_key.substr(0, analyzer_opts_.prefix_cut);
                 std::string prefix_out =
-                    rocksdb::LDBCommand::StringToHex(prefix);
+                    rocksdb::LDBCommand::StringToHex(prefix[i]);
                 ret = fprintf(stats.w_prefix_cut_f, "%" PRIu64 " %s\n",
                               cfs_[cf_id].w_count, prefix_out.c_str());
                 if (ret < 0) {
@@ -505,6 +635,15 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
   unit.cf_id = cf_id;
   unit.value_size = value_size;
   unit.access_count = 1;
+  if(begin_time_ == 0) {
+    begin_time_ = ts;
+  }
+  uint32_t time_in_sec;
+  if (ts < begin_time_) {
+    time_in_sec = 0;
+  } else {
+    time_in_sec = (ts - begin_time_)/1000000;
+  }
   uint64_t dist_value_size = value_size/analyzer_opts_.value_interval;
   if (found_stats == ta_[type].stats.end()) {
     TraceStats new_stats;
@@ -512,12 +651,21 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     new_stats.cf_name = std::to_string(cf_id);
     new_stats.a_count = 1;
     new_stats.akey_id = 0;
+    new_stats.a_key_size_sqsum = key.size()*key.size();
+    new_stats.a_key_size_sum = key.size();
+    new_stats.a_value_size_sqsum = value_size*value_size;
+    new_stats.a_value_size_sum = value_size;
     s = OpenStatsOutputFiles(ta_[type].type_name, new_stats);
     new_stats.a_key_stats[key] = unit;
     new_stats.a_value_size_stats[dist_value_size] = 1;
+    new_stats.a_io_stats[time_in_sec] = 1;
     ta_[type].stats[cf_id] = new_stats;
   } else {
     found_stats->second.a_count++;
+    found_stats->second.a_key_size_sqsum += key.size()*key.size();
+    found_stats->second.a_key_size_sum += key.size();
+    found_stats->second.a_value_size_sqsum += value_size*value_size;
+    found_stats->second.a_value_size_sum += value_size;
     auto found_key = found_stats->second.a_key_stats.find(key);
     if (found_key == found_stats->second.a_key_stats.end()) {
       found_stats->second.a_key_stats[key] = unit;
@@ -531,6 +679,13 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
       found_stats->second.a_value_size_stats[dist_value_size] = 1;
     } else {
       found_value->second++;
+    }
+
+    auto found_io = found_stats->second.a_io_stats.find(time_in_sec);
+    if (found_io == found_stats->second.a_io_stats.end()) {
+      found_stats->second.a_io_stats[time_in_sec] = 1;
+    } else {
+      found_io->second++;
     }
   }
 
@@ -588,10 +743,16 @@ Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
         CreateOutputFile(type, new_stats.cf_name, "time_serial.txt");
   }
 
-  if (analyzer_opts_.print_key_distribution) {
+  if (analyzer_opts_.print_value_distribution) {
     new_stats.a_value_size_f = CreateOutputFile(
         type, new_stats.cf_name, "accessed_value_size_distribution.txt");
   }
+
+  if (analyzer_opts_.output_io_stats) {
+    new_stats.a_io_f = CreateOutputFile(
+        type, new_stats.cf_name, "io_stats.txt");
+  }
+
   return Status::OK();
 }
 
@@ -808,12 +969,24 @@ void TraceAnalyzer::PrintGetStatistics() {
     ta_[type].total_keys = 0;
     printf("\n################# Operation Type: %s #####################\n",
            ta_[type].type_name.c_str());
+    printf("Peak IO is: %u Average IO is: %f\n", io_peak_[type], io_ave_[type]);
     for (auto i = ta_[type].stats.begin(); i != ta_[type].stats.end(); i++) {
       if (i->second.a_count == 0) {
         continue;
       }
       uint64_t total_a_keys =
           static_cast<uint64_t>(i->second.a_key_stats.size());
+      double key_size_ave = (static_cast<double>(i->second.a_key_size_sum))/
+          i->second.a_count;
+      double value_size_ave = (static_cast<double>(i->second.a_value_size_sum))/
+          i->second.a_count;
+      double key_size_vari = sqrt((static_cast<double>(i->second.a_key_size_sqsum))/
+          i->second.a_count - key_size_ave*key_size_ave);
+      double value_size_vari = sqrt((static_cast<double>(i->second.a_value_size_sqsum))/
+          i->second.a_count - value_size_ave*value_size_ave);
+      if (value_size_ave == 0.0) {
+        i->second.a_value_mid = 0;
+      }
       cfs_[i->second.cf_id].a_count += total_a_keys;
       ta_[type].total_keys += total_a_keys;
       printf("*********************************************************\n");
@@ -821,6 +994,14 @@ void TraceAnalyzer::PrintGetStatistics() {
       printf("Total unique keys in this cf: %" PRIu64 "\n", total_a_keys);
       printf("Total '%s' requests on cf '%u': %" PRIu64 "\n",
              ta_[type].type_name.c_str(), i->second.cf_id, i->second.a_count);
+      printf("Average key size: %f key size medium: %" PRIu64
+            " Key size Variation: %f\n",
+            key_size_ave, i->second.a_key_mid, key_size_vari);
+      printf("Average value size: %f Value size medium: %" PRIu64
+            " Value size variation: %f\n",
+            value_size_ave, i->second.a_value_mid, value_size_vari);
+      printf("Peak IO is: %u Average IO is: %f\n",
+            i->second.a_peak_io, i->second.a_ave_io);
 
       // print the top k accessed key and its access count
       if (analyzer_opts_.print_top_k_access) {
@@ -865,6 +1046,8 @@ void TraceAnalyzer::PrintGetStatistics() {
   if (analyzer_opts_.print_overall_stats) {
     printf("\n*********************************************************\n");
     printf("*********************************************************\n");
+    printf("Average IO per second: %f Peak IO: %u\n",
+            io_ave_[taTypeNum], io_peak_[taTypeNum]);
     printf("Total_requests: %" PRIu64 " Total_accessed_keys: %" PRIu64
            " Total_gets: %" PRIu64 " Total_writes: %" PRIu64 "\n",
            total_requests_, total_access_keys_, total_gets_, total_writes_);
@@ -915,6 +1098,9 @@ void print_help() {
       Out put the trace sequence for further processing
       including the type, cf_id, ts, value_sze, key. This file
       will be extremely large (similar size as the original trace)
+    --output_io_stats
+      Output the statistics of the IO per second, the IO including all
+      operations
     --intput_key_space_dir=<the directory stores full key space files>
       The key space file should be named as <column family name>.txt
     --use_get
@@ -992,6 +1178,8 @@ int TraceAnalyzerTool::Run(int argc, char** argv) {
       analyzer_opts.output_prefix_cut = true;
     } else if (strncmp(argv[i], "--output_trace_sequence", 23) == 0) {
       analyzer_opts.output_trace_sequence = true;
+    } else if (strncmp(argv[i], "--output_io_stats", 17) == 0) {
+      analyzer_opts.output_io_stats = true;
     } else if (strncmp(argv[i], "--intput_key_space_dir=", 23) == 0) {
       analyzer_opts.key_space_dir = argv[i] + 23;
       if (stat(analyzer_opts.key_space_dir.c_str(), &info ) != 0 ) {
