@@ -30,6 +30,18 @@ public abstract class RocksObject extends AbstractImmutableNativeReference {
   }
 
   /**
+   * Gets the value of the C++ pointer pointing to the underlying
+   * native C++ object
+   *
+   * @return the pointer value for the native object
+   */
+  public long getNativeHandle() {
+    assert (this.nativeHandle_ != 0);
+    return this.nativeHandle_;
+  }
+
+
+  /**
    * Deletes underlying C++ object pointer.
    */
   @Override

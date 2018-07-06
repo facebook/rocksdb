@@ -115,7 +115,7 @@ public:
   virtual int64_t Timestamp() const override;
   virtual std::size_t Size() const override;
   virtual void Serialize(std::string* dest) const override;
-  bool Collectable(int32_t gc_grace_period) const;
+  bool Collectable(std::chrono::seconds gc_grace_period) const;
   static std::shared_ptr<Tombstone> Deserialize(const char* src,
                                                 std::size_t offset);
 
@@ -162,10 +162,12 @@ public:
   // For Tombstone this returns the marked_for_delete_at_,
   // otherwise it returns the max timestamp of containing columns.
   int64_t LastModifiedTime() const;
+  std::chrono::time_point<std::chrono::system_clock> LastModifiedTimePoint()
+      const;
   void Serialize(std::string* dest) const;
   RowValue RemoveExpiredColumns(bool* changed) const;
   RowValue ConvertExpiredColumnsToTombstones(bool* changed) const;
-  RowValue RemoveTombstones(int32_t gc_grace_period) const;
+  RowValue RemoveTombstones(std::chrono::seconds gc_grace_period) const;
   bool Empty() const;
 
   static RowValue Deserialize(const char* src, std::size_t size);
@@ -191,6 +193,23 @@ private:
     CassandraFunctionalTest, CompactionShouldRemoveRowWhenAllColumnExpiredIfPurgeTtlIsOn);
   FRIEND_TEST(CassandraFunctionalTest,
               CompactionShouldRemoveTombstoneExceedingGCGracePeriod);
+};
+
+class PartitionDeletion {
+ public:
+  PartitionDeletion(int32_t local_deletion_time, int64_t marked_for_delete_at);
+  std::chrono::time_point<std::chrono::system_clock> MarkForDeleteAt() const;
+  std::chrono::time_point<std::chrono::system_clock> LocalDeletionTime() const;
+  void Serialize(std::string* dest) const;
+  bool Supersedes(PartitionDeletion& pd) const;
+  static PartitionDeletion Merge(std::vector<PartitionDeletion>&& pds);
+  static PartitionDeletion Deserialize(const char* src, std::size_t size);
+  const static PartitionDeletion kDefault;
+  const static std::size_t kSize;
+
+ private:
+  int32_t local_deletion_time_;
+  int64_t marked_for_delete_at_;
 };
 
 } // namepsace cassandrda
