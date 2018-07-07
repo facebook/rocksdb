@@ -23,8 +23,8 @@ class OptionsSpecParser(IniParser):
         'TableOptions.BlockBasedTable'
         '''
         section_path = line.strip()[1:-1].split()[0]
-        ConfigurationOptimizer = '.'.join(section_path.split('/'))
-        return ConfigurationOptimizer
+        section_type = '.'.join(section_path.split('/'))
+        return section_type
 
     @staticmethod
     def get_section_name(line):
@@ -159,13 +159,15 @@ class DatabaseOptions(DataSource):
     def check_and_trigger_conditions(self, conditions):
         for cond in conditions:
             reqd_options_dict = self.get_options(cond.options)
+            # This contains the indices of options that are specific to some
+            # column family and are not database-wide options.
             incomplete_option_ix = []
             options = []
             missing_reqd_option = False
             for ix, option in enumerate(cond.options):
                 if option not in reqd_options_dict:
                     missing_reqd_option = True
-                    break  # required option absent
+                    break  # required option is absent
                 if NO_FAM in reqd_options_dict[option]:
                     options.append(reqd_options_dict[option][NO_FAM])
                 else:
@@ -209,7 +211,7 @@ class DatabaseOptions(DataSource):
 
 # TODO: remove these methods once the unit tests for this class are in place
 def main():
-    options_file = 'temp/OPTIONS-000005.tmp'
+    options_file = 'temp/OPTIONS_default.tmp'
     db_options = DatabaseOptions(options_file)
     print(db_options.get_column_families())
     get_op = db_options.get_options([
@@ -225,7 +227,7 @@ def main():
     db_options.update_options(get_op)
     db_options.generate_options_config(nonce=123)
 
-    options_file = 'temp/OPTIONS_345.tmp'
+    options_file = 'temp/OPTIONS_123.tmp'
     db_options = DatabaseOptions(options_file)
     # only CFOptions
     cond1 = Condition('opt-cond-1')
@@ -270,8 +272,9 @@ def main():
     )
 
     db_options.check_and_trigger_conditions([cond1, cond2, cond3])
-    print(cond1.get_trigger())
-    print(cond2.get_trigger())
+    print(cond1.get_trigger())  # {'col-fam-B': ['4', '10', '10']}
+    print(cond2.get_trigger())  # {'DB_WIDE': ['16', '4']}
+    # {'col-fam-B': ['2', '3', '10'], 'col-fam-A': ['2', '3', '7']}
     print(cond3.get_trigger())
 
 

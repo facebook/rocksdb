@@ -17,6 +17,7 @@ class LogStatsParser(TimeSeriesData):
 
     @staticmethod
     def parse_log_line_for_stats(log_line):
+        # Note: case insensitive stat names
         token_list = log_line.strip().split()
         stat_prefix = token_list[0] + '.'
         stat_values = [
@@ -28,6 +29,7 @@ class LogStatsParser(TimeSeriesData):
         for ix, metric in enumerate(stat_values):
             if ix % 2 == 0:
                 stat_name = stat_prefix + metric
+                stat_name = stat_name.lower()
             else:
                 stat_dict[stat_name] = float(metric)
         return stat_dict
@@ -39,14 +41,15 @@ class LogStatsParser(TimeSeriesData):
         self.duration_sec = 60
 
     def get_keys_from_conditions(self, conditions):
+        # Note: case insensitive stat names
         reqd_stats = []
         for cond in conditions:
             for key in cond.keys:
+                key = key.lower()
                 if key.startswith('[]'):
                     reqd_stats.append(key[2:])
                 else:
                     reqd_stats.append(key)
-        reqd_stats = list(set(reqd_stats))  # deduplicate required stats
         return reqd_stats
 
     def add_to_timeseries(self, log, reqd_stats):
@@ -65,6 +68,8 @@ class LogStatsParser(TimeSeriesData):
     def fetch_timeseries(self, statistics):
         self.keys_ts = {NO_ENTITY: {}}
         for file_name in glob.glob(self.logs_file_prefix + '*'):
+            if re.search('old', file_name, re.IGNORECASE):
+                continue
             with open(file_name, 'r') as db_logs:
                 new_log = None
                 for line in db_logs:
@@ -87,7 +92,8 @@ class OdsStatsFetcher(TimeSeriesData):
     # class constants
     OUTPUT_FILE = 'temp/stats_out.tmp'
     ERROR_FILE = 'temp/stats_err.tmp'
-    COMMAND = "%s --entity=%s --key=%s --tstart=%s --tend=%s --showtime"
+    RAPIDO_COMMAND = "%s --entity=%s --key=%s --tstart=%s --tend=%s --showtime"
+    ODS_COMMAND = '%s %s %s'  # client, entities, keys
 
     # static methods
     @staticmethod
@@ -123,16 +129,7 @@ class OdsStatsFetcher(TimeSeriesData):
         out_file.close()
         err_file.close()
 
-    def fetch_timeseries(self, statistics):
-        command = self.COMMAND % (
-            self.client,
-            self._get_string_in_quotes(self.entities),
-            self._get_string_in_quotes(','.join(statistics)),
-            self._get_string_in_quotes(self.start_time),
-            self._get_string_in_quotes(self.end_time)
-        )
-        self.execute_script(command)
-        # Parse ODS output and populate the 'keys_ts' map
+    def parse_rapido_output(self):
         self.keys_ts = {}
         with open(self.OUTPUT_FILE, 'r') as fp:
             for line in fp:
@@ -150,6 +147,44 @@ class OdsStatsFetcher(TimeSeriesData):
                 value = {pair[0]: pair[1] for pair in list_of_lists}
                 self.keys_ts[entity][key] = value
 
+    def parse_ods_output(self):
+        self.keys_ts = {}
+        with open(self.OUTPUT_FILE, 'r') as fp:
+            for line in fp:
+                token_list = line.split()
+                entity = token_list[0]
+                if entity not in self.keys_ts:
+                    self.keys_ts[entity] = {}
+                key = token_list[1]
+                if key not in self.keys_ts[entity]:
+                    self.keys_ts[entity][key] = {}
+                self.keys_ts[entity][key][token_list[2]] = token_list[3]
+
+    def fetch_timeseries(self, statistics):
+        print('OdsStatsFetcher: fetching ' + str(statistics))
+        if re.search('rapido', self.client, re.IGNORECASE):
+            command = self.RAPIDO_COMMAND % (
+                self.client,
+                self._get_string_in_quotes(self.entities),
+                self._get_string_in_quotes(','.join(statistics)),
+                self._get_string_in_quotes(self.start_time),
+                self._get_string_in_quotes(self.end_time)
+            )
+            # Run the tool and fetch the time-series data
+            self.execute_script(command)
+            # Parse output and populate the 'keys_ts' map
+            self.parse_rapido_output()
+        elif re.search('ods', self.client, re.IGNORECASE):
+            command = self.ODS_COMMAND % (
+                self.client,
+                self._get_string_in_quotes(self.entities),
+                self._get_string_in_quotes(','.join(statistics))
+            )
+            # Run the tool and fetch the time-series data
+            self.execute_script(command)
+            # Parse output and populate the 'keys_ts' map
+            self.parse_ods_output()
+
     def get_keys_from_conditions(self, conditions):
         reqd_stats = []
         for cond in conditions:
@@ -160,7 +195,7 @@ class OdsStatsFetcher(TimeSeriesData):
                     key = key[2:]
                 # TODO: this is very hacky and needs to be improved
                 if key.startswith("rocksdb"):
-                    key += ".sum.60"
+                    key += ".60"
                 if use_prefix:
                     if not self.key_prefix:
                         print('Warning: OdsStatsFetcher might need key prefix')
@@ -168,7 +203,6 @@ class OdsStatsFetcher(TimeSeriesData):
                     else:
                         key = self.key_prefix + "." + key
                 reqd_stats.append(key)
-        reqd_stats = list(set(reqd_stats))  # deduplicate required stats
         return reqd_stats
 
     def fetch_rate_url(self, entities, keys, window_len, percent, display):
@@ -181,7 +215,7 @@ class OdsStatsFetcher(TimeSeriesData):
         else:
             transform_desc = transform_desc + ")"
 
-        command = self.COMMAND + " --transform=%s --url=%s"
+        command = self.RAPIDO_COMMAND + " --transform=%s --url=%s"
         command = command % (
             self.client,
             self._get_string_in_quotes(','.join(entities)),
@@ -201,17 +235,18 @@ class OdsStatsFetcher(TimeSeriesData):
 # TODO: remove these blocks once the unittests for LogStatsParser are in place
 def main():
     # populating the statistics
-    log_stats = LogStatsParser('/dev/shm/dbbench/LOG', 60)
+    log_stats = LogStatsParser('temp/db_stats_fetcher_main_LOG.tmp', 20)
     print(log_stats.type)
     print(log_stats.keys_ts)
     print(log_stats.logs_file_prefix)
     print(log_stats.stats_freq_sec)
     print(log_stats.duration_sec)
     statistics = [
-        'rocksdb.number.rate_limiter.drains.COUNT',
-        'rocksdb.number.block.decompressed.COUNT',
-        'rocksdb.db.write.micros.P50',
-        'rocksdb.manifest.file.sync.micros.P99'
+        'rocksdb.number.rate_limiter.drains.count',
+        'rocksdb.number.block.decompressed.count',
+        'rocksdb.db.get.micros.p50',
+        'rocksdb.manifest.file.sync.micros.p99',
+        'rocksdb.db.get.micros.p99'
     ]
     log_stats.fetch_timeseries(statistics)
     print()
@@ -219,26 +254,26 @@ def main():
     # aggregated statistics
     print()
     print(log_stats.fetch_aggregated_values(
-        statistics, TimeSeriesData.AggregationOperator.latest
+        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.latest
     ))
     print(log_stats.fetch_aggregated_values(
-        statistics, TimeSeriesData.AggregationOperator.oldest
+        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.oldest
     ))
     print(log_stats.fetch_aggregated_values(
-        statistics, TimeSeriesData.AggregationOperator.max
+        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.max
     ))
     print(log_stats.fetch_aggregated_values(
-        statistics, TimeSeriesData.AggregationOperator.min
+        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.min
     ))
     print(log_stats.fetch_aggregated_values(
-        statistics, TimeSeriesData.AggregationOperator.avg
+        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.avg
     ))
     # condition 'evaluate_expression' that evaluates to true
     cond1 = Condition('cond-1')
     cond1 = TimeSeriesCondition.create(cond1)
     cond1.set_parameter('keys', statistics)
     cond1.set_parameter('behavior', 'evaluate_expression')
-    cond1.set_parameter('evaluate', 'keys[2]-keys[3]>=0')
+    cond1.set_parameter('evaluate', 'keys[3]-keys[2]>=0')
     cond1.set_parameter('aggregation_op', 'avg')
     # condition 'evaluate_expression' that evaluates to false
     cond2 = Condition('cond-2')
@@ -247,14 +282,21 @@ def main():
     cond2.set_parameter('behavior', 'evaluate_expression')
     cond2.set_parameter('evaluate', '((keys[1]-(2*keys[0]))/100)<3000')
     cond2.set_parameter('aggregation_op', 'latest')
+    # condition 'evaluate_expression' that evaluates to true; no aggregation_op
+    cond3 = Condition('cond-3')
+    cond3 = TimeSeriesCondition.create(cond3)
+    cond3.set_parameter('keys', [statistics[2], statistics[3]])
+    cond3.set_parameter('behavior', 'evaluate_expression')
+    cond3.set_parameter('evaluate', '(keys[1]/keys[0])>23')
     # check remaining methods
-    conditions = [cond1, cond2]
+    conditions = [cond1, cond2, cond3]
     print()
     print(log_stats.get_keys_from_conditions(conditions))
     log_stats.check_and_trigger_conditions(conditions)
     print()
     print(cond1.get_trigger())
     print(cond2.get_trigger())
+    print(cond3.get_trigger())
 
 
 if __name__ == '__main__':

@@ -206,7 +206,7 @@ class TestParsingErrors(unittest.TestCase):
         ini_path = os.path.join(self.this_path, 'input_files/rules_err2.ini')
         db_rules = RulesSpec(ini_path)
         regex = '.*provide source for condition.*'
-        with self.assertRaisesRegex(ValueError, regex):
+        with self.assertRaisesRegex(NotImplementedError, regex):
             db_rules.load_rules_from_spec()
 
     def test_suggestion_missing_action(self):

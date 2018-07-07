@@ -127,9 +127,7 @@ class Rule(Section):
             condition2 = conditions_dict[self.conditions[1]]
             if not (
                 condition1.get_data_source() is DataSource.Type.TIME_SERIES and
-                condition2.get_data_source() is DataSource.Type.TIME_SERIES and
-                condition1.behavior is TimeSeriesData.Behavior.bursty and
-                condition2.behavior is TimeSeriesData.Behavior.bursty
+                condition2.get_data_source() is DataSource.Type.TIME_SERIES
             ):
                 raise ValueError(self.name + ': need 2 timeseries conditions')
 
@@ -226,7 +224,7 @@ class Suggestion(Section):
         super().__init__(name)
         self.option = None
         self.action = None
-        self.suggested_value = None
+        self.suggested_values = None
         self.description = None
 
     def set_parameter(self, key, value):
@@ -236,11 +234,11 @@ class Suggestion(Section):
             if self.option and not value:
                 raise ValueError(self.name + ': provide action for option')
             self.action = self.Action[value]
-        elif key == 'suggested_value':
+        elif key == 'suggested_values':
             if isinstance(value, str):
-                self.suggested_value = [value]
+                self.suggested_values = [value]
             else:
-                self.suggested_value = value
+                self.suggested_values = value
         elif key == 'description':
             self.description = value
 
@@ -250,7 +248,7 @@ class Suggestion(Section):
                 raise ValueError(self.name + ': provide option or description')
             if not self.action:
                 raise ValueError(self.name + ': provide action for option')
-            if self.action is self.Action.set and not self.suggested_value:
+            if self.action is self.Action.set and not self.suggested_values:
                 raise ValueError(
                     self.name + ': provide suggested value for option'
                 )
@@ -263,8 +261,10 @@ class Suggestion(Section):
             sugg_string += (
                 ' option : ' + self.option + ' action : ' + self.action.name
             )
-            if self.suggested_value:
-                sugg_string += (' suggested_value : ' + self.suggested_value)
+            if self.suggested_values:
+                sugg_string += (
+                    ' suggested_values : ' + str(self.suggested_values)
+                )
         return sugg_string
 
 
@@ -322,8 +322,8 @@ class LogCondition(Condition):
     def __repr__(self):
         log_cond_str = "LogCondition: " + self.name
         log_cond_str += (" regex: " + self.regex)
-        if self.trigger:
-            log_cond_str += (" trigger: " + str(self.trigger))
+        # if self.trigger:
+        #     log_cond_str += (" trigger: " + str(self.trigger))
         return log_cond_str
 
 
@@ -353,7 +353,7 @@ class OptionCondition(Condition):
     def __repr__(self):
         opt_cond_str = "OptionCondition: " + self.name
         opt_cond_str += (" options: " + str(self.options))
-        opt_cond_str += (" expression: " + self.evaluate)
+        opt_cond_str += (" expression: " + self.eval_expr)
         if self.trigger:
             opt_cond_str += (" trigger: " + str(self.trigger))
         return opt_cond_str
@@ -396,12 +396,8 @@ class TimeSeriesCondition(Condition):
             if len(self.keys) > 1:
                 raise ValueError(self.name + ': specify only one key')
         elif self.behavior is TimeSeriesData.Behavior.evaluate_expression:
-            if not (self.expression and self.aggregation_op):
-                raise ValueError(
-                    self.name +
-                    ': specify evaluation expression and the aggregation'
-                    + ' operator for the keys'
-                )
+            if not (self.expression):
+                raise ValueError(self.name + ': specify evaluation expression')
         else:
             raise ValueError(self.name + ': trigger behavior not supported')
 
@@ -414,7 +410,8 @@ class TimeSeriesCondition(Condition):
             ts_cond_str += (" window_sec: " + str(self.window_sec))
         if self.behavior is TimeSeriesData.Behavior.evaluate_expression:
             ts_cond_str += (" expression: " + self.expression)
-            ts_cond_str += (" aggregation_op: " + self.aggregation_op.name)
+            if hasattr(self, 'aggregation_op'):
+                ts_cond_str += (" aggregation_op: " + self.aggregation_op.name)
         if self.trigger:
             ts_cond_str += (" trigger: " + str(self.trigger))
         return ts_cond_str
@@ -507,7 +504,7 @@ class RulesSpec:
 
     def print_rules(self, rules):
         for rule in rules:
-            print('Rule: ' + rule.name)
+            print('\nRule: ' + rule.name)
             for cond_name in rule.conditions:
                 print(repr(self.conditions_dict[cond_name]))
             for sugg_name in rule.suggestions:

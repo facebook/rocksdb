@@ -21,21 +21,22 @@ def main(args):
         args.benchrunner_module, fromlist=[args.benchrunner_class]
     )
     bench_runner_class = getattr(bench_runner_module, args.benchrunner_class)
-    ods_args = {'client_script': None, 'entity': None, 'key_prefix': None}
-    if args.ods_client:
+    ods_args = {}
+    if args.ods_client and args.ods_entity:
         ods_args['client_script'] = args.ods_client
-    if args.ods_entity:
         ods_args['entity'] = args.ods_entity
-    if args.ods_key_prefix:
-        ods_args['key_prefix'] = args.ods_key_prefix
+        if args.ods_key_prefix:
+            ods_args['key_prefix'] = args.ods_key_prefix
     db_bench_runner = bench_runner_class(args.benchrunner_pos_args, ods_args)
     # initialise the database configuration
     db_options = DatabaseOptions(args.rocksdb_options)
     # set the frequency at which stats are dumped in the LOG file and the
     # location of the LOG file.
     db_log_dump_settings = {
-        "DBOptions.stats_dump_period_sec": {NO_FAM: 10},
-        "DBOptions.db_log_dir": {NO_FAM: "/tmp/rocksdbtest-155919/dbbench"}
+        "DBOptions.db_log_dir": {NO_FAM: args.db_log_dir},
+        "DBOptions.stats_dump_period_sec": {
+            NO_FAM: args.stats_dump_period_sec
+        }
     }
     db_options.update_options(db_log_dump_settings)
     # initialise the configuration optimizer
@@ -44,7 +45,10 @@ def main(args):
     )
     # run the optimiser to improve the database configuration for given
     # benchmarks, with the help of expert-specified rules
-    config_optimizer.run(num_iterations=CONFIG_OPT_NUM_ITER)
+    final_options_file = config_optimizer.run_v2()
+    print('Final configuration in: ' + final_options_file)
+    # the ConfigOptimizer has another optimization logic:
+    # config_optimizer.run(num_iterations=CONFIG_OPT_NUM_ITER)
 
 
 if __name__ == '__main__':
@@ -52,6 +56,8 @@ if __name__ == '__main__':
         searching for a better database configuration')
     parser.add_argument('--rocksdb_options', required=True, type=str)
     parser.add_argument('--rules_spec', required=True, type=str)
+    parser.add_argument('--stats_dump_period_sec', required=True, type=int)
+    parser.add_argument('--db_log_dir', required=True, type=str)
     # ODS arguments
     parser.add_argument('--ods_client', type=str)
     parser.add_argument('--ods_entity', type=str)

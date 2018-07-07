@@ -37,9 +37,9 @@ class TimeSeriesData(DataSource):
         pass
 
     def fetch_burst_epochs(
-        self, statistic, window_sec, threshold, percent=False
+        self, statistic, window_sec, threshold, percent
     ):
-        # type: (str, int, float, bool) -> Dict[int, float]
+        # type: (str, int, float, bool) -> Dict[str, Dict[int, float]]
         if window_sec < self.stats_freq_sec:
             window_sec = self.stats_freq_sec
         window_samples = math.ceil(window_sec / self.stats_freq_sec)
@@ -63,31 +63,28 @@ class TimeSeriesData(DataSource):
                     burst_epochs[entity][last_ts] = rate
         return burst_epochs
 
-    def fetch_aggregated_values(self, statistics, aggregation_op):
-        # type: (str, AggregationOperator) -> Dict[str, Dict[str, float]]
-        # returned object is Dict[entity, Dict[key, aggregated_value]]
+    def fetch_aggregated_values(self, entity, statistics, aggregation_op):
+        # type: (str, AggregationOperator) -> Dict[str, float]
+        # returned object is Dict[statistic, aggregated_value]
         result = {}
-        for et in self.keys_ts:
-            for stat in statistics:
-                if stat not in self.keys_ts[et]:
-                    continue
-                agg_val = None
-                if aggregation_op is self.AggregationOperator.latest:
-                    latest_timestamp = max(list(self.keys_ts[et][stat].keys()))
-                    agg_val = self.keys_ts[et][stat][latest_timestamp]
-                elif aggregation_op is self.AggregationOperator.oldest:
-                    oldest_timestamp = min(list(self.keys_ts[et][stat].keys()))
-                    agg_val = self.keys_ts[et][stat][oldest_timestamp]
-                elif aggregation_op is self.AggregationOperator.max:
-                    agg_val = max(list(self.keys_ts[et][stat].values()))
-                elif aggregation_op is self.AggregationOperator.min:
-                    agg_val = min(list(self.keys_ts[et][stat].values()))
-                elif aggregation_op is self.AggregationOperator.avg:
-                    values = list(self.keys_ts[et][stat].values())
-                    agg_val = sum(values) / len(values)
-                if et not in result:
-                    result[et] = {}
-                result[et][stat] = agg_val
+        for stat in statistics:
+            if stat not in self.keys_ts[entity]:
+                continue
+            agg_val = None
+            if aggregation_op is self.AggregationOperator.latest:
+                latest_timestamp = max(list(self.keys_ts[entity][stat].keys()))
+                agg_val = self.keys_ts[entity][stat][latest_timestamp]
+            elif aggregation_op is self.AggregationOperator.oldest:
+                oldest_timestamp = min(list(self.keys_ts[entity][stat].keys()))
+                agg_val = self.keys_ts[entity][stat][oldest_timestamp]
+            elif aggregation_op is self.AggregationOperator.max:
+                agg_val = max(list(self.keys_ts[entity][stat].values()))
+            elif aggregation_op is self.AggregationOperator.min:
+                agg_val = min(list(self.keys_ts[entity][stat].values()))
+            elif aggregation_op is self.AggregationOperator.avg:
+                values = list(self.keys_ts[entity][stat].values())
+                agg_val = sum(values) / len(values)
+            result[stat] = agg_val
         return result
 
     def check_and_trigger_conditions(self, conditions):
@@ -106,22 +103,46 @@ class TimeSeriesData(DataSource):
                 if result:
                     cond.set_trigger(result)
             elif cond.behavior is self.Behavior.evaluate_expression:
+                self.handle_evaluate_expression(cond, complete_keys)
+
+    def handle_evaluate_expression(self, condition, statistics):
+        # trigger = Dict[entity, List[stats]]; if aggregation_op is specified
+        # Dict[entity, Dict[timestamp, List[stats]]]; otherwise
+        trigger = {}
+        # Get the entities that have all statistics required by 'condition'
+        entities_with_stats = []
+        for entity in self.keys_ts:
+            stat_missing = False
+            for stat in statistics:
+                if stat not in self.keys_ts[entity]:
+                    stat_missing = True
+                    break
+            if not stat_missing:
+                entities_with_stats.append(entity)
+        # check 'condition' for each of these entities
+        for entity in entities_with_stats:
+            if hasattr(condition, 'aggregation_op'):
                 result = self.fetch_aggregated_values(
-                        complete_keys, cond.aggregation_op
+                        entity, statistics, condition.aggregation_op
                 )
-                entity_evaluation_dict = {}
-                for entity in result:
+                keys = [result[key] for key in statistics]
+                try:
+                    if eval(condition.expression):
+                        trigger[entity] = keys
+                except Exception as e:
+                    print('TimeSeriesData check_and_trigger: ' + str(e))
+            else:  # assumption: all statistics have the same timeseries
+                for epoch in self.keys_ts[entity][statistics[0]].keys():
                     keys = [
-                        result[entity][key]
-                        for key in complete_keys
-                        if key in result[entity]
-                    ]  # keys should be in the same order as complete_keys
-                    if len(keys) != len(complete_keys):
-                        continue
+                        self.keys_ts[entity][key][epoch]
+                        for key in statistics
+                    ]
                     try:
-                        if eval(cond.expression):
-                            entity_evaluation_dict[entity] = keys
+                        if eval(condition.expression):
+                            if entity not in trigger:
+                                trigger[entity] = {}
+                            trigger[entity][epoch] = keys
                     except Exception as e:
-                        print('TimeSeriesData check_and_trigger: ' + str(e))
-                if entity_evaluation_dict:
-                    cond.set_trigger(entity_evaluation_dict)
+                        print('TimeSeriesData check_&_trigger: ' + str(e))
+        if trigger:
+            condition.set_trigger(trigger)
