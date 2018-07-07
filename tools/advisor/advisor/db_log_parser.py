@@ -103,6 +103,8 @@ class DatabaseLogs(DataSource):
 
     def check_and_trigger_conditions(self, conditions):
         for file_name in glob.glob(self.logs_path_prefix + '*'):
+            if re.search('old', file_name, re.IGNORECASE):
+                continue
             with open(file_name, 'r') as db_logs:
                 new_log = None
                 for line in db_logs:
