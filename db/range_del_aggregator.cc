@@ -282,17 +282,13 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
            new_range_dels_iter != new_range_dels.end()) {
       const Slice *tombstone_map_iter_end = nullptr,
                   *new_range_dels_iter_end = nullptr;
-      if (tombstone_map_iter != tombstone_map.end()) {
-        auto next_tombstone_map_iter = std::next(tombstone_map_iter);
-        if (next_tombstone_map_iter != tombstone_map.end()) {
-          tombstone_map_iter_end = &next_tombstone_map_iter->first;
-        }
+      auto next_tombstone_map_iter = std::next(tombstone_map_iter);
+      if (next_tombstone_map_iter != tombstone_map.end()) {
+        tombstone_map_iter_end = &next_tombstone_map_iter->first;
       }
-      if (new_range_dels_iter != new_range_dels.end()) {
-        auto next_new_range_dels_iter = std::next(new_range_dels_iter);
-        if (next_new_range_dels_iter != new_range_dels.end()) {
-          new_range_dels_iter_end = &next_new_range_dels_iter->start_key_;
-        }
+      auto next_new_range_dels_iter = std::next(new_range_dels_iter);
+      if (next_new_range_dels_iter != new_range_dels.end()) {
+        new_range_dels_iter_end = &next_new_range_dels_iter->start_key_;
       }
 
       // our positions in existing/new tombstone collections should always
@@ -307,24 +303,19 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
 
       int new_to_old_start_cmp = icmp_.user_comparator()->Compare(
           new_range_dels_iter->start_key_, tombstone_map_iter->first);
-      // nullptr end means extends infinitely rightwards, set new_to_old_end_cmp
-      // accordingly so we can use common code paths later.
-      int new_to_old_end_cmp;
-      if (new_range_dels_iter_end == nullptr &&
-          tombstone_map_iter_end == nullptr) {
-        new_to_old_end_cmp = 0;
-      } else if (new_range_dels_iter_end == nullptr) {
-        new_to_old_end_cmp = 1;
-      } else if (tombstone_map_iter_end == nullptr) {
-        new_to_old_end_cmp = -1;
-      } else {
+      // If we're looking at either the last new tombstone or the last existing
+      // tombstone, we can't compare against nullptr, but we know that the new
+      // tombstone logically ends before the existing tombstone.
+      int new_to_old_end_cmp = -1;
+      if (new_range_dels_iter_end != nullptr &&
+          tombstone_map_iter_end != nullptr) {
         new_to_old_end_cmp = icmp_.user_comparator()->Compare(
             *new_range_dels_iter_end, *tombstone_map_iter_end);
       }
 
-      if (new_to_old_start_cmp < 0) {
-        // the existing one's left endpoint comes after, so raise/delete it if
-        // it's covered.
+      if (new_to_old_start_cmp <= 0) {
+        // the existing one's left endpoint comes after or coincides, so
+        // raise/delete the right endpoint if it's covered.
         if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           untermed_seq = tombstone_map_iter->second.seq_;
           if (tombstone_map_iter != tombstone_map.begin() &&
@@ -336,7 +327,7 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
             tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
           }
         }
-      } else if (new_to_old_start_cmp > 0) {
+      } else {
         if (untermed_seq != kMaxSequenceNumber ||
             tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           auto seq = tombstone_map_iter->second.seq_;
@@ -351,12 +342,6 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
                       untermed_seq == kMaxSequenceNumber ? 0 : untermed_seq,
                       new_range_dels_iter->seq_)));
           untermed_seq = seq;
-        }
-      } else {
-        // their left endpoints coincide, so raise the existing one if needed
-        if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
-          untermed_seq = tombstone_map_iter->second.seq_;
-          tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
         }
       }
 
@@ -545,6 +530,21 @@ bool RangeDelAggregator::AddFile(uint64_t file_number) {
     return true;
   }
   return rep_->added_files_.emplace(file_number).second;
+}
+
+RangeDelAggregator::CollapsedTombstoneMap
+RangeDelAggregator::DumpCollapsedTombstones() {
+  if (rep_ == nullptr) {
+    return CollapsedTombstoneMap();
+  }
+  assert(collapse_deletions_);
+  assert(rep_->stripe_map_.size() == 2);
+  auto& tombstone_map = GetPositionalTombstoneMap(1 /* valid seqno */).raw_map;
+  CollapsedTombstoneMap out;
+  for (auto it = tombstone_map.begin(); it != tombstone_map.end(); ++it) {
+    out.emplace(it->first, it->second.seq_);
+  }
+  return out;
 }
 
 }  // namespace rocksdb
