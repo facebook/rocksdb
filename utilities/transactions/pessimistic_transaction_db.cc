@@ -124,7 +124,10 @@ Status PessimisticTransactionDB::Initialize(
   for (auto it = rtrxs.begin(); it != rtrxs.end(); it++) {
     auto recovered_trx = it->second;
     assert(recovered_trx);
-    assert(recovered_trx->log_number_);
+    assert(recovered_trx->batches_.size() == 1);
+    const auto& seq = recovered_trx->batches_.begin()->first;
+    const auto& batch_info = recovered_trx->batches_.begin()->second;
+    assert(batch_info.log_number_);
     assert(recovered_trx->name_.length());
 
     WriteOptions w_options;
@@ -133,21 +136,20 @@ Status PessimisticTransactionDB::Initialize(
 
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
-    real_trx->SetLogNumber(recovered_trx->log_number_);
-    assert(recovered_trx->seq_ != kMaxSequenceNumber);
-    real_trx->SetId(recovered_trx->seq_);
+    real_trx->SetLogNumber(batch_info.log_number_);
+    assert(seq != kMaxSequenceNumber);
+    real_trx->SetId(seq);
 
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
       break;
     }
 
-    s = real_trx->RebuildFromWriteBatch(recovered_trx->batch_);
+    s = real_trx->RebuildFromWriteBatch(batch_info.batch_);
     // WriteCommitted set this to to disable this check that is specific to
     // WritePrepared txns
-    assert(recovered_trx->batch_cnt_ == 0 ||
-           real_trx->GetWriteBatch()->SubBatchCnt() ==
-               recovered_trx->batch_cnt_);
+    assert(batch_info.batch_cnt_ == 0 ||
+           real_trx->GetWriteBatch()->SubBatchCnt() == batch_info.batch_cnt_);
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
       break;
