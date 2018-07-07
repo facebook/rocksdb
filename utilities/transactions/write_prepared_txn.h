@@ -71,6 +71,7 @@ class WritePreparedTxn : public PessimisticTransaction {
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTxnDB;
+  friend class WriteUnpreparedTxnDB;
 
   Status PrepareInternal() override;
 

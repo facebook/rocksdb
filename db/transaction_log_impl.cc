@@ -284,7 +284,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
                    const Slice& /*val*/) override {
       return Status::OK();
     }
-    Status MarkBeginPrepare() override { return Status::OK(); }
+    Status MarkBeginPrepare(bool) override { return Status::OK(); }
     Status MarkRollback(const Slice&) override { return Status::OK(); }
   };
 

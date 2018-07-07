@@ -73,6 +73,7 @@ enum ContentFlags : uint32_t {
   HAS_ROLLBACK = 1 << 8,
   HAS_DELETE_RANGE = 1 << 9,
   HAS_BLOB_INDEX = 1 << 10,
+  HAS_BEGIN_UNPREPARE = 1 << 11,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -108,8 +109,11 @@ struct BatchContentClassifier : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status MarkBeginPrepare() override {
+  Status MarkBeginPrepare(bool unprepare) override {
     content_flags |= ContentFlags::HAS_BEGIN_PREPARE;
+    if (unprepare) {
+      content_flags |= ContentFlags::HAS_BEGIN_UNPREPARE;
+    }
     return Status::OK();
   }
 
@@ -532,8 +536,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeBeginUnprepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
-               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
-        handler->MarkBeginPrepare();
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_UNPREPARE));
+        handler->MarkBeginPrepare(true /* unprepared */);
         empty_batch = false;
         if (handler->WriteAfterCommit()) {
           s = Status::NotSupported(
@@ -1052,6 +1056,8 @@ class MemTableInserter : public WriteBatch::Handler {
   bool write_after_commit_;
   // Whether memtable write can be done before prepare
   bool write_before_prepare_;
+  // Whether this batch was unprepared or not
+  bool unprepared_batch_;
   using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
   DupDetector       duplicate_detector_;
   bool              dup_dectector_on_;
@@ -1111,6 +1117,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // WriteUnprepared can write WriteBatches per transaction, so
         // batch_per_txn being false indicates write_before_prepare.
         write_before_prepare_(!batch_per_txn),
+        unprepared_batch_(false),
         duplicate_detector_(),
         dup_dectector_on_(false) {
     assert(cf_mems_);
@@ -1586,7 +1593,9 @@ class MemTableInserter : public WriteBatch::Handler {
     }
   }
 
-  Status MarkBeginPrepare() override {
+  // The write batch handler calls MarkBeginPrepare with unprepare set to true
+  // if it encounters the kTypeBeginUnprepareXID marker.
+  Status MarkBeginPrepare(bool unprepare) override {
     assert(rebuilding_trx_ == nullptr);
     assert(db_);
 
@@ -1602,6 +1611,11 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
+      // We only call MarkBeginPrepare once per batch, and unprepared_batch_
+      // is initialized to false by default.
+      assert(!unprepared_batch_);
+      unprepared_batch_ = unprepare;
+
       if (has_valid_writes_ != nullptr) {
         *has_valid_writes_ = true;
       }
@@ -1622,7 +1636,7 @@ class MemTableInserter : public WriteBatch::Handler {
               : static_cast<size_t>(sequence_ - rebuilding_trx_seq_ + 1);
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_, rebuilding_trx_seq_,
-                                      batch_cnt);
+                                      batch_cnt, unprepared_batch_);
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
@@ -1665,9 +1679,12 @@ class MemTableInserter : public WriteBatch::Handler {
         // duplicate re-insertion of values.
         assert(log_number_ref_ == 0);
         if (write_after_commit_) {
+          // write_after_commit_ can only have one batch in trx.
+          assert(trx->batches_.size() == 1);
+          const auto& batch_info = trx->batches_.begin()->second;
           // all inserts must reference this trx log number
-          log_number_ref_ = trx->log_number_;
-          s = trx->batch_->Iterate(this);
+          log_number_ref_ = batch_info.log_number_;
+          s = batch_info.batch_->Iterate(this);
           log_number_ref_ = 0;
         }
         // else the values are already inserted before the commit
