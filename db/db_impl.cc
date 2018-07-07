@@ -2917,7 +2917,8 @@ Status DBImpl::IngestExternalFile(
 
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,
-                                            &snapshots_, ingestion_options);
+                                            &snapshots_, ingestion_options, &mutex_,
+                                            directories_.GetDbDir());
 
   std::list<uint64_t>::iterator pending_output_elem;
   {

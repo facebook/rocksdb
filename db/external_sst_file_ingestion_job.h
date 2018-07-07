@@ -75,7 +75,9 @@ class ExternalSstFileIngestionJob {
       Env* env, VersionSet* versions, ColumnFamilyData* cfd,
       const ImmutableDBOptions& db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
-      const IngestExternalFileOptions& ingestion_options)
+      const IngestExternalFileOptions& ingestion_options,
+      InstrumentedMutex* mutex,
+      Directory* db_dir)
       : env_(env),
         versions_(versions),
         cfd_(cfd),
@@ -83,7 +85,9 @@ class ExternalSstFileIngestionJob {
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
-        job_start_time_(env_->NowMicros()) {}
+        job_start_time_(env_->NowMicros()),
+        mutex_(mutex),
+        db_dir_(db_dir) {}
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
@@ -157,6 +161,8 @@ class ExternalSstFileIngestionJob {
   const IngestExternalFileOptions& ingestion_options_;
   VersionEdit edit_;
   uint64_t job_start_time_;
+  InstrumentedMutex* mutex_;
+  Directory* db_dir_;
 };
 
 }  // namespace rocksdb

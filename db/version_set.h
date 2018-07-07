@@ -831,6 +831,11 @@ class VersionSet {
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
+  // Fetch And Add n new file number
+  uint64_t FetchAddLastNewFileNumber(uint64_t n) {
+    return next_file_number_.fetch_add(n);
+  }
+
   // Return the last sequence number.
   uint64_t LastSequence() const {
     return last_sequence_.load(std::memory_order_acquire);
