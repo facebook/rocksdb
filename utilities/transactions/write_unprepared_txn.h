@@ -7,6 +7,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <set>
+
 #include "utilities/transactions/write_prepared_txn.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
@@ -42,7 +44,50 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                      const WriteOptions& write_options,
                      const TransactionOptions& txn_options);
 
-  virtual ~WriteUnpreparedTxn() {}
+  virtual ~WriteUnpreparedTxn();
+
+  using TransactionBaseImpl::Put;
+  virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& value) override;
+  virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+                     const SliceParts& value) override;
+
+  using TransactionBaseImpl::Merge;
+  virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value) override;
+
+  using TransactionBaseImpl::Delete;
+  virtual Status Delete(ColumnFamilyHandle* column_family,
+                        const Slice& key) override;
+  virtual Status Delete(ColumnFamilyHandle* column_family,
+                        const SliceParts& key) override;
+
+  using TransactionBaseImpl::SingleDelete;
+  virtual Status SingleDelete(ColumnFamilyHandle* column_family,
+                              const Slice& key) override;
+  virtual Status SingleDelete(ColumnFamilyHandle* column_family,
+                              const SliceParts& key) override;
+
+  virtual Status RebuildFromWriteBatch(WriteBatch*) override {
+    // This makes no sense for WriteUnprepared because the contents for
+    // a Transaction can exist beyond a write batch if it has already been
+    // written to DB.
+    return Status::NotSupported("Not supported for WriteUnprepared");
+  }
+
+  const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
+
+  void UpdateWriteKeySet(uint32_t cfid, const Slice& key);
+
+ protected:
+  void Initialize(const TransactionOptions& txn_options) override;
+
+  Status PrepareInternal() override;
+
+  Status CommitWithoutPrepareInternal() override;
+  Status CommitInternal() override;
+
+  Status RollbackInternal() override;
 
   // Get and GetIterator needs to be overridden so that a ReadCallback to
   // handle read-your-own-write is used.
@@ -56,12 +101,16 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   virtual Iterator* GetIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
 
-  const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
-
  private:
   friend class WriteUnpreparedTransactionTest_ReadYourOwnWrite_Test;
+  friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
+  friend class WriteUnpreparedTransactionTest_UnpreparedBatch_Test;
   friend class WriteUnpreparedTxnDB;
 
+  Status MaybeFlushWriteBatchToDB();
+  Status FlushWriteBatchToDB(bool prepared);
+
+  size_t max_write_batch_size_;
   WriteUnpreparedTxnDB* wupt_db_;
 
   // Ordered list of unprep_seq sequence numbers that we have already written
@@ -70,6 +119,12 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // This maps unprep_seq => prepare_batch_cnt for each prepared batch written
   // by this transactioin.
   std::map<SequenceNumber, size_t> unprep_seqs_;
+
+  // Set of keys that have written to that have already been written to DB
+  // (ie. not in write_batch_).
+  //
+  using CFKeys = std::set<std::string, SetComparator>;
+  std::map<uint32_t, CFKeys> write_set_keys_;
 };
 
 }  // namespace rocksdb

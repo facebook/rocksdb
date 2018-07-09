@@ -264,7 +264,14 @@ Status PessimisticTransaction::Commit() {
           "Commit-time batch contains values that will not be committed.");
     } else {
       txn_state_.store(AWAITING_COMMIT);
+      if (log_number_ > 0) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+            log_number_);
+      }
       s = CommitWithoutPrepareInternal();
+      if (name_.size() > 0) {
+        txn_db_impl_->UnregisterTransaction(this);
+      }
       Clear();
       if (s.ok()) {
         txn_state_.store(COMMITED);
@@ -349,6 +356,16 @@ Status PessimisticTransaction::Rollback() {
       txn_state_.store(ROLLEDBACK);
     }
   } else if (txn_state_ == STARTED) {
+    if (log_number_ > 0) {
+      assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
+      assert(id_ > 0);
+      s = RollbackInternal();
+
+      if (s.ok()) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+            log_number_);
+      }
+    }
     // prepare couldn't have taken place
     Clear();
   } else if (txn_state_ == COMMITED) {

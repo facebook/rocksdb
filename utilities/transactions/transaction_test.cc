@@ -4950,8 +4950,14 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   ASSERT_EQ(2, txn->GetNumPuts());
 
   s = txn->Put(Slice("b"), Slice("...."));
-  ASSERT_TRUE(s.IsMemoryLimit());
-  ASSERT_EQ(2, txn->GetNumPuts());
+  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+  if (pdb->GetTxnDBOptions().write_policy != WRITE_UNPREPARED) {
+    ASSERT_TRUE(s.IsMemoryLimit());
+    ASSERT_EQ(2, txn->GetNumPuts());
+  } else {
+    ASSERT_OK(s);
+    ASSERT_EQ(3, txn->GetNumPuts());
+  }
 
   txn->Rollback();
   delete txn;
@@ -5284,10 +5290,6 @@ TEST_P(TransactionTest, DuplicateKeys) {
           }
           s = txn0->Commit();
           ASSERT_OK(s);
-        }
-        if (!do_prepare && !do_rollback) {
-          auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-          pdb->UnregisterTransaction(txn0);
         }
         delete txn0;
         ReadOptions ropt;

@@ -130,7 +130,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual Status RollbackInternal() = 0;
 
-  void Initialize(const TransactionOptions& txn_options);
+  virtual void Initialize(const TransactionOptions& txn_options);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
 
