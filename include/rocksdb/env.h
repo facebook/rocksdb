@@ -1070,7 +1070,7 @@ class EnvWrapper : public Env {
     return target_->LinkFile(s, t);
   }
 
-  Status NumFileLinks(const std::string& fname, uint64_t* count) {
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override {
     return target_->NumFileLinks(fname, count);
   }
 
