@@ -96,14 +96,18 @@ class SstFileManager {
 // @param max_trash_db_ratio: If the trash size constitutes for more than this
 //    fraction of the total DB size we will start deleting new files passed to
 //    DeleteScheduler immediately
-// @param bytes_max_delete_chunk: if a single file is larger than delete chunk,
-//    ftruncate the file by this size each time, rather than dropping the whole
-//    file. 0 means to always delete the whole file. NOTE this options may not
-//    work well with checkpoints, which relies on file system hard links.
+// @param bytes_max_delete_chunk: if a file to delete is larger than delete
+//    chunk, ftruncate the file by this size each time, rather than dropping the
+//    whole file. 0 means to always delete the whole file. If the file has more
+//    than one linked names, the file will be deleted as a whole. Either way,
+//    `rate_bytes_per_sec` will be appreciated. NOTE that with this option,
+//    files already renamed as a trash may be partial, so users should not
+//    directly recover them without checking.
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
-    double max_trash_db_ratio = 0.25, uint64_t bytes_max_delete_chunk = 0);
+    double max_trash_db_ratio = 0.25,
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
 
 }  // namespace rocksdb
