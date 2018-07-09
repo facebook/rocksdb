@@ -149,6 +149,31 @@ void BlockIter::Seek(const Slice& target) {
     return;
   }
   uint32_t index = 0;
+  bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index);
+
+  if (!ok) {
+    return;
+  }
+  SeekToRestartPoint(index);
+  // Linear search (within restart block) for first key >= target
+
+  while (true) {
+    if (!ParseNextKey() || Compare(key_, seek_key) >= 0) {
+      return;
+    }
+  }
+}
+
+void IndexBlockIter::Seek(const Slice& target) {
+  Slice seek_key = target;
+  if (!key_includes_seq_) {
+    seek_key = ExtractUserKey(target);
+  }
+  PERF_TIMER_GUARD(block_seek_nanos);
+  if (data_ == nullptr) {  // Not init yet
+    return;
+  }
+  uint32_t index = 0;
   bool ok = false;
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
@@ -329,7 +354,7 @@ bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
 
 // Compare target key and the block key of the block of `block_index`.
 // Return -1 if error.
-int BlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
+int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   uint32_t region_offset = GetRestartPoint(block_index);
   uint32_t shared, non_shared, value_length;
   const char* key_ptr = DecodeEntry(data_ + region_offset, data_ + restarts_,
@@ -344,9 +369,9 @@ int BlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
 
 // Binary search in block_ids to find the first block
 // with a key >= target
-bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
-                                     uint32_t left, uint32_t right,
-                                     uint32_t* index) {
+bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
+                                          uint32_t* block_ids, uint32_t left,
+                                          uint32_t right, uint32_t* index) {
   assert(left <= right);
   uint32_t left_bound = left;
 
@@ -394,7 +419,7 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
   }
 }
 
-bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
+bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   assert(prefix_index_);
   Slice seek_key = target;
   if (!key_includes_seq_) {
@@ -463,12 +488,16 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    BlockPrefixIndex* prefix_index_ptr =
-        total_order_seek ? nullptr : prefix_index_.get();
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         prefix_index_ptr, global_seqno_,
-                         read_amp_bitmap_.get(), key_includes_seq, cachable());
-
+    // TODO: put this back
+    //    BlockPrefixIndex* prefix_index_ptr =
+    //        total_order_seek ? nullptr : prefix_index_.get();
+    // ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+    //                     prefix_index_ptr, global_seqno_,
+    //                     read_amp_bitmap_.get(), key_includes_seq,
+    //                     cachable());
+    (void)total_order_seek;
+    ret_iter->InitializeBase(cmp, ucmp, data_, restart_offset_, num_restarts_,
+                             global_seqno_, key_includes_seq, cachable());
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
