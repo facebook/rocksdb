@@ -289,6 +289,12 @@ class Env {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  virtual Status NumFileLinks(const std::string& /*fname*/,
+                              uint64_t* /*count*/) {
+    return Status::NotSupported(
+        "Getting number of file links is not supported for this Env");
+  }
+
   virtual Status AreFilesSame(const std::string& /*first*/,
                               const std::string& /*second*/, bool* /*res*/) {
     return Status::NotSupported("AreFilesSame is not supported for this Env");
@@ -1062,6 +1068,10 @@ class EnvWrapper : public Env {
 
   Status LinkFile(const std::string& s, const std::string& t) override {
     return target_->LinkFile(s, t);
+  }
+
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override {
+    return target_->NumFileLinks(fname, count);
   }
 
   Status AreFilesSame(const std::string& first, const std::string& second,

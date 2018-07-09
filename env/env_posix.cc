@@ -613,6 +613,15 @@ class PosixEnv : public Env {
     return result;
   }
 
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override {
+    struct stat s;
+    if (stat(fname.c_str(), &s) != 0) {
+      return IOError("while stat a file for num file links", fname, errno);
+    }
+    *count = static_cast<uint64_t>(s.st_nlink);
+    return Status::OK();
+  }
+
   virtual Status AreFilesSame(const std::string& first,
                               const std::string& second, bool* res) override {
     struct stat statbuf[2];
