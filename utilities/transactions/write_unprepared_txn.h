@@ -60,6 +60,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
  private:
   friend class WriteUnpreparedTransactionTest_ReadYourOwnWrite_Test;
+  friend class WriteUnpreparedTxnDB;
 
   WriteUnpreparedTxnDB* wupt_db_;
 
