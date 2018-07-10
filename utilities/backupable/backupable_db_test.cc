@@ -1022,18 +1022,22 @@ TEST_F(BackupableDBTest, BackupOptions) {
 TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
   OpenDBAndBackupEngine(true);
   SyncPoint::GetInstance()->LoadDependency(
-      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles3",
-        "DBImpl::WriteOptionsFile:2"},
-       {"DBImpl::WriteOptionsFile:AfterRenamingOptionsFile",
-        "CheckpointImpl::CreateCheckpoint:BeforeCopyOrLink"}});
+      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1", "sync_point1"},
+       {"sync_point1", "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   SyncPoint::GetInstance()->EnableProcessing();
-  rocksdb::port::Thread backup_thread{[this]() {
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  rocksdb::port::Thread setoptions_thread{[this]() {
+    DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+    // Change arbitrary option to trigger OPTIONS file deletion
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "false"}}));
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "true"}}));
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "false"}}));
+    TEST_SYNC_POINT("sync_point1");
   }};
-  DBImpl* dbi = static_cast<DBImpl*>(db_.get());
-  ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
-                            {{"paranoid_file_checks", "false"}}));
-  backup_thread.join();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  setoptions_thread.join();
   CloseDBAndBackupEngine();
 }
 
