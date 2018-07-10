@@ -525,6 +525,9 @@ DEFINE_bool(read_cache_direct_write, true,
 DEFINE_bool(read_cache_direct_read, true,
             "Whether to use Direct IO for reading from read cache");
 
+DEFINE_bool(use_keep_filter, false,
+            "Whether to use a noop compaction filter");
+
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
     fprintf(stderr, "Invalid value for --%s: %d, must be < 20\n",
@@ -2197,6 +2200,17 @@ class Benchmark {
     std::shared_ptr<TimestampEmulator> timestamp_emulator_;
   };
 
+  class KeepFilter : public CompactionFilter {
+   public:
+    virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                        const Slice& /*value*/, std::string* /*new_value*/,
+                        bool* /*value_changed*/) const override {
+      return false;
+    }
+
+    virtual const char* Name() const override { return "KeepFilter"; }
+  };
+
   std::shared_ptr<Cache> NewCache(int64_t capacity) {
     if (capacity <= 0) {
       return nullptr;
@@ -2418,7 +2432,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
     std::string name;
-    std::unique_ptr<ExpiredTimeFilter> filter;
+    std::unique_ptr<CompactionFilter> filter;
     while (std::getline(benchmark_stream, name, ',')) {
       // Sanitize parameters
       num_ = FLAGS_num;
@@ -2474,6 +2488,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
 
+      if (FLAGS_use_keep_filter && FLAGS_expire_style != "compaction_filter") {
+        filter.reset(new KeepFilter());
+        fprintf(stdout, "A noop compaction filter is used\n");
+        open_options_.compaction_filter = filter.get();
+      }
       // Both fillseqdeterministic and filluniquerandomdeterministic
       // fill the levels except the max level with UNIQUE_RANDOM
       // and fill the max level with fillseq and filluniquerandom, respectively
