@@ -22,7 +22,7 @@
 
 namespace rocksdb {
 
-int argc;
+bool use_compression;
 
 class MergeTest : public testing::Test {};
 
@@ -88,7 +88,7 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
 // DBWithTTL is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
   if (ttl) {
-    std::cout << "Opening database with TTL\n";
+    // std::cout << "Opening database with TTL\n";
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options, dbname, &db_with_ttl);
     db = db_with_ttl;
@@ -249,8 +249,8 @@ class MergeBasedCounters : public Counters {
 void dumpDb(DB* db) {
   auto it = unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    uint64_t value = DecodeFixed64(it->value().data());
-    std::cout << it->key().ToString() << ": " << value << std::endl;
+    //uint64_t value = DecodeFixed64(it->value().data());
+    //std::cout << it->key().ToString() << ": " << value << std::endl;
   }
   assert(it->status().ok());  // Check for any errors found during the scan
 }
@@ -280,7 +280,7 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
 
   dumpDb(db);
 
-  std::cout << "1\n";
+  // std::cout << "1\n";
 
   // 1+...+49 = ?
   uint64_t sum = 0;
@@ -290,17 +290,17 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
   assert(counters.assert_get("b") == sum);
 
-  std::cout << "2\n";
+  // std::cout << "2\n";
   dumpDb(db);
 
-  std::cout << "3\n";
+  // std::cout << "3\n";
 
   if (test_compaction) {
     db->Flush(o);
 
-    std::cout << "Compaction started ...\n";
+    // std::cout << "Compaction started ...\n";
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-    std::cout << "Compaction ended\n";
+    // std::cout << "Compaction ended\n";
 
     dumpDb(db);
 
@@ -411,43 +411,38 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
 }
 
 void runTest(const std::string& dbname, const bool use_ttl = false) {
-  bool compact = false;
-  if (argc > 1) {
-    compact = true;
-    std::cout << "Turn on Compaction\n";
-  }
 
   {
     auto db = OpenDb(dbname, use_ttl);
 
     {
-      std::cout << "Test read-modify-write counters... \n";
+      // std::cout << "Test read-modify-write counters... \n";
       Counters counters(db, 0);
       testCounters(counters, db.get(), true);
     }
 
     {
-      std::cout << "Test merge-based counters... \n";
+      // std::cout << "Test merge-based counters... \n";
       MergeBasedCounters counters(db, 0);
-      testCounters(counters, db.get(), compact);
+      testCounters(counters, db.get(), use_compression);
     }
   }
 
   DestroyDB(dbname, Options());
 
   {
-    std::cout << "Test merge in memtable... \n";
+    // std::cout << "Test merge in memtable... \n";
     size_t max_merge = 5;
     auto db = OpenDb(dbname, use_ttl, max_merge);
     MergeBasedCounters counters(db, 0);
-    testCounters(counters, db.get(), compact);
+    testCounters(counters, db.get(), use_compression);
     testSuccessiveMerge(counters, max_merge, max_merge * 2);
     testSingleBatchSuccessiveMerge(db.get(), 5, 7);
     DestroyDB(dbname, Options());
   }
 
   {
-    std::cout << "Test Partial-Merge\n";
+    // std::cout << "Test Partial-Merge\n";
     size_t max_merge = 100;
     // Min merge is hard-coded to 2.
     uint32_t min_merge = 2;
@@ -467,7 +462,7 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   }
 
   {
-    std::cout << "Test merge-operator not set after reopen\n";
+    // std::cout << "Test merge-operator not set after reopen\n";
     {
       auto db = OpenDb(dbname);
       MergeBasedCounters counters(db, 0);
@@ -517,7 +512,11 @@ TEST_F(MergeTest, MergeDbTtlTest) {
 
 
 int main(int argc, char** argv) {
-  rocksdb::argc = argc;
+  rocksdb::use_compression = false;
+  if (argc > 1) {
+    rocksdb::use_compression = true;
+  }
+
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
