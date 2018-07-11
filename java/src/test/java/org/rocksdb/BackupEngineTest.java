@@ -221,7 +221,7 @@ public class BackupEngineTest {
       try(final BackupableDBOptions bopt = new BackupableDBOptions(
           backupFolder.getRoot().getAbsolutePath());
           final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
-        final String metadata = ThreadLocalRandom.current().toString();
+        final String metadata = String.valueOf(ThreadLocalRandom.current().nextInt());
         be.createNewBackupWithMetadata(db, metadata, true);
         final List<BackupInfo> backupInfoList = verifyNumberOfValidBackups(be, 1);
         assertThat(backupInfoList.get(0).appMetadata()).isEqualTo(metadata);
