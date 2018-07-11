@@ -3372,6 +3372,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    if (FLAGS_cache_size) {
+      cache_ = NewCache(FLAGS_cache_size);
+    }
     if (FLAGS_row_cache_size) {
       if (FLAGS_cache_numshardbits >= 1) {
         options.row_cache =
