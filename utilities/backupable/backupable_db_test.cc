@@ -1023,7 +1023,8 @@ TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
   OpenDBAndBackupEngine(true);
   SyncPoint::GetInstance()->LoadDependency(
       {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1", "sync_point1"},
-       {"sync_point1", "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
+       {"BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions",
+        "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   SyncPoint::GetInstance()->EnableProcessing();
   rocksdb::port::Thread setoptions_thread{[this]() {
     DBImpl* dbi = static_cast<DBImpl*>(db_.get());
@@ -1034,7 +1035,8 @@ TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
                               {{"paranoid_file_checks", "true"}}));
     ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
                               {{"paranoid_file_checks", "false"}}));
-    TEST_SYNC_POINT("sync_point1");
+    TEST_SYNC_POINT(
+        "BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions");
   }};
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   setoptions_thread.join();
