@@ -671,7 +671,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
       assert(chunk_offset_in_buffer % alignment == 0);
       assert(chunk_len % alignment == 0);
       assert(chunk_offset_in_buffer + chunk_len <=
-             buffer_offset_ + buffer_len_);
+             buffer_offset_ + buffer_.CurrentSize());
       if (chunk_len > 0) {
         copy_data_to_new_buffer = true;
       } else {
