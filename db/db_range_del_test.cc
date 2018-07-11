@@ -23,51 +23,63 @@ class DBRangeDelTest : public DBTestBase {
   }
 };
 
+const int kRangeDelSkipConfigs =
+  // Plain tables do not support range deletions.
+  DBRangeDelTest::kSkipPlainTable |
+  // MmapReads disables the iterator pinning that RangeDelAggregator requires.
+  DBRangeDelTest::kSkipMmapReads;
+
 // PlainTableFactory and NumTableFilesAtLevel() are not supported in
 // ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
-  if (!IsMemoryMappedAccessSupported()) {
-    return;
-  }
-  Options opts = CurrentOptions();
-  opts.table_factory.reset(new PlainTableFactory());
-  opts.prefix_extractor.reset(NewNoopTransform());
-  opts.allow_mmap_reads = true;
-  opts.max_sequential_skip_in_iterations = 999999;
-  Reopen(opts);
-
-  ASSERT_TRUE(
+  // TODO: figure out why MmapReads trips the iterator pinning assertion in
+  // RangeDelAggregator. Ideally it would be supported; otherwise it should at
+  // least be explicitly unsupported.
+  for (auto config : {kPlainTableAllBytesPrefix, /* kWalDirAndMmapReads */}) {
+    option_config_ = config;
+    DestroyAndReopen(CurrentOptions());
+    ASSERT_TRUE(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1", "dr1")
           .IsNotSupported());
+  }
 }
 
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
-                             "dr2"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  do {
+    DestroyAndReopen(CurrentOptions());
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
+                              "dr2"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  } while (ChangeOptions(kRangeDelSkipConfigs));
 }
 
 TEST_F(DBRangeDelTest, CompactionOutputHasOnlyRangeTombstone) {
-  Options opts = CurrentOptions();
-  opts.disable_auto_compactions = true;
-  opts.statistics = CreateDBStatistics();
-  Reopen(opts);
+  do {
+    Options opts = CurrentOptions();
+    opts.disable_auto_compactions = true;
+    opts.statistics = CreateDBStatistics();
+    DestroyAndReopen(opts);
 
-  // snapshot protects range tombstone from dropping due to becoming obsolete.
-  const Snapshot* snapshot = db_->GetSnapshot();
-  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z");
-  db_->Flush(FlushOptions());
+    // snapshot protects range tombstone from dropping due to becoming obsolete.
+    const Snapshot* snapshot = db_->GetSnapshot();
+    db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z");
+    db_->Flush(FlushOptions());
 
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
-                              true /* disallow_trivial_move */);
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(1));
-  ASSERT_EQ(0, TestGetTickerCount(opts, COMPACTION_RANGE_DEL_DROP_OBSOLETE));
-  db_->ReleaseSnapshot(snapshot);
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+    ASSERT_EQ(0, NumTableFilesAtLevel(1));
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                true /* disallow_trivial_move */);
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_EQ(1, NumTableFilesAtLevel(1));
+    ASSERT_EQ(0, TestGetTickerCount(opts, COMPACTION_RANGE_DEL_DROP_OBSOLETE));
+    db_->ReleaseSnapshot(snapshot);
+    // Skip cuckoo memtables, which do not support snapshots. Skip non-leveled
+    // compactions as the above assertions about the number of files in a level
+    // do not hold true.
+  } while (ChangeOptions(kRangeDelSkipConfigs | kSkipHashCuckoo |
+                         kSkipUniversalCompaction | kSkipFIFOCompaction));
 }
 
 TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
@@ -590,48 +602,57 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
-  db_->Put(WriteOptions(), "key", "val");
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+  do {
+    DestroyAndReopen(CurrentOptions());
+    db_->Put(WriteOptions(), "key", "val");
+    ASSERT_OK(
+        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
 
-  ReadOptions read_opts;
-  std::string value;
-  ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
+    ReadOptions read_opts;
+    std::string value;
+    ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
+  } while (ChangeOptions(kRangeDelSkipConfigs));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromImmutableMemtable) {
-  Options opts = CurrentOptions();
-  opts.max_write_buffer_number = 3;
-  opts.min_write_buffer_number_to_merge = 2;
-  // SpecialSkipListFactory lets us specify maximum number of elements the
-  // memtable can hold. It switches the active memtable to immutable (flush is
-  // prevented by the above options) upon inserting an element that would
-  // overflow the memtable.
-  opts.memtable_factory.reset(new SpecialSkipListFactory(1));
-  Reopen(opts);
+  do {
+    Options opts = CurrentOptions();
+    opts.max_write_buffer_number = 3;
+    opts.min_write_buffer_number_to_merge = 2;
+    // SpecialSkipListFactory lets us specify maximum number of elements the
+    // memtable can hold. It switches the active memtable to immutable (flush is
+    // prevented by the above options) upon inserting an element that would
+    // overflow the memtable.
+    opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+    DestroyAndReopen(opts);
 
-  db_->Put(WriteOptions(), "key", "val");
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
-  db_->Put(WriteOptions(), "blah", "val");
+    db_->Put(WriteOptions(), "key", "val");
+    ASSERT_OK(
+        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+    db_->Put(WriteOptions(), "blah", "val");
 
-  ReadOptions read_opts;
-  std::string value;
-  ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
+    ReadOptions read_opts;
+    std::string value;
+    ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
+  } while (ChangeOptions(kRangeDelSkipConfigs));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromSst) {
-  db_->Put(WriteOptions(), "key", "val");
-  // snapshot prevents key from being deleted during flush
-  const Snapshot* snapshot = db_->GetSnapshot();
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  do {
+    DestroyAndReopen(CurrentOptions());
+    db_->Put(WriteOptions(), "key", "val");
+    // snapshot prevents key from being deleted during flush
+    const Snapshot* snapshot = db_->GetSnapshot();
+    ASSERT_OK(
+        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
 
-  ReadOptions read_opts;
-  std::string value;
-  ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
-  db_->ReleaseSnapshot(snapshot);
+    ReadOptions read_opts;
+    std::string value;
+    ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
+    db_->ReleaseSnapshot(snapshot);
+    // Cuckoo memtables do not support snapshots.
+  } while (ChangeOptions(kRangeDelSkipConfigs | kSkipHashCuckoo));
 }
 
 TEST_F(DBRangeDelTest, GetCoveredMergeOperandFromMemtable) {

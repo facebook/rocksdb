@@ -261,7 +261,9 @@ class HashIndexBuilder : public IndexBuilder {
   virtual Status Finish(
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override {
-    FlushPendingPrefix();
+    if (pending_block_num_ != 0) {
+      FlushPendingPrefix();
+    }
     primary_index_builder_.Finish(index_blocks, last_partition_block_handle);
     index_blocks->meta_blocks.insert(
         {kHashIndexPrefixesBlock.c_str(), prefix_block_});
