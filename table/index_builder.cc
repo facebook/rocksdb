@@ -143,7 +143,6 @@ void PartitionedIndexBuilder::AddIndexEntry(
 
 Status PartitionedIndexBuilder::Finish(
     IndexBlocks* index_blocks, const BlockHandle& last_partition_block_handle) {
-  assert(!entries_.empty());
   // It must be set to null after last key is added
   assert(sub_index_builder_ == nullptr);
   if (finishing_indexes == true) {
