@@ -2735,7 +2735,9 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   // Retry if the file name happen to conflict with an existing one.
   s = GetEnv()->RenameFile(file_name, options_file_name);
 
-  DeleteObsoleteOptionsFiles();
+  if (0 == disable_delete_obsolete_files_) {
+    DeleteObsoleteOptionsFiles();
+  }
   return s;
 #else
   (void)file_name;
