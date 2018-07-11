@@ -95,7 +95,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   // and this will overwrite the external file. To protect the external
   // file, we have to make sure the file number will never being reused.
   uint64_t new_file_number =
-      versions_->FetchAddLastNewFileNumber(files_to_ingest_.size());
+      versions_->FetchAddFileNumber(files_to_ingest_.size());
   auto mutable_cf_options = cfd_->GetLatestMutableCFOptions();
   {
     VersionEdit tmp_edit;

@@ -832,7 +832,7 @@ class VersionSet {
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
   // Fetch And Add n new file number
-  uint64_t FetchAddLastNewFileNumber(uint64_t n) {
+  uint64_t FetchAddFileNumber(uint64_t n) {
     return next_file_number_.fetch_add(n);
   }
 
