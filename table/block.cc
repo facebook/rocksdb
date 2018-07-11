@@ -471,8 +471,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
 }
 
 BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
-                              BlockIter* iter, bool total_order_seek,
-                              Statistics* stats, bool key_includes_seq) {
+                              BlockIter* iter) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -488,16 +487,50 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    // TODO: put this back
-    //    BlockPrefixIndex* prefix_index_ptr =
-    //        total_order_seek ? nullptr : prefix_index_.get();
-    // ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-    //                     prefix_index_ptr, global_seqno_,
-    //                     read_amp_bitmap_.get(), key_includes_seq,
-    //                     cachable());
-    (void)total_order_seek;
+    const bool kKeyIncludesSeq = true;
     ret_iter->InitializeBase(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                             global_seqno_, key_includes_seq, cachable());
+                             global_seqno_, kKeyIncludesSeq, cachable());
+  }
+
+  return ret_iter;
+}
+
+BlockIter* Block::NewIndexOrDataIterator(const bool is_index, const Comparator* cmp,
+                                        const Comparator* ucmp,
+                                        BlockIter* iter,
+                         Statistics* stats,
+                                        bool total_order_seek,
+                                        bool key_includes_seq,
+BlockPrefixIndex* prefix_index
+                                        ) {
+  BlockIter* ret_iter;
+  if (iter != nullptr) {
+    ret_iter = iter;
+  } else {
+    if (is_index) {
+      ret_iter = new IndexBlockIter;
+    } else {
+      ret_iter = new DataBlockIter;
+    }
+  }
+  if (size_ < 2*sizeof(uint32_t)) {
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    return ret_iter;
+  }
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
+    return ret_iter;
+  } else if (is_index) {
+    BlockPrefixIndex* prefix_index_ptr =
+        total_order_seek ? nullptr : prefix_index;
+    reinterpret_cast<IndexBlockIter*>(ret_iter)->Initialize(
+        cmp, ucmp, data_, restart_offset_, num_restarts_, prefix_index_ptr,
+        key_includes_seq, cachable());
+  } else {
+    reinterpret_cast<DataBlockIter*>(ret_iter)->Initialize(
+        cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno_,
+        read_amp_bitmap_.get(), cachable());
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
@@ -509,8 +542,69 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   return ret_iter;
 }
 
-void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
-  prefix_index_.reset(prefix_index);
+DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
+                                      const Comparator* ucmp,
+                                      DataBlockIter* iter, Statistics* stats) {
+  DataBlockIter* ret_iter;
+  if (iter != nullptr) {
+    ret_iter = iter;
+  } else {
+    ret_iter = new DataBlockIter;
+  }
+  if (size_ < 2*sizeof(uint32_t)) {
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    return ret_iter;
+  }
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
+    return ret_iter;
+  } else {
+    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+                        global_seqno_,
+                        read_amp_bitmap_.get(),
+                        cachable());
+    if (read_amp_bitmap_) {
+      if (read_amp_bitmap_->GetStatistics() != stats) {
+        // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
+        read_amp_bitmap_->SetStatistics(stats);
+      }
+    }
+  }
+
+  return ret_iter;
+}
+
+IndexBlockIter* Block::NewIndexIterator(const Comparator* cmp,
+                                        const Comparator* ucmp,
+                                        IndexBlockIter* iter,
+                                        bool total_order_seek,
+                                        bool key_includes_seq,
+BlockPrefixIndex* prefix_index
+                                        ) {
+  IndexBlockIter* ret_iter;
+  if (iter != nullptr) {
+    ret_iter = iter;
+  } else {
+    ret_iter = new IndexBlockIter;
+  }
+  if (size_ < 2*sizeof(uint32_t)) {
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    return ret_iter;
+  }
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
+    return ret_iter;
+  } else {
+    BlockPrefixIndex* prefix_index_ptr =
+        total_order_seek ? nullptr : prefix_index;
+    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+                         prefix_index_ptr,
+                         key_includes_seq, cachable());
+  }
+
+  return ret_iter;
 }
 
 size_t Block::ApproximateMemoryUsage() const {
@@ -520,9 +614,6 @@ size_t Block::ApproximateMemoryUsage() const {
 #else
   usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
-  if (prefix_index_) {
-    usage += prefix_index_->ApproximateMemoryUsage();
-  }
   if (read_amp_bitmap_) {
     usage += read_amp_bitmap_->ApproximateMemoryUsage();
   }

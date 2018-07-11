@@ -175,7 +175,7 @@ class BlockBasedTable : public TableReader {
     // to
     // a different object then iter and the callee has the ownership of the
     // returned object.
-    virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
+    virtual InternalIterator* NewIterator(IndexBlockIter* iter = nullptr,
                                           bool total_order_seek = true,
                                           bool fill_cache = true) = 0;
 
@@ -281,7 +281,7 @@ class BlockBasedTable : public TableReader {
   //     kBlockCacheTier
   InternalIterator* NewIndexIterator(
       const ReadOptions& read_options, bool need_upper_bound_check = false,
-      BlockIter* input_iter = nullptr,
+      IndexBlockIter* input_iter = nullptr,
       CachableEntry<IndexReader>* index_entry = nullptr,
       GetContext* get_context = nullptr);
 

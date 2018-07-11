@@ -36,6 +36,8 @@ namespace rocksdb {
 struct BlockContents;
 class Comparator;
 class BlockIter;
+class DataBlockIter;
+class IndexBlockIter;
 class BlockPrefixIndex;
 
 // BlockReadAmpBitmap is a bitmap that map the rocksdb::Block data bytes to
@@ -174,11 +176,24 @@ class Block {
   // and prefix_index_ are null, so this option does not matter.
   BlockIter* NewIterator(const Comparator* comparator,
                          const Comparator* user_comparator,
+                         BlockIter* iter = nullptr);
+  BlockIter* NewIndexOrDataIterator(const bool is_index, const Comparator* comparator,
+                         const Comparator* user_comparator,
                          BlockIter* iter = nullptr,
-                         bool total_order_seek = true,
                          Statistics* stats = nullptr,
-                         bool key_includes_seq = true);
-  void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
+                         bool total_order_seek = true,
+                         bool key_includes_seq = true,
+BlockPrefixIndex* prefix_index = nullptr);
+  DataBlockIter* NewDataIterator(const Comparator* comparator,
+                         const Comparator* user_comparator,
+                         DataBlockIter* iter = nullptr,
+                         Statistics* stats = nullptr);
+  IndexBlockIter* NewIndexIterator(const Comparator* comparator,
+                         const Comparator* user_comparator,
+                         IndexBlockIter* iter = nullptr,
+                         bool total_order_seek = true,
+                         bool key_includes_seq = true,
+BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -191,7 +206,6 @@ class Block {
   size_t size_;                 // contents_.data.size()
   uint32_t restart_offset_;     // Offset in data_ of restart array
   uint32_t num_restarts_;
-  std::unique_ptr<BlockPrefixIndex> prefix_index_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   // All keys in the block will have seqno = global_seqno_, regardless of
   // the encoded value (kDisableGlobalSequenceNumber means disabled)
@@ -418,21 +432,22 @@ class DataBlockIter final : public BlockIter {
   DataBlockIter(const Comparator* comparator, const Comparator* user_comparator,
                 const char* data, uint32_t restarts, uint32_t num_restarts,
                 SequenceNumber global_seqno,
-                BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq,
+                BlockReadAmpBitmap* read_amp_bitmap,
                 bool block_contents_pinned)
       : DataBlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
-               global_seqno, read_amp_bitmap, key_includes_seq,
+               global_seqno, read_amp_bitmap,
                block_contents_pinned);
   }
   void Initialize(const Comparator* comparator,
                   const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   SequenceNumber global_seqno,
-                  BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq,
+                  BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned) {
+    const bool kKeyIncludesSeq = true;
     InitializeBase(comparator, user_comparator, data, restarts, num_restarts,
-                   global_seqno, key_includes_seq, block_contents_pinned);
+                   global_seqno, kKeyIncludesSeq, block_contents_pinned);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
   }
