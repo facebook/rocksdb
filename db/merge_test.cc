@@ -20,15 +20,17 @@
 #include "utilities/merge_operators.h"
 #include "util/testharness.h"
 
-using namespace rocksdb;
+namespace rocksdb {
 
-namespace {
+int argc;
+
+class MergeTest : public testing::Test {};
+
 size_t num_merge_operator_calls;
 void resetNumMergeOperatorCalls() { num_merge_operator_calls = 0; }
 
 size_t num_partial_merge_calls;
 void resetNumPartialMergeCalls() { num_partial_merge_calls = 0; }
-}
 
 class CountMergeOperator : public AssociativeMergeOperator {
  public:
@@ -74,7 +76,6 @@ class CountMergeOperator : public AssociativeMergeOperator {
   std::shared_ptr<MergeOperator> mergeOperator_;
 };
 
-namespace {
 std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
                            const size_t max_successive_merges = 0) {
   DB* db;
@@ -104,7 +105,6 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   }
   return std::shared_ptr<DB>(db);
 }
-}  // namespace
 
 // Imagine we are maintaining a set of uint64 counters.
 // Each counter has a distinct name. And we would like
@@ -246,7 +246,6 @@ class MergeBasedCounters : public Counters {
   }
 };
 
-namespace {
 void dumpDb(DB* db) {
   auto it = unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -411,7 +410,7 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
             static_cast<size_t>((num_merges % (max_num_merges + 1))));
 }
 
-void runTest(int argc, const std::string& dbname, const bool use_ttl = false) {
+void runTest(const std::string& dbname, const bool use_ttl = false) {
   bool compact = false;
   if (argc > 1) {
     compact = true;
@@ -502,16 +501,24 @@ void runTest(int argc, const std::string& dbname, const bool use_ttl = false) {
   }
   */
 }
-}  // namespace
 
-int main(int argc, char* /*argv*/ []) {
-  //TODO: Make this test like a general rocksdb unit-test
-  rocksdb::port::InstallStackTraceHandler();
-  runTest(argc, test::TmpDir() + "/merge_testdb");
-// DBWithTTL is not supported in ROCKSDB_LITE
+
+TEST_F(MergeTest, MergeDbTest) {
+  runTest(test::TmpDir() + "/merge_testdb");
+}
+
 #ifndef ROCKSDB_LITE
-  runTest(argc, test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
+TEST_F(MergeTest, MergeDbTtlTest) {
+  runTest(test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
+}
 #endif  // !ROCKSDB_LITE
-  printf("Passed all tests!\n");
-  return 0;
+
+}  // namespace rocksdb
+
+
+int main(int argc, char** argv) {
+  rocksdb::argc = argc;
+  rocksdb::port::InstallStackTraceHandler();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
