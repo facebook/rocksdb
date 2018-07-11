@@ -268,6 +268,11 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
+    if (!biter.Valid() && biter.status().ok()) {
+      // No partitions -- this should be an SST file containing only range
+      // deletions
+      return;
+    }
     Slice input = biter.value();
     Status s = handle.DecodeFrom(&input);
     assert(s.ok());

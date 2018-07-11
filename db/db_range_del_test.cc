@@ -43,10 +43,23 @@ TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
 }
 
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
-                             "dr2"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  for (bool partitioned_meta_blocks : {false, true}) {
+    Options opts = CurrentOptions();
+    BlockBasedTableOptions table_opts;
+    if (partitioned_meta_blocks) {
+      table_opts.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+      table_opts.partition_filters = true;
+    } else {
+      table_opts.index_type = BlockBasedTableOptions::kBinarySearch;
+      table_opts.partition_filters = false;
+    }
+    opts.table_factory.reset(NewBlockBasedTableFactory(table_opts));
+    DestroyAndReopen(opts);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               "dr1", "dr2"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  }
 }
 
 TEST_F(DBRangeDelTest, CompactionOutputHasOnlyRangeTombstone) {
