@@ -672,7 +672,14 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
       chunk_len = buffer_len_ - chunk_offset_in_buffer;
       assert(chunk_offset_in_buffer % alignment == 0);
       assert(chunk_len % alignment == 0);
-      copy_data_to_new_buffer = true;
+      assert(chunk_offset_in_buffer + chunk_len <=
+             buffer_offset_ + buffer_len_);
+      if (chunk_len > 0) {
+        copy_data_to_new_buffer = true;
+      } else {
+        // this reset is not necessary, but just to be safe.
+        chunk_offset_in_buffer = 0;
+      }
     }
   }
 

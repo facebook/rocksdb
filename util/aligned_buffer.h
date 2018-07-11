@@ -121,6 +121,7 @@ public:
         ~static_cast<uintptr_t>(alignment_ - 1));
 
     if (copy_data) {
+      assert(bufstart_ + copy_offset + copy_len <= bufstart_ + cursize_);
       memcpy(new_bufstart, bufstart_ + copy_offset, copy_len);
       cursize_ = copy_len;
     } else {
