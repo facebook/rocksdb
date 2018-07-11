@@ -1023,11 +1023,13 @@ TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
   OpenDBAndBackupEngine(true);
   SyncPoint::GetInstance()->LoadDependency(
       {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
-        "BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions"},
+        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions"},
        {"BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   SyncPoint::GetInstance()->EnableProcessing();
   rocksdb::port::Thread setoptions_thread{[this]() {
+    TEST_SYNC_POINT(
+        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
     DBImpl* dbi = static_cast<DBImpl*>(db_.get());
     // Change arbitrary option to trigger OPTIONS file deletion
     ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
