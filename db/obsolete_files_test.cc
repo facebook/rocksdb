@@ -198,6 +198,47 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   CloseDB();
 }
 
+TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
+  createLevel0Files(2, 50000);
+  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
+
+  std::vector<uint64_t> optsfiles_nums;
+  std::vector<bool> optsfiles_keep;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:1", [&](void* arg) {
+        optsfiles_nums.push_back(*reinterpret_cast<uint64_t*>(arg));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:2", [&](void* arg) {
+        optsfiles_keep.push_back(*reinterpret_cast<bool*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DBImpl* dbi = static_cast<DBImpl*>(db_);
+  ASSERT_OK(dbi->DisableFileDeletions());
+  for (int i = 0; i != 4; ++i) {
+    if (i % 2) {
+      ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                                {{"paranoid_file_checks", "false"}}));
+    } else {
+      ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                                {{"paranoid_file_checks", "true"}}));
+    }
+  }
+  ASSERT_OK(dbi->EnableFileDeletions(true /* force */));
+  ASSERT_EQ(optsfiles_nums.size(), optsfiles_keep.size());
+  int size = static_cast<int>(optsfiles_nums.size());
+  int kept_opts_files_count = 0;
+  for (int i = 0; i != size; ++i) {
+    if (optsfiles_keep[i]) {
+      ++kept_opts_files_count;
+    }
+  }
+  ASSERT_EQ(2, kept_opts_files_count);
+
+  CloseDB();
+}
+
 } //namespace rocksdb
 
 int main(int argc, char** argv) {
