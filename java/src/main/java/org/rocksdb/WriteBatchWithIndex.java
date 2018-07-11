@@ -114,7 +114,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
    * as a delta and baseIterator as a base
    *
-   * Updating write batch with the current key of the iteratoris not safe.
+   * Updating write batch with the current key of the iterator is not safe.
    * We strongly recommand users not to do it. It will invalidate the current
    * key() and value() of the iterator. This invalidation happens even before
    * the write batch update finishes. The state may recover after Next() is

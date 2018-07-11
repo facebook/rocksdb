@@ -156,7 +156,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // The base_iterator is now 'owned' by the returned iterator. Deleting the
   // returned iterator will also delete the base_iterator.
   //
-  // Updating write batch with the current key of the iteratoris not safe.
+  // Updating write batch with the current key of the iterator is not safe.
   // We strongly recommand users not to do it. It will invalidate the current
   // key() and value() of the iterator. This invalidation happens even before
   // the write batch update finishes. The state may recover after Next() is
