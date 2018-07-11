@@ -1019,6 +1019,33 @@ TEST_F(BackupableDBTest, BackupOptions) {
   CloseDBAndBackupEngine();
 }
 
+TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
+  OpenDBAndBackupEngine(true);
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
+        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions"},
+       {"BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions",
+        "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  rocksdb::port::Thread setoptions_thread{[this]() {
+    TEST_SYNC_POINT(
+        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
+    DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+    // Change arbitrary option to trigger OPTIONS file deletion
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "false"}}));
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "true"}}));
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "false"}}));
+    TEST_SYNC_POINT(
+        "BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions");
+  }};
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  setoptions_thread.join();
+  CloseDBAndBackupEngine();
+}
+
 // This test verifies we don't delete the latest backup when read-only option is
 // set
 TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
