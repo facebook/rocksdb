@@ -1022,7 +1022,8 @@ TEST_F(BackupableDBTest, BackupOptions) {
 TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
   OpenDBAndBackupEngine(true);
   SyncPoint::GetInstance()->LoadDependency(
-      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1", "sync_point1"},
+      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
+        "BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions"},
        {"BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   SyncPoint::GetInstance()->EnableProcessing();
