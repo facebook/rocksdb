@@ -971,7 +971,8 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
         s = DeprecatedAddFile({file_name});
         auto it = true_data.lower_bound(Key(range_start));
         if (option_config_ != kUniversalCompaction &&
-            option_config_ != kUniversalCompactionMultiLevel) {
+            option_config_ != kUniversalCompactionMultiLevel &&
+            option_config_ != kUniversalSubcompactions) {
           if (it != true_data.end() && it->first <= Key(range_end)) {
             // This range overlap with data already exist in DB
             ASSERT_NOK(s);
