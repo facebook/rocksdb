@@ -4,6 +4,7 @@
 #  (found in the LICENSE.Apache file in the root directory).
 
 from advisor.db_log_parser import NO_FAM
+from advisor.db_options_parser import DatabaseOptions
 from advisor.rule_parser import Suggestion
 import copy
 import random
@@ -24,29 +25,26 @@ class ConfigOptimizer:
         return guideline
 
     @staticmethod
-    def get_action(guidelines, option, col_fam):
-        for action in Suggestion.Action:
-            action_scope = guidelines[option][action][ConfigOptimizer.SCOPE]
-            if action_scope and col_fam in action_scope:
-                return action
-        return None
-
-    @staticmethod
     def apply_action_on_value(old_value, action, suggested_values):
         chosen_sugg_val = None
         if suggested_values:
             chosen_sugg_val = random.choice(list(suggested_values))
         if action is Suggestion.Action.increase:
-            # need an old value to work with; increase by 10% for now
             if (not old_value or old_value <= 0) and chosen_sugg_val:
                 new_value = chosen_sugg_val
+            elif not old_value:
+                new_value = None
             elif old_value < 10:
                 new_value = old_value + 2
             else:
                 new_value = 1.3 * old_value
         elif action is Suggestion.Action.decrease:
-            # need an old value to work with; decrease by 10% for now
-            new_value = 0.7 * old_value
+            if (not old_value or old_value <= 0) and chosen_sugg_val:
+                new_value = chosen_sugg_val
+            elif not old_value:
+                new_value = None
+            else:
+                new_value = 0.7 * old_value
         elif action is Suggestion.Action.set:
             # don't care about old value of option
             new_value = chosen_sugg_val
@@ -56,56 +54,78 @@ class ConfigOptimizer:
     # currently, this picks an option at random
     @staticmethod
     def improve_db_config(current_config, guidelines):
-        # note: if an option is not in the current config, it's not chosen
-        # for update
-        option = random.choice(list(current_config.keys()))
-        better_config = {option: copy.deepcopy(current_config[option])}
-        suggested_values = (
-            guidelines[option][Suggestion.Action.set][ConfigOptimizer.SUGG_VAL]
-        )
-        for col_fam in current_config[option]:
-            sugg_action = ConfigOptimizer.get_action(
-                guidelines, option, col_fam
+        option = random.choice(list(guidelines.keys()))
+        better_config = {option: {}}
+        for action in guidelines[option]:
+            suggested_values = (
+                guidelines[option][action][ConfigOptimizer.SUGG_VAL]
             )
-            if not sugg_action:
-                continue
-            old_value = float(current_config[option][col_fam])
-            new_value = ConfigOptimizer.apply_action_on_value(
-                old_value, sugg_action, suggested_values
-            )
-            better_config[option][col_fam] = new_value
+            for col_fam in guidelines[option][action][ConfigOptimizer.SCOPE]:
+                old_value = None
+                if (
+                    option in current_config and
+                    col_fam in current_config[option]
+                ):
+                    old_value = float(current_config[option][col_fam])
+                new_value = ConfigOptimizer.apply_action_on_value(
+                    old_value, action, suggested_values
+                )
+                if new_value:
+                    better_config[option][col_fam] = new_value
         return better_config
 
     @staticmethod
     def improve_db_config_v2(options, rule, suggestions_dict):
+        # get the current configuration
         required_options = []
         rule_suggestions = []
         for sugg_name in rule.get_suggestions():
             option = suggestions_dict[sugg_name].option
             action = suggestions_dict[sugg_name].action
-            if not (option or action):  # suggestion not in required format
+            if not (option and action):  # suggestion not in required format
                 continue
             required_options.append(option)
             rule_suggestions.append(suggestions_dict[sugg_name])
-        # get the current configuration
         current_config = options.get_options(required_options)
-        updated_config = copy.deepcopy(current_config)
-        # apply the suggestions to generated updated_config
+        # Create the updated configuration from the rule's suggestions
+        updated_config = {}
         for sugg in rule_suggestions:
-            # note: if an option is not in the current config, it's not updated
-            if sugg.option not in updated_config:
+            # case: when the option is not present in the current configuration
+            if sugg.option not in current_config:
+                new_value = ConfigOptimizer.apply_action_on_value(
+                    None, sugg.action, sugg.suggested_values
+                )
+                if new_value:
+                    if sugg.option not in updated_config:
+                        updated_config[sugg.option] = {}
+                    if '.' not in sugg.option:
+                        updated_config[sugg.option][NO_FAM] = new_value
+                    else:
+                        for col_fam in rule.get_trigger_column_families():
+                            updated_config[sugg.option][col_fam] = new_value
                 continue
-            for col_fam in updated_config[sugg.option]:
-                if (
-                    col_fam == NO_FAM or
-                    col_fam in rule.get_trigger_column_families()
-                ):
+            # case: when the option is present in the current configuration
+            if NO_FAM in current_config[sugg.option]:
+                old_value = float(current_config[sugg.option][NO_FAM])
+                new_value = ConfigOptimizer.apply_action_on_value(
+                    old_value, sugg.action, sugg.suggested_values
+                )
+                if new_value:
+                    if sugg.option not in updated_config:
+                        updated_config[sugg.option] = {}
+                    updated_config[sugg.option][NO_FAM] = new_value
+            else:
+                for col_fam in rule.get_trigger_column_families():
+                    old_value = None
+                    if col_fam in current_config[sugg.option]:
+                        old_value = float(current_config[sugg.option][col_fam])
                     new_value = ConfigOptimizer.apply_action_on_value(
-                        float(current_config[sugg.option][col_fam]),
-                        sugg.action,
-                        sugg.suggested_values
+                        old_value, sugg.action, sugg.suggested_values
                     )
-                    updated_config[sugg.option][col_fam] = new_value
+                    if new_value:
+                        if sugg.option not in updated_config:
+                            updated_config[sugg.option] = {}
+                        updated_config[sugg.option][col_fam] = new_value
         return current_config, updated_config
 
     @staticmethod
@@ -122,6 +142,51 @@ class ConfigOptimizer:
                 return rule
         print('\nAll rules have been exhausted')
         return None
+
+    @staticmethod
+    def apply_suggestions(
+        triggered_rules,
+        current_rule_name,
+        rules_tried,
+        backtrack,
+        curr_options,
+        suggestions_dict
+    ):
+        curr_rule = ConfigOptimizer.pick_rule_to_apply(
+            triggered_rules, current_rule_name, rules_tried, backtrack
+        )
+        if not curr_rule:
+            return tuple([None]*4)
+        # if a rule has been picked for improving db_config, update rules_tried
+        rules_tried.add(curr_rule.name)
+        # get updated config based on the picked rule
+        curr_conf, updated_conf = ConfigOptimizer.improve_db_config_v2(
+            curr_options, curr_rule, suggestions_dict
+        )
+        conf_diff = DatabaseOptions.get_options_diff(curr_conf, updated_conf)
+        if not conf_diff:  # the current and updated configs are the same
+            curr_rule, rules_tried, curr_conf, updated_conf = (
+                ConfigOptimizer.apply_suggestions(
+                    triggered_rules,
+                    None,
+                    rules_tried,
+                    backtrack,
+                    curr_options,
+                    suggestions_dict
+                )
+            )
+        return (curr_rule, rules_tried, curr_conf, updated_conf)
+
+    @staticmethod
+    def get_backtrack_config(curr_config, updated_config):
+        diff = DatabaseOptions.get_options_diff(curr_config, updated_config)
+        bt_config = {}
+        for option in diff:
+            bt_config[option] = {}
+            for col_fam in diff[option]:
+                bt_config[option][col_fam] = diff[option][col_fam][0]
+        print(bt_config)
+        return bt_config
 
     def __init__(self, bench_runner, db_options, rule_parser):
         self.bench_runner = bench_runner
@@ -146,8 +211,17 @@ class ConfigOptimizer:
         # if it's a database-wide option, only one action is possible on it,
         # so remove this option if >1 actions have been suggested for it
         current_config = self.db_options.get_options(list(guidelines.keys()))
-        for option in current_config:
-            if NO_FAM in current_config[option]:
+        for option in guidelines:
+            misc_option = False
+            if option not in current_config:
+                if '.' not in option:
+                    misc_option = True
+                else:
+                    # note: no way to disambiguate guidelines for these options
+                    # also, update will not be proper in improve_db_config
+                    # if the option is really 'DB_WIDE'
+                    continue
+            if misc_option or NO_FAM in current_config[option]:
                 num_actions_suggested = 0
                 db_wide_action = None
                 for action in Suggestion.Action:
@@ -239,19 +313,20 @@ class ConfigOptimizer:
         self.rule_parser.print_rules(triggered_rules)
         backtrack = False
         rules_tried = set()
-        curr_rule = self.pick_rule_to_apply(
-            triggered_rules, None, rules_tried, backtrack
+        curr_rule, rules_tried, curr_conf, updated_conf = (
+            ConfigOptimizer.apply_suggestions(
+                triggered_rules,
+                None,
+                rules_tried,
+                backtrack,
+                options,
+                self.rule_parser.get_suggestions_dict()
+            )
         )
         # the optimizer loop
         while curr_rule:
             print('\nRule picked for next iteration:')
             print(curr_rule.name)
-            # update rules_tried
-            rules_tried.add(curr_rule.name)
-            # get updated config based on the picked rule
-            curr_conf, updated_conf = ConfigOptimizer.improve_db_config_v2(
-                options, curr_rule, self.rule_parser.get_suggestions_dict()
-            )
             print('\ncurrent config:')
             print(curr_conf)
             print('updated config:')
@@ -267,7 +342,10 @@ class ConfigOptimizer:
             if backtrack:
                 # revert changes to options config
                 print('\nBacktracking to previous configuration')
-                options.update_options(curr_conf)
+                backtrack_conf = ConfigOptimizer.get_backtrack_config(
+                    curr_conf, updated_conf
+                )
+                options.update_options(backtrack_conf)
             else:
                 # run advisor on new data sources
                 self.rule_parser.load_rules_from_spec()  # reboot the advisor
@@ -279,9 +357,17 @@ class ConfigOptimizer:
                 self.rule_parser.print_rules(triggered_rules)
                 old_throughput = new_throughput
                 old_data_sources = new_data_sources
+                rules_tried = set()
             # pick rule to work on and set curr_rule to that
-            curr_rule = self.pick_rule_to_apply(
-                triggered_rules, curr_rule.name, rules_tried, backtrack)
-        # generate the final rocksdb options file
-        options_file = options.generate_options_config('final')
-        return options_file
+            curr_rule, rules_tried, curr_conf, updated_conf = (
+                ConfigOptimizer.apply_suggestions(
+                    triggered_rules,
+                    curr_rule.name,
+                    rules_tried,
+                    backtrack,
+                    options,
+                    self.rule_parser.get_suggestions_dict()
+                )
+            )
+        # return the final database options configuration
+        return options
