@@ -3473,8 +3473,9 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents),
                           kDisableGlobalSequenceNumber);
 
-    std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewIterator<BlockIter>(
-        BytewiseComparator(), BytewiseComparator()));
+    std::unique_ptr<InternalIterator> meta_iter(
+        metaindex_block.NewIterator<BlockIter>(BytewiseComparator(),
+                                               BytewiseComparator()));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);

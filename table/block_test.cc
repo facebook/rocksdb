@@ -163,8 +163,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
-  std::unique_ptr<InternalIterator> regular_iter(
-      reader2.NewIterator<BlockIter>(BytewiseComparator(), BytewiseComparator()));
+  std::unique_ptr<InternalIterator> regular_iter(reader2.NewIterator<BlockIter>(
+      BytewiseComparator(), BytewiseComparator()));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -389,8 +389,9 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     // read contents of block sequentially
     size_t read_bytes = 0;
-    DataBlockIter *iter = static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
-        options.comparator, options.comparator, nullptr, stats.get()));
+    DataBlockIter *iter =
+        static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
+            options.comparator, options.comparator, nullptr, stats.get()));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -422,8 +423,9 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    DataBlockIter *iter = static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
-        options.comparator, options.comparator, nullptr, stats.get()));
+    DataBlockIter *iter =
+        static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
+            options.comparator, options.comparator, nullptr, stats.get()));
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -458,8 +460,9 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
                  kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    DataBlockIter *iter = static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
-        options.comparator, options.comparator, nullptr, stats.get()));
+    DataBlockIter *iter =
+        static_cast<DataBlockIter *>(reader.NewIterator<DataBlockIter>(
+            options.comparator, options.comparator, nullptr, stats.get()));
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);

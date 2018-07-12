@@ -239,8 +239,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           new BlockBasedTable::PartitionedIndexIteratorState(
               table_, &partition_map_, index_key_includes_seq_),
           index_block_->NewIterator<IndexBlockIter>(
-              icomparator_, icomparator_->user_comparator(), nullptr, kNullStats, true,
-              index_key_includes_seq_));
+              icomparator_, icomparator_->user_comparator(), nullptr,
+              kNullStats, true, index_key_includes_seq_));
     } else {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
@@ -248,8 +248,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       return new BlockBasedTableIterator<IndexBlockIter>(
           table_, ro, *icomparator_,
           index_block_->NewIterator<IndexBlockIter>(
-              icomparator_, icomparator_->user_comparator(), nullptr, kNullStats, true,
-              index_key_includes_seq_),
+              icomparator_, icomparator_->user_comparator(), nullptr,
+              kNullStats, true, index_key_includes_seq_),
           false, true, /* prefix_extractor */ nullptr, kIsIndex,
           index_key_includes_seq_);
     }
@@ -265,9 +265,9 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     IndexBlockIter biter;
     BlockHandle handle;
     Statistics* kNullStats = nullptr;
-    index_block_->NewIterator<IndexBlockIter>(icomparator_,
-                                   icomparator_->user_comparator(), &biter, kNullStats,
-                                   true, index_key_includes_seq_);
+    index_block_->NewIterator<IndexBlockIter>(
+        icomparator_, icomparator_->user_comparator(), &biter, kNullStats, true,
+        index_key_includes_seq_);
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
@@ -414,10 +414,9 @@ class BinarySearchIndexReader : public IndexReader {
                                         bool /*dont_care*/ = true,
                                         bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
-    return index_block_->NewIterator<IndexBlockIter>(icomparator_,
-                                          icomparator_->user_comparator(), iter,
-                                          kNullStats,
-                                          true, index_key_includes_seq_);
+    return index_block_->NewIterator<IndexBlockIter>(
+        icomparator_, icomparator_->user_comparator(), iter, kNullStats, true,
+        index_key_includes_seq_);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -540,8 +539,8 @@ class HashIndexReader : public IndexReader {
                                         bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
     return index_block_->NewIterator<IndexBlockIter>(
-        icomparator_, icomparator_->user_comparator(), iter, kNullStats, total_order_seek,
-        index_key_includes_seq_, prefix_index_.get());
+        icomparator_, icomparator_->user_comparator(), iter, kNullStats,
+        total_order_seek, index_key_includes_seq_, prefix_index_.get());
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -1113,7 +1112,7 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
   *meta_block = std::move(meta);
   // meta block uses bytewise comparator.
   iter->reset(meta_block->get()->NewIterator<BlockIter>(BytewiseComparator(),
-                                             BytewiseComparator()));
+                                                        BytewiseComparator()));
   return Status::OK();
 }
 
@@ -1584,16 +1583,15 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     TBlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context,
-    FilePrefetchBuffer* prefetch_buffer) {
+    GetContext* get_context, FilePrefetchBuffer* prefetch_buffer) {
   BlockHandle handle;
   Slice input = index_value;
   // We intentionally allow extra stuff in index_value so that we
   // can add more features in the future.
   Status s = handle.DecodeFrom(&input);
   return NewDataBlockIterator<TBlockIter>(rep, ro, handle, input_iter, is_index,
-                              key_includes_seq, get_context, s,
-                              prefetch_buffer);
+                                          key_includes_seq, get_context, s,
+                                          prefetch_buffer);
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -1653,9 +1651,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     assert(block.value != nullptr);
     const bool kTotalOrderSeek = true;
     iter = block.value->NewIterator<TBlockIter>(
-        &rep->internal_comparator,
-        rep->internal_comparator.user_comparator(), iter,
-        rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
+        &rep->internal_comparator, rep->internal_comparator.user_comparator(),
+        iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
@@ -1776,7 +1773,8 @@ BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
       index_key_includes_seq_(index_key_includes_seq) {}
 
 template <class TBlockIter>
-const size_t BlockBasedTableIterator<TBlockIter>::kMaxReadaheadSize = 256 * 1024;
+const size_t BlockBasedTableIterator<TBlockIter>::kMaxReadaheadSize =
+    256 * 1024;
 
 InternalIterator*
 BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
@@ -2178,7 +2176,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         need_upper_bound_check, prefix_extractor, kIsNotIndex,
         true /*key_includes_seq*/, for_compaction);
   } else {
-    auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
+    auto* mem =
+        arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
     return new (mem) BlockBasedTableIterator<DataBlockIter>(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(read_options, need_upper_bound_check),
@@ -2304,8 +2303,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         DataBlockIter biter;
-        NewDataBlockIterator<DataBlockIter>(rep_, read_options, iiter->value(), &biter, false,
-                             true /* key_includes_seq */, get_context);
+        NewDataBlockIterator<DataBlockIter>(
+            rep_, read_options, iiter->value(), &biter, false,
+            true /* key_includes_seq */, get_context);
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter.status().IsIncomplete()) {
@@ -2402,7 +2402,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 
     // Load the block specified by the block_handle into the block cache
     DataBlockIter biter;
-    NewDataBlockIterator<DataBlockIter>(rep_, ReadOptions(), block_handle, &biter);
+    NewDataBlockIterator<DataBlockIter>(rep_, ReadOptions(), block_handle,
+                                        &biter);
 
     if (!biter.status().ok()) {
       // there was an unexpected error while pre-fetching
@@ -2660,8 +2661,8 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     }
 
     std::unique_ptr<InternalIterator> datablock_iter;
-    datablock_iter.reset(
-        NewDataBlockIterator<DataBlockIter>(rep_, ReadOptions(), blockhandles_iter->value()));
+    datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
+        rep_, ReadOptions(), blockhandles_iter->value()));
     s = datablock_iter->status();
 
     if (!s.ok()) {
@@ -2942,8 +2943,8 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     out_file->Append("--------------------------------------\n");
 
     std::unique_ptr<InternalIterator> datablock_iter;
-    datablock_iter.reset(
-        NewDataBlockIterator<DataBlockIter>(rep_, ReadOptions(), blockhandles_iter->value()));
+    datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
+        rep_, ReadOptions(), blockhandles_iter->value()));
     s = datablock_iter->status();
 
     if (!s.ok()) {

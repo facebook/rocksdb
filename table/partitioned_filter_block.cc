@@ -131,10 +131,10 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
   char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   IndexBlockIter biter;
   BlockHandle handle;
-    Statistics* kNullStats = nullptr;
-  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(&comparator_,
-                                     comparator_.user_comparator(), &biter, kNullStats,
-                                     true, index_key_includes_seq_);
+  Statistics* kNullStats = nullptr;
+  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+      &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
+      index_key_includes_seq_);
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
     auto input = biter.value();
@@ -228,10 +228,10 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
     const Slice& entry) {
   IndexBlockIter iter;
-    Statistics* kNullStats = nullptr;
-  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(&comparator_,
-                                     comparator_.user_comparator(), &iter, kNullStats, true,
-                                     index_key_includes_seq_);
+  Statistics* kNullStats = nullptr;
+  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+      &comparator_, comparator_.user_comparator(), &iter, kNullStats, true,
+      index_key_includes_seq_);
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     return Slice();
@@ -300,10 +300,10 @@ void PartitionedFilterBlockReader::CacheDependencies(
   auto rep = table_->rep_;
   IndexBlockIter biter;
   BlockHandle handle;
-    Statistics* kNullStats = nullptr;
-  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(&comparator_,
-                                     comparator_.user_comparator(), &biter, kNullStats,
-                                     true, index_key_includes_seq_);
+  Statistics* kNullStats = nullptr;
+  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+      &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
+      index_key_includes_seq_);
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
