@@ -40,7 +40,7 @@ int main(int /*argc*/, char** /*argv*/) {
   // randomize tests
   rocksdb::Random rnd(301);
   const int kMaxTestSize = 100000l;
-  for (int random_test = 0; random_test < 100; random_test++) {
+  for (int random_test = 0; random_test < 50; random_test++) {
     int window_size = rnd.Uniform(kMaxTestSize) + 1;
     int deletion_trigger = rnd.Uniform(window_size);
     window_sizes.emplace_back(window_size);
