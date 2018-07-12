@@ -163,34 +163,25 @@ class Block {
   //
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
-  BlockIter* NewIterator(const Comparator* comparator,
-                         const Comparator* user_comparator,
-                         BlockIter* iter = nullptr);
+  //
+  // NewIterator<DataBlockIter>
   // Same as above but also updates read_amp_bitmap_ if it is not nullptr.
-  DataBlockIter* NewDataIterator(const Comparator* comparator,
-                                 const Comparator* user_comparator,
-                                 DataBlockIter* iter = nullptr,
-                                 Statistics* stats = nullptr);
+  //
+  // NewIterator<IndexBlockIter>
   // If `prefix_index` is not nullptr this block will do hash lookup for the key
   // prefix. If total_order_seek is true, prefix_index_ is ignored.
   //
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
-  IndexBlockIter* NewIndexIterator(const Comparator* comparator,
-                                   const Comparator* user_comparator,
-                                   IndexBlockIter* iter = nullptr,
-                                   bool total_order_seek = true,
-                                   bool key_includes_seq = true,
-                                   BlockPrefixIndex* prefix_index = nullptr);
-  // Returns IndexBlockIter if is_index is true and DataBlockIter otherwise. The
-  // iter also must be of the same type as the return value.
-  template<typename TBlockIter>
-  TBlockIter* NewIndexOrDataIterator(
-      const bool is_index, const Comparator* comparator,
-      const Comparator* user_comparator, TBlockIter* iter = nullptr,
-      Statistics* stats = nullptr, bool total_order_seek = true,
-      bool key_includes_seq = true, BlockPrefixIndex* prefix_index = nullptr);
+  template <typename TBlockIter>
+  TBlockIter* NewIterator(const Comparator* comparator,
+                          const Comparator* user_comparator,
+                          TBlockIter* iter = nullptr,
+                          Statistics* stats = nullptr,
+                          bool total_order_seek = true,
+                          bool key_includes_seq = true,
+                          BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
