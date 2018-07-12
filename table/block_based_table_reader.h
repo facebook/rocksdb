@@ -516,6 +516,7 @@ struct BlockBasedTable::Rep {
   const bool immortal_table;
 };
 
+template <class TBlockIter>
 class BlockBasedTableIterator : public InternalIterator {
  public:
   BlockBasedTableIterator(BlockBasedTable* table,
@@ -549,21 +550,21 @@ class BlockBasedTableIterator : public InternalIterator {
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && block_iter_points_to_real_block_ &&
-           block_iter_->Valid();
+           block_iter_.Valid();
   }
   Slice key() const override {
     assert(Valid());
-    return block_iter_->key();
+    return block_iter_.key();
   }
   Slice value() const override {
     assert(Valid());
-    return block_iter_->value();
+    return block_iter_.value();
   }
   Status status() const override {
     if (!index_iter_->status().ok()) {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
-      return block_iter_->status();
+      return block_iter_.status();
     } else {
       return Status::OK();
     }
@@ -576,7 +577,7 @@ class BlockBasedTableIterator : public InternalIterator {
   }
   bool IsKeyPinned() const override {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
-           block_iter_points_to_real_block_ && block_iter_->IsKeyPinned();
+           block_iter_points_to_real_block_ && block_iter_.IsKeyPinned();
   }
   bool IsValuePinned() const override {
     // BlockIter::IsValuePinned() is always true. No need to check
@@ -601,9 +602,9 @@ class BlockBasedTableIterator : public InternalIterator {
   void ResetDataIter() {
     if (block_iter_points_to_real_block_) {
       if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
-        block_iter_->DelegateCleanupsTo(pinned_iters_mgr_);
+        block_iter_.DelegateCleanupsTo(pinned_iters_mgr_);
       }
-      block_iter_->Invalidate(Status::OK());
+      block_iter_.Invalidate(Status::OK());
       block_iter_points_to_real_block_ = false;
     }
   }
@@ -627,10 +628,7 @@ class BlockBasedTableIterator : public InternalIterator {
   const InternalKeyComparator& icomp_;
   InternalIterator* index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
-  BlockIter* block_iter_;
-  // Only one of these two will be used. block_iter_ will refer to the used one.
-  DataBlockIter data_block_iter_;
-  IndexBlockIter index_block_iter_;
+  TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
   bool is_out_of_bound_ = false;
   bool check_filter_;
