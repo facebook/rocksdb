@@ -495,14 +495,10 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   return ret_iter;
 }
 
-BlockIter* Block::NewIndexOrDataIterator(const bool is_index, const Comparator* cmp,
-                                        const Comparator* ucmp,
-                                        BlockIter* iter,
-                         Statistics* stats,
-                                        bool total_order_seek,
-                                        bool key_includes_seq,
-BlockPrefixIndex* prefix_index
-                                        ) {
+BlockIter* Block::NewIndexOrDataIterator(
+    const bool is_index, const Comparator* cmp, const Comparator* ucmp,
+    BlockIter* iter, Statistics* stats, bool total_order_seek,
+    bool key_includes_seq, BlockPrefixIndex* prefix_index) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -513,7 +509,7 @@ BlockPrefixIndex* prefix_index
       ret_iter = new DataBlockIter;
     }
   }
-  if (size_ < 2*sizeof(uint32_t)) {
+  if (size_ < 2 * sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
@@ -551,7 +547,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
   } else {
     ret_iter = new DataBlockIter;
   }
-  if (size_ < 2*sizeof(uint32_t)) {
+  if (size_ < 2 * sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
@@ -561,9 +557,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
     return ret_iter;
   } else {
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                        global_seqno_,
-                        read_amp_bitmap_.get(),
-                        cachable());
+                         global_seqno_, read_amp_bitmap_.get(), cachable());
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
@@ -580,15 +574,14 @@ IndexBlockIter* Block::NewIndexIterator(const Comparator* cmp,
                                         IndexBlockIter* iter,
                                         bool total_order_seek,
                                         bool key_includes_seq,
-BlockPrefixIndex* prefix_index
-                                        ) {
+                                        BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
   } else {
     ret_iter = new IndexBlockIter;
   }
-  if (size_ < 2*sizeof(uint32_t)) {
+  if (size_ < 2 * sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
@@ -600,8 +593,7 @@ BlockPrefixIndex* prefix_index
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         prefix_index_ptr,
-                         key_includes_seq, cachable());
+                         prefix_index_ptr, key_includes_seq, cachable());
   }
 
   return ret_iter;

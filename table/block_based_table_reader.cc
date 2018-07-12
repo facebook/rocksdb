@@ -237,18 +237,18 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
       return NewTwoLevelIterator(
           new BlockBasedTable::PartitionedIndexIteratorState(
               table_, &partition_map_, index_key_includes_seq_),
-          index_block_->NewIndexIterator(icomparator_,
-                                    icomparator_->user_comparator(), nullptr,
-                                    true, index_key_includes_seq_));
+          index_block_->NewIndexIterator(
+              icomparator_, icomparator_->user_comparator(), nullptr, true,
+              index_key_includes_seq_));
     } else {
       auto ro = ReadOptions();
       ro.fill_cache = fill_cache;
       bool kIsIndex = true;
       return new BlockBasedTableIterator(
           table_, ro, *icomparator_,
-          index_block_->NewIndexIterator(icomparator_,
-                                    icomparator_->user_comparator(), nullptr,
-                                    true, index_key_includes_seq_),
+          index_block_->NewIndexIterator(
+              icomparator_, icomparator_->user_comparator(), nullptr, true,
+              index_key_includes_seq_),
           false, true, /* prefix_extractor */ nullptr, kIsIndex,
           index_key_includes_seq_);
     }
@@ -263,8 +263,9 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     auto rep = table_->rep_;
     IndexBlockIter biter;
     BlockHandle handle;
-    index_block_->NewIndexIterator(icomparator_, icomparator_->user_comparator(),
-                              &biter, true, index_key_includes_seq_);
+    index_block_->NewIndexIterator(icomparator_,
+                                   icomparator_->user_comparator(), &biter,
+                                   true, index_key_includes_seq_);
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
@@ -411,8 +412,8 @@ class BinarySearchIndexReader : public IndexReader {
                                         bool /*dont_care*/ = true,
                                         bool /*dont_care*/ = true) override {
     return index_block_->NewIndexIterator(icomparator_,
-                                     icomparator_->user_comparator(), iter,
-                                     true, index_key_includes_seq_);
+                                          icomparator_->user_comparator(), iter,
+                                          true, index_key_includes_seq_);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -534,7 +535,8 @@ class HashIndexReader : public IndexReader {
                                         bool total_order_seek = true,
                                         bool /*dont_care*/ = true) override {
     return index_block_->NewIndexIterator(
-        icomparator_, icomparator_->user_comparator(), iter, total_order_seek, index_key_includes_seq_, prefix_index_.get());
+        icomparator_, icomparator_->user_comparator(), iter, total_order_seek,
+        index_key_includes_seq_, prefix_index_.get());
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -1647,9 +1649,10 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
   if (s.ok()) {
     assert(block.value != nullptr);
     const bool kTotalOrderSeek = true;
-    iter = block.value->NewIndexOrDataIterator(is_index,
-        &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-        iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
+    iter = block.value->NewIndexOrDataIterator(
+        is_index, &rep->internal_comparator,
+        rep->internal_comparator.user_comparator(), iter,
+        rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
@@ -1948,12 +1951,12 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
   block_iter_->Seek(target);
 
   FindKeyForward();
-  assert(!block_iter_->Valid() ||
-         (key_includes_seq_ &&
-          icomp_.Compare(target, block_iter_->key()) <= 0) ||
-         (!key_includes_seq_ &&
-          icomp_.user_comparator()->Compare(ExtractUserKey(target),
-                                            block_iter_->key()) <= 0));
+  assert(
+      !block_iter_->Valid() ||
+      (key_includes_seq_ && icomp_.Compare(target, block_iter_->key()) <= 0) ||
+      (!key_includes_seq_ &&
+       icomp_.user_comparator()->Compare(ExtractUserKey(target),
+                                         block_iter_->key()) <= 0));
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
@@ -2080,11 +2083,10 @@ void BlockBasedTableIterator::InitDataBlock() {
     } else {
       block_iter_ = &data_block_iter_;
     }
-    BlockBasedTable::NewDataBlockIterator(rep, read_options_, data_block_handle,
-                                          block_iter_, is_index_,
-                                          key_includes_seq_,
-                                          /* get_context */ nullptr, s,
-                                          prefetch_buffer_.get());
+    BlockBasedTable::NewDataBlockIterator(
+        rep, read_options_, data_block_handle, block_iter_, is_index_,
+        key_includes_seq_,
+        /* get_context */ nullptr, s, prefetch_buffer_.get());
     block_iter_points_to_real_block_ = true;
   }
 }
