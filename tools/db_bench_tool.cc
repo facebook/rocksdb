@@ -2432,7 +2432,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
     std::string name;
-    std::unique_ptr<CompactionFilter> filter;
+    std::unique_ptr<ExpiredTimeFilter> filter;
     while (std::getline(benchmark_stream, name, ',')) {
       // Sanitize parameters
       num_ = FLAGS_num;
@@ -2488,11 +2488,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
 
-      if (FLAGS_use_keep_filter && FLAGS_expire_style != "compaction_filter") {
-        filter.reset(new KeepFilter());
-        fprintf(stdout, "A noop compaction filter is used\n");
-        open_options_.compaction_filter = filter.get();
-      }
       // Both fillseqdeterministic and filluniquerandomdeterministic
       // fill the levels except the max level with UNIQUE_RANDOM
       // and fill the max level with fillseq and filluniquerandom, respectively
@@ -3441,6 +3436,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         OpenDb(options, GetPathForMultiple(FLAGS_db, i), &multi_dbs_[i]);
       }
       options.wal_dir = wal_dir;
+    }
+
+    // KeepFilter is a noop filter, this can be used to test compaction filter
+    if (FLAGS_use_keep_filter) {
+      options.compaction_filter = new KeepFilter();
+      fprintf(stdout, "A noop compaction filter is used\n");
     }
   }
 
