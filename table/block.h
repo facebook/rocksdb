@@ -158,40 +158,38 @@ class Block {
     return contents_.compression_type;
   }
 
-  // If hash index lookup is enabled and `use_hash_index` is true. This block
-  // will do hash lookup for the key prefix.
-  //
-  // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
-  // the iterator will simply be set as "invalid", rather than returning
-  // the key that is just pass the target key.
-  //
   // If comparator is InternalKeyComparator, user_comparator is its user
   // comparator; they are equal otherwise.
   //
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
-  //
-  // If total_order_seek is true, hash_index_ and prefix_index_ are ignored.
-  // This option only applies for index block. For data block, hash_index_
-  // and prefix_index_ are null, so this option does not matter.
   BlockIter* NewIterator(const Comparator* comparator,
                          const Comparator* user_comparator,
                          BlockIter* iter = nullptr);
-  BlockIter* NewIndexOrDataIterator(
-      const bool is_index, const Comparator* comparator,
-      const Comparator* user_comparator, BlockIter* iter = nullptr,
-      Statistics* stats = nullptr, bool total_order_seek = true,
-      bool key_includes_seq = true, BlockPrefixIndex* prefix_index = nullptr);
+  // Same as above but also updates read_amp_bitmap_ if it is not nullptr.
   DataBlockIter* NewDataIterator(const Comparator* comparator,
                                  const Comparator* user_comparator,
                                  DataBlockIter* iter = nullptr,
                                  Statistics* stats = nullptr);
+  // If `prefix_index` is not nullptr this block will do hash lookup for the key
+  // prefix. If total_order_seek is true, prefix_index_ is ignored.
+  //
+  // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
+  // the iterator will simply be set as "invalid", rather than returning
+  // the key that is just pass the target key.
   IndexBlockIter* NewIndexIterator(const Comparator* comparator,
                                    const Comparator* user_comparator,
                                    IndexBlockIter* iter = nullptr,
                                    bool total_order_seek = true,
                                    bool key_includes_seq = true,
                                    BlockPrefixIndex* prefix_index = nullptr);
+  // Returns IndexBlockIter if is_index is true and DataBlockIter otherwise. The
+  // iter also must be of the same type as the return value.
+  BlockIter* NewIndexOrDataIterator(
+      const bool is_index, const Comparator* comparator,
+      const Comparator* user_comparator, BlockIter* iter = nullptr,
+      Statistics* stats = nullptr, bool total_order_seek = true,
+      bool key_includes_seq = true, BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
