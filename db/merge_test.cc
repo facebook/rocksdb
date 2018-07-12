@@ -88,7 +88,6 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
 // DBWithTTL is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
   if (ttl) {
-    // std::cout << "Opening database with TTL\n";
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options, dbname, &db_with_ttl);
     db = db_with_ttl;
@@ -280,8 +279,6 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
 
   dumpDb(db);
 
-  // std::cout << "1\n";
-
   // 1+...+49 = ?
   uint64_t sum = 0;
   for (int i = 1; i < 50; i++) {
@@ -290,17 +287,12 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
   assert(counters.assert_get("b") == sum);
 
-  // std::cout << "2\n";
   dumpDb(db);
-
-  // std::cout << "3\n";
 
   if (test_compaction) {
     db->Flush(o);
 
-    // std::cout << "Compaction started ...\n";
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-    // std::cout << "Compaction ended\n";
 
     dumpDb(db);
 
@@ -416,13 +408,11 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
     auto db = OpenDb(dbname, use_ttl);
 
     {
-      // std::cout << "Test read-modify-write counters... \n";
       Counters counters(db, 0);
       testCounters(counters, db.get(), true);
     }
 
     {
-      // std::cout << "Test merge-based counters... \n";
       MergeBasedCounters counters(db, 0);
       testCounters(counters, db.get(), use_compression);
     }
@@ -431,7 +421,6 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   DestroyDB(dbname, Options());
 
   {
-    // std::cout << "Test merge in memtable... \n";
     size_t max_merge = 5;
     auto db = OpenDb(dbname, use_ttl, max_merge);
     MergeBasedCounters counters(db, 0);
@@ -442,7 +431,6 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   }
 
   {
-    // std::cout << "Test Partial-Merge\n";
     size_t max_merge = 100;
     // Min merge is hard-coded to 2.
     uint32_t min_merge = 2;
@@ -462,7 +450,6 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   }
 
   {
-    // std::cout << "Test merge-operator not set after reopen\n";
     {
       auto db = OpenDb(dbname);
       MergeBasedCounters counters(db, 0);
