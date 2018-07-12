@@ -135,15 +135,4 @@ if not is_opt_mode:
           command = [TEST_RUNNER, BUCK_BINS + test_bin]
         )
 
-custom_unittest(
-    name = "make_rocksdbjavastatic",
-    command = ["internal_repo_rocksdb/make_rocksdbjavastatic.sh"],
-    type = "simple",
-)
-
-custom_unittest(
-    name = "make_rocksdb_lite_release",
-    command = ["internal_repo_rocksdb/make_rocksdb_lite_release.sh"],
-    type = "simple",
-)
 """
