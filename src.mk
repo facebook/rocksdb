@@ -100,6 +100,7 @@ LIB_SOURCES =                                                   \
   table/block_builder.cc                                        \
   table/block_fetcher.cc                                        \
   table/block_prefix_index.cc                                   \
+  table/block_suffix_index.cc                                   \
   table/bloom_block.cc                                          \
   table/cuckoo_table_builder.cc                                 \
   table/cuckoo_table_factory.cc                                 \
@@ -344,6 +345,7 @@ MAIN_SOURCES =                                                          \
   monitoring/statistics_test.cc                                         \
   options/options_test.cc                                               \
   table/block_based_filter_block_test.cc                                \
+  table/block_suffix_index_test.cc                                      \
   table/block_test.cc                                                   \
   table/cleanable_test.cc                                               \
   table/cuckoo_table_builder_test.cc                                    \

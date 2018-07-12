@@ -9,9 +9,10 @@
 
 #pragma once
 #include <vector>
-
+#include <memory>
 #include <stdint.h>
 #include "rocksdb/slice.h"
+#include "table/block_suffix_index.h"
 
 namespace rocksdb {
 
@@ -21,7 +22,8 @@ class BlockBuilder {
   void operator=(const BlockBuilder&) = delete;
 
   explicit BlockBuilder(int block_restart_interval,
-                        bool use_delta_encoding = true);
+                        bool use_delta_encoding = true,
+                        bool use_suffix_index = false);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -37,7 +39,10 @@ class BlockBuilder {
 
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
-  inline size_t CurrentSizeEstimate() const { return estimate_; }
+  inline size_t CurrentSizeEstimate() const {
+    return estimate_ +
+      (suffix_index_builder_ ? suffix_index_builder_->EstimateSize() : 0);
+  }
 
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;
@@ -57,6 +62,8 @@ class BlockBuilder {
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
+
+  std::unique_ptr<BlockSuffixIndexBuilder> suffix_index_builder_;
 };
 
 }  // namespace rocksdb

@@ -26,6 +26,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "table/block_prefix_index.h"
+#include "table/block_suffix_index.h"
 #include "table/internal_iterator.h"
 #include "util/random.h"
 #include "util/sync_point.h"
@@ -142,7 +143,8 @@ class Block {
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, SequenceNumber _global_seqno,
                  size_t read_amp_bytes_per_bit = 0,
-                 Statistics* statistics = nullptr);
+                 Statistics* statistics = nullptr,
+                 bool use_suffix_index = false);
 
   ~Block() = default;
 
@@ -172,12 +174,21 @@ class Block {
   // If total_order_seek is true, hash_index_ and prefix_index_ are ignored.
   // This option only applies for index block. For data block, hash_index_
   // and prefix_index_ are null, so this option does not matter.
+
+  // param: can_use_suffix_index if true, the iterator will seek using
+  // hash; if false it use traditional binary seek.
+  // The difference is it the seek_key does not exist, hash seek will
+  // invalidate the iterator, but binaryseek will set still have the
+  // iterator valid but point to the closest location.
+  // If caller only want single point query, i.e. Get(), set it true
+  // If caller use it to iterator backward or forwad, set it false.
   BlockIter* NewIterator(const Comparator* comparator,
                          const Comparator* user_comparator,
                          BlockIter* iter = nullptr,
                          bool total_order_seek = true,
                          Statistics* stats = nullptr,
-                         bool key_includes_seq = true);
+                         bool key_includes_seq = true,
+                         bool can_use_suffix_index = false);
   void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 
   // Report an approximation of how much memory has been used.
@@ -197,7 +208,11 @@ class Block {
   // the encoded value (kDisableGlobalSequenceNumber means disabled)
   const SequenceNumber global_seqno_;
 
-  // No copying allowed
+  bool use_suffix_index_;
+  uint32_t size_without_suffix_map_;
+  std::unique_ptr<BlockSuffixIndex> suffix_index_;
+
+// No copying allowed
   Block(const Block&) = delete;
   void operator=(const Block&) = delete;
 };
@@ -228,11 +243,11 @@ class BlockIter final : public InternalIterator {
             const char* data, uint32_t restarts, uint32_t num_restarts,
             BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
             BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq,
-            bool block_contents_pinned)
+            bool block_contents_pinned, BlockSuffixIndex* suffix_index)
       : BlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
                prefix_index, global_seqno, read_amp_bitmap, key_includes_seq,
-               block_contents_pinned);
+               block_contents_pinned, suffix_index);
   }
 
   void Initialize(const Comparator* comparator,
@@ -240,7 +255,7 @@ class BlockIter final : public InternalIterator {
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap, bool key_includes_seq,
-                  bool block_contents_pinned) {
+                  bool block_contents_pinned, BlockSuffixIndex* suffix_index) {
     assert(data_ == nullptr);           // Ensure it is called only once
     assert(num_restarts > 0);           // Ensure the param is valid
 
@@ -257,6 +272,7 @@ class BlockIter final : public InternalIterator {
     last_bitmap_offset_ = current_ + 1;
     key_includes_seq_ = key_includes_seq;
     block_contents_pinned_ = block_contents_pinned;
+    suffix_index_ = suffix_index;
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
@@ -355,6 +371,8 @@ class BlockIter final : public InternalIterator {
   bool key_includes_seq_;
   SequenceNumber global_seqno_;
 
+  BlockSuffixIndex* suffix_index_;
+
  public:
   // read-amp bitmap
   BlockReadAmpBitmap* read_amp_bitmap_;
@@ -438,6 +456,8 @@ class BlockIter final : public InternalIterator {
                             uint32_t* index);
 
   bool PrefixSeek(const Slice& target, uint32_t* index);
+
+  bool SuffixSeek(const Slice& target);
 
 };
 

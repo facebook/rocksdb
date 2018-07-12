@@ -252,6 +252,9 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t offset = 0;
   Status status;
   size_t alignment;
+
+  // if true, data_block uses suffix hash index format
+  const bool block_uses_suffix_index;
   BlockBuilder data_block;
   BlockBuilder range_del_block;
 
@@ -301,8 +304,12 @@ struct BlockBasedTableBuilder::Rep {
         alignment(table_options.block_align
                       ? std::min(table_options.block_size, kDefaultPageSize)
                       : 0),
+        block_uses_suffix_index(table_options.block_format_type ==
+                         BlockBasedTableOptions::BlockFormatType::
+                         kSuffixHashBlockType),
         data_block(table_options.block_restart_interval,
-                   table_options.use_delta_encoding),
+                   table_options.use_delta_encoding,
+                   block_uses_suffix_index),
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_dict(_compression_dict),
@@ -648,7 +655,10 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
     BlockContents results(std::move(ubuf), size, true, type);
 
-    Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber);
+    Block* block = new Block(std::move(results), kDisableGlobalSequenceNumber,
+                             0 /* read_amp_bytes_per_bit */,
+                             nullptr /* statistics */,
+                             r->block_uses_suffix_index);
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(

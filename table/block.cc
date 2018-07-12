@@ -20,6 +20,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "table/block_prefix_index.h"
+#include "table/block_suffix_index.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
@@ -152,6 +153,11 @@ void BlockIter::Seek(const Slice& target) {
   bool ok = false;
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
+  } else if (suffix_index_) {
+    // suffix seek will set the current_ and restart_index_,
+    // no need to pass back `index`, or linear search.
+    SuffixSeek(target);
+    return;
   } else {
     ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index);
   }
@@ -394,6 +400,35 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
   }
 }
 
+// NOTE: in suffix seek, if the key is not found in the restart intervals,
+// the iterator will simply be set as "invalid", rather than returning
+// the key that is just pass the target key.
+// return value: found
+bool BlockIter::SuffixSeek(const Slice& target) {
+  assert(suffix_index_);
+  Slice user_key = ExtractUserKey(target);
+  std::unique_ptr<BlockSuffixIndexIterator> suffix_iter(
+      suffix_index_->NewIterator(user_key));
+
+  for (; suffix_iter->Valid(); suffix_iter->Next()) {
+    uint32_t restart_index = suffix_iter->Value();
+    SeekToRestartPoint(restart_index);
+    while (true) {
+      if (!ParseNextKey() || Compare(key_, target) >= 0) {
+        break;
+      }
+    }
+    if ((current_ != restarts_) /* valid */ &&
+        // If the user key portion match do we consider the key matches
+        user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+      return true; // found
+    }
+  }
+
+  current_ = restarts_; // not found, Invalidate the iterator
+  return false;
+}
+
 bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   assert(prefix_index_);
   Slice seek_key = target;
@@ -412,27 +447,35 @@ bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 }
 
 uint32_t Block::NumRestarts() const {
-  assert(size_ >= 2*sizeof(uint32_t));
-  return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  assert(size_without_suffix_map_ >= 2*sizeof(uint32_t));
+  return DecodeFixed32(data_ + size_without_suffix_map_ - sizeof(uint32_t));
 }
 
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
-             size_t read_amp_bytes_per_bit, Statistics* statistics)
+             size_t read_amp_bytes_per_bit, Statistics* statistics,
+             bool use_suffix_index)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
       restart_offset_(0),
       num_restarts_(0),
-      global_seqno_(_global_seqno) {
+      global_seqno_(_global_seqno),
+      use_suffix_index_(use_suffix_index){
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
     // Should only decode restart points for uncompressed blocks
     if (compression_type() == kNoCompression) {
+      size_without_suffix_map_ = size_;
+      if (use_suffix_index) {
+        suffix_index_.reset(new BlockSuffixIndex(contents.data));
+        size_without_suffix_map_ = suffix_index_->SuffixHashMapStart();
+      }
       num_restarts_ = NumRestarts();
       restart_offset_ =
-          static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
-      if (restart_offset_ > size_ - sizeof(uint32_t)) {
+        static_cast<uint32_t>(size_without_suffix_map_) -
+        (1 + num_restarts_) * sizeof(uint32_t);
+      if (restart_offset_ > size_without_suffix_map_ - sizeof(uint32_t)) {
         // The size is too small for NumRestarts() and therefore
         // restart_offset_ wrapped around.
         size_ = 0;
@@ -447,14 +490,15 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
 
 BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
                               BlockIter* iter, bool total_order_seek,
-                              Statistics* stats, bool key_includes_seq) {
+                              Statistics* stats, bool key_includes_seq,
+                              bool can_use_suffix_index) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
   } else {
     ret_iter = new BlockIter;
   }
-  if (size_ < 2*sizeof(uint32_t)) {
+  if (size_without_suffix_map_ < 2*sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
     return ret_iter;
   }
@@ -467,7 +511,8 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
         total_order_seek ? nullptr : prefix_index_.get();
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          prefix_index_ptr, global_seqno_,
-                         read_amp_bitmap_.get(), key_includes_seq, cachable());
+                         read_amp_bitmap_.get(), key_includes_seq, cachable(),
+                         can_use_suffix_index ? suffix_index_.get() : nullptr);
 
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {

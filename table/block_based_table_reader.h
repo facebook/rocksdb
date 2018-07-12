@@ -219,11 +219,13 @@ class BlockBasedTable : public TableReader {
   // input_iter: if it is not null, update this one and return it as Iterator
   static BlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
+      bool can_use_suffix_index,
       BlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
       FilePrefetchBuffer* prefetch_buffer = nullptr);
   static BlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+      bool can_use_suffix_index,
       BlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
       Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
@@ -297,7 +299,8 @@ class BlockBasedTable : public TableReader {
       const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, GetContext* get_context = nullptr);
+      bool block_uses_suffix_index, bool is_index = false,
+      GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -315,7 +318,8 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
+      bool block_uses_suffix_index, bool is_index = false,
+      Cache::Priority pri = Cache::Priority::LOW,
       GetContext* get_context = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
@@ -430,6 +434,7 @@ struct BlockBasedTable::Rep {
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
         index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
+        block_uses_suffix_index(false),
         hash_index_allow_collision(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
@@ -478,6 +483,9 @@ struct BlockBasedTable::Rep {
   // another member ("allocation").
   std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
+  // if true, data_block uses suffix hash index format
+  bool block_uses_suffix_index;
+
   bool hash_index_allow_collision;
   bool whole_key_filtering;
   bool prefix_filtering;

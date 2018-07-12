@@ -100,6 +100,15 @@ struct BlockBasedTableOptions {
 
   IndexType index_type = kBinarySearch;
 
+  // The format type that will be used for the data block.
+  // Now two BlockFormatType supported
+  enum BlockFormatType : char {
+    kBinarySearchBlockType,  // traditional block type
+    kSuffixHashBlockType,  // additional suffix hash index appended to the end.
+  };
+
+  BlockFormatType block_format_type = kBinarySearchBlockType;
+
   // This option is now deprecated. No matter what value it is set to,
   // it will behave as if hash_index_allow_collision=true.
   bool hash_index_allow_collision = true;
