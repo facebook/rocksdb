@@ -101,8 +101,11 @@ Status ExternalSstFileIngestionJob::Prepare(
     VersionEdit tmp_edit;
     InstrumentedMutexLock l(mutex_);
     tmp_edit.SetNextFile(versions_->current_next_file_number());
-    versions_->LogAndApply(cfd_, *mutable_cf_options, &tmp_edit, mutex_,
-                           db_dir_);
+    status = versions_->LogAndApply(cfd_, *mutable_cf_options, &tmp_edit, mutex_,
+                                    db_dir_);
+  }
+  if (!status.ok()) {
+    return status;
   }
   for (IngestedFileInfo& f : files_to_ingest_) {
     f.fd = FileDescriptor(new_file_number++, 0, f.file_size);
