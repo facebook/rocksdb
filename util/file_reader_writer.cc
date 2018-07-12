@@ -123,13 +123,16 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       while (pos < n) {
         size_t allowed;
         if (for_compaction_ && rate_limiter_ != nullptr) {
-          if (env_) {
+          if (env_ &&
+              rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             wait_for_rate_limiter.Start();
           }
           allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
                                                 Env::IOPriority::IO_LOW, stats_,
                                                 RateLimiter::OpType::kRead);
-          total_wait_time += wait_for_rate_limiter.ElapsedNanosSafe();
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            total_wait_time += wait_for_rate_limiter.ElapsedNanosSafe();
+          }
         } else {
           allowed = n;
         }
