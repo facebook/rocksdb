@@ -29,7 +29,7 @@ def main(args):
             ods_args['key_prefix'] = args.ods_key_prefix
     db_bench_runner = bench_runner_class(args.benchrunner_pos_args, ods_args)
     # initialise the database configuration
-    db_options = DatabaseOptions(args.rocksdb_options)
+    db_options = DatabaseOptions(args.rocksdb_options, args.misc_options)
     # set the frequency at which stats are dumped in the LOG file and the
     # location of the LOG file.
     db_log_dump_settings = {
@@ -45,8 +45,16 @@ def main(args):
     )
     # run the optimiser to improve the database configuration for given
     # benchmarks, with the help of expert-specified rules
-    final_options_file = config_optimizer.run_v2()
-    print('Final configuration in: ' + final_options_file)
+    final_db_options = config_optimizer.run_v2()
+    # generate the final rocksdb options file
+    print(
+        'Final configuration in: ' +
+        final_db_options.generate_options_config('final')
+    )
+    print(
+        'Final miscellaneous options: ' +
+        repr(final_db_options.get_misc_options())
+    )
     # the ConfigOptimizer has another optimization logic:
     # config_optimizer.run(num_iterations=CONFIG_OPT_NUM_ITER)
 
@@ -55,6 +63,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script is used for\
         searching for a better database configuration')
     parser.add_argument('--rocksdb_options', required=True, type=str)
+    # these are options that are column-family agnostic and are not yet
+    # supported by the Rocksdb Options file: eg. bloom_bits=2
+    parser.add_argument('--misc_options', nargs='*')
     parser.add_argument('--rules_spec', required=True, type=str)
     parser.add_argument('--stats_dump_period_sec', required=True, type=int)
     parser.add_argument('--db_log_dir', required=True, type=str)
