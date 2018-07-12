@@ -68,10 +68,11 @@ void Java_org_rocksdb_BackupEngine_createNewBackupWithMetadata(
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
 
   jboolean has_exception = JNI_FALSE;
-  std::string app_metadata = rocksdb::JniUtil::copyStdString(
-          env, japp_metadata, &has_exception);
+  std::string app_metadata =
+      rocksdb::JniUtil::copyStdString(env, japp_metadata, &has_exception);
   if (has_exception == JNI_TRUE) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, "Could not copy jstring to std::string");
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env, "Could not copy jstring to std::string");
     return;
   }
 
