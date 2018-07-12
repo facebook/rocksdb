@@ -508,12 +508,12 @@ TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
   Reopen(opts);
 
   db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
-                   "dr1");  // obsolete after compaction
+                   "dr10");  // obsolete after compaction
   db_->Put(WriteOptions(), "key", "val");
   db_->Flush(FlushOptions());
   const Snapshot* snapshot = db_->GetSnapshot();
   db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr2",
-                   "dr2");  // protected by snapshot
+                   "dr20");  // protected by snapshot
   db_->Put(WriteOptions(), "key", "val");
   db_->Flush(FlushOptions());
 
