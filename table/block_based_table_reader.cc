@@ -1576,9 +1576,9 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 }
 
 template <typename TBlockIter>
-BlockIter* BlockBasedTable::NewDataBlockIterator(
+TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
-    BlockIter* input_iter, bool is_index, bool key_includes_seq,
+    TBlockIter* input_iter, bool is_index, bool key_includes_seq,
     GetContext* get_context,
     FilePrefetchBuffer* prefetch_buffer) {
   BlockHandle handle;
@@ -1596,9 +1596,9 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
 // If input_iter is null, new a iterator
 // If input_iter is not null, update this iter and return it
 template <typename TBlockIter>
-BlockIter* BlockBasedTable::NewDataBlockIterator(
+TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
-    BlockIter* input_iter, bool is_index, bool key_includes_seq,
+    TBlockIter* input_iter, bool is_index, bool key_includes_seq,
     GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
@@ -1615,15 +1615,11 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
                                   get_context);
   }
 
-  BlockIter* iter;
+  TBlockIter* iter;
   if (input_iter != nullptr) {
     iter = input_iter;
   } else {
-    if (is_index) {
-      iter = new IndexBlockIter;
-    } else {
-      iter = new DataBlockIter;
-    }
+    iter = new TBlockIter;
   }
   // Didn't get any data from block caches.
   if (s.ok() && block.value == nullptr) {
@@ -1651,7 +1647,7 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
   if (s.ok()) {
     assert(block.value != nullptr);
     const bool kTotalOrderSeek = true;
-    iter = block.value->NewIndexOrDataIterator(
+    iter = block.value->NewIndexOrDataIterator<TBlockIter>(
         is_index, &rep->internal_comparator,
         rep->internal_comparator.user_comparator(), iter,
         rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);

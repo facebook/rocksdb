@@ -218,15 +218,15 @@ class BlockBasedTable : public TableReader {
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
-  static BlockIter* NewDataBlockIterator(
+  static TBlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
-      BlockIter* input_iter = nullptr, bool is_index = false,
+      TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
       FilePrefetchBuffer* prefetch_buffer = nullptr);
   template <typename TBlockIter>
-  static BlockIter* NewDataBlockIterator(
+  static TBlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
-      BlockIter* input_iter = nullptr, bool is_index = false,
+      TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
       Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
 

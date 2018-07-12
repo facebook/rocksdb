@@ -495,19 +495,16 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   return ret_iter;
 }
 
-BlockIter* Block::NewIndexOrDataIterator(
+template<> DataBlockIter* Block::NewIndexOrDataIterator(
     const bool is_index, const Comparator* cmp, const Comparator* ucmp,
-    BlockIter* iter, Statistics* stats, bool total_order_seek,
-    bool key_includes_seq, BlockPrefixIndex* prefix_index) {
-  BlockIter* ret_iter;
+    DataBlockIter* iter, Statistics* stats, bool /*total_order_seek*/,
+    bool /*key_includes_seq*/, BlockPrefixIndex* /*prefix_index*/) {
+    assert(!is_index);
+  DataBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
   } else {
-    if (is_index) {
-      ret_iter = new IndexBlockIter;
-    } else {
       ret_iter = new DataBlockIter;
-    }
   }
   if (size_ < 2 * sizeof(uint32_t)) {
     ret_iter->Invalidate(Status::Corruption("bad block contents"));
@@ -517,12 +514,6 @@ BlockIter* Block::NewIndexOrDataIterator(
     // Empty block.
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
-  } else if (is_index) {
-    BlockPrefixIndex* prefix_index_ptr =
-        total_order_seek ? nullptr : prefix_index;
-    reinterpret_cast<IndexBlockIter*>(ret_iter)->Initialize(
-        cmp, ucmp, data_, restart_offset_, num_restarts_, prefix_index_ptr,
-        key_includes_seq, cachable());
   } else {
     reinterpret_cast<DataBlockIter*>(ret_iter)->Initialize(
         cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno_,
@@ -536,6 +527,47 @@ BlockIter* Block::NewIndexOrDataIterator(
   }
 
   return ret_iter;
+}
+
+template<>  IndexBlockIter* Block::NewIndexOrDataIterator(
+    const bool is_index, const Comparator* cmp, const Comparator* ucmp,
+    IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
+    bool key_includes_seq, BlockPrefixIndex* prefix_index) {
+  IndexBlockIter* ret_iter;
+    assert(is_index);
+  if (iter != nullptr) {
+    ret_iter = iter;
+  } else {
+      ret_iter = new IndexBlockIter;
+  }
+  if (size_ < 2 * sizeof(uint32_t)) {
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    return ret_iter;
+  }
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
+    return ret_iter;
+  } else {
+    BlockPrefixIndex* prefix_index_ptr =
+        total_order_seek ? nullptr : prefix_index;
+    reinterpret_cast<IndexBlockIter*>(ret_iter)->Initialize(
+        cmp, ucmp, data_, restart_offset_, num_restarts_, prefix_index_ptr,
+        key_includes_seq, cachable());
+  }
+
+  return ret_iter;
+}
+
+template<> BlockIter* Block::NewIndexOrDataIterator(
+    const bool is_index, const Comparator* cmp, const Comparator* ucmp,
+    BlockIter* iter, Statistics* /*stats*/, bool /*total_order_seek*/,
+    bool /*key_includes_seq*/, BlockPrefixIndex* /*prefix_index*/) {
+    assert(0);
+    (void)is_index;
+    (void)cmp;
+    (void)ucmp;
+  return iter;
 }
 
 DataBlockIter* Block::NewDataIterator(const Comparator* cmp,

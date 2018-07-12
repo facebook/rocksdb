@@ -185,9 +185,10 @@ class Block {
                                    BlockPrefixIndex* prefix_index = nullptr);
   // Returns IndexBlockIter if is_index is true and DataBlockIter otherwise. The
   // iter also must be of the same type as the return value.
-  BlockIter* NewIndexOrDataIterator(
+  template<typename TBlockIter>
+  TBlockIter* NewIndexOrDataIterator(
       const bool is_index, const Comparator* comparator,
-      const Comparator* user_comparator, BlockIter* iter = nullptr,
+      const Comparator* user_comparator, TBlockIter* iter = nullptr,
       Statistics* stats = nullptr, bool total_order_seek = true,
       bool key_includes_seq = true, BlockPrefixIndex* prefix_index = nullptr);
 
