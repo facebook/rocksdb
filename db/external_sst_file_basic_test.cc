@@ -256,33 +256,33 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
     ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2, 3, 4, 5, 6},
                                          ValueType::kTypeValue, file_id++,
                                          &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {10, 11, 12, 13},
                                          ValueType::kTypeValue, file_id++,
                                          &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 4, 6}, ValueType::kTypeValue, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {11, 15, 19}, ValueType::kTypeValue, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120, 130}, ValueType::kTypeValue, file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 130}, ValueType::kTypeValue, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
     // Write some keys through normal write path
@@ -294,17 +294,17 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {60, 61, 62}, ValueType::kTypeValue, file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {40, 41, 42}, ValueType::kTypeValue, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {20, 30, 40}, ValueType::kTypeValue, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
 
     const Snapshot* snapshot = db_->GetSnapshot();
@@ -351,52 +351,52 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
     ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2, 3, 4, 5, 6},
                                          ValueType::kTypeValue, file_id++,
                                          &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {10, 11, 12, 13},
                                          ValueType::kTypeValue, file_id++,
                                          &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 4, 6}, ValueType::kTypeMerge, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {11, 15, 19},
                                          ValueType::kTypeDeletion, file_id++,
                                          &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120, 130}, ValueType::kTypeMerge, file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 130}, ValueType::kTypeDeletion, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {120},
                                          {ValueType::kTypeValue}, {{120, 135}},
                                          file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {}, {}, {{110, 120}},
                                          file_id++, &true_data));
     // The range deletion ends on a key, but it doesn't actually delete
     // this key because the largest key in the range is exclusive. Still,
-    // if counts as an overlap so a new seqno will be assigned.
+    // it counts as an overlap so a new seqno will be assigned.
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 5);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {}, {}, {{100, 109}},
                                          file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 5);
 
     // Write some keys through normal write path
@@ -408,18 +408,18 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {60, 61, 62}, ValueType::kTypeValue, file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {40, 41, 42}, ValueType::kTypeMerge, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(options, {20, 30, 40},
                                          ValueType::kTypeDeletion, file_id++,
                                          &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
 
     const Snapshot* snapshot = db_->GetSnapshot();
@@ -468,7 +468,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue,
          ValueType::kTypeMerge, ValueType::kTypeValue, ValueType::kTypeMerge},
         file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
@@ -476,33 +476,33 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue,
          ValueType::kTypeMerge},
         file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 4, 6}, {ValueType::kTypeDeletion, ValueType::kTypeValue,
                              ValueType::kTypeMerge},
         file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {11, 15, 19}, {ValueType::kTypeDeletion, ValueType::kTypeMerge,
                                 ValueType::kTypeValue},
         file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120, 130}, {ValueType::kTypeValue, ValueType::kTypeMerge},
         file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 130}, {ValueType::kTypeMerge, ValueType::kTypeDeletion},
         file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
@@ -510,14 +510,14 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         {ValueType::kTypeValue, ValueType::kTypeMerge,
          ValueType::kTypeDeletion},
         {{150, 160}, {180, 190}}, file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {150, 151, 152},
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue},
         {{200, 250}}, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4);
 
     ASSERT_OK(GenerateAndAddExternalFile(
@@ -525,7 +525,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         {ValueType::kTypeValue, ValueType::kTypeMerge,
          ValueType::kTypeDeletion},
         {{1, 2}, {152, 154}}, file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 5);
 
     // Write some keys through normal write path
@@ -539,7 +539,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {60, 61, 62},
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue},
         file_id++, &true_data));
-    // File dont overwrite any keys, No seqno needed
+    // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
 
     ASSERT_OK(GenerateAndAddExternalFile(
@@ -547,7 +547,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         {ValueType::kTypeValue, ValueType::kTypeDeletion,
          ValueType::kTypeDeletion},
         file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
@@ -555,7 +555,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         {ValueType::kTypeDeletion, ValueType::kTypeDeletion,
          ValueType::kTypeDeletion},
         file_id++, &true_data));
-    // File overwrite some keys, a seqno will be assigned
+    // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
 
     const Snapshot* snapshot = db_->GetSnapshot();
