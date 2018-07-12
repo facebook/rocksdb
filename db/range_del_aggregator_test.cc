@@ -56,7 +56,7 @@ void VerifyRangeDelIter(
     VerifyTombstonesEq(expected_range_dels[i], range_del_iter->Tombstone());
   }
   ASSERT_EQ(expected_range_dels.size(), i);
-  ASSERT_EQ(false, range_del_iter->Valid());
+  ASSERT_FALSE(range_del_iter->Valid());
 }
 
 void VerifyRangeDels(
