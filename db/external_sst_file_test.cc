@@ -1194,8 +1194,9 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, range_id));
   };
 
+  const int num_of_ranges = 1000;
   std::vector<port::Thread> threads;
-  while (range_id < 5000) {
+  while (range_id < num_of_ranges) {
     int range_start = range_id * 10;
     int range_end = range_start + 10;
 
@@ -1220,7 +1221,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     range_id++;
   }
 
-  for (int rid = 0; rid < 5000; rid++) {
+  for (int rid = 0; rid < num_of_ranges; rid++) {
     int range_start = rid * 10;
     int range_end = range_start + 10;
 
