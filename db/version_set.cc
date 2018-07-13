@@ -548,8 +548,9 @@ class LevelIterator final : public InternalIterator {
     }
 
     return table_cache_->NewIterator(
-        read_options_, env_options_, icomparator_, file_meta.fd, range_del_agg_,
-        prefix_extractor_, nullptr /* don't need reference to table */,
+        read_options_, env_options_, icomparator_, *file_meta.file_metadata,
+        range_del_agg_, prefix_extractor_,
+        nullptr /* don't need reference to table */,
         file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
         level_);
   }
@@ -1000,7 +1001,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
-          read_options, soptions, cfd_->internal_comparator(), file.fd,
+          read_options, soptions, cfd_->internal_comparator(), *file.file_metadata,
           range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0), false, arena,
           false /* skip_filters */, 0 /* level */));
@@ -1053,7 +1054,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         continue;
       }
       ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
-          read_options, env_options, cfd_->internal_comparator(), file->fd,
+          read_options, env_options, cfd_->internal_comparator(), *file->file_metadata,
           &range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0), false, &arena,
           false /* skip_filters */, 0 /* level */));
@@ -1198,8 +1199,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
 
     *status = table_cache_->Get(
-        read_options, *internal_comparator(), f->fd, ikey, &get_context,
-        mutable_cf_options_.prefix_extractor.get(),
+        read_options, *internal_comparator(), *f->file_metadata, ikey,
+        &get_context, mutable_cf_options_.prefix_extractor.get(),
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
@@ -4030,8 +4031,8 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     // approximate offset of "key" within the table.
     TableReader* table_reader_ptr;
     InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
-        ReadOptions(), v->env_options_, v->cfd_->internal_comparator(), f.fd,
-        nullptr /* range_del_agg */,
+        ReadOptions(), v->env_options_, v->cfd_->internal_comparator(),
+        *f.file_metadata, nullptr /* range_del_agg */,
         v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
       result = table_reader_ptr->ApproximateOffsetOf(key);
@@ -4111,7 +4112,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, env_options_compactions, cfd->internal_comparator(),
-              flevel->files[i].fd, range_del_agg,
+              *flevel->files[i].file_metadata, range_del_agg,
               c->mutable_cf_options()->prefix_extractor.get(),
               nullptr /* table_reader_ptr */,
               nullptr /* no per level latency histogram */,
