@@ -3390,6 +3390,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    if (FLAGS_cache_size) {
+      // If this is a block based table, also need to set block_cache
+      if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
+          options.table_factory->GetOptions() != nullptr) {
+        BlockBasedTableOptions* table_options =
+            reinterpret_cast<BlockBasedTableOptions*>(
+                options.table_factory->GetOptions());
+        table_options->block_cache = cache_;
+      }
+    }
     if (FLAGS_row_cache_size) {
       if (FLAGS_cache_numshardbits >= 1) {
         options.row_cache =
