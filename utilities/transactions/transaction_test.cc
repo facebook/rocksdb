@@ -49,6 +49,14 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_UNPREPARED),
                       std::make_tuple(false, true, WRITE_UNPREPARED)));
 INSTANTIATE_TEST_CASE_P(
+    DBAsBaseDB, TransactionStressTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(true, true, WRITE_PREPARED),
@@ -60,16 +68,10 @@ INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(true, false, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED),
                       std::make_tuple(false, false, WRITE_UNPREPARED),
-                      std::make_tuple(false, true, WRITE_UNPREPARED),
-                      std::make_tuple(true, false, WRITE_UNPREPARED),
-                      std::make_tuple(true, true, WRITE_UNPREPARED)));
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -604,7 +606,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 }
 
-TEST_P(TransactionTest, DeadlockCycle) {
+TEST_P(TransactionStressTest, DeadlockCycle) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
@@ -712,7 +714,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
   }
 }
 
-TEST_P(TransactionTest, DeadlockStress) {
+TEST_P(TransactionStressTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
   const uint32_t NUM_ITERS = 10000;
@@ -1094,7 +1096,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   }
 }
 
-TEST_P(TransactionTest, TwoPhaseExpirationTest) {
+TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
   Status s;
 
   WriteOptions write_options;
@@ -1413,7 +1415,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   }
 }
 
-TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
+TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   WriteOptions write_options;
   write_options.sync = true;
   write_options.disableWAL = false;
@@ -4790,7 +4792,7 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   }
 }
 
-TEST_P(TransactionTest, ExpiredTransactionDataRace1) {
+TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   // In this test, txn1 should succeed committing,
   // as the callback is called after txn1 starts committing.
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
@@ -4959,7 +4961,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
-TEST_P(TransactionTest, SeqAdvanceTest) {
+TEST_P(TransactionStressTest, SeqAdvanceTest) {
   // TODO(myabandeh): must be test with false before new releases
   const bool short_test = true;
   WriteOptions wopts;
