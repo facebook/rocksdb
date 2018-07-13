@@ -119,8 +119,6 @@ struct ImmutableCFOptions {
 
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
-  uint64_t ttl;
-
   std::vector<DbPath> cf_paths;
 };
 
@@ -149,6 +147,7 @@ struct MutableCFOptions {
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
+        ttl(options.ttl),
         max_bytes_for_level_multiplier_additional(
             options.max_bytes_for_level_multiplier_additional),
         compaction_options_fifo(options.compaction_options_fifo),
@@ -181,6 +180,7 @@ struct MutableCFOptions {
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
+        ttl(0),
         compaction_options_fifo(),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
@@ -228,6 +228,7 @@ struct MutableCFOptions {
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
   double max_bytes_for_level_multiplier;
+  uint64_t ttl;
   std::vector<int> max_bytes_for_level_multiplier_additional;
   CompactionOptionsFIFO compaction_options_fifo;
   CompactionOptionsUniversal compaction_options_universal;

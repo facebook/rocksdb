@@ -137,7 +137,8 @@ class VersionStorageInfo {
 
   // This computes ttl_expired_files_ and is called by
   // ComputeCompactionScore()
-  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions);
+  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
+                              const uint64_t ttl);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
