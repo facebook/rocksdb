@@ -449,6 +449,8 @@ class TransactionTest : public TransactionTestBase,
                             std::get<2>(GetParam())){};
 };
 
+class TransactionStressTest : public TransactionTest {};
+
 class MySQLStyleTransactionTest : public TransactionTest {};
 
 }  // namespace rocksdb
