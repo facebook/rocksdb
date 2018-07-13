@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from advisor.db_log_parser import DatabaseLogs, NO_FAM
 from advisor.db_options_parser import DatabaseOptions
 from advisor.db_stats_fetcher import LogStatsParser, OdsStatsFetcher
+import glob
 import os
 import re
 import subprocess
@@ -29,6 +30,11 @@ class DBBenchRunner(BenchmarkRunner):
     DB_PATH = "DB path"
     THROUGHPUT = "ops/sec"
 
+    # Map from Rocksdb option to its corresponding db_bench command-line arg
+    OPTION_CMD_LINE_FLAG = {
+        "max_subcompactions": "subcompactions"
+    }
+
     @staticmethod
     def get_info_log_file_name(db_path):
         file_name = db_path[1:]
@@ -51,11 +57,63 @@ class DBBenchRunner(BenchmarkRunner):
     def __init__(self, positional_args, ods_args=None):
         # parse positional_args list appropriately
         self.db_bench_binary = positional_args[0]
+        self.benchmark = positional_args[1]
+        self.default_db_options = None
+        self.db_bench_args = None
+        self.supported_benchmarks = None
+        if len(positional_args) > 2:
+            self.default_db_options = DatabaseOptions(positional_args[2], None)
+            # options list with each option given as "<option>=<value>"
+            if len(positional_args) > 3:
+                self.db_bench_args = positional_args[3:]
         # save ods_args if provided
         self.ods_args = ods_args
-        self.supported_benchmarks = None
+        if not self.default_db_options:
+            default_options_file = self._fetch_default_options()
+            if default_options_file:
+                self.default_db_options = DatabaseOptions(
+                    default_options_file, None
+                )
 
-    def _get_log_options(self, db_options, db_path):
+    def _fetch_default_options(self):
+        command = self.db_bench_binary + ' --duration=1'
+        self._run_command(command)
+        parsed_output = self._parse_output()
+        db_path = parsed_output[self.DB_PATH]
+        if not db_path.endswith('/'):
+            db_path += '/'
+        options_files_regex = db_path + 'OPTIONS*'
+        options_files = glob.glob(options_files_regex)
+        latest_options_file = None
+        if options_files:
+            options_files.sort(key=os.path.getmtime, reverse=True)
+            latest_options_file = options_files[0]
+        return latest_options_file
+
+    def _parse_output(self):
+        # get the db_path and throughput of this db_bench experiment
+        output = {self.THROUGHPUT: None, self.DB_PATH: None}
+        with open(self.OUTPUT_FILE, 'r') as fp:
+            for line in fp:
+                if line.startswith(self.benchmark):
+                    print(line)  # print output of db_bench run
+                    token_list = line.strip().split()
+                    for ix, token in enumerate(token_list):
+                        if token.startswith(self.THROUGHPUT):
+                            output[self.THROUGHPUT] = (
+                                float(token_list[ix - 1])
+                            )
+                            break
+                elif line.startswith(self.DB_PATH):
+                    output[self.DB_PATH] = (
+                        line.split('[')[1].split(']')[0]
+                    )
+        print('_parse_output:')
+        print(output[self.THROUGHPUT])
+        print(output[self.DB_PATH])
+        return output
+
+    def get_log_options(self, db_options, db_path):
         # get the location of the LOG file and the frequency at which stats are
         # dumped in the LOG file
         log_dir_path = None
@@ -83,6 +141,57 @@ class DBBenchRunner(BenchmarkRunner):
 
         return (logs_file_prefix, stats_freq_sec)
 
+    def _build_experiment_command(self, curr_options):
+        command = "%s --benchmarks=%s --statistics" % (
+            self.db_bench_binary, self.benchmark
+        )
+        optional_args_str = DBBenchRunner.get_opt_args_str(
+            curr_options.get_misc_options()
+        )
+
+        if optional_args_str:  # send all options as command-line args
+            optional_args_str = ""
+            diff = DatabaseOptions.get_options_diff(
+                self.default_db_options.get_all_options(),
+                curr_options.get_all_options()
+            )
+            # use diff to extend the optional_args_str
+            def_col_fam = 'default'  # name of the default column family
+            # db_bench uses the options from the first column family in the
+            # options file
+            curr_col_fam = curr_options.get_column_families()[0]
+            for option in diff:
+                cmd_line_arg = ""
+                opt_name = option.split('.')[-1]
+                if opt_name in self.OPTION_CMD_LINE_FLAG:
+                    opt_name = self.OPTION_CMD_LINE_FLAG[opt_name]
+                if NO_FAM in diff[option]:
+                    if diff[option][NO_FAM][1]:
+                        cmd_line_arg = (
+                            ' --' + opt_name + '=' + diff[option][NO_FAM][1]
+                        )
+                else:
+                    def_val = None
+                    curr_val = None
+                    if def_col_fam in diff[option]:
+                        def_val = diff[option][def_col_fam][0]
+                    if curr_col_fam in diff[option]:
+                        curr_val = diff[option][curr_col_fam][1]
+                    if curr_val and def_val != curr_val:
+                        cmd_line_arg = ' --' + opt_name + '=' + curr_val
+                optional_args_str += cmd_line_arg
+        else:  # use the --options_file flag
+            # generate an options configuration file
+            options_file = curr_options.generate_options_config(nonce='12345')
+            optional_args_str = " --options_file=" + options_file
+
+        # handle the command-line args passed in the constructor
+        for cmd_line_arg in self.db_bench_args:
+            optional_args_str += (" --" + cmd_line_arg)
+
+        command += optional_args_str
+        return command
+
     def _run_command(self, command):
         # run db_bench and return the
         out_file = open(self.OUTPUT_FILE, "w+")
@@ -94,36 +203,15 @@ class DBBenchRunner(BenchmarkRunner):
 
     def run_experiment(self, db_options):
         # type: (List[str], str) -> str
-        # generate an options configuration file
-        options_file = db_options.generate_options_config(nonce='12345')
-        optional_args_str = DBBenchRunner.get_opt_args_str(
-            db_options.get_misc_options()
-        )
-        command = "%s --options_file=%s --benchmarks=%s --statistics"
-        benchmark = 'readwhilewriting'  # 'fillrandom'
-        command = command % (self.db_bench_binary, options_file, benchmark)
-        command += optional_args_str
+        command = self._build_experiment_command(db_options)
         self._run_command(command)
 
-        # get the db_path and throughput of this db_bench experiment
-        throughput = None
-        db_path = None
-        with open(self.OUTPUT_FILE, 'r') as fp:
-            for line in fp:
-                if line.startswith(benchmark):
-                    print(line)  # print output of db_bench run
-                    token_list = line.strip().split()
-                    for ix, token in enumerate(token_list):
-                        if token.startswith(self.THROUGHPUT):
-                            throughput = float(token_list[ix - 1])
-                            break
-                elif line.startswith(self.DB_PATH):
-                    db_path = line.split('[')[1].split(']')[0]
+        parsed_output = self._parse_output()
 
         # Create the LOGS object
         # get the log options from the OPTIONS file
-        logs_file_prefix, stats_freq_sec = self._get_log_options(
-            db_options, db_path
+        logs_file_prefix, stats_freq_sec = self.get_log_options(
+            db_options, parsed_output[self.DB_PATH]
         )
         db_logs = DatabaseLogs(
             logs_file_prefix, db_options.get_column_families()
@@ -138,7 +226,7 @@ class DBBenchRunner(BenchmarkRunner):
                 self.ods_args['entity'],
                 self.ods_args['key_prefix']
             ))
-        return data_sources, throughput
+        return data_sources, parsed_output[self.THROUGHPUT]
 
     def get_available_workloads(self):
         if not self.supported_benchmarks:
@@ -168,7 +256,11 @@ class DBBenchRunner(BenchmarkRunner):
 # TODO: remove this method, used only for testing
 def main():
     pos_args = [
-        'TEST_TMPDIR=/dev/shm /home/poojamalik/workspace/rocksdb/db_bench'
+        '/home/poojamalik/workspace/rocksdb/db_bench',
+        'readwhilewriting',
+        'temp/OPTIONS_default.tmp',
+        'use_existing_db=true',
+        'duration=10'
     ]
     db_bench_helper = DBBenchRunner(pos_args)
     # populate benchmarks with the available ones in the db_bench tool
@@ -177,10 +269,28 @@ def main():
     print()
     options_file = (
         '/home/poojamalik/workspace/rocksdb/tools/advisor/temp/' +
-        'OPTIONS_12345.tmp'
+        'OPTIONS_temp.tmp'
     )
     misc_options = ["rate_limiter_bytes_per_sec=1024000", "bloom_bits=2"]
     db_options = DatabaseOptions(options_file, misc_options)
+    data_sources, _ = db_bench_helper.run_experiment(db_options)
+    print(data_sources[0].options_dict)
+    print()
+    print(data_sources[1].logs_path_prefix)
+    if os.path.isfile(data_sources[1].logs_path_prefix):
+        print('log file exists!')
+    else:
+        print('error: log file does not exist!')
+    print(data_sources[1].column_families)
+    print()
+    print(data_sources[2].logs_file_prefix)
+    if os.path.isfile(data_sources[2].logs_file_prefix):
+        print('log file exists!')
+    else:
+        print('error: log file does not exist!')
+    print(data_sources[2].stats_freq_sec)
+
+    db_options = DatabaseOptions(options_file, None)
     data_sources, _ = db_bench_helper.run_experiment(db_options)
     print(data_sources[0].options_dict)
     print()

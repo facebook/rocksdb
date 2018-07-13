@@ -68,7 +68,6 @@ if __name__ == '__main__':
     parser.add_argument('--misc_options', nargs='*')
     parser.add_argument('--rules_spec', required=True, type=str)
     parser.add_argument('--stats_dump_period_sec', required=True, type=int)
-    parser.add_argument('--db_log_dir', required=True, type=str)
     # ODS arguments
     parser.add_argument('--ods_client', type=str)
     parser.add_argument('--ods_entity', type=str)
