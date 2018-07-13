@@ -154,6 +154,16 @@ class DatabaseOptions(DataSource):
     def get_column_families(self):
         return self.column_families
 
+    def get_all_options(self):
+        all_options = []
+        for sec_type in self.options_dict:
+            for col_fam in self.options_dict[sec_type]:
+                for opt_name in self.options_dict[sec_type][col_fam]:
+                    option = sec_type + '.' + opt_name
+                    all_options.append(option)
+        all_options.extend(list(self.misc_options.keys()))
+        return self.get_options(all_options)
+
     def get_options(self, reqd_options):
         # type: List[str] -> Dict[str, Dict[str, Any]]
         # List[option] -> Dict[option, Dict[col_fam, value]]
