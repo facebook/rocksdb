@@ -149,6 +149,31 @@ void BlockIter::Seek(const Slice& target) {
     return;
   }
   uint32_t index = 0;
+  bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index);
+
+  if (!ok) {
+    return;
+  }
+  SeekToRestartPoint(index);
+  // Linear search (within restart block) for first key >= target
+
+  while (true) {
+    if (!ParseNextKey() || Compare(key_, seek_key) >= 0) {
+      return;
+    }
+  }
+}
+
+void IndexBlockIter::Seek(const Slice& target) {
+  Slice seek_key = target;
+  if (!key_includes_seq_) {
+    seek_key = ExtractUserKey(target);
+  }
+  PERF_TIMER_GUARD(block_seek_nanos);
+  if (data_ == nullptr) {  // Not init yet
+    return;
+  }
+  uint32_t index = 0;
   bool ok = false;
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
@@ -329,7 +354,7 @@ bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
 
 // Compare target key and the block key of the block of `block_index`.
 // Return -1 if error.
-int BlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
+int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   uint32_t region_offset = GetRestartPoint(block_index);
   uint32_t shared, non_shared, value_length;
   const char* key_ptr = DecodeEntry(data_ + region_offset, data_ + restarts_,
@@ -344,9 +369,9 @@ int BlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
 
 // Binary search in block_ids to find the first block
 // with a key >= target
-bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
-                                     uint32_t left, uint32_t right,
-                                     uint32_t* index) {
+bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
+                                          uint32_t* block_ids, uint32_t left,
+                                          uint32_t right, uint32_t* index) {
   assert(left <= right);
   uint32_t left_bound = left;
 
@@ -394,7 +419,7 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
   }
 }
 
-bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
+bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   assert(prefix_index_);
   Slice seek_key = target;
   if (!key_includes_seq_) {
@@ -445,9 +470,12 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
   }
 }
 
+template <>
 BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
-                              BlockIter* iter, bool total_order_seek,
-                              Statistics* stats, bool key_includes_seq) {
+                              BlockIter* iter, Statistics* /*stats*/,
+                              bool /*total_order_seek*/,
+                              bool /*key_includes_seq*/,
+                              BlockPrefixIndex* /*prefix_index*/) {
   BlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -463,12 +491,37 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    BlockPrefixIndex* prefix_index_ptr =
-        total_order_seek ? nullptr : prefix_index_.get();
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         prefix_index_ptr, global_seqno_,
-                         read_amp_bitmap_.get(), key_includes_seq, cachable());
+    const bool kKeyIncludesSeq = true;
+    ret_iter->InitializeBase(cmp, ucmp, data_, restart_offset_, num_restarts_,
+                             global_seqno_, kKeyIncludesSeq, cachable());
+  }
 
+  return ret_iter;
+}
+
+template <>
+DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
+                                  DataBlockIter* iter, Statistics* stats,
+                                  bool /*total_order_seek*/,
+                                  bool /*key_includes_seq*/,
+                                  BlockPrefixIndex* /*prefix_index*/) {
+  DataBlockIter* ret_iter;
+  if (iter != nullptr) {
+    ret_iter = iter;
+  } else {
+    ret_iter = new DataBlockIter;
+  }
+  if (size_ < 2 * sizeof(uint32_t)) {
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    return ret_iter;
+  }
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
+    return ret_iter;
+  } else {
+    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+                         global_seqno_, read_amp_bitmap_.get(), cachable());
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
@@ -480,8 +533,34 @@ BlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   return ret_iter;
 }
 
-void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
-  prefix_index_.reset(prefix_index);
+template <>
+IndexBlockIter* Block::NewIterator(const Comparator* cmp,
+                                   const Comparator* ucmp, IndexBlockIter* iter,
+                                   Statistics* /*stats*/, bool total_order_seek,
+                                   bool key_includes_seq,
+                                   BlockPrefixIndex* prefix_index) {
+  IndexBlockIter* ret_iter;
+  if (iter != nullptr) {
+    ret_iter = iter;
+  } else {
+    ret_iter = new IndexBlockIter;
+  }
+  if (size_ < 2 * sizeof(uint32_t)) {
+    ret_iter->Invalidate(Status::Corruption("bad block contents"));
+    return ret_iter;
+  }
+  if (num_restarts_ == 0) {
+    // Empty block.
+    ret_iter->Invalidate(Status::OK());
+    return ret_iter;
+  } else {
+    BlockPrefixIndex* prefix_index_ptr =
+        total_order_seek ? nullptr : prefix_index;
+    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+                         prefix_index_ptr, key_includes_seq, cachable());
+  }
+
+  return ret_iter;
 }
 
 size_t Block::ApproximateMemoryUsage() const {
@@ -491,9 +570,6 @@ size_t Block::ApproximateMemoryUsage() const {
 #else
   usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
-  if (prefix_index_) {
-    usage += prefix_index_->ApproximateMemoryUsage();
-  }
   if (read_amp_bitmap_) {
     usage += read_amp_bitmap_->ApproximateMemoryUsage();
   }

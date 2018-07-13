@@ -238,7 +238,7 @@ class BlockConstructor: public Constructor {
   }
   virtual InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewIterator(comparator_, comparator_);
+    return block_->NewIterator<BlockIter>(comparator_, comparator_);
   }
 
  private:
@@ -3473,8 +3473,9 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents),
                           kDisableGlobalSequenceNumber);
 
-    std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewIterator(
-        BytewiseComparator(), BytewiseComparator()));
+    std::unique_ptr<InternalIterator> meta_iter(
+        metaindex_block.NewIterator<BlockIter>(BytewiseComparator(),
+                                               BytewiseComparator()));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
