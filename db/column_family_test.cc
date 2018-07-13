@@ -61,7 +61,7 @@ class ColumnFamilyTestBase : public testing::Test {
  public:
   ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
     env_ = new EnvCounter(Env::Default());
-    dbname_ = test::TmpDir() + "/column_family_test";
+    dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;

@@ -26,7 +26,7 @@ static const size_t kArgBufferSize = 100000;
 class DBBenchTest : public testing::Test {
  public:
   DBBenchTest() : rnd_(0xFB) {
-    test_path_ = test::TmpDir() + "/db_bench_test";
+    test_path_ = test::PerThreadDBPath("db_bench_test");
     Env::Default()->CreateDir(test_path_);
     db_path_ = test_path_ + "/db";
     wal_path_ = test_path_ + "/wal";

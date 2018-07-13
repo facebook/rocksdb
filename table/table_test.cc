@@ -547,7 +547,7 @@ class DBConstructor: public Constructor {
 
  private:
   void NewDB() {
-    std::string name = test::TmpDir() + "/table_testdb";
+    std::string name = test::PerThreadDBPath("table_testdb");
 
     Options options;
     options.comparator = comparator_;
@@ -3109,7 +3109,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   bbto.block_size = 262144;
   bbto.whole_key_filtering = true;
 
-  const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
+  const std::string kDBPath = test::PerThreadDBPath("table_prefix_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyDB(kDBPath, options);
   rocksdb::DB* db;
@@ -3502,7 +3502,7 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   bbto.block_align = true;
 
   const std::string kDBPath =
-      test::TmpDir() + "/block_based_table_bad_options_test";
+      test::PerThreadDBPath("block_based_table_bad_options_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyDB(kDBPath, options);
   rocksdb::DB* db;

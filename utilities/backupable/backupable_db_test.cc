@@ -477,8 +477,8 @@ class BackupableDBTest : public testing::Test {
  public:
   BackupableDBTest() {
     // set up files
-    std::string db_chroot = test::TmpDir() + "/backupable_db";
-    std::string backup_chroot = test::TmpDir() + "/backupable_db_backup";
+    std::string db_chroot = test::PerThreadDBPath("backupable_db");
+    std::string backup_chroot = test::PerThreadDBPath("backupable_db_backup");
     Env::Default()->CreateDir(db_chroot);
     Env::Default()->CreateDir(backup_chroot);
     dbname_ = "/tempdb";

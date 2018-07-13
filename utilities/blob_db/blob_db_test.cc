@@ -38,7 +38,7 @@ class BlobDBTest : public testing::Test {
   };
 
   BlobDBTest()
-      : dbname_(test::TmpDir() + "/blob_db_test"),
+      : dbname_(test::PerThreadDBPath("blob_db_test")),
         mock_env_(new MockTimeEnv(Env::Default())),
         blob_db_(nullptr) {
     Status s = DestroyBlobDB(dbname_, Options(), BlobDBOptions());

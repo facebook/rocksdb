@@ -60,7 +60,7 @@ class TransactionTestBase : public ::testing::Test {
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
     options.two_write_queues = two_write_queue;
-    dbname = test::TmpDir() + "/transaction_testdb";
+    dbname = test::PerThreadDBPath("transaction_testdb");
 
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
