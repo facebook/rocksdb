@@ -73,14 +73,10 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch) const {
   Status s;
   uint64_t elapsed = 0;
-  // record the time spent waiting for ratelimiter, which should be excluded
-  // from elapsed when reporting
-  uint64_t total_wait_time = 0;
   {
-    StopWatchNano sw(env_);
-    if (env_) {
-      sw.Start();
-    }
+    StopWatch sw(env_, stats_, hist_type_,
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
+                true /*delay_enabled*/);
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
@@ -119,19 +115,17 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
     } else {
       size_t pos = 0;
       const char* res_scratch = nullptr;
-      StopWatchNano wait_for_rate_limiter(env_);
       while (pos < n) {
         size_t allowed;
         if (for_compaction_ && rate_limiter_ != nullptr) {
-          if (env_ &&
-              rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
-            wait_for_rate_limiter.Start();
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStart();
           }
           allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
                                                 Env::IOPriority::IO_LOW, stats_,
                                                 RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
-            total_wait_time += wait_for_rate_limiter.ElapsedNanosSafe();
+            sw.DelayStop();
           }
         } else {
           allowed = n;
@@ -154,13 +148,9 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       *result = Slice(res_scratch, s.ok() ? pos : 0);
     }
     IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
-    elapsed = sw.ElapsedNanosSafe() - total_wait_time;
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
-  }
-  if (stats_ != nullptr) {
-    stats_->measureTime(hist_type_, elapsed);
   }
   return s;
 }
