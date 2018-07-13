@@ -50,13 +50,13 @@ class StopWatch {
   void DelayStart() {
     // if delay_start_time_ is not 0, it means we are already tracking delay,
     // so delay_start_time_ should not be overwritten
-    if (delay_enabled_ && delay_start_time_ == 0) {
+    if (elapsed_ && delay_enabled_ && delay_start_time_ == 0) {
       delay_start_time_ = env_->NowMicros();
     }
   }
 
   void DelayStop() {
-    if (delay_enabled_ && delay_start_time_ != 0) {
+    if (elapsed_ && delay_enabled_ && delay_start_time_ != 0) {
       total_delay_ += env_->NowMicros() - delay_start_time_;
     }
     // reset to 0 means currently no delay is being tracked, so two consecutive
