@@ -29,7 +29,7 @@ class WriteCallbackTest : public testing::Test {
   string dbname;
 
   WriteCallbackTest() {
-    dbname = test::TmpDir() + "/write_callback_testdb";
+    dbname = test::PerThreadDBPath("write_callback_testdb");
   }
 };
 

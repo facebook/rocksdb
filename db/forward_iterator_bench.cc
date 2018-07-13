@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
 
   std::mt19937 rng{std::random_device()()};
   rocksdb::Status status;
-  std::string path = rocksdb::test::TmpDir() + "/forward_iterator_test";
+  std::string path = rocksdb::test::PerThreadDBPath("forward_iterator_test");
   fprintf(stderr, "db path is %s\n", path.c_str());
   rocksdb::Options options;
   options.create_if_missing = true;

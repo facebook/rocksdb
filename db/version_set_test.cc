@@ -458,7 +458,7 @@ class ManifestWriterTest : public testing::Test {
  public:
   ManifestWriterTest()
       : env_(Env::Default()),
-        dbname_(test::TmpDir() + "/version_set_test"),
+        dbname_(test::PerThreadDBPath("version_set_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),

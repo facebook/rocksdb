@@ -43,7 +43,7 @@ class TtlTest : public testing::Test {
  public:
   TtlTest() {
     env_.reset(new SpecialTimeEnv(Env::Default()));
-    dbname_ = test::TmpDir() + "/db_ttl";
+    dbname_ = test::PerThreadDBPath("db_ttl");
     options_.create_if_missing = true;
     options_.env = env_.get();
     // ensure that compaction is kicked in to always strip timestamp from kvs

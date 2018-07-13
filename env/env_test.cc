@@ -156,7 +156,7 @@ TEST_F(EnvPosixTest, AreFilesSame) {
 
   const EnvOptions soptions;
   auto* env = Env::Default();
-  std::string same_file_name = test::TmpDir(env) + "/same_file";
+  std::string same_file_name = test::PerThreadDBPath(env, "same_file");
   std::string same_file_link_name = same_file_name + "_link";
 
   std::unique_ptr<WritableFile> same_file;
@@ -178,8 +178,9 @@ TEST_F(EnvPosixTest, DISABLED_FilePermission) {
   // Only works for Linux environment
   if (env_ == Env::Default()) {
     EnvOptions soptions;
-    std::vector<std::string> fileNames {
-        test::TmpDir(env_) + "/testfile", test::TmpDir(env_) + "/testfile1"};
+    std::vector<std::string> fileNames{
+        test::PerThreadDBPath(env_, "testfile"),
+        test::PerThreadDBPath(env_, "testfile1")};
     unique_ptr<WritableFile> wfile;
     ASSERT_OK(env_->NewWritableFile(fileNames[0], &wfile, soptions));
     ASSERT_OK(env_->NewWritableFile(fileNames[1], &wfile, soptions));
@@ -214,7 +215,7 @@ TEST_F(EnvPosixTest, DISABLED_FilePermission) {
 TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   const int kFileBytes = 1 << 15;  // 32 KB
   std::string expected_data;
-  std::string fname = test::TmpDir(env_) + "/" + "testfile";
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
   {
     unique_ptr<WritableFile> wfile;
     const EnvOptions soptions;
@@ -1067,7 +1068,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-    std::string fname = test::TmpDir(env_) + "/" + "testfile";
+    std::string fname = test::PerThreadDBPath(env_, "testfile");
 
     const size_t kSectorSize = 512;
     auto data = NewAligned(kSectorSize, 0);
@@ -1250,10 +1251,10 @@ TEST_P(EnvPosixTestWithParam, LogBufferMaxSizeTest) {
 
 TEST_P(EnvPosixTestWithParam, Preallocation) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    const std::string src = test::TmpDir(env_) + "/" + "testfile";
-    unique_ptr<WritableFile> srcfile;
-    EnvOptions soptions;
-    soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
+  const std::string src = test::PerThreadDBPath(env_, "testfile");
+  unique_ptr<WritableFile> srcfile;
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
     if (soptions.use_direct_writes) {
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -1312,9 +1313,8 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
 
     std::string data;
     for (int i = 0; i < kNumChildren; ++i) {
-      std::ostringstream oss;
-      oss << test::TmpDir(env_) << "/testfile_" << i;
-      const std::string path = oss.str();
+      const std::string path =
+          test::TmpDir(env_) + "/" + "testfile_" + std::to_string(i);
       unique_ptr<WritableFile> file;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
       if (soptions.use_direct_writes) {
@@ -1335,9 +1335,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
     std::vector<Env::FileAttributes> file_attrs;
     ASSERT_OK(env_->GetChildrenFileAttributes(test::TmpDir(env_), &file_attrs));
     for (int i = 0; i < kNumChildren; ++i) {
-      std::ostringstream oss;
-      oss << "testfile_" << i;
-      const std::string name = oss.str();
+      const std::string name = "testfile_" + std::to_string(i);
       const std::string path = test::TmpDir(env_) + "/" + name;
 
       auto file_attrs_iter = std::find_if(
@@ -1438,7 +1436,7 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
 }
 
 TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
-  const std::string path = test::TmpDir(env_) + "/random_rw_file";
+  const std::string path = test::PerThreadDBPath(env_, "random_rw_file");
 
   env_->DeleteFile(path);
 
@@ -1566,7 +1564,7 @@ class RandomRWFileWithMirrorString {
 };
 
 TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
-  const std::string path = test::TmpDir(env_) + "/random_rw_file_rand";
+  const std::string path = test::PerThreadDBPath(env_, "random_rw_file_rand");
   env_->DeleteFile(path);
 
   unique_ptr<RandomRWFile> file;

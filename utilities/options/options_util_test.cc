@@ -34,7 +34,7 @@ class OptionsUtilTest : public testing::Test {
  public:
   OptionsUtilTest() : rnd_(0xFB) {
     env_.reset(new test::StringEnv(Env::Default()));
-    dbname_ = test::TmpDir() + "/options_util_test";
+    dbname_ = test::PerThreadDBPath("options_util_test");
   }
 
  protected:

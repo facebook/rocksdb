@@ -31,9 +31,9 @@ class DeleteSchedulerTest : public testing::Test {
     const int kNumDataDirs = 3;
     dummy_files_dirs_.reserve(kNumDataDirs);
     for (size_t i = 0; i < kNumDataDirs; ++i) {
-      dummy_files_dirs_.emplace_back(test::TmpDir(env_) +
-                                     "/delete_scheduler_dummy_data_dir" +
-                                     ToString(i));
+      dummy_files_dirs_.emplace_back(
+          test::PerThreadDBPath(env_, "delete_scheduler_dummy_data_dir") +
+          ToString(i));
       DestroyAndCreateDir(dummy_files_dirs_.back());
     }
   }
