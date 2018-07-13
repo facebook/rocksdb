@@ -1577,6 +1577,9 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  if (read_options.managed) {
+    return Status::NotSupported("Managed iterator is not supported anymore.");
+  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -1689,6 +1692,9 @@ Status DBImpl::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (read_options.managed) {
+    return Status::NotSupported("Managed iterator is not supported anymore.");
+  }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
