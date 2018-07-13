@@ -925,7 +925,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
 
     printf("Option config = %d\n", option_config_);
     std::vector<std::pair<int, int>> key_ranges;
-    for (int i = 0; i < 500; i++) {
+    for (int i = 0; i < 100; i++) {
       int range_start = rnd.Uniform(20000);
       int keys_per_range = 10 + rnd.Uniform(41);
 
