@@ -1477,7 +1477,7 @@ TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
 
     Random rnd(301);
     std::map<std::string, std::string> true_data;
-    for (int i = 0; i < 2000; i++) {
+    for (int i = 0; i < 500; i++) {
       std::vector<std::pair<std::string, std::string>> random_data;
       for (int j = 0; j < 100; j++) {
         std::string k;
