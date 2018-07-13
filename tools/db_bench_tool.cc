@@ -525,8 +525,7 @@ DEFINE_bool(read_cache_direct_write, true,
 DEFINE_bool(read_cache_direct_read, true,
             "Whether to use Direct IO for reading from read cache");
 
-DEFINE_bool(use_keep_filter, false,
-            "Whether to use a noop compaction filter");
+DEFINE_bool(use_keep_filter, false, "Whether to use a noop compaction filter");
 
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
