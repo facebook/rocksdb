@@ -3211,7 +3211,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   ASSERT_OK(s);
 
   // Create a txn and verify we can only lock up to 3 keys
-  Transaction* txn = db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   s = txn->Put("X", "x");
@@ -3244,7 +3244,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   s = txn->Get(read_options, "W", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn2);
 
   // "X" currently locked
