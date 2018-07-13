@@ -493,6 +493,7 @@ TEST_F(MergeTest, MergeDbTtlTest) {
   runTest(test::PerThreadDBPath("merge_testdbttl"),
           true);  // Run test on TTL database
 }
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
 
