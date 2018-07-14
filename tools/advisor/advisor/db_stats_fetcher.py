@@ -6,6 +6,7 @@
 from advisor.db_log_parser import Log
 from advisor.db_timeseries_parser import TimeSeriesData, NO_ENTITY
 from advisor.rule_parser import Condition, TimeSeriesCondition
+import copy
 import glob
 import re
 import subprocess
@@ -86,6 +87,50 @@ class LogStatsParser(TimeSeriesData):
             # Check for the last log in the file.
             if new_log and re.search(self.STATS, new_log.get_message()):
                 self.add_to_timeseries(new_log, statistics)
+
+
+class DatabasePerfContext(TimeSeriesData):
+    def __init__(self, perf_context_ts, stats_freq_sec=0, cumulative=True):
+        '''
+        perf_context_ts is expected to be in the following format:
+        Dict[metric, Dict[timestamp, value]], where for
+        each (metric, timestamp) pair, the value is database-wide (i.e.
+        summed over all the threads involved)
+        if stats_freq_sec == 0, per-metric only one value is reported
+        '''
+        super().__init__()
+        self.stats_freq_sec = stats_freq_sec
+        self.keys_ts = {NO_ENTITY: perf_context_ts}
+        if cumulative:
+            self.unaccumulate_metrics()
+
+    def unaccumulate_metrics(self):
+        epoch_ts = copy.deepcopy(self.keys_ts)
+        for stat in self.keys_ts[NO_ENTITY]:
+            timeseries = sorted(
+                list(self.keys_ts[NO_ENTITY][stat].keys()), reverse=True
+            )
+            if len(timeseries) < 2:
+                continue
+            for ix, ts in enumerate(timeseries[:-1]):
+                epoch_ts[NO_ENTITY][stat][ts] = (
+                    epoch_ts[NO_ENTITY][stat][ts] -
+                    epoch_ts[NO_ENTITY][stat][timeseries[ix+1]]
+                )
+                if epoch_ts[NO_ENTITY][stat][ts] < 0:
+                    raise ValueError('DBPerfContext: really cumulative?')
+            # drop the smallest timestamp in the timeseries for this metric
+            epoch_ts[NO_ENTITY][stat].pop(timeseries[-1])
+        self.keys_ts = epoch_ts
+
+    def get_keys_from_conditions(self, conditions):
+        reqd_stats = []
+        for cond in conditions:
+            reqd_stats.extend([key.lower() for key in cond.keys])
+        return reqd_stats
+
+    def fetch_timeseries(self):
+        pass
 
 
 class OdsStatsFetcher(TimeSeriesData):
@@ -299,5 +344,31 @@ def main():
     print(cond3.get_trigger())
 
 
+# TODO: shift this code to the unit tests for DatabasePerfContext
+def check_perf_context_code():
+    string = (
+        " user_key_comparison_count = 675903942, " +
+        "block_cache_hit_count = 830086, " +
+        "get_from_output_files_time = 85088293818, " +
+        "seek_on_memtable_time = 0,"
+    )
+    token_list = string.split(',')
+    perf_context = {
+        token.split('=')[0].strip(): int(token.split('=')[1].strip())
+        for token in token_list
+        if token
+    }
+    timestamp = int(time.time())
+    perf_ts = {}
+    for key in perf_context:
+        perf_ts[key] = {}
+        start_val = perf_context[key]
+        for ix in range(5):
+            perf_ts[key][timestamp+(ix*10)] = start_val + (2 * ix)
+    db_perf_context = DatabasePerfContext(perf_ts, 10, True)
+    print(db_perf_context.keys_ts)
+
+
 if __name__ == '__main__':
     main()
+    check_perf_context_code()
