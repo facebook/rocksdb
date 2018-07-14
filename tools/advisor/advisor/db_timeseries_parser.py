@@ -27,6 +27,7 @@ class TimeSeriesData(DataSource):
     def __init__(self):
         super().__init__(DataSource.Type.TIME_SERIES)
         self.keys_ts = None  # Dict[entity, Dict[key, Dict[timestamp, value]]]
+        self.stats_freq_sec = None
 
     @abstractmethod
     def get_keys_from_conditions(self):
