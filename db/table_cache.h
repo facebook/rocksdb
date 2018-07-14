@@ -53,18 +53,11 @@ class TableCache {
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+      const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
       const SliceTransform* prefix_extractor = nullptr,
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
-
-  InternalIterator* NewRangeTombstoneIterator(
-      const ReadOptions& options, const EnvOptions& toptions,
-      const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
-      bool skip_filters, int level,
-      const SliceTransform* prefix_extractor = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
@@ -76,7 +69,7 @@ class TableCache {
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
-             const FileDescriptor& file_fd, const Slice& k,
+             const FileMetaData& file_meta, const Slice& k,
              GetContext* get_context,
              const SliceTransform* prefix_extractor = nullptr,
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,

@@ -137,9 +137,15 @@ class RangeDelAggregator {
   bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
   // Adds tombstones to the tombstone aggregation structure maintained by this
-  // object.
+  // object. Tombstones are truncated to smallest and largest. If smallest (or
+  // largest) is null, it is not used for truncation. When adding range
+  // tombstones present in an sstable, smallest and largest should be set to
+  // the smallest and largest keys from the sstable file metadata. Note that
+  // tombstones end keys are exclusive while largest is inclusive.
   // @return non-OK status if any of the tombstone keys are corrupted.
-  Status AddTombstones(std::unique_ptr<InternalIterator> input);
+  Status AddTombstones(std::unique_ptr<InternalIterator> input,
+                       const InternalKey* smallest = nullptr,
+                       const InternalKey* largest = nullptr);
 
   // Resets iterators maintained across calls to ShouldDelete(). This may be
   // called when the tombstones change, or the owner may call explicitly, e.g.,
