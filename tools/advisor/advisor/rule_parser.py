@@ -492,15 +492,16 @@ class RulesSpec:
         return triggered_rules
 
     def trigger_conditions(self, data_sources):
-        for source in data_sources:
+        for source_type in data_sources:
             cond_subset = [
                 cond
                 for cond in self.conditions_dict.values()
-                if cond.get_data_source() is source.type
+                if cond.get_data_source() is source_type
             ]
             if not cond_subset:
                 continue
-            source.check_and_trigger_conditions(cond_subset)
+            for source in data_sources[source_type]:
+                source.check_and_trigger_conditions(cond_subset)
 
     def print_rules(self, rules):
         for rule in rules:
