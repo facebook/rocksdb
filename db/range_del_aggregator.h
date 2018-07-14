@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <list>
 #include <map>
 #include <set>
 #include <string>
@@ -105,7 +106,7 @@ class RangeDelAggregator {
   // covered by a range tombstone residing in the same snapshot stripe.
   // @param mode If collapse_deletions_ is true, this dictates how we will find
   //             the deletion whose interval contains this key. Otherwise, its
-  //             value must be kFullScan indicating linear scan from beginning..
+  //             value must be kFullScan indicating linear scan from beginning.
   bool ShouldDelete(
       const ParsedInternalKey& parsed,
       RangeDelPositioningMode mode = RangeDelPositioningMode::kFullScan) {
@@ -173,6 +174,7 @@ class RangeDelAggregator {
   struct Rep {
     StripeMap stripe_map_;
     PinnedIteratorsManager pinned_iters_mgr_;
+    std::list<std::string> pinned_slices_;
     std::set<uint64_t> added_files_;
   };
   // Initializes rep_ lazily. This aggregator object is constructed for every

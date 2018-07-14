@@ -19,8 +19,8 @@ public class BackupInfo {
    * @param size size of backup
    * @param numberFiles number of files related to this backup.
    */
-  BackupInfo(final int backupId, final long timestamp, final long size,
-      final int numberFiles, final String app_metadata) {
+  BackupInfo(final int backupId, final long timestamp, final long size, final int numberFiles,
+      final String app_metadata) {
     backupId_ = backupId;
     timestamp_ = timestamp;
     size_ = size;
