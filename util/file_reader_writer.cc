@@ -75,7 +75,8 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   uint64_t elapsed = 0;
   {
     StopWatch sw(env_, stats_, hist_type_,
-                 (stats_ != nullptr) ? &elapsed : nullptr);
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
+                true /*delay_enabled*/);
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
@@ -117,9 +118,15 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       while (pos < n) {
         size_t allowed;
         if (for_compaction_ && rate_limiter_ != nullptr) {
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStart();
+          }
           allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
                                                 Env::IOPriority::IO_LOW, stats_,
                                                 RateLimiter::OpType::kRead);
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStop();
+          }
         } else {
           allowed = n;
         }
