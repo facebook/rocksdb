@@ -11,6 +11,7 @@
 #include "db/log_writer.h"
 #include "table/mock_table.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -139,6 +140,35 @@ class VersionStorageInfoTest : public testing::Test {
     f->num_deletions = 0;
     vstorage_.AddFile(level, f);
   }
+
+  void Add(int level, uint32_t file_number, const InternalKey& smallest,
+           const InternalKey& largest, uint64_t file_size = 0) {
+    assert(level < vstorage_.num_levels());
+    FileMetaData* f = new FileMetaData;
+    f->fd = FileDescriptor(file_number, 0, file_size);
+    f->smallest = smallest;
+    f->largest = largest;
+    f->compensated_file_size = file_size;
+    f->refs = 0;
+    f->num_entries = 0;
+    f->num_deletions = 0;
+    vstorage_.AddFile(level, f);
+  }
+
+  std::string GetOverlappingFiles(int level, const InternalKey& begin,
+                                  const InternalKey& end) {
+    std::vector<FileMetaData*> inputs;
+    vstorage_.GetOverlappingInputs(level, &begin, &end, &inputs);
+
+    std::string result;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      if (i > 0) {
+        result += ",";
+      }
+      AppendNumberTo(&result, inputs[i]->fd.GetNumber());
+    }
+    return result;
+  }
 };
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
@@ -260,6 +290,40 @@ TEST_F(VersionStorageInfoTest, EstimateLiveDataSize2) {
   Add(3, 5U, "7", "8", 1U);
   ASSERT_EQ(4U, vstorage_.EstimateLiveDataSize());
 }
+
+TEST_F(VersionStorageInfoTest, GetOverlappingInputs) {
+  // Two files that overlap at the range deletion tombstone sentinel.
+  Add(1, 1U, {"a", 0, kTypeValue}, {"b", kMaxSequenceNumber, kTypeRangeDeletion}, 1);
+  Add(1, 2U, {"b", 0, kTypeValue}, {"c", 0, kTypeValue}, 1);
+  // Two files that overlap at the same user key.
+  Add(1, 3U, {"d", 0, kTypeValue}, {"e", kMaxSequenceNumber, kTypeValue}, 1);
+  Add(1, 4U, {"e", 0, kTypeValue}, {"f", 0, kTypeValue}, 1);
+  // Two files that do not overlap.
+  Add(1, 5U, {"g", 0, kTypeValue}, {"h", 0, kTypeValue}, 1);
+  Add(1, 6U, {"i", 0, kTypeValue}, {"j", 0, kTypeValue}, 1);
+  vstorage_.UpdateNumNonEmptyLevels();
+  vstorage_.GenerateLevelFilesBrief();
+
+  ASSERT_EQ("1,2", GetOverlappingFiles(
+      1, {"a", 0, kTypeValue}, {"b", 0, kTypeValue}));
+  ASSERT_EQ("1", GetOverlappingFiles(
+      1, {"a", 0, kTypeValue}, {"b", kMaxSequenceNumber, kTypeRangeDeletion}));
+  ASSERT_EQ("2", GetOverlappingFiles(
+      1, {"b", kMaxSequenceNumber, kTypeValue}, {"c", 0, kTypeValue}));
+  ASSERT_EQ("3,4", GetOverlappingFiles(
+      1, {"d", 0, kTypeValue}, {"e", 0, kTypeValue}));
+  ASSERT_EQ("3", GetOverlappingFiles(
+      1, {"d", 0, kTypeValue}, {"e", kMaxSequenceNumber, kTypeRangeDeletion}));
+  ASSERT_EQ("3,4", GetOverlappingFiles(
+      1, {"e", kMaxSequenceNumber, kTypeValue}, {"f", 0, kTypeValue}));
+  ASSERT_EQ("3,4", GetOverlappingFiles(
+      1, {"e", 0, kTypeValue}, {"f", 0, kTypeValue}));
+  ASSERT_EQ("5", GetOverlappingFiles(
+      1, {"g", 0, kTypeValue}, {"h", 0, kTypeValue}));
+  ASSERT_EQ("6", GetOverlappingFiles(
+      1, {"i", 0, kTypeValue}, {"j", 0, kTypeValue}));
+}
+
 
 class FindLevelFileTest : public testing::Test {
  public:

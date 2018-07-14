@@ -426,7 +426,9 @@ bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
 }
 
 Status RangeDelAggregator::AddTombstones(
-    std::unique_ptr<InternalIterator> input) {
+    std::unique_ptr<InternalIterator> input,
+    const InternalKey* smallest,
+    const InternalKey* largest) {
   if (input == nullptr) {
     return Status::OK();
   }
@@ -450,6 +452,29 @@ Status RangeDelAggregator::AddTombstones(
       return Status::Corruption("Unable to parse range tombstone InternalKey");
     }
     RangeTombstone tombstone(parsed_key, input->value());
+    // Truncate the tombstone to the range [smallest, largest].
+    if (smallest != nullptr) {
+      if (icmp_.user_comparator()->Compare(
+              tombstone.start_key_, smallest->user_key()) < 0) {
+        tombstone.start_key_ = smallest->user_key();
+      }
+    }
+    if (largest != nullptr) {
+      // This is subtly correct despite the discrepancy between
+      // FileMetaData::largest being inclusive while RangeTombstone::end_key_
+      // is exclusive. A tombstone will only extend past the bounds of an
+      // sstable if its end-key is the largest key in the table. If that
+      // occurs, the largest key for the table is set based on the smallest
+      // key in the next table in the level. In that case, largest->user_key()
+      // is not actually a key in the current table and thus we can use it as
+      // the exclusive end-key for the tombstone.
+      if (icmp_.user_comparator()->Compare(
+              tombstone.end_key_, largest->user_key()) > 0) {
+        // The largest key should be a tombstone sentinel key.
+        assert(GetInternalKeySeqno(largest->Encode()) == kMaxSequenceNumber);
+        tombstone.end_key_ = largest->user_key();
+      }
+    }
     GetRangeDelMap(tombstone.seq_).AddTombstone(std::move(tombstone));
     input->Next();
   }

@@ -916,11 +916,14 @@ TEST_F(DBRangeDelTest, MemtableBloomFilter) {
 }
 
 TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
-  // make sure compaction treats files containing a split range deletion in the
-  // input level as an atomic unit. I.e., compacting any input-level file(s)
-  // containing a portion of the range deletion causes all other input-level
-  // files containing portions of that same range deletion to be included in the
-  // compaction.
+  // This test originally verified that compaction treated files containing a
+  // split range deletion in the input level as an atomic unit. I.e.,
+  // compacting any input-level file(s) containing a portion of the range
+  // deletion causes all other input-level files containing portions of that
+  // same range deletion to be included in the compaction. Range deletion
+  // tombstones are now truncated to sstable boundaries which removed the need
+  // for that behavior (which could lead to excessively large
+  // compactions).
   const int kNumFilesPerLevel = 4, kValueBytes = 4 << 10;
   Options options = CurrentOptions();
   options.compression = kNoCompression;
@@ -967,20 +970,109 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
     if (i == 0) {
       ASSERT_OK(db_->CompactFiles(
           CompactionOptions(), {meta.levels[1].files[0].name}, 2 /* level */));
+      ASSERT_EQ(0, NumTableFilesAtLevel(1));
     } else if (i == 1) {
       auto begin_str = Key(0), end_str = Key(1);
       Slice begin = begin_str, end = end_str;
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin, &end));
+      ASSERT_EQ(3, NumTableFilesAtLevel(1));
     } else if (i == 2) {
       ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
                                 {{"max_bytes_for_level_base", "10000"}}));
       dbfull()->TEST_WaitForCompact();
+      ASSERT_EQ(1, NumTableFilesAtLevel(1));
     }
-    ASSERT_EQ(0, NumTableFilesAtLevel(1));
     ASSERT_GT(NumTableFilesAtLevel(2), 0);
 
     db_->ReleaseSnapshot(snapshot);
   }
+}
+
+TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
+  // Test the handling of the range-tombstone end-key as the
+  // upper-bound for an sstable.
+
+  const int kNumFilesPerLevel = 2, kValueBytes = 4 << 10;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(2 /* num_entries_flush */));
+  options.target_file_size_base = kValueBytes;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create an initial sstable at L2:
+  //   [key000000#1,1, key000000#1,1]
+  ASSERT_OK(Put(Key(0), ""));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // A snapshot protects the range tombstone from dropping due to
+  // becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                   Key(0), Key(2 * kNumFilesPerLevel));
+
+  // Create 2 additional sstables in L0. Note that the first sstable
+  // contains the range tombstone.
+  //   [key000000#3,1, key000004#72057594037927935,15]
+  //   [key000001#5,1, key000002#6,1]
+  Random rnd(301);
+  std::string value = RandomString(&rnd, kValueBytes);
+  for (int j = 0; j < kNumFilesPerLevel; ++j) {
+    // Give files overlapping key-ranges to prevent a trivial move when we
+    // compact from L0 to L1.
+    ASSERT_OK(Put(Key(j), value));
+    ASSERT_OK(Put(Key(2 * kNumFilesPerLevel - 1 - j), value));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_EQ(j + 1, NumTableFilesAtLevel(0));
+  }
+  // Compact the 2 L0 sstables to L1, resulting in the following LSM. There
+  // are 2 sstables generated in L1 due to the target_file_size_base setting.
+  //   L1:
+  //     [key000000#3,1, key000002#72057594037927935,15]
+  //     [key000002#6,1, key000004#72057594037927935,15]
+  //   L2:
+  //     [key000000#1,1, key000000#1,1]
+  MoveFilesToLevel(1);
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+
+  {
+    // Compact the second sstable in L1:
+    //   L1:
+    //     [key000000#3,1, key000002#72057594037927935,15]
+    //   L2:
+    //     [key000000#1,1, key000000#1,1]
+    //     [key000002#6,1, key000004#72057594037927935,15]
+    auto begin_str = Key(3);
+    const rocksdb::Slice begin = begin_str;
+    dbfull()->TEST_CompactRange(1, &begin, nullptr);
+    ASSERT_EQ(1, NumTableFilesAtLevel(1));
+    ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  }
+
+  {
+    // Compact the first sstable in L1. This should be copacetic, but
+    // was previously resulting in overlapping sstables in L2 due to
+    // mishandling of the range tombstone end-key when used as the
+    // largest key for an sstable. The resulting LSM structure should
+    // be:
+    //
+    //   L2:
+    //     [key000000#1,1, key000001#72057594037927935,15]
+    //     [key000001#5,1, key000002#72057594037927935,15]
+    //     [key000002#6,1, key000004#72057594037927935,15]
+    auto begin_str = Key(0);
+    const rocksdb::Slice begin = begin_str;
+    dbfull()->TEST_CompactRange(1, &begin, &begin);
+    ASSERT_EQ(0, NumTableFilesAtLevel(1));
+    ASSERT_EQ(3, NumTableFilesAtLevel(2));
+  }
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBRangeDelTest, UnorderedTombstones) {
