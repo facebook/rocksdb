@@ -207,20 +207,17 @@ public class BackupEngineTest {
   }
 
   @Test
-  public void backupDbWithMetadata()
-      throws RocksDBException {
+  public void backupDbWithMetadata() throws RocksDBException {
     // Open empty database.
-    try(final Options opt = new Options().setCreateIfMissing(true);
-        final RocksDB db = RocksDB.open(opt,
-            dbFolder.getRoot().getAbsolutePath())) {
-
+    try (final Options opt = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       // Fill database with some test values
       prepareDatabase(db);
 
       // Create two backups
-      try(final BackupableDBOptions bopt = new BackupableDBOptions(
-          backupFolder.getRoot().getAbsolutePath());
-          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+      try (final BackupableDBOptions bopt =
+               new BackupableDBOptions(backupFolder.getRoot().getAbsolutePath());
+           final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
         final String metadata = String.valueOf(ThreadLocalRandom.current().nextInt());
         be.createNewBackupWithMetadata(db, metadata, true);
         final List<BackupInfo> backupInfoList = verifyNumberOfValidBackups(be, 1);

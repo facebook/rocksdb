@@ -2370,14 +2370,16 @@ class BackupInfoJni : public JavaClass {
    *     exception occurs
    */
   static jobject construct0(JNIEnv* env, uint32_t backup_id, int64_t timestamp,
-      uint64_t size, uint32_t number_files, const std::string& app_metadata) {
+                            uint64_t size, uint32_t number_files,
+                            const std::string& app_metadata) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(jclazz, "<init>", "(IJJILjava/lang/String;)V");
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(IJJILjava/lang/String;)V");
     if(mid == nullptr) {
       // exception occurred accessing method
       return nullptr;
@@ -2392,8 +2394,8 @@ class BackupInfoJni : public JavaClass {
       }
     }
 
-    jobject jbackup_info =
-        env->NewObject(jclazz, mid, backup_id, timestamp, size, number_files, japp_metadata);
+    jobject jbackup_info = env->NewObject(jclazz, mid, backup_id, timestamp,
+                                          size, number_files, japp_metadata);
     if(env->ExceptionCheck()) {
       env->DeleteLocalRef(japp_metadata);
       return nullptr;
@@ -2448,12 +2450,9 @@ class BackupInfoListJni {
     for (auto it = backup_infos.begin(); it != end; ++it) {
       auto backup_info = *it;
 
-      jobject obj = rocksdb::BackupInfoJni::construct0(env,
-          backup_info.backup_id,
-          backup_info.timestamp,
-          backup_info.size,
-          backup_info.number_files,
-          backup_info.app_metadata);
+      jobject obj = rocksdb::BackupInfoJni::construct0(
+          env, backup_info.backup_id, backup_info.timestamp, backup_info.size,
+          backup_info.number_files, backup_info.app_metadata);
       if(env->ExceptionCheck()) {
         // exception occurred constructing object
         if(obj != nullptr) {

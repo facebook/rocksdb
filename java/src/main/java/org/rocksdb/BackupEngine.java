@@ -104,9 +104,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *
    * @throws RocksDBException thrown if a new backup could not be created
    */
-  public void createNewBackupWithMetadata(
-      final RocksDB db, final String metadata, final boolean flushBeforeBackup)
-      throws RocksDBException {
+  public void createNewBackupWithMetadata(final RocksDB db, final String metadata,
+      final boolean flushBeforeBackup) throws RocksDBException {
     assert (isOwningHandle());
     createNewBackupWithMetadata(nativeHandle_, db.nativeHandle_, metadata, flushBeforeBackup);
   }

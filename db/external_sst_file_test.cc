@@ -222,6 +222,9 @@ TEST_F(ExternalSSTFileTest, Basic) {
     ASSERT_EQ(file1_info.num_entries, 100);
     ASSERT_EQ(file1_info.smallest_key, Key(0));
     ASSERT_EQ(file1_info.largest_key, Key(99));
+    ASSERT_EQ(file1_info.num_range_del_entries, 0);
+    ASSERT_EQ(file1_info.smallest_range_del_key, "");
+    ASSERT_EQ(file1_info.largest_range_del_key, "");
     // sst_file_writer already finished, cannot add this value
     s = sst_file_writer.Put(Key(100), "bad_val");
     ASSERT_FALSE(s.ok()) << s.ToString();
@@ -290,6 +293,58 @@ TEST_F(ExternalSSTFileTest, Basic) {
     ASSERT_EQ(file5_info.smallest_key, Key(400));
     ASSERT_EQ(file5_info.largest_key, Key(499));
 
+    // file6.sst (delete 400 => 500)
+    std::string file6 = sst_files_dir_ + "file6.sst";
+    ASSERT_OK(sst_file_writer.Open(file6));
+    sst_file_writer.DeleteRange(Key(400), Key(500));
+    ExternalSstFileInfo file6_info;
+    s = sst_file_writer.Finish(&file6_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file6_info.file_path, file6);
+    ASSERT_EQ(file6_info.num_entries, 0);
+    ASSERT_EQ(file6_info.smallest_key, "");
+    ASSERT_EQ(file6_info.largest_key, "");
+    ASSERT_EQ(file6_info.num_range_del_entries, 1);
+    ASSERT_EQ(file6_info.smallest_range_del_key, Key(400));
+    ASSERT_EQ(file6_info.largest_range_del_key, Key(500));
+
+    // file7.sst (delete 500 => 570, put 520 => 599 divisible by 2)
+    std::string file7 = sst_files_dir_ + "file7.sst";
+    ASSERT_OK(sst_file_writer.Open(file7));
+    sst_file_writer.DeleteRange(Key(500), Key(550));
+    for (int k = 520; k < 560; k += 2) {
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+    }
+    sst_file_writer.DeleteRange(Key(525), Key(575));
+    for (int k = 560; k < 600; k += 2) {
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+    }
+    ExternalSstFileInfo file7_info;
+    s = sst_file_writer.Finish(&file7_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file7_info.file_path, file7);
+    ASSERT_EQ(file7_info.num_entries, 40);
+    ASSERT_EQ(file7_info.smallest_key, Key(520));
+    ASSERT_EQ(file7_info.largest_key, Key(598));
+    ASSERT_EQ(file7_info.num_range_del_entries, 2);
+    ASSERT_EQ(file7_info.smallest_range_del_key, Key(500));
+    ASSERT_EQ(file7_info.largest_range_del_key, Key(575));
+
+    // file8.sst (delete 600 => 700)
+    std::string file8 = sst_files_dir_ + "file8.sst";
+    ASSERT_OK(sst_file_writer.Open(file8));
+    sst_file_writer.DeleteRange(Key(600), Key(700));
+    ExternalSstFileInfo file8_info;
+    s = sst_file_writer.Finish(&file8_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file8_info.file_path, file8);
+    ASSERT_EQ(file8_info.num_entries, 0);
+    ASSERT_EQ(file8_info.smallest_key, "");
+    ASSERT_EQ(file8_info.largest_key, "");
+    ASSERT_EQ(file8_info.num_range_del_entries, 1);
+    ASSERT_EQ(file8_info.smallest_range_del_key, Key(600));
+    ASSERT_EQ(file8_info.largest_range_del_key, Key(700));
+
     // Cannot create an empty sst file
     std::string file_empty = sst_files_dir_ + "file_empty.sst";
     ExternalSstFileInfo file_empty_info;
@@ -336,6 +391,16 @@ TEST_F(ExternalSSTFileTest, Basic) {
     // Key range of file5 (400 => 499) dont overlap with any keys in DB
     ASSERT_OK(DeprecatedAddFile({file5}));
 
+    // This file has overlapping values with the existing data
+    s = DeprecatedAddFile({file6});
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // Key range of file7 (500 => 598) dont overlap with any keys in DB
+    ASSERT_OK(DeprecatedAddFile({file7}));
+
+    // Key range of file7 (600 => 700) dont overlap with any keys in DB
+    ASSERT_OK(DeprecatedAddFile({file8}));
+
     // Make sure values are correct before and after flush/compaction
     for (int i = 0; i < 2; i++) {
       for (int k = 0; k < 200; k++) {
@@ -347,6 +412,13 @@ TEST_F(ExternalSSTFileTest, Basic) {
       }
       for (int k = 400; k < 500; k++) {
         std::string value = Key(k) + "_val";
+        ASSERT_EQ(Get(Key(k)), value);
+      }
+      for (int k = 500; k < 600; k++) {
+        std::string value = Key(k) + "_val";
+        if (k < 520 || k % 2 == 1) {
+          value = "NOT_FOUND";
+        }
         ASSERT_EQ(Get(Key(k)), value);
       }
       ASSERT_OK(Flush());
@@ -377,7 +449,8 @@ TEST_F(ExternalSSTFileTest, Basic) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
 }
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
@@ -518,16 +591,56 @@ TEST_F(ExternalSSTFileTest, AddList) {
     ASSERT_EQ(file5_info.smallest_key, Key(200));
     ASSERT_EQ(file5_info.largest_key, Key(299));
 
+    // file6.sst (delete 0 => 100)
+    std::string file6 = sst_files_dir_ + "file6.sst";
+    ASSERT_OK(sst_file_writer.Open(file6));
+    ASSERT_OK(sst_file_writer.DeleteRange(Key(0), Key(75)));
+    ASSERT_OK(sst_file_writer.DeleteRange(Key(25), Key(100)));
+    ExternalSstFileInfo file6_info;
+    s = sst_file_writer.Finish(&file6_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file6_info.file_path, file6);
+    ASSERT_EQ(file6_info.num_entries, 0);
+    ASSERT_EQ(file6_info.smallest_key, "");
+    ASSERT_EQ(file6_info.largest_key, "");
+    ASSERT_EQ(file6_info.num_range_del_entries, 2);
+    ASSERT_EQ(file6_info.smallest_range_del_key, Key(0));
+    ASSERT_EQ(file6_info.largest_range_del_key, Key(100));
+
+    // file7.sst (delete 100 => 200)
+    std::string file7 = sst_files_dir_ + "file7.sst";
+    ASSERT_OK(sst_file_writer.Open(file7));
+    ASSERT_OK(sst_file_writer.DeleteRange(Key(100), Key(200)));
+    ExternalSstFileInfo file7_info;
+    s = sst_file_writer.Finish(&file7_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file7_info.file_path, file7);
+    ASSERT_EQ(file7_info.num_entries, 0);
+    ASSERT_EQ(file7_info.smallest_key, "");
+    ASSERT_EQ(file7_info.largest_key, "");
+    ASSERT_EQ(file7_info.num_range_del_entries, 1);
+    ASSERT_EQ(file7_info.smallest_range_del_key, Key(100));
+    ASSERT_EQ(file7_info.largest_range_del_key, Key(200));
+
     // list 1 has internal key range conflict
     std::vector<std::string> file_list0({file1, file2});
     std::vector<std::string> file_list1({file3, file2, file1});
     std::vector<std::string> file_list2({file5});
     std::vector<std::string> file_list3({file3, file4});
+    std::vector<std::string> file_list4({file5, file7});
+    std::vector<std::string> file_list5({file6, file7});
 
     DestroyAndReopen(options);
 
-    // This list of files have key ranges are overlapping with each other
+    // These lists of files have key ranges that overlap with each other
     s = DeprecatedAddFile(file_list1);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+    // Both of the following overlap on the end key of a range deletion
+    // tombstone. This is a limitation because these tombstones have exclusive
+    // end keys that should not count as overlapping with other keys.
+    s = DeprecatedAddFile(file_list4);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+    s = DeprecatedAddFile(file_list5);
     ASSERT_FALSE(s.ok()) << s.ToString();
 
     // Add files using file path list
@@ -619,7 +732,8 @@ TEST_F(ExternalSSTFileTest, AddList) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
 }
 
 TEST_F(ExternalSSTFileTest, AddListAtomicity) {

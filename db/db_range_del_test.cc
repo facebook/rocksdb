@@ -23,12 +23,6 @@ class DBRangeDelTest : public DBTestBase {
   }
 };
 
-const int kRangeDelSkipConfigs =
-  // Plain tables do not support range deletions.
-  DBRangeDelTest::kSkipPlainTable |
-  // MmapReads disables the iterator pinning that RangeDelAggregator requires.
-  DBRangeDelTest::kSkipMmapReads;
-
 // PlainTableFactory and NumTableFilesAtLevel() are not supported in
 // ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
@@ -39,17 +33,17 @@ TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
   for (auto config : {kPlainTableAllBytesPrefix, /* kWalDirAndMmapReads */}) {
     option_config_ = config;
     DestroyAndReopen(CurrentOptions());
-    ASSERT_TRUE(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1", "dr1")
-          .IsNotSupported());
+    ASSERT_TRUE(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 "dr1", "dr1")
+                    .IsNotSupported());
   }
 }
 
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
   do {
     DestroyAndReopen(CurrentOptions());
-    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
-                              "dr2"));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               "dr1", "dr2"));
     ASSERT_OK(db_->Flush(FlushOptions()));
     ASSERT_EQ(1, NumTableFilesAtLevel(0));
   } while (ChangeOptions(kRangeDelSkipConfigs));

@@ -733,6 +733,13 @@ class DBTestBase : public testing::Test {
     kSkipMmapReads = 256,
   };
 
+  const int kRangeDelSkipConfigs =
+      // Plain tables do not support range deletions.
+      kSkipPlainTable |
+      // MmapReads disables the iterator pinning that RangeDelAggregator
+      // requires.
+      kSkipMmapReads;
+
   explicit DBTestBase(const std::string path);
 
   ~DBTestBase();
