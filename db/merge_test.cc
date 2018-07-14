@@ -484,19 +484,18 @@ void runTest(const std::string& dbname, const bool use_ttl = false) {
   */
 }
 
-
 TEST_F(MergeTest, MergeDbTest) {
-  runTest(test::TmpDir() + "/merge_testdb");
+  runTest(test::PerThreadDBPath("merge_testdb"));
 }
 
 #ifndef ROCKSDB_LITE
 TEST_F(MergeTest, MergeDbTtlTest) {
-  runTest(test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
+  runTest(test::PerThreadDBPath("merge_testdbttl"),
+          true);  // Run test on TTL database
 }
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
-
 
 int main(int argc, char** argv) {
   rocksdb::use_compression = false;

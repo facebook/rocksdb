@@ -40,7 +40,7 @@ class ManualCompactionTest : public testing::Test {
  public:
   ManualCompactionTest() {
     // Get rid of any state from an old run.
-    dbname_ = rocksdb::test::TmpDir() + "/rocksdb_cbug_test";
+    dbname_ = rocksdb::test::PerThreadDBPath("rocksdb_cbug_test");
     DestroyDB(dbname_, rocksdb::Options());
   }
 

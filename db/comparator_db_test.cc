@@ -264,7 +264,7 @@ class ComparatorDBTest
  public:
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
     comparator = BytewiseComparator();
-    dbname_ = test::TmpDir() + "/comparator_db_test";
+    dbname_ = test::PerThreadDBPath("comparator_db_test");
     BlockBasedTableOptions toptions;
     toptions.format_version = GetParam();
     last_options_.table_factory.reset(

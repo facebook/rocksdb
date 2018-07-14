@@ -354,7 +354,7 @@ INSTANTIATE_TEST_CASE_P(DBTestSharedWriteBufferAcrossCFs,
                                           std::make_tuple(false, true)));
 
 TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
-  std::string dbname2 = test::TmpDir(env_) + "/db_shared_wb_db2";
+  std::string dbname2 = test::PerThreadDBPath("db_shared_wb_db2");
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
   // Avoid undeterministic value by malloc_usable_size();
