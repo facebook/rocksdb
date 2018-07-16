@@ -83,30 +83,6 @@ DataBlockHashIndex::DataBlockHashIndex(Slice block_content) {
   assert(map_start_ <  bucket_table_);
 }
 
-void DataBlockHashIndex::Seek(const Slice& key, std::vector<uint32_t>& bucket) const {
-  assert(bucket.size() == 0);
-  uint32_t idx = HashToBucket(key, num_buckets_);
-  uint32_t bucket_off = DecodeFixed32(bucket_table_ + idx * sizeof(uint32_t));
-  const char* limit;
-  if (idx < num_buckets_ - 1) {
-    // limited by the start offset of the next bucket
-    limit = data_ +
-            DecodeFixed32(bucket_table_ + (idx + 1) * sizeof(uint32_t));
-  } else {
-    // limited by the location of the NUM_BUCK
-    limit = data_ + (size_ - 2 * sizeof(uint32_t));
-  }
-
-  uint32_t tag = rocksdb::Hash(key.data(), key.size(), kSeed_tag);
-  for (const char* p = data_ + bucket_off; p < limit;
-       p += 2 * sizeof(uint32_t)) {
-    if (DecodeFixed32(p) == tag) {
-      // only if the tag matches the string do we return the restart_index
-      bucket.push_back(DecodeFixed32(p + sizeof(uint32_t)));
-    }
-  }
-}
-
 DataBlockHashIndexIterator* DataBlockHashIndex::NewIterator(
     const Slice& key) const {
   uint32_t idx = HashToBucket(key, num_buckets_);

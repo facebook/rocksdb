@@ -16,19 +16,18 @@ namespace rocksdb {
 //
 // NUM_BUCK: Number of buckets, which is the length of the IDX array.
 //
-// IDX:      Array of offsets, each pointing to the starting offset (relative to
-//           MAP_START) of one hash bucket.
+// IDX:      Array of offsets of the index hash bucket (relative to MAP_START).
 //
 // B:        B = bucket, an array consisting of a list of restart index, and the
-//           second hash tag value as tagBucket, an array consisting of a list
-//           of restart interval offsets.
+//           second hash value as tag.
 //           We do not have to store the length of individual buckets, as they
 //           are delimited by the next bucket offset.
 //
-// MAP_START: the start offset of the datablock hash map.
+// MAP_START: the starting offset of the datablock hash map.
 //
 // Each bucket B has the following structure:
 // [TAG RESTART_INDEX][TAG RESTART_INDEX]...[TAG RESTART_INDEX]
+// where TAG is the hash value of the second hash funtion.
 //
 // The datablock hash map is construct right in-place of the block without any
 // data been copied.
@@ -55,7 +54,6 @@ class DataBlockHashIndexIterator;
 class DataBlockHashIndex {
  public:
   DataBlockHashIndex(Slice  block_content);
-  void Seek(const Slice& key, std::vector<uint32_t>& bucket) const;
 
   inline uint32_t DataBlockHashMapStart() const {
     return static_cast<uint32_t>(map_start_ - data_);
