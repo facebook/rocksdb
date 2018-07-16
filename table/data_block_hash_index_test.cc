@@ -16,10 +16,10 @@ namespace rocksdb {
 
 bool SearchForOffset(DataBlockHashIndex& index, const Slice& key,
                      uint32_t& restart_point) {
-  std::vector<uint32_t> bucket;
-  index.Seek(key, bucket);
-  for (auto& e : bucket) {
-    if (e == restart_point) {
+  std::unique_ptr<DataBlockHashIndexIterator> iter;
+  iter.reset(index.NewIterator(key));
+  for (; iter->Valid(); iter->Next()) {
+    if (iter->Value() == restart_point) {
       return true;
     }
   }
