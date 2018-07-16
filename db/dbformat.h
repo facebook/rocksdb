@@ -346,6 +346,12 @@ class IterKey {
 
   ~IterKey() { ResetBuffer(); }
 
+  // The bool will be picked up by the next calls to SetKey
+  void SetIsUserKey(bool is_user_key) { is_user_key_ = is_user_key; }
+
+  // Returns the key in whichever format that was provided to KeyIter
+  Slice GetKey() const { return Slice(key_, key_size_); }
+
   Slice GetInternalKey() const {
     assert(!IsUserKey());
     return Slice(key_, key_size_);
@@ -393,6 +399,11 @@ class IterKey {
     memcpy(buf_ + shared_len, non_shared_data, non_shared_len);
     key_ = buf_;
     key_size_ = total_size;
+  }
+
+  Slice SetKey(const Slice& key, bool copy = true) {
+    // is_user_key_ expected to be set already via SetIsUserKey
+    return SetKeyImpl(key, copy);
   }
 
   Slice SetUserKey(const Slice& key, bool copy = true) {
