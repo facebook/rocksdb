@@ -1251,7 +1251,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       assert(!group_flush_queue_.empty());
       const auto& flush_req = *group_flush_queue_.begin();
       assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
-      unscheduled_flushes_ -= flush_req.size();
+      unscheduled_flushes_ -= static_cast<int>(flush_req.size());
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
     }
