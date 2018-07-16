@@ -24,7 +24,8 @@ void DataBlockHashIndexBuilder::Add(const Slice& key,
   uint16_t idx = HashToBucket(key, num_buckets_);
   /* push a TAG to avoid false postive */
   /* the TAG is the hash function value of another seed */
-  uint16_t tag = rocksdb::Hash(key.data(), key.size(), kSeed_tag);
+  uint16_t tag = static_cast<uint16_t>(
+      rocksdb::Hash(key.data(), key.size(), kSeed_tag));
   buckets_[idx].push_back(tag);
   buckets_[idx].push_back(restart_index);
   estimate_ += 2 * sizeof(uint16_t);
