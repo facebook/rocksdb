@@ -208,8 +208,7 @@ class BlockIter : public InternalIterator {
  public:
   void InitializeBase(const Comparator* comparator, const char* data,
                       uint32_t restarts, uint32_t num_restarts,
-                      SequenceNumber global_seqno, bool key_includes_seq,
-                      bool block_contents_pinned) {
+                      SequenceNumber global_seqno, bool block_contents_pinned) {
     assert(data_ == nullptr);           // Ensure it is called only once
     assert(num_restarts > 0);           // Ensure the param is valid
 
@@ -220,9 +219,7 @@ class BlockIter : public InternalIterator {
     current_ = restarts_;
     restart_index_ = num_restarts_;
     global_seqno_ = global_seqno;
-    key_includes_seq_ = key_includes_seq;
     block_contents_pinned_ = block_contents_pinned;
-    key_.SetIsUserKey(!key_includes_seq_);
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
@@ -293,8 +290,6 @@ class BlockIter : public InternalIterator {
   bool key_pinned_;
   // whether the block data is guaranteed to outlive this iterator
   bool block_contents_pinned_;
-  // Key is in InternalKey format
-  bool key_includes_seq_;
   SequenceNumber global_seqno_;
 
  public:
@@ -343,9 +338,9 @@ class DataBlockIter final : public BlockIter {
                   SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned) {
-    const bool kKeyIncludesSeq = true;
     InitializeBase(comparator, data, restarts, num_restarts, global_seqno,
-                   kKeyIncludesSeq, block_contents_pinned);
+                   block_contents_pinned);
+    key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
   }
@@ -441,9 +436,10 @@ class IndexBlockIter final : public BlockIter {
                   BlockPrefixIndex* prefix_index, bool key_includes_seq,
                   bool block_contents_pinned) {
     InitializeBase(comparator, data, restarts, num_restarts,
-                   kDisableGlobalSequenceNumber, key_includes_seq,
-                   block_contents_pinned);
+                   kDisableGlobalSequenceNumber, block_contents_pinned);
+    key_includes_seq_ = key_includes_seq;
     active_comparator_ = key_includes_seq_ ? comparator_ : user_comparator;
+    key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
   }
 
@@ -487,6 +483,8 @@ class IndexBlockIter final : public BlockIter {
 
   bool ParseNextIndexKey();
 
+  // Key is in InternalKey format
+  bool key_includes_seq_;
   // key_includes_seq_ ? comparator_ : user_comparator_
   const Comparator* active_comparator_;
   BlockPrefixIndex* prefix_index_;
