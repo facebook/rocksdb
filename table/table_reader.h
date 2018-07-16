@@ -42,7 +42,8 @@ class TableReader {
   virtual InternalIterator* NewIterator(const ReadOptions&,
                                         const SliceTransform* prefix_extractor,
                                         Arena* arena = nullptr,
-                                        bool skip_filters = false) = 0;
+                                        bool skip_filters = false,
+                                        bool for_compaction = false) = 0;
 
   virtual InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {

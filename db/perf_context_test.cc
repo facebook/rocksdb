@@ -30,7 +30,7 @@ int FLAGS_min_write_buffer_number_to_merge = 7;
 bool FLAGS_verbose = false;
 
 // Path to the database on file system
-const std::string kDbName = rocksdb::test::TmpDir() + "/perf_context_test";
+const std::string kDbName = rocksdb::test::PerThreadDBPath("perf_context_test");
 
 namespace rocksdb {
 

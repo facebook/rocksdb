@@ -75,7 +75,8 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   uint64_t elapsed = 0;
   {
     StopWatch sw(env_, stats_, hist_type_,
-                 (stats_ != nullptr) ? &elapsed : nullptr);
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
+                true /*delay_enabled*/);
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
@@ -117,9 +118,15 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       while (pos < n) {
         size_t allowed;
         if (for_compaction_ && rate_limiter_ != nullptr) {
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStart();
+          }
           allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
                                                 Env::IOPriority::IO_LOW, stats_,
                                                 RateLimiter::OpType::kRead);
+          if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
+            sw.DelayStop();
+          }
         } else {
           allowed = n;
         }
@@ -509,9 +516,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
         alignment_(file_->GetRequiredBufferAlignment()),
         readahead_size_(Roundup(readahead_size, alignment_)),
         buffer_(),
-        buffer_offset_(0),
-        buffer_len_(0) {
-
+        buffer_offset_(0) {
     buffer_.Alignment(alignment_);
     buffer_.AllocateNewBuffer(readahead_size_);
   }
@@ -537,7 +542,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (TryReadFromCache(offset, n, &cached_len, scratch) &&
         (cached_len == n ||
          // End of file
-         buffer_len_ < readahead_size_)) {
+         buffer_.CurrentSize() < readahead_size_)) {
       *result = Slice(scratch, cached_len);
       return Status::OK();
     }
@@ -551,13 +556,13 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (s.ok()) {
       // In the case of cache miss, i.e. when cached_len equals 0, an offset can
       // exceed the file end position, so the following check is required
-      if (advanced_offset < chunk_offset + buffer_len_) {
+      if (advanced_offset < chunk_offset + buffer_.CurrentSize()) {
         // In the case of cache miss, the first chunk_padding bytes in buffer_
         // are
         // stored for alignment only and must be skipped
         size_t chunk_padding = advanced_offset - chunk_offset;
         auto remaining_len =
-            std::min(buffer_len_ - chunk_padding, n - cached_len);
+            std::min(buffer_.CurrentSize() - chunk_padding, n - cached_len);
         memcpy(scratch + cached_len, buffer_.BufferStart() + chunk_padding,
                remaining_len);
         *result = Slice(scratch, cached_len + remaining_len);
@@ -600,13 +605,14 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
  private:
   bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
                          char* scratch) const {
-    if (offset < buffer_offset_ || offset >= buffer_offset_ + buffer_len_) {
+    if (offset < buffer_offset_ ||
+        offset >= buffer_offset_ + buffer_.CurrentSize()) {
       *cached_len = 0;
       return false;
     }
     uint64_t offset_in_buffer = offset - buffer_offset_;
-    *cached_len =
-        std::min(buffer_len_ - static_cast<size_t>(offset_in_buffer), n);
+    *cached_len = std::min(
+        buffer_.CurrentSize() - static_cast<size_t>(offset_in_buffer), n);
     memcpy(scratch, buffer_.BufferStart() + offset_in_buffer, *cached_len);
     return true;
   }
@@ -621,7 +627,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
     if (s.ok()) {
       buffer_offset_ = offset;
-      buffer_len_ = result.size();
+      buffer_.Size(result.size());
       assert(buffer_.BufferStart() == result.data());
     }
     return s;
@@ -634,7 +640,6 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   mutable std::mutex lock_;
   mutable AlignedBuffer buffer_;
   mutable uint64_t buffer_offset_;
-  mutable size_t buffer_len_;
 };
 }  // namespace
 
@@ -647,24 +652,91 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   uint64_t roundup_len = roundup_end - rounddown_offset;
   assert(roundup_len >= alignment);
   assert(roundup_len % alignment == 0);
-  buffer_.Alignment(alignment);
-  buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len));
+
+  // Check if requested bytes are in the existing buffer_.
+  // If all bytes exist -- return.
+  // If only a few bytes exist -- reuse them & read only what is really needed.
+  //     This is typically the case of incremental reading of data.
+  // If no bytes exist in buffer -- full pread.
+
+  Status s;
+  uint64_t chunk_offset_in_buffer = 0;
+  uint64_t chunk_len = 0;
+  bool copy_data_to_new_buffer = false;
+  if (buffer_.CurrentSize() > 0 && offset >= buffer_offset_ &&
+      offset <= buffer_offset_ + buffer_.CurrentSize()) {
+    if (offset + n <= buffer_offset_ + buffer_.CurrentSize()) {
+      // All requested bytes are already in the buffer. So no need to Read
+      // again.
+      return s;
+    } else {
+      // Only a few requested bytes are in the buffer. memmove those chunk of
+      // bytes to the beginning, and memcpy them back into the new buffer if a
+      // new buffer is created.
+      chunk_offset_in_buffer = Rounddown(offset - buffer_offset_, alignment);
+      chunk_len = buffer_.CurrentSize() - chunk_offset_in_buffer;
+      assert(chunk_offset_in_buffer % alignment == 0);
+      assert(chunk_len % alignment == 0);
+      assert(chunk_offset_in_buffer + chunk_len <=
+             buffer_offset_ + buffer_.CurrentSize());
+      if (chunk_len > 0) {
+        copy_data_to_new_buffer = true;
+      } else {
+        // this reset is not necessary, but just to be safe.
+        chunk_offset_in_buffer = 0;
+      }
+    }
+  }
+
+  // Create a new buffer only if current capacity is not sufficient, and memcopy
+  // bytes from old buffer if needed (i.e., if chunk_len is greater than 0).
+  if (buffer_.Capacity() < roundup_len) {
+    buffer_.Alignment(alignment);
+    buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
+                              copy_data_to_new_buffer, chunk_offset_in_buffer,
+                              chunk_len);
+  } else if (chunk_len > 0) {
+    // New buffer not needed. But memmove bytes from tail to the beginning since
+    // chunk_len is greater than 0.
+    buffer_.RefitTail(chunk_offset_in_buffer, chunk_len);
+  }
 
   Slice result;
-  Status s = reader->Read(rounddown_offset, static_cast<size_t>(roundup_len),
-                          &result, buffer_.BufferStart());
+  s = reader->Read(rounddown_offset + chunk_len,
+                   static_cast<size_t>(roundup_len - chunk_len), &result,
+                   buffer_.BufferStart() + chunk_len);
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
-    buffer_len_ = result.size();
+    buffer_.Size(chunk_len + result.size());
   }
   return s;
 }
 
 bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
-                                          Slice* result) const {
-  if (offset < buffer_offset_ || offset + n > buffer_offset_ + buffer_len_) {
+                                          Slice* result) {
+  if (offset < buffer_offset_) {
     return false;
   }
+
+  // If the buffer contains only a few of the requested bytes:
+  //    If readahead is enabled: prefetch the remaining bytes + readadhead bytes
+  //        and satisfy the request.
+  //    If readahead is not enabled: return false.
+  if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {
+    if (readahead_size_ > 0) {
+      assert(file_reader_ != nullptr);
+      assert(max_readahead_size_ >= readahead_size_);
+
+      Status s = Prefetch(file_reader_, offset, n + readahead_size_);
+      if (!s.ok()) {
+        return false;
+      }
+      readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
+    } else {
+      return false;
+    }
+  }
+
   uint64_t offset_in_buffer = offset - buffer_offset_;
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;

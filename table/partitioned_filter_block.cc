@@ -5,6 +5,13 @@
 
 #include "table/partitioned_filter_block.h"
 
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
+#include <malloc.h>
+#endif
+#endif
 #include <utility>
 
 #include "monitoring/perf_context_imp.h"
@@ -122,10 +129,12 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
     return;
   }
   char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  BlockIter biter;
+  IndexBlockIter biter;
   BlockHandle handle;
-  idx_on_fltr_blk_->NewIterator(&comparator_, comparator_.user_comparator(),
-                                &biter, true, nullptr, index_key_includes_seq_);
+  Statistics* kNullStats = nullptr;
+  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+      &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
+      index_key_includes_seq_);
   biter.SeekToFirst();
   for (; biter.Valid(); biter.Next()) {
     auto input = biter.value();
@@ -186,7 +195,7 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 #endif
   assert(const_ikey_ptr != nullptr);
   assert(block_offset == kNotValid);
-  if (!prefix_extractor_) {
+  if (!prefix_extractor_ && !prefix_extractor) {
     return true;
   }
   if (UNLIKELY(idx_on_fltr_blk_->size() == 0)) {
@@ -218,9 +227,11 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 
 Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
     const Slice& entry) {
-  BlockIter iter;
-  idx_on_fltr_blk_->NewIterator(&comparator_, comparator_.user_comparator(),
-                                &iter, true, nullptr, index_key_includes_seq_);
+  IndexBlockIter iter;
+  Statistics* kNullStats = nullptr;
+  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+      &comparator_, comparator_.user_comparator(), &iter, kNullStats, true,
+      index_key_includes_seq_);
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     return Slice();
@@ -265,7 +276,14 @@ PartitionedFilterBlockReader::GetFilterPartition(
 }
 
 size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
-  return idx_on_fltr_blk_->size();
+  size_t usage = idx_on_fltr_blk_->usable_size();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  return usage;
+  // TODO(myabandeh): better estimation for filter_map_ size
 }
 
 // Release the cached entry and decrement its ref count.
@@ -280,10 +298,12 @@ void PartitionedFilterBlockReader::CacheDependencies(
     bool pin, const SliceTransform* prefix_extractor) {
   // Before read partitions, prefetch them to avoid lots of IOs
   auto rep = table_->rep_;
-  BlockIter biter;
+  IndexBlockIter biter;
   BlockHandle handle;
-  idx_on_fltr_blk_->NewIterator(&comparator_, comparator_.user_comparator(),
-                                &biter, true, nullptr, index_key_includes_seq_);
+  Statistics* kNullStats = nullptr;
+  idx_on_fltr_blk_->NewIterator<IndexBlockIter>(
+      &comparator_, comparator_.user_comparator(), &biter, kNullStats, true,
+      index_key_includes_seq_);
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();

@@ -135,9 +135,10 @@ RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
                                     "[test RandomAccessFileReader]");
 }
 
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
+SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
+                                              const std::string& fname) {
   unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(std::move(file));
+  return new SequentialFileReader(std::move(file), fname);
 }
 
 void CorruptKeyType(InternalKey* ikey) {
@@ -194,6 +195,7 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
   BlockBasedTableOptions opt;
   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
   opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
+  opt.pin_top_level_index_and_filter = rnd->Uniform(2);
   opt.index_type = rnd->Uniform(2) ? BlockBasedTableOptions::kBinarySearch
                                    : BlockBasedTableOptions::kHashSearch;
   opt.hash_index_allow_collision = rnd->Uniform(2);

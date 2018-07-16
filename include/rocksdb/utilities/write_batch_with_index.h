@@ -155,6 +155,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // The returned iterator should be deleted by the caller.
   // The base_iterator is now 'owned' by the returned iterator. Deleting the
   // returned iterator will also delete the base_iterator.
+  //
+  // Updating write batch with the current key of the iterator is not safe.
+  // We strongly recommand users not to do it. It will invalidate the current
+  // key() and value() of the iterator. This invalidation happens even before
+  // the write batch update finishes. The state may recover after Next() is
+  // called.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator);
   // default column family
@@ -229,6 +235,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
  private:
   friend class PessimisticTransactionDB;
   friend class WritePreparedTxn;
+  friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the

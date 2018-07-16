@@ -221,6 +221,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
 
+  // different options for compression algorithms used by bottommost_compression
+  // if it is enabled. To enable it, please see the definition of
+  // CompressionOptions.
+  CompressionOptions bottommost_compression_opts;
+
   // different options for compression algorithms
   CompressionOptions compression_opts;
 
@@ -1015,7 +1020,7 @@ struct ReadOptions {
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry.  If iterator_extractor is not null, the Seek target
-  // and iterator_upper_bound need to have the same prefix.
+  // and iterate_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
   //
   // Default: nullptr

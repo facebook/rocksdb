@@ -700,14 +700,9 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithPartitionedIndex,
     kBlockBasedTableWithPartitionedIndexFormat3,
     kPartitionedFilterWithNewTableReaderForCompactions,
-
+    kUniversalSubcompactions,
     // This must be the last line
     kEnd,
-
-    // TODO: This option although been there for a while was disable due to a
-    // mistake. Enabling it makes somem tests to fail. We should enable it and
-    // fix the unit tests.
-    kUniversalSubcompactions,
   };
 
  public:
@@ -737,6 +732,13 @@ class DBTestBase : public testing::Test {
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
   };
+
+  const int kRangeDelSkipConfigs =
+      // Plain tables do not support range deletions.
+      kSkipPlainTable |
+      // MmapReads disables the iterator pinning that RangeDelAggregator
+      // requires.
+      kSkipMmapReads;
 
   explicit DBTestBase(const std::string path);
 

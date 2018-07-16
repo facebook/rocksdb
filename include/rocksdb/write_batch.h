@@ -243,7 +243,7 @@ class WriteBatch : public WriteBatchBase {
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
 
-    virtual Status MarkBeginPrepare() {
+    virtual Status MarkBeginPrepare(bool = false) {
       return Status::InvalidArgument("MarkBeginPrepare() handler not defined.");
     }
 
@@ -272,6 +272,7 @@ class WriteBatch : public WriteBatchBase {
    protected:
     friend class WriteBatch;
     virtual bool WriteAfterCommit() const { return true; }
+    virtual bool WriteBeforePrepare() const { return false; }
   };
   Status Iterate(Handler* handler) const;
 

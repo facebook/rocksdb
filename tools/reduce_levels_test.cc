@@ -20,7 +20,7 @@ namespace rocksdb {
 class ReduceLevelTest : public testing::Test {
 public:
   ReduceLevelTest() {
-    dbname_ = test::TmpDir() + "/db_reduce_levels_test";
+    dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
     DestroyDB(dbname_, Options());
     db_ = nullptr;
   }

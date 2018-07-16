@@ -123,6 +123,17 @@ class FilterBlockReader {
   virtual void CacheDependencies(bool /*pin*/,
                                  const SliceTransform* /*prefix_extractor*/) {}
 
+  virtual bool RangeMayExist(
+      const Slice* /*iterate_upper_bound*/, const Slice& user_key,
+      const SliceTransform* prefix_extractor,
+      const Comparator* /*comparator*/, const Slice* const const_ikey_ptr,
+      bool* filter_checked, bool /*need_upper_bound_check*/) {
+    *filter_checked = true;
+    Slice prefix = prefix_extractor->Transform(user_key);
+    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
+                          const_ikey_ptr);
+  }
+
  protected:
   bool whole_key_filtering_;
 

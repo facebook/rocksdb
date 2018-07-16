@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
+#include "table/format.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -236,8 +237,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       if (filter != CompactionFilter::Decision::kRemoveAndSkipUntil &&
           range_del_agg != nullptr &&
           range_del_agg->ShouldDelete(
-              iter->key(),
-              RangeDelAggregator::RangePositioningMode::kForwardTraversal)) {
+              iter->key(), RangeDelPositioningMode::kForwardTraversal)) {
         filter = CompactionFilter::Decision::kRemove;
       }
       if (filter == CompactionFilter::Decision::kKeep ||
@@ -372,7 +372,7 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
   if (compaction_filter_ == nullptr) {
     return CompactionFilter::Decision::kKeep;
   }
-  if (stats_ != nullptr) {
+  if (stats_ != nullptr && ShouldReportDetailedTime(env_, stats_)) {
     filter_timer_.Start();
   }
   compaction_filter_value_.clear();

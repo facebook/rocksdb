@@ -187,7 +187,8 @@ extern WritableFileWriter* GetWritableFileWriter(WritableFile* wf);
 
 extern RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf);
 
-extern SequentialFileReader* GetSequentialFileReader(SequentialFile* se);
+extern SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
+                                                     const std::string& fname);
 
 class StringSink: public WritableFile {
  public:

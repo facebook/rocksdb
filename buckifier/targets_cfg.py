@@ -32,7 +32,7 @@ rocksdb_compiler_flags = [
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
     "-DROCKSDB_BACKTRACE",
-    "-Wshorten-64-to-32",
+    "-Wnarrowing",
 ]
 
 rocksdb_external_deps = [
@@ -135,15 +135,4 @@ if not is_opt_mode:
           command = [TEST_RUNNER, BUCK_BINS + test_bin]
         )
 
-custom_unittest(
-    name = "make_rocksdbjavastatic",
-    command = ["internal_repo_rocksdb/make_rocksdbjavastatic.sh"],
-    type = "simple",
-)
-
-custom_unittest(
-    name = "make_rocksdb_lite_release",
-    command = ["internal_repo_rocksdb/make_rocksdb_lite_release.sh"],
-    type = "simple",
-)
 """

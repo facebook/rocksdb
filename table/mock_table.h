@@ -41,7 +41,8 @@ class MockTableReader : public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
-                                bool skip_filters = false) override;
+                                bool skip_filters = false,
+                                bool for_compaction = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,

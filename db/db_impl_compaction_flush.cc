@@ -14,6 +14,7 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
@@ -93,14 +94,7 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
-      Status new_bg_error = s;
-      // may temporarily unlock and lock the mutex.
-      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                            BackgroundErrorReason::kFlush,
-                                            &new_bg_error, &mutex_);
-      if (!new_bg_error.ok()) {
-        bg_error_ = new_bg_error;
-      }
+      error_handler_.SetBGError(s, BackgroundErrorReason::kFlush);
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
@@ -177,18 +171,9 @@ Status DBImpl::FlushMemTableToOutputFile(
                      cfd->current()->storage_info()->LevelSummary(&tmp));
   }
 
-  if (!s.ok() && !s.IsShutdownInProgress() &&
-      immutable_db_options_.paranoid_checks && bg_error_.ok()) {
+  if (!s.ok() && !s.IsShutdownInProgress()) {
     Status new_bg_error = s;
-    // may temporarily unlock and lock the mutex.
-    EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                          BackgroundErrorReason::kFlush,
-                                          &new_bg_error, &mutex_);
-    if (!new_bg_error.ok()) {
-      // if a bad error happened (not ShutdownInProgress), paranoid_checks is
-      // true, and the error isn't handled by callback, mark DB read-only
-      bg_error_ = new_bg_error;
-    }
+    error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
@@ -202,18 +187,12 @@ Status DBImpl::FlushMemTableToOutputFile(
       std::string file_path = MakeTableFileName(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
-      if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
-        Status new_bg_error = Status::NoSpace("Max allowed space was reached");
+      if (sfm->IsMaxAllowedSpaceReached()) {
+        Status new_bg_error = Status::SpaceLimit("Max allowed space was reached");
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
-        // may temporarily unlock and lock the mutex.
-        EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                              BackgroundErrorReason::kFlush,
-                                              &new_bg_error, &mutex_);
-        if (!new_bg_error.ok()) {
-          bg_error_ = new_bg_error;
-        }
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
       }
     }
 #endif  // ROCKSDB_LITE
@@ -674,7 +653,7 @@ Status DBImpl::CompactFilesImpl(
       env_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
       GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
-      &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+      &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
@@ -736,16 +715,7 @@ Status DBImpl::CompactFilesImpl(
                    "[%s] [JOB %d] Compaction error: %s",
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id, status.ToString().c_str());
-    if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-      Status new_bg_error = status;
-      // may temporarily unlock and lock the mutex.
-      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                            BackgroundErrorReason::kCompaction,
-                                            &new_bg_error, &mutex_);
-      if (!new_bg_error.ok()) {
-        bg_error_ = new_bg_error;
-      }
-    }
+    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
   }
 
   if (output_file_names != nullptr) {
@@ -1141,6 +1111,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     // Wait until the compaction completes
     s = WaitForFlushMemTable(cfd, &flush_memtable_id);
   }
+  TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
 }
 
@@ -1149,7 +1120,7 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
   Status s;
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (cfd->imm()->NumNotFlushed() > 0 && bg_error_.ok() &&
+  while (cfd->imm()->NumNotFlushed() > 0 && !error_handler_.IsDBStopped() &&
          (flush_memtable_id == nullptr ||
           cfd->imm()->GetEarliestMemTableID() <= *flush_memtable_id)) {
     if (shutting_down_.load(std::memory_order_acquire)) {
@@ -1163,8 +1134,8 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
     }
     bg_cv_.Wait();
   }
-  if (!bg_error_.ok()) {
-    s = bg_error_;
+  if (error_handler_.IsDBStopped()) {
+    s = error_handler_.GetBGError();
   }
   return s;
 }
@@ -1383,9 +1354,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
                                LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
-  Status status = bg_error_;
-  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
-    status = Status::ShutdownInProgress();
+  Status status;
+  if (!error_handler_.IsBGWorkStopped()) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      status = Status::ShutdownInProgress();
+    }
+  } else {
+    status = error_handler_.GetBGError();
   }
 
   if (!status.ok()) {
@@ -1631,9 +1606,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       is_manual && manual_compaction->disallow_trivial_move;
 
   CompactionJobStats compaction_job_stats;
-  Status status = bg_error_;
-  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
-    status = Status::ShutdownInProgress();
+  Status status;
+  if (!error_handler_.IsBGWorkStopped()) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      status = Status::ShutdownInProgress();
+    }
+  } else {
+    status = error_handler_.GetBGError();
   }
 
   if (!status.ok()) {
@@ -1905,7 +1884,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
-        &mutex_, &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+        &mutex_, &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
@@ -1951,16 +1930,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
                    status.ToString().c_str());
-    if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-      Status new_bg_error = status;
-      // may temporarily unlock and lock the mutex.
-      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                            BackgroundErrorReason::kCompaction,
-                                            &new_bg_error, &mutex_);
-      if (!new_bg_error.ok()) {
-        bg_error_ = new_bg_error;
-      }
-    }
+    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
   }
 
   if (is_manual) {

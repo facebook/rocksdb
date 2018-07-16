@@ -264,7 +264,7 @@ class ComparatorDBTest
  public:
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
     comparator = BytewiseComparator();
-    dbname_ = test::TmpDir() + "/comparator_db_test";
+    dbname_ = test::PerThreadDBPath("comparator_db_test");
     BlockBasedTableOptions toptions;
     toptions.format_version = GetParam();
     last_options_.table_factory.reset(
@@ -446,6 +446,70 @@ TEST_P(ComparatorDBTest, TwoStrComparator) {
     }
 
     DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);
+  }
+}
+
+TEST_P(ComparatorDBTest, IsSameLengthImmediateSuccessor) {
+  {
+    // different length
+    Slice s("abcxy");
+    Slice t("abcxyz");
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    Slice s("abcxyz");
+    Slice t("abcxy");
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    // not last byte different
+    Slice s("abc1xyz");
+    Slice t("abc2xyz");
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    // same string
+    Slice s("abcxyz");
+    Slice t("abcxyz");
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    Slice s("abcxy");
+    Slice t("abcxz");
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    Slice s("abcxz");
+    Slice t("abcxy");
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    const char s_array[] = "\x50\x8a\xac";
+    const char t_array[] = "\x50\x8a\xad";
+    Slice s(s_array);
+    Slice t(t_array);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    const char s_array[] = "\x50\x8a\xff";
+    const char t_array[] = "\x50\x8b\x00";
+    Slice s(s_array, 3);
+    Slice t(t_array, 3);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    const char s_array[] = "\x50\x8a\xff\xff";
+    const char t_array[] = "\x50\x8b\x00\x00";
+    Slice s(s_array, 4);
+    Slice t(t_array, 4);
+    ASSERT_TRUE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
+  }
+  {
+    const char s_array[] = "\x50\x8a\xff\xff";
+    const char t_array[] = "\x50\x8b\x00\x01";
+    Slice s(s_array, 4);
+    Slice t(t_array, 4);
+    ASSERT_FALSE(BytewiseComparator()->IsSameLengthImmediateSuccessor(s, t));
   }
 }
 

@@ -32,6 +32,7 @@
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
@@ -138,7 +139,7 @@ int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
-               const bool seq_per_batch)
+               const bool seq_per_batch, const bool batch_per_txn)
     : env_(options.env),
       dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
@@ -199,6 +200,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       seq_per_batch_(seq_per_batch),
+      batch_per_txn_(batch_per_txn),
       // last_sequencee_ is always maintained by the main queue that also writes
       // to the memtable. When two_write_queues_ is disabled last seq in
       // memtable is the same as last seq published to the readers. When it is
@@ -215,7 +217,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // as well.
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
-      closed_(false) {
+      closed_(false),
+      error_handler_(immutable_db_options_, &mutex_) {
+  // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
+  // WriteUnprepared, which should use seq_per_batch_.
+  assert(batch_per_txn_ || seq_per_batch_);
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -242,6 +248,43 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+}
+
+Status DBImpl::Resume() {
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Resuming DB");
+
+  InstrumentedMutexLock db_mutex(&mutex_);
+
+  if (!error_handler_.IsDBStopped() && !error_handler_.IsBGWorkStopped()) {
+    // Nothing to do
+    return Status::OK();
+  }
+
+  Status s = error_handler_.GetBGError();
+  if (s.severity() > Status::Severity::kHardError) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+        "DB resume requested but failed due to Fatal/Unrecoverable error");
+    return s;
+  }
+
+  JobContext job_context(0);
+  FindObsoleteFiles(&job_context, true);
+  error_handler_.ClearBGError();
+  mutex_.Unlock();
+
+  job_context.manifest_file_number = 1;
+  if (job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  mutex_.Lock();
+  MaybeScheduleFlushOrCompaction();
+
+  // No need to check BGError again. If something happened, event listener would be
+  // notified and the operation causing it would have failed
+  return Status::OK();
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
@@ -1037,12 +1080,19 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
-    // Note: In WritePrepared txns this is not necessary but not harmful either.
-    // Because prep_seq > snapshot => commit_seq > snapshot so if a snapshot is
-    // specified we should be fine with skipping seq numbers that are greater
-    // than that.
+    // Note: In WritePrepared txns this is not necessary but not harmful
+    // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
+    // a snapshot is specified we should be fine with skipping seq numbers
+    // that are greater than that.
+    //
+    // In WriteUnprepared, we cannot set snapshot in the lookup key because we
+    // may skip uncommitted data that should be visible to the transaction for
+    // reading own writes.
     snapshot =
         reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+    if (callback) {
+      snapshot = std::max(snapshot, callback->MaxUnpreparedSequenceNumber());
+    }
   } else {
     // Since we get and reference the super version before getting
     // the snapshot number, without a mutex protection, it is possible
@@ -1050,10 +1100,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // data for this snapshot is available. But it will contain all
     // the data available in the super version we have, which is also
     // a valid snapshot to read from.
-    // We shouldn't get snapshot before finding and referencing the
-    // super versipon because a flush happening in between may compact
-    // away data for the snapshot, but the snapshot is earlier than the
-    // data overwriting it, so users may see wrong results.
+    // We shouldn't get snapshot before finding and referencing the super
+    // version because a flush happening in between may compact away data for
+    // the snapshot, but the snapshot is earlier than the data overwriting it,
+    // so users may see wrong results.
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
@@ -2368,7 +2418,8 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
     if (!s.ok()) {
       return s;
     }
-    id_file_reader.reset(new SequentialFileReader(std::move(idfile)));
+    id_file_reader.reset(
+        new SequentialFileReader(std::move(idfile), idfilename));
   }
 
   uint64_t file_size;
@@ -2684,7 +2735,9 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   // Retry if the file name happen to conflict with an existing one.
   s = GetEnv()->RenameFile(file_name, options_file_name);
 
-  DeleteObsoleteOptionsFiles();
+  if (0 == disable_delete_obsolete_files_) {
+    DeleteObsoleteOptionsFiles();
+  }
   return s;
 #else
   (void)file_name;
@@ -2871,9 +2924,9 @@ Status DBImpl::IngestExternalFile(
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
-    if (!bg_error_.ok()) {
+    if (error_handler_.IsDBStopped()) {
       // Don't ingest files when there is a bg_error
-      return bg_error_;
+      return error_handler_.GetBGError();
     }
 
     // Make sure that bg cleanup wont delete the files that we are ingesting

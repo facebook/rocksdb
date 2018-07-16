@@ -131,6 +131,21 @@ struct FileMetaData {
     smallest_seqno = std::min(smallest_seqno, seqno);
     largest_seqno = std::max(largest_seqno, seqno);
   }
+
+  // Unlike UpdateBoundaries, ranges do not need to be presented in any
+  // particular order.
+  void UpdateBoundariesForRange(const InternalKey& start,
+                                const InternalKey& end, SequenceNumber seqno,
+                                const InternalKeyComparator& icmp) {
+    if (smallest.size() == 0 || icmp.Compare(start, smallest) < 0) {
+      smallest = start;
+    }
+    if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
+      largest = end;
+    }
+    smallest_seqno = std::min(smallest_seqno, seqno);
+    largest_seqno = std::max(largest_seqno, seqno);
+  }
 };
 
 // A compressed copy of file meta data that just contain minimum data needed

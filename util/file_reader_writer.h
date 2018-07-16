@@ -26,11 +26,13 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
+  std::string file_name_;
   std::atomic<size_t> offset_;  // read offset
 
  public:
-  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file)
-      : file_(std::move(_file)), offset_(0) {}
+  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
+                                const std::string& _file_name)
+      : file_(std::move(_file)), file_name_(_file_name), offset_(0) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -51,6 +53,8 @@ class SequentialFileReader {
   void Rewind();
 
   SequentialFile* file() { return file_.get(); }
+
+  std::string file_name() { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 };
@@ -203,16 +207,27 @@ class WritableFileWriter {
   Status SyncInternal(bool use_fsync);
 };
 
+// FilePrefetchBuffer can automatically do the readahead if file_reader,
+// readahead_size, and max_readahead_size are passed in.
+// max_readahead_size should be greater than or equal to readahead_size.
+// readahead_size will be doubled on every IO, until max_readahead_size.
 class FilePrefetchBuffer {
  public:
-  FilePrefetchBuffer() : buffer_offset_(0), buffer_len_(0) {}
+  FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
+                     size_t readadhead_size = 0, size_t max_readahead_size = 0)
+      : buffer_offset_(0),
+        file_reader_(file_reader),
+        readahead_size_(readadhead_size),
+        max_readahead_size_(max_readahead_size) {}
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
-  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result) const;
+  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result);
 
  private:
   AlignedBuffer buffer_;
   uint64_t buffer_offset_;
-  size_t buffer_len_;
+  RandomAccessFileReader* file_reader_;
+  size_t readahead_size_;
+  size_t max_readahead_size_;
 };
 
 extern Status NewWritableFile(Env* env, const std::string& fname,
