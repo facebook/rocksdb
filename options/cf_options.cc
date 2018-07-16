@@ -75,7 +75,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       max_subcompactions(db_options.max_subcompactions),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor.get()),
-      ttl(cf_options.ttl),
       cf_paths(cf_options.cf_paths) {}
 
 // Multiple two operands. If they overflow, return op1.
@@ -168,6 +167,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  max_bytes_for_level_base);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",
                  max_bytes_for_level_multiplier);
+  ROCKS_LOG_INFO(log, "                                      ttl: %" PRIu64,
+                 ttl);
   std::string result;
   char buf[10];
   for (const auto m : max_bytes_for_level_multiplier_additional) {

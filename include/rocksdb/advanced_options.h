@@ -596,6 +596,8 @@ struct AdvancedColumnFamilyOptions {
   // Enabled only for level compaction for now.
   //
   // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
   uint64_t ttl = 0;
 
   // Create ColumnFamilyOptions with default values for all fields

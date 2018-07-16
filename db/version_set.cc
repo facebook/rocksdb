@@ -1665,8 +1665,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
-  if (immutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_cf_options);
+  if (mutable_cf_options.ttl > 0) {
+    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -1695,8 +1695,8 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 }
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
-    const ImmutableCFOptions& ioptions) {
-  assert(ioptions.ttl > 0);
+    const ImmutableCFOptions& ioptions, const uint64_t ttl) {
+  assert(ttl > 0);
 
   expired_ttl_files_.clear();
 
@@ -1713,8 +1713,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
           f->fd.table_reader->GetTableProperties() != nullptr) {
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 &&
-            creation_time < (current_time - ioptions.ttl)) {
+        if (creation_time > 0 && creation_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }
