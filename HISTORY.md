@@ -11,7 +11,8 @@
 * Add a new table property, "rocksdb.num.range-deletions", which counts the number of range deletion tombstones in the table.
 * Improve the performance of iterators doing long range scans by using readahead, when using direct IO.
 * pin_top_level_index_and_filter (default true) in BlockBasedTableOptions can be used in combination with cache_index_and_filter_blocks to prefetch and pin the top-level index of partitioned index and filter blocks in cache. It has no impact when cache_index_and_filter_blocks is false.
-* Avoid memcpy when reading mmap files with OpenReadOnly and max_open_files==-1
+* Avoid memcpy when reading mmap files with OpenReadOnly and max_open_files==-1.
+* Support dynamically changing `ColumnFamilyOptions::ttl` via `SetOptions()`.
 
 ### Bug Fixes
 * fix deadlock with enable_pipelined_write=true and max_successive_merges > 0
