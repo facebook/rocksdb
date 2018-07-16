@@ -93,6 +93,7 @@ cpp_library(
         "db/db_info_dumper.cc",
         "db/db_iter.cc",
         "db/dbformat.cc",
+        "db/error_handler.cc",
         "db/event_helpers.cc",
         "db/experimental.cc",
         "db/external_sst_file_ingestion_job.cc",
@@ -689,6 +690,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "error_handler_test",
+        "db/error_handler_test.cc",
+        "serial",
+    ],
+    [
         "event_logger_test",
         "util/event_logger_test.cc",
         "serial",
@@ -1077,14 +1083,3 @@ if not is_opt_mode:
           command = [TEST_RUNNER, BUCK_BINS + test_bin]
         )
 
-custom_unittest(
-    name = "make_rocksdbjavastatic",
-    command = ["internal_repo_rocksdb/make_rocksdbjavastatic.sh"],
-    type = "simple",
-)
-
-custom_unittest(
-    name = "make_rocksdb_lite_release",
-    command = ["internal_repo_rocksdb/make_rocksdb_lite_release.sh"],
-    type = "simple",
-)

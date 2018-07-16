@@ -186,7 +186,7 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
   DB* db;
   Options options;
   options.create_if_missing = true;
-  const std::string dbname = test::TmpDir() + "/transaction_testdb";
+  const std::string dbname = test::PerThreadDBPath("transaction_testdb");
   DestroyDB(dbname, options);
   ASSERT_OK(DB::Open(options, dbname, &db));
   ColumnFamilyHandle* cf_handle = nullptr;

@@ -47,7 +47,7 @@ class CheckpointTest : public testing::Test {
   CheckpointTest() : env_(Env::Default()) {
     env_->SetBackgroundThreads(1, Env::LOW);
     env_->SetBackgroundThreads(1, Env::HIGH);
-    dbname_ = test::TmpDir(env_) + "/checkpoint_test";
+    dbname_ = test::PerThreadDBPath(env_, "checkpoint_test");
     alternative_wal_dir_ = dbname_ + "/wal";
     auto options = CurrentOptions();
     auto delete_options = options;
@@ -56,7 +56,7 @@ class CheckpointTest : public testing::Test {
     // Destroy it for not alternative WAL dir is used.
     EXPECT_OK(DestroyDB(dbname_, options));
     db_ = nullptr;
-    snapshot_name_ = test::TmpDir(env_) + "/snapshot";
+    snapshot_name_ = test::PerThreadDBPath(env_, "snapshot");
     std::string snapshot_tmp_name = snapshot_name_ + ".tmp";
     EXPECT_OK(DestroyDB(snapshot_name_, options));
     env_->DeleteDir(snapshot_name_);
@@ -274,7 +274,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     delete checkpoint;
 
     // Restore DB name
-    dbname_ = test::TmpDir(env_) + "/db_test";
+    dbname_ = test::PerThreadDBPath(env_, "db_test");
   }
 }
 
@@ -450,7 +450,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
 
 TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   Close();
-  const std::string dbname = test::TmpDir() + "/transaction_testdb";
+  const std::string dbname = test::PerThreadDBPath("transaction_testdb");
   ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
   env_->DeleteDir(dbname);
 

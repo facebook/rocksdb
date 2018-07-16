@@ -168,6 +168,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.max_bytes_for_level_base;
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
+  cf_opts.ttl = mutable_cf_options.ttl;
 
   cf_opts.max_bytes_for_level_multiplier_additional.clear();
   for (auto value :
@@ -379,6 +380,7 @@ bool ParseStructOptions(
   }
   return true;
 }
+}  // anonymouse namespace
 
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
@@ -434,7 +436,6 @@ bool ParseSliceTransform(
   //                 SliceTransforms here.
   return false;
 }
-}  // anonymouse namespace
 
 bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                        const std::string& value) {
@@ -856,6 +857,65 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
+Status ParseCompressionOptions(const std::string& value, const std::string& name,
+                              CompressionOptions& compression_opts) {
+  size_t start = 0;
+  size_t end = value.find(':');
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.window_bits = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  end = value.find(':', start);
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.level = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  if (start >= value.size()) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  end = value.find(':', start);
+  compression_opts.strategy =
+      ParseInt(value.substr(start, value.size() - start));
+  // max_dict_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_dict_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // zstd_max_train_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.zstd_max_train_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // enabled is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.enabled =
+        ParseBoolean("", value.substr(start, value.size() - start));
+  }
+  return Status::OK();
+}
+
 Status ParseColumnFamilyOption(const std::string& name,
                                const std::string& org_value,
                                ColumnFamilyOptions* new_options,
@@ -904,51 +964,17 @@ Status ParseColumnFamilyOption(const std::string& name,
             "unable to parse the specified CF option " + name);
       }
       new_options->memtable_factory.reset(new_mem_factory.release());
+    } else if (name == "bottommost_compression_opts") {
+      Status s = ParseCompressionOptions(
+          value, name, new_options->bottommost_compression_opts);
+      if (!s.ok()) {
+        return s;
+      }
     } else if (name == "compression_opts") {
-      size_t start = 0;
-      size_t end = value.find(':');
-      if (end == std::string::npos) {
-        return Status::InvalidArgument(
-            "unable to parse the specified CF option " + name);
-      }
-      new_options->compression_opts.window_bits =
-          ParseInt(value.substr(start, end - start));
-      start = end + 1;
-      end = value.find(':', start);
-      if (end == std::string::npos) {
-        return Status::InvalidArgument(
-            "unable to parse the specified CF option " + name);
-      }
-      new_options->compression_opts.level =
-          ParseInt(value.substr(start, end - start));
-      start = end + 1;
-      if (start >= value.size()) {
-        return Status::InvalidArgument(
-            "unable to parse the specified CF option " + name);
-      }
-      end = value.find(':', start);
-      new_options->compression_opts.strategy =
-          ParseInt(value.substr(start, value.size() - start));
-      // max_dict_bytes is optional for backwards compatibility
-      if (end != std::string::npos) {
-        start = end + 1;
-        if (start >= value.size()) {
-          return Status::InvalidArgument(
-              "unable to parse the specified CF option " + name);
-        }
-        new_options->compression_opts.max_dict_bytes =
-            ParseInt(value.substr(start, value.size() - start));
-        end = value.find(':', start);
-      }
-      // zstd_max_train_bytes is optional for backwards compatibility
-      if (end != std::string::npos) {
-        start = end + 1;
-        if (start >= value.size()) {
-          return Status::InvalidArgument(
-              "unable to parse the specified CF option " + name);
-        }
-        new_options->compression_opts.zstd_max_train_bytes =
-            ParseInt(value.substr(start, value.size() - start));
+      Status s =
+          ParseCompressionOptions(value, name, new_options->compression_opts);
+      if (!s.ok()) {
+        return s;
       }
     } else {
       auto iter = cf_options_type_info.find(name);
@@ -1846,7 +1872,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct MutableCFOptions, compaction_options_universal)}},
         {"ttl",
          {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
-          OptionVerificationType::kNormal, false, 0}}};
+          OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, ttl)}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {

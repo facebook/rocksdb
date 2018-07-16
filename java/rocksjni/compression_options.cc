@@ -123,6 +123,30 @@ jint Java_org_rocksdb_CompressionOptions_maxDictBytes(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_CompressionOptions
+ * Method:    setEnabled
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_CompressionOptions_setEnabled(JNIEnv* /*env*/,
+                                                    jobject /*jobj*/,
+                                                    jlong jhandle,
+                                                    jboolean jenabled) {
+  auto* opt = reinterpret_cast<rocksdb::CompressionOptions*>(jhandle);
+  opt->enabled = static_cast<int>(jenabled);
+}
+
+/*
+ * Class:     org_rocksdb_CompressionOptions
+ * Method:    Enabled
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_CompressionOptions_enabled(JNIEnv* /*env*/,
+                                                 jobject /*jobj*/,
+                                                 jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::CompressionOptions*>(jhandle);
+  return static_cast<jint>(opt->enabled);
+}
+/*
+ * Class:     org_rocksdb_CompressionOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */

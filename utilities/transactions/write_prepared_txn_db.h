@@ -383,6 +383,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
+  friend class WriteUnpreparedTxnDB;
+  friend class WriteUnpreparedTransactionTest_RecoveryRollbackUnprepared_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
 
@@ -612,9 +614,9 @@ class WritePreparedTxnReadCallback : public ReadCallback {
                                SequenceNumber min_uncommitted)
       : db_(db), snapshot_(snapshot), min_uncommitted_(min_uncommitted) {}
 
-  // Will be called to see if the seq number accepted; if not it moves on to the
-  // next seq number.
-  inline virtual bool IsCommitted(SequenceNumber seq) override {
+  // Will be called to see if the seq number visible; if not it moves on to
+  // the next seq number.
+  inline virtual bool IsVisible(SequenceNumber seq) override {
     return db_->IsInSnapshot(seq, snapshot_, min_uncommitted_);
   }
 
@@ -754,7 +756,7 @@ struct SubBatchCounter : public WriteBatch::Handler {
     AddKey(cf, key);
     return Status::OK();
   }
-  Status MarkBeginPrepare() override { return Status::OK(); }
+  Status MarkBeginPrepare(bool) override { return Status::OK(); }
   Status MarkRollback(const Slice&) override { return Status::OK(); }
   bool WriteAfterCommit() const override { return false; }
 };

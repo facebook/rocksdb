@@ -27,7 +27,7 @@ class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
-        dbname_(test::TmpDir() + "/flush_job_test"),
+        dbname_(test::PerThreadDBPath("flush_job_test")),
         options_(),
         db_options_(options_),
         table_cache_(NewLRUCache(50000, 16)),

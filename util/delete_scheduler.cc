@@ -267,24 +267,46 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
   if (s.ok()) {
     bool need_full_delete = true;
     if (bytes_max_delete_chunk_ != 0 && file_size > bytes_max_delete_chunk_) {
-      unique_ptr<WritableFile> wf;
-      Status my_status =
-          env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
+      uint64_t num_hard_links = 2;
+      // We don't have to worry aobut data race between linking a new
+      // file after the number of file link check and ftruncte because
+      // the file is now in trash and no hardlink is supposed to create
+      // to trash files by RocksDB.
+      Status my_status = env_->NumFileLinks(path_in_trash, &num_hard_links);
       if (my_status.ok()) {
-        my_status = wf->Truncate(file_size - bytes_max_delete_chunk_);
-        if (my_status.ok()) {
-          TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:Fsync");
-          my_status = wf->Fsync();
+        if (num_hard_links == 1) {
+          unique_ptr<WritableFile> wf;
+          my_status =
+              env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
+          if (my_status.ok()) {
+            my_status = wf->Truncate(file_size - bytes_max_delete_chunk_);
+            if (my_status.ok()) {
+              TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:Fsync");
+              my_status = wf->Fsync();
+            }
+          }
+          if (my_status.ok()) {
+            *deleted_bytes = bytes_max_delete_chunk_;
+            need_full_delete = false;
+            *is_complete = false;
+          } else {
+            ROCKS_LOG_WARN(info_log_,
+                           "Failed to partially delete %s from trash -- %s",
+                           path_in_trash.c_str(), my_status.ToString().c_str());
+          }
+        } else {
+          ROCKS_LOG_INFO(info_log_,
+                         "Cannot delete %s slowly through ftruncate from trash "
+                         "as it has other links",
+                         path_in_trash.c_str());
         }
-      }
-      if (my_status.ok()) {
-        *deleted_bytes = bytes_max_delete_chunk_;
-        need_full_delete = false;
-        *is_complete = false;
-      } else {
-        ROCKS_LOG_WARN(info_log_,
-                       "Failed to partially delete %s from trash -- %s",
-                       path_in_trash.c_str(), my_status.ToString().c_str());
+      } else if (!num_link_error_printed_) {
+        ROCKS_LOG_INFO(
+            info_log_,
+            "Cannot delete files slowly through ftruncate from trash "
+            "as Env::NumFileLinks() returns error: %s",
+            my_status.ToString().c_str());
+        num_link_error_printed_ = true;
       }
     }
 

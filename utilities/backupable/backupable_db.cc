@@ -975,8 +975,8 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
     for (auto& itr : backuped_file_infos_) {
       if (itr.second->refs == 0) {
         Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
-        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
-                       s.ToString().c_str());
+        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                       itr.first.c_str(), s.ToString().c_str());
         to_delete.push_back(itr.first);
       }
     }

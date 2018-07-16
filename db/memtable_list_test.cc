@@ -27,7 +27,7 @@ class MemTableListTest : public testing::Test {
   Options options;
 
   MemTableListTest() : db(nullptr) {
-    dbname = test::TmpDir() + "/memtable_list_test";
+    dbname = test::PerThreadDBPath("memtable_list_test");
   }
 
   // Create a test db if not yet created

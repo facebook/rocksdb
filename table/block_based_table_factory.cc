@@ -71,7 +71,7 @@ Status BlockBasedTableFactory::NewTableReader(
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader, table_reader_options.prefix_extractor,
       prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
-      table_reader_options.level);
+      table_reader_options.level, table_reader_options.immortal);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -150,6 +150,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize,
            "  pin_l0_filter_and_index_blocks_in_cache: %d\n",
            table_options_.pin_l0_filter_and_index_blocks_in_cache);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  pin_top_level_index_and_filter: %d\n",
+           table_options_.pin_top_level_index_and_filter);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_type: %d\n",
            table_options_.index_type);

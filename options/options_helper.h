@@ -130,6 +130,10 @@ Status GetColumnFamilyOptionsFromMapInternal(
     std::vector<std::string>* unsupported_options_names = nullptr,
     bool ignore_unknown_options = false);
 
+bool ParseSliceTransform(
+    const std::string& value,
+    std::shared_ptr<const SliceTransform>* slice_transform);
+
 extern Status StringToMap(
     const std::string& opts_str,
     std::unordered_map<std::string, std::string>* opts_map);

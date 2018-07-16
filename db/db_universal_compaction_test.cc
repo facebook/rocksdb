@@ -1781,6 +1781,63 @@ TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
   ASSERT_EQ(NumSortedRuns(), 5);
 }
 
+TEST_P(DBTestUniversalCompaction, FinalSortedRunCompactFilesConflict) {
+  // Regression test for conflict between:
+  // (1) Running CompactFiles including file in the final sorted run; and
+  // (2) Picking universal size-amp-triggered compaction, which always includes
+  //     the final sorted run.
+  if (exclusive_manual_compaction_) {
+    return;
+  }
+
+  Options opts = CurrentOptions();
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.compaction_options_universal.max_size_amplification_percent = 50;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compression = kNoCompression;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.max_background_compactions = 2;
+  opts.num_levels = num_levels_;
+  Reopen(opts);
+
+  // make sure compaction jobs can be parallelized
+  auto stop_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  Put("key", "val");
+  Flush();
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(num_levels_ - 1), 1);
+  ColumnFamilyMetaData cf_meta;
+  ColumnFamilyHandle* default_cfh = db_->DefaultColumnFamily();
+  dbfull()->GetColumnFamilyMetaData(default_cfh, &cf_meta);
+  ASSERT_EQ(1, cf_meta.levels[num_levels_ - 1].files.size());
+  std::string first_sst_filename =
+      cf_meta.levels[num_levels_ - 1].files[0].name;
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactFilesImpl:0",
+        "DBTestUniversalCompaction:FinalSortedRunCompactFilesConflict:0"},
+       {"DBImpl::BackgroundCompaction():AfterPickCompaction",
+        "CompactFilesImpl:1"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread compact_files_thread([&]() {
+    ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), default_cfh,
+        {first_sst_filename}, num_levels_ - 1));
+  });
+
+  TEST_SYNC_POINT(
+      "DBTestUniversalCompaction:FinalSortedRunCompactFilesConflict:0");
+  for (int i = 0; i < 2; ++i) {
+    Put("key", "val");
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  compact_files_thread.join();
+}
+
 INSTANTIATE_TEST_CASE_P(UniversalCompactionNumLevels, DBTestUniversalCompaction,
                         ::testing::Combine(::testing::Values(1, 3, 5),
                                            ::testing::Bool()));

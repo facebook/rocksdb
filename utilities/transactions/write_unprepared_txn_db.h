@@ -11,16 +11,33 @@
 #endif
 
 #include "utilities/transactions/write_prepared_txn_db.h"
-
 #include "utilities/transactions/write_unprepared_txn.h"
 
 namespace rocksdb {
 
+class WriteUnpreparedTxn;
+
 class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
+ public:
   using WritePreparedTxnDB::WritePreparedTxnDB;
 
-  Transaction* BeginTransaction(const WriteOptions& write_options, const TransactionOptions& txn_options,
+  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
+                    const std::vector<ColumnFamilyHandle*>& handles) override;
+
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
+
+  // Struct to hold ownership of snapshot and read callback for cleanup.
+  struct IteratorState;
+
+  using WritePreparedTxnDB::NewIterator;
+  Iterator* NewIterator(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        WriteUnpreparedTxn* txn);
+
+ private:
+  Status RollbackRecoveredTransaction(const DBImpl::RecoveredTransaction* rtxn);
 };
 
 }  //  namespace rocksdb
