@@ -3206,28 +3206,26 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   builder->Apply(edit);
 }
 
-Status VersionSet::ApplyOneVersionEdit(VersionEdit& edit,
+Status VersionSet::ApplyOneVersionEdit(
+    VersionEdit& edit,
     const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
     std::unordered_map<int, std::string>& column_families_not_found,
     std::unordered_map<uint32_t, BaseReferencedVersionBuilder*>& builders,
     bool* have_log_number, uint64_t* /* log_number */,
     bool* have_prev_log_number, uint64_t* previous_log_number,
-    bool* have_next_file, uint64_t* next_file,
-    bool* have_last_sequence, SequenceNumber* last_sequence,
-    uint64_t* min_log_number_to_keep,
+    bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
+    SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
     uint32_t* max_column_family) {
   // Not found means that user didn't supply that column
   // family option AND we encountered column family add
   // record. Once we encounter column family drop record,
   // we will delete the column family from
   // column_families_not_found.
-  bool cf_in_not_found =
-      (column_families_not_found.find(edit.column_family_) !=
-      column_families_not_found.end());
+  bool cf_in_not_found = (column_families_not_found.find(edit.column_family_) !=
+                          column_families_not_found.end());
   // in builders means that user supplied that column family
   // option AND that we encountered column family add record
-  bool cf_in_builders =
-      builders.find(edit.column_family_) != builders.end();
+  bool cf_in_builders = builders.find(edit.column_family_) != builders.end();
 
   // they can't both be true
   assert(!(cf_in_not_found && cf_in_builders));
@@ -3302,7 +3300,8 @@ Status VersionSet::ApplyOneVersionEdit(VersionEdit& edit,
     }
     if (edit.has_comparator_ &&
         edit.comparator_ != cfd->user_comparator()->Name()) {
-      return Status::InvalidArgument(cfd->user_comparator()->Name(),
+      return Status::InvalidArgument(
+          cfd->user_comparator()->Name(),
           "does not match existing comparator " + edit.comparator_);
     }
   }
@@ -3442,13 +3441,12 @@ Status VersionSet::Recover(
         replay_buffer[num_entries_decoded - 1] = std::move(edit);
         if (num_entries_decoded == replay_buffer.size()) {
           for (auto& e : replay_buffer) {
-            s = ApplyOneVersionEdit(e, cf_name_to_options,
-                column_families_not_found, builders,
-                &have_log_number, &log_number,
-                &have_prev_log_number, &previous_log_number,
-                &have_next_file, &next_file,
-                &have_last_sequence, &last_sequence,
-                &min_log_number_to_keep, &max_column_family);
+            s = ApplyOneVersionEdit(
+                e, cf_name_to_options, column_families_not_found, builders,
+                &have_log_number, &log_number, &have_prev_log_number,
+                &previous_log_number, &have_next_file, &next_file,
+                &have_last_sequence, &last_sequence, &min_log_number_to_keep,
+                &max_column_family);
             if (!s.ok()) {
               break;
             }
@@ -3460,13 +3458,12 @@ Status VersionSet::Recover(
         if (!replay_buffer.empty()) {
           return Status::Corruption("corrupted atomic group");
         }
-        s = ApplyOneVersionEdit(edit, cf_name_to_options,
-            column_families_not_found, builders,
-            &have_log_number, &log_number,
-            &have_prev_log_number, &previous_log_number,
-            &have_next_file, &next_file,
-            &have_last_sequence, &last_sequence,
-            &min_log_number_to_keep, &max_column_family);
+        s = ApplyOneVersionEdit(
+            edit, cf_name_to_options, column_families_not_found, builders,
+            &have_log_number, &log_number, &have_prev_log_number,
+            &previous_log_number, &have_next_file, &next_file,
+            &have_last_sequence, &last_sequence, &min_log_number_to_keep,
+            &max_column_family);
       }
       if (!s.ok()) {
         break;
