@@ -26,7 +26,7 @@ bool SearchForOffset(DataBlockHashIndex& index, const Slice& key,
   return false;
 }
 
-TEST(BlockTest, DataBlockHashTestSmall) {
+TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
   // bucket_num = 5, #keys = 2. 40% utilization
   DataBlockHashIndexBuilder builder(5);
 
@@ -59,7 +59,7 @@ TEST(BlockTest, DataBlockHashTestSmall) {
   }
 }
 
-TEST(BlockTest, DataBlockHashTest) {
+TEST(DataBlockHashIndex, DataBlockHashTest) {
   // bucket_num = 200, #keys = 100. 50% utilization
   DataBlockHashIndexBuilder builder(200);
 
@@ -92,7 +92,7 @@ TEST(BlockTest, DataBlockHashTest) {
   }
 }
 
-TEST(BlockTest, DataBlockHashTestCollision) {
+TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   // bucket_num = 2. There will be intense hash collisions
   DataBlockHashIndexBuilder builder(2);
 
@@ -125,7 +125,7 @@ TEST(BlockTest, DataBlockHashTestCollision) {
   }
 }
 
-TEST(BlockTest, DataBlockHashTestLarge) {
+TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   DataBlockHashIndexBuilder builder(1000);
   std::unordered_map<std::string, uint16_t> m;
 
