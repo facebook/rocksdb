@@ -1119,8 +1119,8 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
 
   *meta_block = std::move(meta);
   // meta block uses bytewise comparator.
-  iter->reset(meta_block->get()->NewIterator<BlockIter>(BytewiseComparator(),
-                                                        BytewiseComparator()));
+  iter->reset(meta_block->get()->NewIterator<DataBlockIter>(
+      BytewiseComparator(), BytewiseComparator()));
   return Status::OK();
 }
 
@@ -1809,7 +1809,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
         nullptr, kNullStats, true, index_key_includes_seq_);
   }
   // Create an empty iterator
-  return new BlockIter();
+  return new DataBlockIter();
 }
 
 // This will be broken if the user specifies an unusual implementation
@@ -2211,7 +2211,7 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
     Cache* block_cache = rep_->table_options.block_cache.get();
     assert(block_cache != nullptr);
     if (block_cache->Ref(rep_->range_del_entry.cache_handle)) {
-      auto iter = rep_->range_del_entry.value->NewIterator<BlockIter>(
+      auto iter = rep_->range_del_entry.value->NewIterator<DataBlockIter>(
           &rep_->internal_comparator,
           rep_->internal_comparator.user_comparator());
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
@@ -2223,7 +2223,7 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
   rep_->range_del_handle.EncodeTo(&str);
   // The meta-block exists but isn't in uncompressed block cache (maybe
   // because it is disabled), so go through the full lookup process.
-  return NewDataBlockIterator<BlockIter>(rep_, read_options, Slice(str));
+  return NewDataBlockIterator<DataBlockIter>(rep_, read_options, Slice(str));
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(

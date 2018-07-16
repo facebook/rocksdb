@@ -100,7 +100,7 @@ TEST_F(BlockTest, SimpleTest) {
   // read contents of block sequentially
   int count = 0;
   InternalIterator *iter =
-      reader.NewIterator<BlockIter>(options.comparator, options.comparator);
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
   for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
 
     // read kv from block
@@ -114,7 +114,8 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewIterator<BlockIter>(options.comparator, options.comparator);
+  iter =
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
   for (int i = 0; i < num_records; i++) {
 
     // find a random key in the lookaside array
@@ -163,8 +164,9 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
-  std::unique_ptr<InternalIterator> regular_iter(reader2.NewIterator<BlockIter>(
-      BytewiseComparator(), BytewiseComparator()));
+  std::unique_ptr<InternalIterator> regular_iter(
+      reader2.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                         BytewiseComparator()));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {

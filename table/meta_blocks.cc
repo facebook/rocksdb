@@ -203,9 +203,9 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 
   Block properties_block(std::move(block_contents),
                          kDisableGlobalSequenceNumber);
-  BlockIter iter;
-  properties_block.NewIterator<BlockIter>(BytewiseComparator(),
-                                          BytewiseComparator(), &iter);
+  DataBlockIter iter;
+  properties_block.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                              BytewiseComparator(), &iter);
 
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
@@ -335,8 +335,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   Block metaindex_block(std::move(metaindex_contents),
                         kDisableGlobalSequenceNumber);
   std::unique_ptr<InternalIterator> meta_iter(
-      metaindex_block.NewIterator<BlockIter>(BytewiseComparator(),
-                                             BytewiseComparator()));
+      metaindex_block.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                                 BytewiseComparator()));
 
   // -- Read property block
   bool found_properties_block = true;
@@ -405,8 +405,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                         kDisableGlobalSequenceNumber);
 
   std::unique_ptr<InternalIterator> meta_iter;
-  meta_iter.reset(metaindex_block.NewIterator<BlockIter>(BytewiseComparator(),
-                                                         BytewiseComparator()));
+  meta_iter.reset(metaindex_block.NewIterator<DataBlockIter>(
+      BytewiseComparator(), BytewiseComparator()));
 
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
 }
@@ -452,8 +452,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                         kDisableGlobalSequenceNumber);
 
   std::unique_ptr<InternalIterator> meta_iter;
-  meta_iter.reset(metaindex_block.NewIterator<BlockIter>(BytewiseComparator(),
-                                                         BytewiseComparator()));
+  meta_iter.reset(metaindex_block.NewIterator<DataBlockIter>(
+      BytewiseComparator(), BytewiseComparator()));
 
   BlockHandle block_handle;
   status = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);
