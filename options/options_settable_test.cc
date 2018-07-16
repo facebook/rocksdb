@@ -140,6 +140,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
+      "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
       "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
@@ -380,6 +381,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->rate_limit_delay_max_milliseconds = 33;
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->compression_opts = CompressionOptions();
+  options->bottommost_compression_opts = CompressionOptions();
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
   options->purge_redundant_kvs_while_flush = false;

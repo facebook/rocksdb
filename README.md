@@ -4,7 +4,6 @@
 [![Windows Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
 [![PPC64le Build Status](http://140.211.168.68:8080/buildStatus/icon?job=Rocksdb)](http://140.211.168.68:8080/job/Rocksdb)
 
-
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)
 and Jeff Dean (jeff@google.com)

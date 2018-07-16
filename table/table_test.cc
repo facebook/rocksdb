@@ -238,7 +238,7 @@ class BlockConstructor: public Constructor {
   }
   virtual InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewIterator(comparator_, comparator_);
+    return block_->NewIterator<DataBlockIter>(comparator_, comparator_);
   }
 
  private:
@@ -358,10 +358,12 @@ class TableConstructor: public Constructor {
     uniq_id_ = cur_uniq_id_++;
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
-    const bool skip_filters = false;
+    const bool kSkipFilters = true;
+    const bool kImmortal = true;
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
-                           internal_comparator, skip_filters, level_),
+                           internal_comparator, !kSkipFilters, !kImmortal,
+                           level_),
         std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
@@ -545,7 +547,7 @@ class DBConstructor: public Constructor {
 
  private:
   void NewDB() {
-    std::string name = test::TmpDir() + "/table_testdb";
+    std::string name = test::PerThreadDBPath("table_testdb");
 
     Options options;
     options.comparator = comparator_;
@@ -691,6 +693,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
 
   virtual bool InRange(const Slice& dst) const override {
     return (dst.size() <= prefix_len_);
+  }
+  virtual bool FullLengthEnabled(size_t* /*len*/) const override {
+    return false;
   }
 };
 
@@ -991,7 +996,7 @@ class HarnessTest : public testing::Test {
     std::vector<TestArgs> args = GenerateArgList();
     assert(part);
     assert(part <= total);
-    for (unsigned int i = 0; i < args.size(); i++) {
+    for (size_t i = 0; i < args.size(); i++) {
       if ((i % total) + 1 != part) {
         continue;
       }
@@ -1983,7 +1988,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   // Enable the cache for index/filter blocks
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  table_options.block_cache = NewLRUCache(1024, 4);
+  table_options.block_cache = NewLRUCache(2048, 2);
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
@@ -2330,70 +2335,74 @@ TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
         }
         for (bool index_and_filter_in_cache : {true, false}) {
           for (bool pin_l0 : {true, false}) {
-            if (pin_l0 && !index_and_filter_in_cache) {
-              continue;
-            }
-            // Create a table
-            Options opt;
-            unique_ptr<InternalKeyComparator> ikc;
-            ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
-            opt.compression = kNoCompression;
-            BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-            table_options.block_size = 1024;
-            table_options.index_type =
-                BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-            table_options.pin_l0_filter_and_index_blocks_in_cache = pin_l0;
-            table_options.partition_filters = partition_filter;
-            table_options.cache_index_and_filter_blocks =
-                index_and_filter_in_cache;
-            // big enough so we don't ever lose cached values.
-            table_options.block_cache = std::shared_ptr<rocksdb::Cache>(
-                new MockCache(16 * 1024 * 1024, 4, false, 0.0));
-            table_options.filter_policy.reset(
-                rocksdb::NewBloomFilterPolicy(10, block_based_filter));
-            opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
+            for (bool pin_top_level : {true, false}) {
+              if (pin_l0 && !index_and_filter_in_cache) {
+                continue;
+              }
+              // Create a table
+              Options opt;
+              unique_ptr<InternalKeyComparator> ikc;
+              ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
+              opt.compression = kNoCompression;
+              BlockBasedTableOptions table_options =
+                  GetBlockBasedTableOptions();
+              table_options.block_size = 1024;
+              table_options.index_type =
+                  BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+              table_options.pin_l0_filter_and_index_blocks_in_cache = pin_l0;
+              table_options.pin_top_level_index_and_filter = pin_top_level;
+              table_options.partition_filters = partition_filter;
+              table_options.cache_index_and_filter_blocks =
+                  index_and_filter_in_cache;
+              // big enough so we don't ever lose cached values.
+              table_options.block_cache = std::shared_ptr<rocksdb::Cache>(
+                  new MockCache(16 * 1024 * 1024, 4, false, 0.0));
+              table_options.filter_policy.reset(
+                  rocksdb::NewBloomFilterPolicy(10, block_based_filter));
+              opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-            bool convert_to_internal_key = false;
-            TableConstructor c(BytewiseComparator(), convert_to_internal_key,
-                               level);
-            std::string user_key = "k01";
-            std::string key =
-                InternalKey(user_key, 0, kTypeValue).Encode().ToString();
-            c.Add(key, "hello");
-            std::vector<std::string> keys;
-            stl_wrappers::KVMap kvmap;
-            const ImmutableCFOptions ioptions(opt);
-            const MutableCFOptions moptions(opt);
-            c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys,
-                     &kvmap);
+              bool convert_to_internal_key = false;
+              TableConstructor c(BytewiseComparator(), convert_to_internal_key,
+                                 level);
+              std::string user_key = "k01";
+              std::string key =
+                  InternalKey(user_key, 0, kTypeValue).Encode().ToString();
+              c.Add(key, "hello");
+              std::vector<std::string> keys;
+              stl_wrappers::KVMap kvmap;
+              const ImmutableCFOptions ioptions(opt);
+              const MutableCFOptions moptions(opt);
+              c.Finish(opt, ioptions, moptions, table_options, *ikc, &keys,
+                       &kvmap);
 
-            // Doing a read to make index/filter loaded into the cache
-            auto table_reader =
-                dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-            PinnableSlice value;
-            GetContext get_context(opt.comparator, nullptr, nullptr, nullptr,
-                                   GetContext::kNotFound, user_key, &value,
-                                   nullptr, nullptr, nullptr, nullptr);
-            InternalKey ikey(user_key, 0, kTypeValue);
-            auto s = table_reader->Get(ReadOptions(), key, &get_context,
-                                       moptions.prefix_extractor.get());
-            ASSERT_EQ(get_context.State(), GetContext::kFound);
-            ASSERT_STREQ(value.data(), "hello");
+              // Doing a read to make index/filter loaded into the cache
+              auto table_reader =
+                  dynamic_cast<BlockBasedTable*>(c.GetTableReader());
+              PinnableSlice value;
+              GetContext get_context(opt.comparator, nullptr, nullptr, nullptr,
+                                     GetContext::kNotFound, user_key, &value,
+                                     nullptr, nullptr, nullptr, nullptr);
+              InternalKey ikey(user_key, 0, kTypeValue);
+              auto s = table_reader->Get(ReadOptions(), key, &get_context,
+                                         moptions.prefix_extractor.get());
+              ASSERT_EQ(get_context.State(), GetContext::kFound);
+              ASSERT_STREQ(value.data(), "hello");
 
-            // Close the table
-            c.ResetTableReader();
+              // Close the table
+              c.ResetTableReader();
 
-            auto usage = table_options.block_cache->GetUsage();
-            auto pinned_usage = table_options.block_cache->GetPinnedUsage();
-            // The only usage must be for marked data blocks
-            ASSERT_EQ(usage, MockCache::marked_size_);
-            // There must be some pinned data since PinnableSlice has not
-            // released them yet
-            ASSERT_GT(pinned_usage, 0);
-            // Release pinnable slice reousrces
-            value.Reset();
-            pinned_usage = table_options.block_cache->GetPinnedUsage();
-            ASSERT_EQ(pinned_usage, 0);
+              auto usage = table_options.block_cache->GetUsage();
+              auto pinned_usage = table_options.block_cache->GetPinnedUsage();
+              // The only usage must be for marked data blocks
+              ASSERT_EQ(usage, MockCache::marked_size_);
+              // There must be some pinned data since PinnableSlice has not
+              // released them yet
+              ASSERT_GT(pinned_usage, 0);
+              // Release pinnable slice reousrces
+              value.Reset();
+              pinned_usage = table_options.block_cache->GetPinnedUsage();
+              ASSERT_EQ(pinned_usage, 0);
+          }
           }
         }
       }
@@ -3100,7 +3109,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   bbto.block_size = 262144;
   bbto.whole_key_filtering = true;
 
-  const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
+  const std::string kDBPath = test::PerThreadDBPath("table_prefix_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyDB(kDBPath, options);
   rocksdb::DB* db;
@@ -3464,8 +3473,9 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents),
                           kDisableGlobalSequenceNumber);
 
-    std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewIterator(
-        BytewiseComparator(), BytewiseComparator()));
+    std::unique_ptr<InternalIterator> meta_iter(
+        metaindex_block.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                                   BytewiseComparator()));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -3492,7 +3502,7 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   bbto.block_align = true;
 
   const std::string kDBPath =
-      test::TmpDir() + "/block_based_table_bad_options_test";
+      test::PerThreadDBPath("block_based_table_bad_options_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyDB(kDBPath, options);
   rocksdb::DB* db;

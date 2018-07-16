@@ -444,9 +444,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.info_log);
 
   } else if (value_type == kTypeRangeDeletion) {
-    // TODO(wanning&andrewkr) add num_tomestone to table properties
     r->range_del_block.Add(key, value);
-    ++r->props.num_entries;
+    ++r->props.num_range_deletions;
     r->props.raw_key_size += key.size();
     r->props.raw_value_size += value.size();
     NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
@@ -660,7 +659,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               (end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    block_cache_compressed->Insert(key, block, block->usable_size(),
+    block_cache_compressed->Insert(key, block, block->ApproximateMemoryUsage(),
                                    &DeleteCachedBlock);
 
     // Invalidate OS cache.

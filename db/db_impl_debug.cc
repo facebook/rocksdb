@@ -10,6 +10,7 @@
 #ifndef NDEBUG
 
 #include "db/db_impl.h"
+#include "db/error_handler.h"
 #include "monitoring/thread_status_updater.h"
 
 namespace rocksdb {
@@ -134,10 +135,10 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
           (wait_unscheduled && unscheduled_compactions_)) &&
-         bg_error_.ok()) {
+         !error_handler_.IsDBStopped()) {
     bg_cv_.Wait();
   }
-  return bg_error_;
+  return error_handler_.GetBGError();
 }
 
 void DBImpl::TEST_LockMutex() {

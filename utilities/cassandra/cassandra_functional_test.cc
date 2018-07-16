@@ -21,7 +21,7 @@ namespace rocksdb {
 namespace cassandra {
 
 // Path to the database on file system
-const std::string kDbName = test::TmpDir() + "/cassandra_functional_test";
+const std::string kDbName = test::PerThreadDBPath("cassandra_functional_test");
 
 class CassandraStore {
  public:

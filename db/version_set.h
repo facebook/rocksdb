@@ -201,8 +201,8 @@ class VersionStorageInfo {
 
   void GetOverlappingInputsRangeBinarySearch(
       int level,           // level > 0
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
       int hint_index,                // index of overlap file
       int* file_index,               // return index of overlap file
@@ -211,20 +211,20 @@ class VersionStorageInfo {
 
   void ExtendFileRangeOverlappingInterval(
       int level,
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
-      unsigned int index,  // start extending from this index
-      int* startIndex,     // return the startIndex of input range
-      int* endIndex)       // return the endIndex of input range
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
+      unsigned int index,        // start extending from this index
+      int* startIndex,           // return the startIndex of input range
+      int* endIndex)             // return the endIndex of input range
       const;
 
   void ExtendFileRangeWithinInterval(
       int level,
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
-      unsigned int index,  // start extending from this index
-      int* startIndex,     // return the startIndex of input range
-      int* endIndex)       // return the endIndex of input range
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
+      unsigned int index,        // start extending from this index
+      int* startIndex,           // return the startIndex of input range
+      int* endIndex)             // return the endIndex of input range
       const;
 
   // Returns true iff some file in the specified level overlaps
@@ -752,9 +752,11 @@ class VersionSet {
       InstrumentedMutex* mu, Directory* db_directory = nullptr,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
-    autovector<VersionEdit*> edit_list;
-    edit_list.push_back(edit);
-    return LogAndApply(column_family_data, mutable_cf_options, edit_list, mu,
+    std::vector<ColumnFamilyData*> cfds(1, column_family_data);
+    std::vector<MutableCFOptions> mutable_cf_options_list(1,
+                                                          mutable_cf_options);
+    std::vector<autovector<VersionEdit*>> edit_lists(1, {edit});
+    return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
                        db_directory, new_descriptor_log, column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
@@ -764,7 +766,24 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       Directory* db_directory = nullptr, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr);
+      const ColumnFamilyOptions* column_family_options = nullptr) {
+    std::vector<ColumnFamilyData*> cfds(1, column_family_data);
+    std::vector<MutableCFOptions> mutable_cf_options_list(1,
+                                                          mutable_cf_options);
+    std::vector<autovector<VersionEdit*>> edit_lists(1, edit_list);
+    return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
+                       db_directory, new_descriptor_log, column_family_options);
+  }
+
+  // The across-multi-cf batch version. If edit_lists contain more than
+  // 1 version edits, caller must ensure that no edit in the []list is column
+  // family manipulation.
+  Status LogAndApply(const std::vector<ColumnFamilyData*>& cfds,
+                     const std::vector<MutableCFOptions>& mutable_cf_options,
+                     const std::vector<autovector<VersionEdit*>>& edit_lists,
+                     InstrumentedMutex* mu, Directory* db_directory = nullptr,
+                     bool new_descriptor_log = false,
+                     const ColumnFamilyOptions* new_cf_options = nullptr);
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
@@ -979,6 +998,11 @@ class VersionSet {
       bool* have_last_sequence, SequenceNumber* last_sequence,
       uint64_t* min_log_number_to_keep,
       uint32_t* max_column_family);
+
+  Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
+                               InstrumentedMutex* mu, Directory* db_directory,
+                               bool new_descriptor_log,
+                               const ColumnFamilyOptions* new_cf_options);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 

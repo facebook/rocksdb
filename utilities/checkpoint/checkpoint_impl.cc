@@ -42,6 +42,28 @@ Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
   return Status::NotSupported("");
 }
 
+void CheckpointImpl::CleanStagingDirectory(
+    const std::string& full_private_path, Logger* info_log) {
+    std::vector<std::string> subchildren;
+  Status s = db_->GetEnv()->FileExists(full_private_path);
+  if (s.IsNotFound()) {
+    return;
+  }
+  ROCKS_LOG_INFO(info_log, "File exists %s -- %s",
+                 full_private_path.c_str(), s.ToString().c_str());
+  db_->GetEnv()->GetChildren(full_private_path, &subchildren);
+  for (auto& subchild : subchildren) {
+    std::string subchild_path = full_private_path + "/" + subchild;
+    s = db_->GetEnv()->DeleteFile(subchild_path);
+    ROCKS_LOG_INFO(info_log, "Delete file %s -- %s",
+                   subchild_path.c_str(), s.ToString().c_str());
+  }
+  // finally delete the private dir
+  s = db_->GetEnv()->DeleteDir(full_private_path);
+  ROCKS_LOG_INFO(info_log, "Delete dir %s -- %s",
+                 full_private_path.c_str(), s.ToString().c_str());
+}
+
 // Builds an openable snapshot of RocksDB
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                                         uint64_t log_size_for_flush) {
@@ -75,6 +97,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
       db_options.info_log,
       "Snapshot process -- using temporary directory %s",
       full_private_path.c_str());
+  CleanStagingDirectory(full_private_path, db_options.info_log.get());
   // create snapshot directory
   s = db_->GetEnv()->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
@@ -125,19 +148,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     // clean all the files we might have created
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot failed -- %s",
                    s.ToString().c_str());
-    // we have to delete the dir and all its children
-    std::vector<std::string> subchildren;
-    db_->GetEnv()->GetChildren(full_private_path, &subchildren);
-    for (auto& subchild : subchildren) {
-      std::string subchild_path = full_private_path + "/" + subchild;
-      Status s1 = db_->GetEnv()->DeleteFile(subchild_path);
-      ROCKS_LOG_INFO(db_options.info_log, "Delete file %s -- %s",
-                     subchild_path.c_str(), s1.ToString().c_str());
-    }
-    // finally delete the private dir
-    Status s1 = db_->GetEnv()->DeleteDir(full_private_path);
-    ROCKS_LOG_INFO(db_options.info_log, "Delete dir %s -- %s",
-                   full_private_path.c_str(), s1.ToString().c_str());
+    CleanStagingDirectory(full_private_path, db_options.info_log.get());
   }
   return s;
 }

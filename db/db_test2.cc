@@ -354,7 +354,7 @@ INSTANTIATE_TEST_CASE_P(DBTestSharedWriteBufferAcrossCFs,
                                           std::make_tuple(false, true)));
 
 TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
-  std::string dbname2 = test::TmpDir(env_) + "/db_shared_wb_db2";
+  std::string dbname2 = test::PerThreadDBPath("db_shared_wb_db2");
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
   // Avoid undeterministic value by malloc_usable_size();
@@ -2422,7 +2422,7 @@ TEST_F(DBTest2, ReadCallbackTest) {
   class TestReadCallback : public ReadCallback {
    public:
     explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
-    virtual bool IsCommitted(SequenceNumber seq) override {
+    virtual bool IsVisible(SequenceNumber seq) override {
       return seq <= snapshot_;
     }
 
@@ -2505,6 +2505,8 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.allow_mmap_reads = true;
+  options.max_open_files = 100;
+  options.compression = kNoCompression;
   Reopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
@@ -2512,6 +2514,8 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
 
   PinnableSlice pinned_value;
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  // It is not safe to pin mmap files as they might disappear by compaction
+  ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
   dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
@@ -2519,8 +2523,28 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
                               true /* disallow_trivial_move */);
 
   // Ensure pinned_value doesn't rely on memory munmap'd by the above
-  // compaction.
+  // compaction. It crashes if it does.
   ASSERT_EQ(pinned_value.ToString(), "bar");
+
+#ifndef ROCKSDB_LITE
+  pinned_value.Reset();
+  // Unsafe to pin mmap files when they could be kicked out of table cache
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_FALSE(pinned_value.IsPinned());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+
+  pinned_value.Reset();
+  // In read-only mode with infinite capacity on table cache it should pin the
+  // value and avoid the memcpy
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_TRUE(pinned_value.IsPinned());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+#endif
 }
 
 }  // namespace rocksdb

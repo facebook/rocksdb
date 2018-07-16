@@ -432,6 +432,10 @@ DEFINE_int32(ops_between_duration_checks, 1000,
 DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
             "Pin index/filter blocks of L0 files in block cache.");
 
+DEFINE_bool(
+    pin_top_level_index_and_filter, false,
+    "Pin top-level index of partitioned index/filter blocks in block cache.");
+
 DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
@@ -520,6 +524,8 @@ DEFINE_bool(read_cache_direct_write, true,
 
 DEFINE_bool(read_cache_direct_read, true,
             "Whether to use Direct IO for reading from read cache");
+
+DEFINE_bool(use_keep_filter, false, "Whether to use a noop compaction filter");
 
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
@@ -1024,6 +1030,8 @@ DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
             "table becomes an identity function. This is only valid when key "
             "is 8 bytes");
 DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
+DEFINE_uint64(stats_dump_period_sec, rocksdb::Options().stats_dump_period_sec,
+              "Gap between printing stats to log in seconds");
 
 enum RepFactory {
   kSkipList,
@@ -2193,6 +2201,17 @@ class Benchmark {
     std::shared_ptr<TimestampEmulator> timestamp_emulator_;
   };
 
+  class KeepFilter : public CompactionFilter {
+   public:
+    virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                        const Slice& /*value*/, std::string* /*new_value*/,
+                        bool* /*value_changed*/) const override {
+      return false;
+    }
+
+    virtual const char* Name() const override { return "KeepFilter"; }
+  };
+
   std::shared_ptr<Cache> NewCache(int64_t capacity) {
     if (capacity <= 0) {
       return nullptr;
@@ -3186,6 +3205,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
           FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+      block_based_options.pin_top_level_index_and_filter =
+          FLAGS_pin_top_level_index_and_filter;
       if (FLAGS_cache_high_pri_pool_ratio > 1e-6) {  // > 0.0 + eps
         block_based_options.cache_index_and_filter_blocks_with_high_priority =
             true;
@@ -3361,11 +3382,23 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.wal_dir = FLAGS_wal_dir;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
+    options.stats_dump_period_sec =
+        static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
 
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    if (FLAGS_cache_size) {
+      // If this is a block based table, also need to set block_cache
+      if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
+          options.table_factory->GetOptions() != nullptr) {
+        BlockBasedTableOptions* table_options =
+            reinterpret_cast<BlockBasedTableOptions*>(
+                options.table_factory->GetOptions());
+        table_options->block_cache = cache_;
+      }
+    }
     if (FLAGS_row_cache_size) {
       if (FLAGS_cache_numshardbits >= 1) {
         options.row_cache =
@@ -3416,6 +3449,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         OpenDb(options, GetPathForMultiple(FLAGS_db, i), &multi_dbs_[i]);
       }
       options.wal_dir = wal_dir;
+    }
+
+    // KeepFilter is a noop filter, this can be used to test compaction filter
+    if (FLAGS_use_keep_filter) {
+      options.compaction_filter = new KeepFilter();
+      fprintf(stdout, "A noop compaction filter is used\n");
     }
   }
 

@@ -294,7 +294,7 @@ Status WritePreparedTxn::RollbackInternal() {
     }
 
     Status MarkNoop(bool) override { return Status::OK(); }
-    Status MarkBeginPrepare() override { return Status::OK(); }
+    Status MarkBeginPrepare(bool) override { return Status::OK(); }
     Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
     Status MarkCommit(const Slice&) override { return Status::OK(); }
     Status MarkRollback(const Slice&) override {

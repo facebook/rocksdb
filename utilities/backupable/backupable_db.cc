@@ -975,8 +975,8 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
     for (auto& itr : backuped_file_infos_) {
       if (itr.second->refs == 0) {
         Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
-        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
-                       s.ToString().c_str());
+        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                       itr.first.c_str(), s.ToString().c_str());
         to_delete.push_back(itr.first);
       }
     }
@@ -1218,7 +1218,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   unique_ptr<SequentialFileReader> src_reader;
   unique_ptr<char[]> buf;
   if (!src.empty()) {
-    src_reader.reset(new SequentialFileReader(std::move(src_file)));
+    src_reader.reset(new SequentialFileReader(std::move(src_file), src));
     buf.reset(new char[copy_file_buffer_size_]);
   }
 
@@ -1417,7 +1417,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
   }
 
   unique_ptr<SequentialFileReader> src_reader(
-      new SequentialFileReader(std::move(src_file)));
+      new SequentialFileReader(std::move(src_file), src));
   std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
 
@@ -1641,7 +1641,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   }
 
   unique_ptr<SequentialFileReader> backup_meta_reader(
-      new SequentialFileReader(std::move(backup_meta_file)));
+      new SequentialFileReader(std::move(backup_meta_file), meta_filename_));
   unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
   Slice data;
   s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());

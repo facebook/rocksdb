@@ -39,6 +39,7 @@ struct TablePropertiesNames {
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
   static const std::string kNumEntries;
+  static const std::string kNumRangeDeletions;
   static const std::string kFormatVersion;
   static const std::string kFixedKeyLen;
   static const std::string kFilterPolicy;
@@ -148,6 +149,8 @@ struct TableProperties {
   uint64_t num_data_blocks = 0;
   // the number of entries in this table
   uint64_t num_entries = 0;
+  // the number of range deletions in this table
+  uint64_t num_range_deletions = 0;
   // format version, reserved for backward compatibility
   uint64_t format_version = 0;
   // If 0, key is variable length. Otherwise number of bytes for each key.

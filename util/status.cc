@@ -17,21 +17,11 @@ namespace rocksdb {
 const char* Status::CopyState(const char* state) {
   const size_t cch =
       std::strlen(state) + 1; // +1 for the null terminator
-  char* const result =
-      new char[cch];
-  result[cch - 1] = '\0';
-#ifdef OS_WIN
-  errno_t ret;
-  ret = strncpy_s(result, cch, state, cch - 1);
-  assert(ret == 0);
-#else
-  std::strncpy(result, state, cch - 1);
-#endif
-  return result;
+  return std::strncpy(new char[cch], state, cch);
 }
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2)
-    : code_(_code), subcode_(_subcode) {
+    : code_(_code), subcode_(_subcode), sev_(kNoError) {
   assert(code_ != kOk);
   assert(subcode_ != kMaxSubCode);
   const size_t len1 = msg.size();

@@ -38,7 +38,7 @@ class BlobDBTest : public testing::Test {
   };
 
   BlobDBTest()
-      : dbname_(test::TmpDir() + "/blob_db_test"),
+      : dbname_(test::PerThreadDBPath("blob_db_test")),
         mock_env_(new MockTimeEnv(Env::Default())),
         blob_db_(nullptr) {
     Status s = DestroyBlobDB(dbname_, Options(), BlobDBOptions());
@@ -1120,7 +1120,7 @@ TEST_F(BlobDBTest, FIFOEviction) {
 
   ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
 
-  // Adding another 100 byte blob would take the total size to 264 bytes
+  // Adding another 100 bytes blob would take the total size to 264 bytes
   // (2*132). max_db_size will be exceeded
   // than max_db_size and trigger FIFO eviction.
   ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key2", value, 60));
@@ -1128,18 +1128,34 @@ TEST_F(BlobDBTest, FIFOEviction) {
   // key1 will exist until corresponding file be deleted.
   VerifyDB({{"key1", value}, {"key2", value}});
 
+  // Adding another 100 bytes blob without TTL.
+  ASSERT_OK(blob_db_->Put(WriteOptions(), "key3", value));
+  ASSERT_EQ(2, evict_count);
+  // key1 and key2 will exist until corresponding file be deleted.
+  VerifyDB({{"key1", value}, {"key2", value}, {"key3", value}});
+
+  // The fourth blob file, without TTL.
+  ASSERT_OK(blob_db_->Put(WriteOptions(), "key4", value));
+  ASSERT_EQ(3, evict_count);
+  VerifyDB(
+      {{"key1", value}, {"key2", value}, {"key3", value}, {"key4", value}});
+
   auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(2, blob_files.size());
+  ASSERT_EQ(4, blob_files.size());
   ASSERT_TRUE(blob_files[0]->Obsolete());
-  ASSERT_FALSE(blob_files[1]->Obsolete());
+  ASSERT_TRUE(blob_files[1]->Obsolete());
+  ASSERT_TRUE(blob_files[2]->Obsolete());
+  ASSERT_FALSE(blob_files[3]->Obsolete());
   auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
-  ASSERT_EQ(1, obsolete_files.size());
+  ASSERT_EQ(3, obsolete_files.size());
   ASSERT_EQ(blob_files[0], obsolete_files[0]);
+  ASSERT_EQ(blob_files[1], obsolete_files[1]);
+  ASSERT_EQ(blob_files[2], obsolete_files[2]);
 
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
   ASSERT_TRUE(obsolete_files.empty());
-  VerifyDB({{"key2", value}});
+  VerifyDB({{"key4", value}});
 }
 
 TEST_F(BlobDBTest, FIFOEviction_NoOldestFileToEvict) {

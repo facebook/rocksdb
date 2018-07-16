@@ -96,12 +96,19 @@ public:
     alignment_ = alignment;
   }
 
-  // Allocates a new buffer and sets bufstart_ to the aligned first byte
-  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false) {
+  // Allocates a new buffer and sets bufstart_ to the aligned first byte.
+  // requested_capacity: requested new buffer capacity. This capacity will be
+  //     rounded up based on alignment.
+  // copy_data: Copy data from old buffer to new buffer.
+  // copy_offset: Copy data from this offset in old buffer.
+  // copy_len: Number of bytes to copy.
+  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false,
+                         uint64_t copy_offset = 0, size_t copy_len = 0) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
-    if (copy_data && requested_capacity < cursize_) {
+    copy_len = copy_len > 0 ? copy_len : cursize_;
+    if (copy_data && requested_capacity < copy_len) {
       // If we are downsizing to a capacity that is smaller than the current
       // data in the buffer. Ignore the request.
       return;
@@ -114,7 +121,9 @@ public:
         ~static_cast<uintptr_t>(alignment_ - 1));
 
     if (copy_data) {
-      memcpy(new_bufstart, bufstart_, cursize_);
+      assert(bufstart_ + copy_offset + copy_len <= bufstart_ + cursize_);
+      memcpy(new_bufstart, bufstart_ + copy_offset, copy_len);
+      cursize_ = copy_len;
     } else {
       cursize_ = 0;
     }

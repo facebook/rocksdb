@@ -14,6 +14,7 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
+#include "db/error_handler.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"
@@ -577,7 +578,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           continue;
         }
       }
-      file_reader.reset(new SequentialFileReader(std::move(file)));
+      file_reader.reset(new SequentialFileReader(std::move(file), fname));
     }
 
     // Create the log reader.
@@ -719,7 +720,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
           log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes, seq_per_batch_);
+          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -1003,15 +1004,16 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-  const bool seq_per_batch = true;
+  const bool kSeqPerBatch = true;
+  const bool kBatchPerTxn = true;
   return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                      !seq_per_batch);
+                      !kSeqPerBatch, kBatchPerTxn);
 }
 
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                    const bool seq_per_batch) {
+                    const bool seq_per_batch, const bool batch_per_txn) {
   Status s = SanitizeOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
@@ -1031,7 +1033,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
 
-  DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch);
+  DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
     std::vector<std::string> paths;

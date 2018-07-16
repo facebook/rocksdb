@@ -41,7 +41,6 @@ void MemTableListVersion::UnrefMemTable(autovector<MemTable*>* to_delete,
     to_delete->push_back(m);
     assert(*parent_memtable_list_memory_usage_ >= m->ApproximateMemoryUsage());
     *parent_memtable_list_memory_usage_ -= m->ApproximateMemoryUsage();
-  } else {
   }
 }
 
@@ -401,7 +400,22 @@ Status MemTableList::InstallMemtableFlushResults(
       // All the later memtables that have the same filenum
       // are part of the same batch. They can be committed now.
       uint64_t mem_id = 1;  // how many memtables have been flushed.
-      if (s.ok()) {         // commit new state
+
+      // commit new state only if the column family is NOT dropped.
+      // The reason is as follows (refer to
+      // ColumnFamilyTest.FlushAndDropRaceCondition).
+      // If the column family is dropped, then according to LogAndApply, its
+      // corrresponding flush operation is NOT written to the MANIFEST. This
+      // means the DB is not aware of the L0 files generated from the flush.
+      // By committing the new state, we remove the memtable from the memtable
+      // list. Creating an iterator on this column family will not be able to
+      // read full data since the memtable is removed, and the DB is not aware
+      // of the L0 files, causing MergingIterator unable to build child
+      // iterators. RocksDB contract requires that the iterator can be created
+      // on a dropped column family, and we must be able to
+      // read full data as long as column family handle is not deleted, even if
+      // the column family is dropped.
+      if (s.ok() && !cfd->IsDropped()) {  // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();
           ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64

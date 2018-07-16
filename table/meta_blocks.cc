@@ -77,6 +77,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   }
   Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
+  Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
@@ -202,9 +203,9 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 
   Block properties_block(std::move(block_contents),
                          kDisableGlobalSequenceNumber);
-  BlockIter iter;
-  properties_block.NewIterator(BytewiseComparator(), BytewiseComparator(),
-                               &iter);
+  DataBlockIter iter;
+  properties_block.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                              BytewiseComparator(), &iter);
 
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
@@ -224,6 +225,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       {TablePropertiesNames::kNumDataBlocks,
        &new_table_properties->num_data_blocks},
       {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
+      {TablePropertiesNames::kNumRangeDeletions,
+       &new_table_properties->num_range_deletions},
       {TablePropertiesNames::kFormatVersion,
        &new_table_properties->format_version},
       {TablePropertiesNames::kFixedKeyLen,
@@ -332,7 +335,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   Block metaindex_block(std::move(metaindex_contents),
                         kDisableGlobalSequenceNumber);
   std::unique_ptr<InternalIterator> meta_iter(
-      metaindex_block.NewIterator(BytewiseComparator(), BytewiseComparator()));
+      metaindex_block.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                                 BytewiseComparator()));
 
   // -- Read property block
   bool found_properties_block = true;
@@ -401,8 +405,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                         kDisableGlobalSequenceNumber);
 
   std::unique_ptr<InternalIterator> meta_iter;
-  meta_iter.reset(
-      metaindex_block.NewIterator(BytewiseComparator(), BytewiseComparator()));
+  meta_iter.reset(metaindex_block.NewIterator<DataBlockIter>(
+      BytewiseComparator(), BytewiseComparator()));
 
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
 }
@@ -448,8 +452,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                         kDisableGlobalSequenceNumber);
 
   std::unique_ptr<InternalIterator> meta_iter;
-  meta_iter.reset(
-      metaindex_block.NewIterator(BytewiseComparator(), BytewiseComparator()));
+  meta_iter.reset(metaindex_block.NewIterator<DataBlockIter>(
+      BytewiseComparator(), BytewiseComparator()));
 
   BlockHandle block_handle;
   status = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);
