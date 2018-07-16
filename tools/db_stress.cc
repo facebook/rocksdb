@@ -1783,6 +1783,7 @@ class StressTest {
           thread->rand.Uniform(FLAGS_checkpoint_one_in) == 0) {
         std::string checkpoint_dir =
             FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+        DestroyDB(checkpoint_dir, Options());
         Checkpoint* checkpoint;
         Status s = Checkpoint::Create(db_, &checkpoint);
         if (s.ok()) {
@@ -1792,16 +1793,8 @@ class StressTest {
         if (s.ok()) {
           s = FLAGS_env->GetChildren(checkpoint_dir, &files);
         }
-        size_t file_idx = 0;
-        while (s.ok() && file_idx < files.size()) {
-          if (files[file_idx] != "." && files[file_idx] != "..") {
-            s = FLAGS_env->DeleteFile(checkpoint_dir + "/" + files[file_idx]);
-          }
-          ++file_idx;
-        }
-        if (s.ok()) {
-          s = FLAGS_env->DeleteDir(checkpoint_dir);
-        }
+        DestroyDB(checkpoint_dir, Options());
+        delete checkpoint;
         if (!s.ok()) {
           printf("A checkpoint operation failed with: %s\n",
                  s.ToString().c_str());
@@ -1812,7 +1805,7 @@ class StressTest {
           thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
         std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
         BackupableDBOptions backup_opts(backup_dir);
-        BackupEngine* backup_engine;
+        BackupEngine* backup_engine = nullptr;
         Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
         if (s.ok()) {
           s = backup_engine->CreateNewBackup(db_);
@@ -1823,6 +1816,9 @@ class StressTest {
         if (!s.ok()) {
           printf("A BackupEngine operation failed with: %s\n",
                  s.ToString().c_str());
+        }
+        if (backup_engine != nullptr) {
+          delete backup_engine;
         }
       }
 
@@ -2864,7 +2860,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::terminate();
     }
     int64_t key = key_base;
-    for (int64_t value : values) {
+    for (int32_t value : values) {
       shared->Put(column_family, key, value, false /* pending */);
       ++key;
     }

@@ -1,10 +1,8 @@
 #! /usr/bin/env python
 import os
-import re
 import sys
 import time
 import random
-import logging
 import tempfile
 import subprocess
 import shutil
@@ -291,7 +289,7 @@ def whitebox_crash_main(args, unknown_args):
             }
         else:
             # normal run
-            additional_opts = additional_opts = {
+            additional_opts = {
                 "kill_random_test": None,
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }

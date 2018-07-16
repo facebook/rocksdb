@@ -488,6 +488,7 @@ class Transaction {
 
  private:
   friend class PessimisticTransactionDB;
+  friend class WriteUnpreparedTxnDB;
   // No copying allowed
   Transaction(const Transaction&);
   void operator=(const Transaction&);

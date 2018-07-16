@@ -108,7 +108,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
     } else if (found_record_for_key) {
       bool write_conflict = snap_checker == nullptr
                                 ? snap_seq < seq
-                                : !snap_checker->IsCommitted(seq);
+                                : !snap_checker->IsVisible(seq);
       if (write_conflict) {
         result = Status::Busy();
       }

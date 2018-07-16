@@ -18,7 +18,7 @@ namespace rocksdb {
 class DocumentDBTest : public testing::Test {
  public:
   DocumentDBTest() {
-    dbname_ = test::TmpDir() + "/document_db_test";
+    dbname_ = test::PerThreadDBPath("document_db_test");
     DestroyDB(dbname_, Options());
   }
   ~DocumentDBTest() {

@@ -699,7 +699,7 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     // this is used for reconstructing prepared transactions upon
     // recovery. there should not be any meta markers in the batches
     // we are processing.
-    Status MarkBeginPrepare() override { return Status::InvalidArgument(); }
+    Status MarkBeginPrepare(bool) override { return Status::InvalidArgument(); }
 
     Status MarkEndPrepare(const Slice&) override {
       return Status::InvalidArgument();

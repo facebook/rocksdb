@@ -1917,8 +1917,9 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  virtual Status MarkBeginPrepare() override {
-    row_ << "BEGIN_PREARE ";
+  virtual Status MarkBeginPrepare(bool unprepare) override {
+    row_ << "BEGIN_PREPARE(";
+    row_ << (unprepare ? "true" : "false") << ") ";
     return Status::OK();
   }
 

@@ -19,7 +19,7 @@ namespace rocksdb {
 
 class MemoryTest : public testing::Test {
  public:
-  MemoryTest() : kDbDir(test::TmpDir() + "/memory_test"), rnd_(301) {
+  MemoryTest() : kDbDir(test::PerThreadDBPath("memory_test")), rnd_(301) {
     assert(Env::Default()->CreateDirIfMissing(kDbDir).ok());
   }
 
