@@ -74,7 +74,7 @@ class DataBlockHashIndexIterator {
  public:
   DataBlockHashIndexIterator(const char* start, const char* end,
                              const uint16_t tag)
-      : start_(start), end_(end), tag_(tag) {
+      : end_(end), tag_(tag) {
     current_ = start - 2 * sizeof(uint16_t);
     Next();
   }
@@ -83,8 +83,7 @@ class DataBlockHashIndexIterator {
   uint16_t Value();
 
  private:
-  const char* start_; // [start_,  end_) defines the bucket range
-  const char* end_;
+  const char* end_; // the end of the bucket
   const uint16_t tag_;  // the fingerprint (2nd hash value) of the searching key
   const char* current_;
 };
