@@ -15,7 +15,7 @@
 namespace rocksdb {
 
 bool SearchForOffset(DataBlockHashIndex& index, const Slice& key,
-                     uint32_t& restart_point) {
+                     uint16_t& restart_point) {
   std::unique_ptr<DataBlockHashIndexIterator> iter;
   iter.reset(index.NewIterator(key));
   for (; iter->Valid(); iter->Next()) {
@@ -30,9 +30,9 @@ TEST(BlockTest, DataBlockHashTestSmall) {
   // bucket_num = 5, #keys = 2. 40% utilization
   DataBlockHashIndexBuilder builder(5);
 
-  for (uint32_t i = 0; i < 2; i++) {
+  for (uint16_t i = 0; i < 2; i++) {
     std::string key("key" + std::to_string(i));
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     builder.Add(key, restart_point);
   }
 
@@ -52,9 +52,9 @@ TEST(BlockTest, DataBlockHashTestSmall) {
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
-  for (uint32_t i = 0; i < 2; i++) {
+  for (uint16_t i = 0; i < 2; i++) {
     std::string key("key" + std::to_string(i));
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     ASSERT_TRUE(SearchForOffset(index, key, restart_point));
   }
 }
@@ -63,9 +63,9 @@ TEST(BlockTest, DataBlockHashTest) {
   // bucket_num = 200, #keys = 100. 50% utilization
   DataBlockHashIndexBuilder builder(200);
 
-  for (uint32_t i = 0; i < 100; i++) {
+  for (uint16_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     builder.Add(key, restart_point);
   }
 
@@ -85,9 +85,9 @@ TEST(BlockTest, DataBlockHashTest) {
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
-  for (uint32_t i = 0; i < 100; i++) {
+  for (uint16_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     ASSERT_TRUE(SearchForOffset(index, key, restart_point));
   }
 }
@@ -96,9 +96,9 @@ TEST(BlockTest, DataBlockHashTestCollision) {
   // bucket_num = 2. There will be intense hash collisions
   DataBlockHashIndexBuilder builder(2);
 
-  for (uint32_t i = 0; i < 100; i++) {
+  for (uint16_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     builder.Add(key, restart_point);
   }
 
@@ -118,21 +118,21 @@ TEST(BlockTest, DataBlockHashTestCollision) {
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
-  for (uint32_t i = 0; i < 100; i++) {
+  for (uint16_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     ASSERT_TRUE(SearchForOffset(index, key, restart_point));
   }
 }
 
 TEST(BlockTest, DataBlockHashTestLarge) {
   DataBlockHashIndexBuilder builder(1000);
-  std::unordered_map<std::string, uint32_t> m;
+  std::unordered_map<std::string, uint16_t> m;
 
-  for (uint32_t i = 0; i < 10000000; i++) {
+  for (uint16_t i = 0; i < 10000; i++) {
     if (std::rand() % 2) continue;  // randomly leave half of the keys out
     std::string key = "key" + std::to_string(i);
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     builder.Add(key, restart_point);
     m[key] = restart_point;
   }
@@ -153,9 +153,9 @@ TEST(BlockTest, DataBlockHashTestLarge) {
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
-  for (uint32_t i = 0; i < 100; i++) {
+  for (uint16_t i = 0; i < 100; i++) {
     std::string key = "key" + std::to_string(i);
-    uint32_t restart_point = i;
+    uint16_t restart_point = i;
     if (m.count(key)) {
       ASSERT_TRUE(m[key] == restart_point);
       ASSERT_TRUE(SearchForOffset(index, key, restart_point));
