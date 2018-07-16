@@ -222,11 +222,12 @@ class BlockIter : public InternalIterator {
     global_seqno_ = global_seqno;
     key_includes_seq_ = key_includes_seq;
     block_contents_pinned_ = block_contents_pinned;
+    key_.SetIsUserKey(!key_includes_seq_);
   }
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
-  void Invalidate(Status s) {
+  void InvalidateBase(Status s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
            (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
@@ -237,31 +238,18 @@ class BlockIter : public InternalIterator {
 
     // Call cleanup callbacks.
     Cleanable::Reset();
-
-    // Clear prev entries cache.
-    prev_entries_keys_buff_.clear();
-    prev_entries_.clear();
-    prev_entries_idx_ = -1;
   }
 
   virtual bool Valid() const override { return current_ < restarts_; }
   virtual Status status() const override { return status_; }
   virtual Slice key() const override {
     assert(Valid());
-    return key_.GetInternalKey();
+    return key_.GetKey();
   }
   virtual Slice value() const override {
     assert(Valid());
     return value_;
   }
-
-  virtual void Next() override;
-
-  virtual void Prev() override;
-
-  virtual void SeekToFirst() override;
-
-  virtual void SeekToLast() override;
 
 #ifndef NDEBUG
   virtual ~BlockIter() {
@@ -309,30 +297,6 @@ class BlockIter : public InternalIterator {
   bool key_includes_seq_;
   SequenceNumber global_seqno_;
 
-  struct CachedPrevEntry {
-    explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
-                             size_t _key_offset, size_t _key_size, Slice _value)
-        : offset(_offset),
-          key_ptr(_key_ptr),
-          key_offset(_key_offset),
-          key_size(_key_size),
-          value(_value) {}
-
-    // offset of entry in block
-    uint32_t offset;
-    // Pointer to key data in block (nullptr if key is delta-encoded)
-    const char* key_ptr;
-    // offset of key in prev_entries_keys_buff_ (0 if key_ptr is not nullptr)
-    size_t key_offset;
-    // size of key
-    size_t key_size;
-    // value slice pointing to data in block
-    Slice value;
-  };
-  std::string prev_entries_keys_buff_;
-  std::vector<CachedPrevEntry> prev_entries_;
-  int32_t prev_entries_idx_ = -1;
-
  public:
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
@@ -357,7 +321,6 @@ class BlockIter : public InternalIterator {
 
   void CorruptionError();
 
-  bool ParseNextKey();
   bool BinarySeek(const Slice& target, uint32_t left, uint32_t right,
                   uint32_t* index, const Comparator* comp);
 };
@@ -402,11 +365,52 @@ class DataBlockIter final : public BlockIter {
 
   virtual void SeekForPrev(const Slice& target) override;
 
+  virtual void Prev() override;
+
+  virtual void Next() override;
+
+  virtual void SeekToFirst() override;
+
+  virtual void SeekToLast() override;
+
+  void Invalidate(Status s) {
+    InvalidateBase(s);
+    // Clear prev entries cache.
+    prev_entries_keys_buff_.clear();
+    prev_entries_.clear();
+    prev_entries_idx_ = -1;
+  }
+
  private:
   // read-amp bitmap
   BlockReadAmpBitmap* read_amp_bitmap_;
   // last `current_` value we report to read-amp bitmp
   mutable uint32_t last_bitmap_offset_;
+  struct CachedPrevEntry {
+    explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
+                             size_t _key_offset, size_t _key_size, Slice _value)
+        : offset(_offset),
+          key_ptr(_key_ptr),
+          key_offset(_key_offset),
+          key_size(_key_size),
+          value(_value) {}
+
+    // offset of entry in block
+    uint32_t offset;
+    // Pointer to key data in block (nullptr if key is delta-encoded)
+    const char* key_ptr;
+    // offset of key in prev_entries_keys_buff_ (0 if key_ptr is not nullptr)
+    size_t key_offset;
+    // size of key
+    size_t key_size;
+    // value slice pointing to data in block
+    Slice value;
+  };
+  std::string prev_entries_keys_buff_;
+  std::vector<CachedPrevEntry> prev_entries_;
+  int32_t prev_entries_idx_ = -1;
+
+  bool ParseNextDataKey();
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);
@@ -419,7 +423,7 @@ class IndexBlockIter final : public BlockIter {
 
   virtual Slice key() const override {
     assert(Valid());
-    return key_includes_seq_ ? key_.GetInternalKey() : key_.GetUserKey();
+    return key_.GetKey();
   }
   IndexBlockIter(const Comparator* comparator,
                  const Comparator* user_comparator, const char* data,
@@ -436,10 +440,10 @@ class IndexBlockIter final : public BlockIter {
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, bool key_includes_seq,
                   bool block_contents_pinned) {
-    user_comparator_ = user_comparator;
     InitializeBase(comparator, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, key_includes_seq,
                    block_contents_pinned);
+    active_comparator_ = key_includes_seq_ ? comparator_ : user_comparator;
     prefix_index_ = prefix_index;
   }
 
@@ -456,6 +460,16 @@ class IndexBlockIter final : public BlockIter {
     value_.clear();
   }
 
+  virtual void Prev() override;
+
+  virtual void Next() override;
+
+  virtual void SeekToFirst() override;
+
+  virtual void SeekToLast() override;
+
+  void Invalidate(Status s) { InvalidateBase(s); }
+
  private:
   bool PrefixSeek(const Slice& target, uint32_t* index);
   bool BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
@@ -464,23 +478,17 @@ class IndexBlockIter final : public BlockIter {
   int CompareBlockKey(uint32_t block_index, const Slice& target);
 
   inline int Compare(const Slice& a, const Slice& b) const {
-    if (key_includes_seq_) {
-      return comparator_->Compare(a, b);
-    } else {
-      return user_comparator_->Compare(a, b);
-    }
+    return active_comparator_->Compare(a, b);
   }
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
-    if (key_includes_seq_) {
-      return comparator_->Compare(ikey.GetInternalKey(), b);
-    } else {
-      return user_comparator_->Compare(ikey.GetUserKey(), b);
-    }
+    return active_comparator_->Compare(ikey.GetKey(), b);
   }
 
-  // Same as comparator_ if comparator_ is not InernalKeyComparator
-  const Comparator* user_comparator_;
+  bool ParseNextIndexKey();
+
+  // key_includes_seq_ ? comparator_ : user_comparator_
+  const Comparator* active_comparator_;
   BlockPrefixIndex* prefix_index_;
 };
 
