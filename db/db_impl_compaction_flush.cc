@@ -1188,7 +1188,7 @@ Status DBImpl::WaitForFlushMemTables(
     const autovector<uint64_t>& flush_memtable_ids) {
   Status s;
   InstrumentedMutexLock l(&mutex_);
-  while (bg_error_.ok()) {
+  while (!error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
@@ -1209,8 +1209,8 @@ Status DBImpl::WaitForFlushMemTables(
     }
     bg_cv_.Wait();
   }
-  if (!bg_error_.ok()) {
-    s = bg_error_;
+  if (error_handler_.IsDBStopped()) {
+    s = error_handler_.GetBGError();
   }
   return s;
 }
