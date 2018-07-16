@@ -422,7 +422,7 @@ bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
 }
 
 // Compare target key and the block key of the block of `block_index`.
-// Return -1 if eror.
+// Return -1 if error.
 int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   uint32_t region_offset = GetRestartPoint(block_index);
   uint32_t shared, non_shared, value_length;

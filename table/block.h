@@ -450,7 +450,7 @@ class IndexBlockIter final : public BlockIter {
     current_ = restarts_;
     restart_index_ = num_restarts_;
     status_ = Status::InvalidArgument(
-        "RocksDB internal error: should never all SeekForPrev() for index "
+        "RocksDB internal error: should never call SeekForPrev() on index "
         "blocks");
     key_.Clear();
     value_.clear();
