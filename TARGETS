@@ -375,6 +375,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "data_block_hash_index_test",
+        "table/data_block_hash_index_test.cc",
+        "serial",
+    ],
+    [
         "block_test",
         "table/block_test.cc",
         "serial",
@@ -1082,4 +1087,3 @@ if not is_opt_mode:
           deps = [":" + test_bin],
           command = [TEST_RUNNER, BUCK_BINS + test_bin]
         )
-
