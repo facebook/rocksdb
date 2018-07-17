@@ -97,7 +97,7 @@ class DatabaseOptions(DataSource):
                 diff.pop(opt)
         return diff
 
-    def __init__(self, rocksdb_options, misc_options):
+    def __init__(self, rocksdb_options, misc_options=None):
         super().__init__(DataSource.Type.DB_OPTIONS)
         # The options are stored in the following data structure:
         # Dict[section_type, Dict[section_name, Dict[option_name, value]]]

@@ -129,7 +129,7 @@ class DatabasePerfContext(TimeSeriesData):
             reqd_stats.extend([key.lower() for key in cond.keys])
         return reqd_stats
 
-    def fetch_timeseries(self):
+    def fetch_timeseries(self, statistics):
         pass
 
 

@@ -33,7 +33,6 @@ def main(args):
     # set the frequency at which stats are dumped in the LOG file and the
     # location of the LOG file.
     db_log_dump_settings = {
-        "DBOptions.db_log_dir": {NO_FAM: args.db_log_dir},
         "DBOptions.stats_dump_period_sec": {
             NO_FAM: args.stats_dump_period_sec
         }
@@ -41,7 +40,11 @@ def main(args):
     db_options.update_options(db_log_dump_settings)
     # initialise the configuration optimizer
     config_optimizer = ConfigOptimizer(
-        db_bench_runner, db_options, rule_spec_parser
+        db_bench_runner,
+        db_options,
+        rule_spec_parser,
+        args.ldb,
+        args.base_db_path
     )
     # run the optimiser to improve the database configuration for given
     # benchmarks, with the help of expert-specified rules
@@ -65,6 +68,8 @@ if __name__ == '__main__':
     parser.add_argument('--rocksdb_options', required=True, type=str)
     # these are options that are column-family agnostic and are not yet
     # supported by the Rocksdb Options file: eg. bloom_bits=2
+    parser.add_argument('--ldb', required=True, type=str)
+    parser.add_argument('--base_db_path', required=True, type=str)
     parser.add_argument('--misc_options', nargs='*')
     parser.add_argument('--rules_spec', required=True, type=str)
     parser.add_argument('--stats_dump_period_sec', required=True, type=int)
