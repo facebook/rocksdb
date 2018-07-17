@@ -915,7 +915,7 @@ if(WITH_TESTS)
         table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc
-        table/data_block_hash_index.cc
+        table/data_block_hash_index_test.cc
         table/full_filter_block_test.cc
         table/merger_test.cc
         table/table_test.cc
