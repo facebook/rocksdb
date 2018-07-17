@@ -32,6 +32,7 @@ namespace rocksdb {
 const unsigned int kMaxVarint64Length = 10;
 
 // Standard Put... routines append to a string
+extern void PutFixed16(std::string* dst, uint16_t value);
 extern void PutFixed32(std::string* dst, uint32_t value);
 extern void PutFixed64(std::string* dst, uint64_t value);
 extern void PutVarint32(std::string* dst, uint32_t value);
@@ -54,6 +55,7 @@ extern void PutLengthPrefixedSliceParts(std::string* dst,
 // and advance the slice past the parsed value.
 extern bool GetFixed64(Slice* input, uint64_t* value);
 extern bool GetFixed32(Slice* input, uint32_t* value);
+extern bool GetFixed16(Slice* input, uint16_t* value);
 extern bool GetVarint32(Slice* input, uint32_t* value);
 extern bool GetVarint64(Slice* input, uint64_t* value);
 extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
@@ -74,6 +76,7 @@ extern int VarintLength(uint64_t v);
 
 // Lower-level versions of Put... that write directly into a character buffer
 // REQUIRES: dst has enough space for the value being written
+extern void EncodeFixed16(char* dst, uint16_t value);
 extern void EncodeFixed32(char* dst, uint32_t value);
 extern void EncodeFixed64(char* dst, uint64_t value);
 
@@ -85,6 +88,18 @@ extern char* EncodeVarint64(char* dst, uint64_t value);
 
 // Lower-level versions of Get... that read directly from a character buffer
 // without any bounds checking.
+
+inline uint16_t DecodeFixed16(const char* ptr) {
+  if (port::kLittleEndian) {
+    // Load the raw bytes
+    uint16_t result;
+    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
+    return result;
+  } else {
+    return ((static_cast<uint16_t>(static_cast<unsigned char>(ptr[0]))) |
+            (static_cast<uint16_t>(static_cast<unsigned char>(ptr[1])) << 8));
+  }
+}
 
 inline uint32_t DecodeFixed32(const char* ptr) {
   if (port::kLittleEndian) {
@@ -131,6 +146,15 @@ inline const char* GetVarint32Ptr(const char* p,
 }
 
 // -- Implementation of the functions declared above
+inline void EncodeFixed16(char* buf, uint16_t value) {
+  if (port::kLittleEndian) {
+    memcpy(buf, &value, sizeof(value));
+  } else {
+    buf[0] = value & 0xff;
+    buf[1] = (value >> 8) & 0xff;
+  }
+}
+
 inline void EncodeFixed32(char* buf, uint32_t value) {
   if (port::kLittleEndian) {
     memcpy(buf, &value, sizeof(value));
@@ -158,6 +182,17 @@ inline void EncodeFixed64(char* buf, uint64_t value) {
 }
 
 // Pull the last 8 bits and cast it to a character
+inline void PutFixed16(std::string* dst, uint16_t value) {
+  if (port::kLittleEndian) {
+    dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+                sizeof(value));
+  } else {
+    char buf[sizeof(value)];
+    EncodeFixed16(buf, value);
+    dst->append(buf, sizeof(buf));
+  }
+}
+
 inline void PutFixed32(std::string* dst, uint32_t value) {
   if (port::kLittleEndian) {
     dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
@@ -283,6 +318,15 @@ inline bool GetFixed32(Slice* input, uint32_t* value) {
   }
   *value = DecodeFixed32(input->data());
   input->remove_prefix(sizeof(uint32_t));
+  return true;
+}
+
+inline bool GetFixed16(Slice* input, uint16_t* value) {
+  if (input->size() < sizeof(uint16_t)) {
+    return false;
+  }
+  *value = DecodeFixed16(input->data());
+  input->remove_prefix(sizeof(uint16_t));
   return true;
 }
 
