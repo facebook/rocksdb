@@ -41,7 +41,6 @@
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/malloc_stats.h"
-#include "db/managed_iterator.h"
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
@@ -1578,6 +1577,10 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  if (read_options.managed) {
+    return NewErrorIterator(
+        Status::NotSupported("Managed iterator is not supported anymore."));
+  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -1595,22 +1598,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-  if (read_options.managed) {
-#ifdef ROCKSDB_LITE
-    // not supported in lite version
-    result = NewErrorIterator(Status::InvalidArgument(
-        "Managed Iterators not supported in RocksDBLite."));
-#else
-    if ((read_options.tailing) || (read_options.snapshot != nullptr) ||
-        (is_snapshot_supported_)) {
-      result = new ManagedIterator(this, read_options, cfd);
-    } else {
-      // Managed iter not supported
-      result = NewErrorIterator(Status::InvalidArgument(
-          "Managed Iterators not supported without snapshots."));
-    }
-#endif
-  } else if (read_options.tailing) {
+if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
     result = nullptr;
@@ -1705,6 +1693,9 @@ Status DBImpl::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (read_options.managed) {
+    return Status::NotSupported("Managed iterator is not supported anymore.");
+  }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
@@ -1712,23 +1703,7 @@ Status DBImpl::NewIterators(
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
-  if (read_options.managed) {
-#ifdef ROCKSDB_LITE
-    return Status::InvalidArgument(
-        "Managed interator not supported in RocksDB lite");
-#else
-    if ((!read_options.tailing) && (read_options.snapshot == nullptr) &&
-        (!is_snapshot_supported_)) {
-      return Status::InvalidArgument(
-          "Managed interator not supported without snapshots");
-    }
-    for (auto cfh : column_families) {
-      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      auto iter = new ManagedIterator(this, read_options, cfd);
-      iterators->push_back(iter);
-    }
-#endif
-  } else if (read_options.tailing) {
+  if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     return Status::InvalidArgument(
         "Tailing interator not supported in RocksDB lite");
