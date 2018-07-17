@@ -2960,7 +2960,6 @@ Status DBImpl::IngestExternalFile(
 
     // We cannot ingest a file into a dropped CF
     if (cfd->IsDropped()) {
-      ReleaseFileNumberFromPendingOutputs(pending_output_elem);
       status = Status::InvalidArgument(
           "Cannot ingest an external file into a dropped CF");
     }
