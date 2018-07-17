@@ -265,6 +265,7 @@ void WriteThread::CreateMissingNewerLinks(Writer* head) {
 
 WriteThread::Writer* WriteThread::FindNextLeader(Writer* from,
                                                  Writer* boundary) {
+  assert(from != nullptr && from != boundary);
   Writer* current = from;
   while (current->link_older != boundary) {
     current = current->link_older;
@@ -581,6 +582,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       // We find at least one pending writer when we insert dummy. We search
       // for next leader from there.
       next_leader = FindNextLeader(expected, last_writer);
+      assert(next_leader != nullptr && next_leader != last_writer);
     }
 
     // Link the ramaining of the group to memtable writer list.
@@ -595,7 +597,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       }
     }
 
-    // If we had insert dummy in the queue, remove it now and check if there
+    // If we have inserted dummy in the queue, remove it now and check if there
     // are pending writer join the queue since we insert the dummy. If so,
     // look for next leader again.
     if (has_dummy) {
@@ -605,6 +607,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
           !newest_writer_.compare_exchange_strong(expected, nullptr);
       if (has_pending_writer) {
         next_leader = FindNextLeader(expected, &dummy);
+        assert(next_leader != nullptr && next_leader != &dummy);
       }
     }
 
