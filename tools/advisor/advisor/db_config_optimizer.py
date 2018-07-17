@@ -8,11 +8,14 @@ from advisor.db_options_parser import DatabaseOptions
 from advisor.rule_parser import Suggestion
 import copy
 import random
+import shutil
+import subprocess
 
 
 class ConfigOptimizer:
     SCOPE = 'scope'
     SUGG_VAL = 'suggested values'
+    DB_CHECKPOINT = '/dev/shm/dbbench.base'
 
     @staticmethod
     def get_guideline_boiler_plate():
@@ -188,10 +191,28 @@ class ConfigOptimizer:
         print(bt_config)
         return bt_config
 
-    def __init__(self, bench_runner, db_options, rule_parser):
+    def __init__(self, bench_runner, db_options, rule_parser, ldb, base_db):
         self.bench_runner = bench_runner
         self.db_options = db_options
         self.rule_parser = rule_parser
+        self.ldb_binary = ldb
+        self.base_db_path = base_db
+        # Create a backup of the base database
+        self.create_db_checkpoint(self.base_db_path, self.DB_CHECKPOINT)
+
+    def create_db_checkpoint(self, db_dir, checkpoint_dir):
+        print(
+            "Creating db checkpoint from  " + db_dir + " to " + checkpoint_dir
+        )
+        # remove destination directory if it already exists
+        try:
+            shutil.rmtree(checkpoint_dir, ignore_errors=True)
+        except OSError as e:
+            print('Error: rmdir ' + e.filename + ' ' + e.strerror)
+        command = "%s checkpoint --db=%s --checkpoint_dir=%s" % (
+            self.ldb_binary, db_dir, checkpoint_dir
+        )
+        subprocess.call(command, shell=True)
 
     def disambiguate_guidelines(self, guidelines):
         final_guidelines = copy.deepcopy(guidelines)
@@ -300,8 +321,10 @@ class ConfigOptimizer:
         # bootstrapping the optimizer
         print('Bootstrapping optimizer:')
         options = copy.deepcopy(self.db_options)
+        # Setup the base database to start experiment from and run experiment
+        self.create_db_checkpoint(self.DB_CHECKPOINT, self.base_db_path)
         old_data_sources, old_throughput = (
-            self.bench_runner.run_experiment(options)
+            self.bench_runner.run_experiment(options, self.base_db_path)
         )
         print('Initial throughput: ' + str(old_throughput))
         self.rule_parser.load_rules_from_spec()
@@ -333,8 +356,9 @@ class ConfigOptimizer:
             print(updated_conf)
             options.update_options(updated_conf)
             # run bench_runner with updated config: data_sources, throughput
+            self.create_db_checkpoint(self.DB_CHECKPOINT, self.base_db_path)
             new_data_sources, new_throughput = (
-                self.bench_runner.run_experiment(options)
+                self.bench_runner.run_experiment(options, self.base_db_path)
             )
             print('\nnew throughput: ' + str(new_throughput))
             backtrack = (new_throughput < old_throughput)
