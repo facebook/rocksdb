@@ -2937,6 +2937,7 @@ Status DBImpl::IngestExternalFile(
   status = ingestion_job.Prepare(external_files, super_version);
   CleanupSuperVersion(super_version);
   if (!status.ok()) {
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
