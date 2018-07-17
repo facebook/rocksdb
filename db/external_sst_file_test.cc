@@ -1299,7 +1299,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
 
   Status s = db_->IngestExternalFile({"non_existing_file"},
                                      IngestExternalFileOptions());
-  ASSERT_FALSE(s.ok());
+  ASSERT_NOK(s);
 
   // Verify file deletion is not impacted (verify a bug fix)
   ASSERT_OK(Put(Key(1), Key(1)));
