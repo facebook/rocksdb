@@ -2937,6 +2937,7 @@ Status DBImpl::IngestExternalFile(
   status = ingestion_job.Prepare(external_files, super_version);
   CleanupSuperVersion(super_version);
   if (!status.ok()) {
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
@@ -2959,6 +2960,7 @@ Status DBImpl::IngestExternalFile(
 
     // We cannot ingest a file into a dropped CF
     if (cfd->IsDropped()) {
+      ReleaseFileNumberFromPendingOutputs(pending_output_elem);
       status = Status::InvalidArgument(
           "Cannot ingest an external file into a dropped CF");
     }
