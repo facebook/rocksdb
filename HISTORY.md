@@ -20,6 +20,7 @@
 * Fix corruption in non-iterator reads when mmap is used for file reads
 * Fix bug with prefix search in partition filters where a shared prefix would be ignored from the later partitions. The bug could report an eixstent key as missing. The bug could be triggered if prefix_extractor is set and partition filters is enabled.
 * Change default value of `bytes_max_delete_chunk` to 0 in NewSstFileManager() as it doesn't work well with checkpoints.
+* Fix write can stuck indefinitely if enable_pipelined_write=true. The issue exists since pipelined write was introduced in 5.5.0.
 
 ## 5.14.0 (5/16/2018)
 ### Public API Change
