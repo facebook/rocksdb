@@ -38,14 +38,17 @@ class TimeSeriesData(DataSource):
         pass
 
     def fetch_burst_epochs(
-        self, statistic, window_sec, threshold, percent
+        self, entities, statistic, window_sec, threshold, percent
     ):
         # type: (str, int, float, bool) -> Dict[str, Dict[int, float]]
+        if self.stats_freq_sec == 0:
+            # not time series data, cannot check for bursty behavior
+            return
         if window_sec < self.stats_freq_sec:
             window_sec = self.stats_freq_sec
         window_samples = math.ceil(window_sec / self.stats_freq_sec)
         burst_epochs = {}
-        for entity in self.keys_ts:
+        for entity in entities:
             if statistic not in self.keys_ts[entity]:
                 continue
             timestamps = sorted(list(self.keys_ts[entity][statistic].keys()))
@@ -96,32 +99,41 @@ class TimeSeriesData(DataSource):
         # Trigger the appropriate conditions
         for cond in conditions:
             complete_keys = self.get_keys_from_conditions([cond])
+            # Get the entities that have all statistics required by 'condition'
+            entities_with_stats = []
+            for entity in self.keys_ts:
+                stat_missing = False
+                for stat in complete_keys:
+                    if stat not in self.keys_ts[entity]:
+                        stat_missing = True
+                        break
+                if not stat_missing:
+                    entities_with_stats.append(entity)
+            if not entities_with_stats:
+                continue
             if cond.behavior is self.Behavior.bursty:
-                statistic = complete_keys[0]  # there should be only one key
                 result = self.fetch_burst_epochs(
-                        statistic, cond.window_sec, cond.rate_threshold, True
+                    entities_with_stats,
+                    complete_keys[0],  # there should be only one key
+                    cond.window_sec,
+                    cond.rate_threshold,
+                    True
                 )
                 if result:
                     cond.set_trigger(result)
             elif cond.behavior is self.Behavior.evaluate_expression:
-                self.handle_evaluate_expression(cond, complete_keys)
+                self.handle_evaluate_expression(
+                    cond,
+                    complete_keys,
+                    entities_with_stats
+                )
 
-    def handle_evaluate_expression(self, condition, statistics):
+    def handle_evaluate_expression(self, condition, statistics, entities):
         # trigger = Dict[entity, List[stats]]; if aggregation_op is specified
         # Dict[entity, Dict[timestamp, List[stats]]]; otherwise
         trigger = {}
-        # Get the entities that have all statistics required by 'condition'
-        entities_with_stats = []
-        for entity in self.keys_ts:
-            stat_missing = False
-            for stat in statistics:
-                if stat not in self.keys_ts[entity]:
-                    stat_missing = True
-                    break
-            if not stat_missing:
-                entities_with_stats.append(entity)
         # check 'condition' for each of these entities
-        for entity in entities_with_stats:
+        for entity in entities:
             if hasattr(condition, 'aggregation_op'):
                 result = self.fetch_aggregated_values(
                         entity, statistics, condition.aggregation_op
@@ -132,7 +144,7 @@ class TimeSeriesData(DataSource):
                         trigger[entity] = keys
                 except Exception as e:
                     print('TimeSeriesData check_and_trigger: ' + str(e))
-            else:  # assumption: all statistics have the same timeseries
+            else:  # assumption: all stats have same series of timestamps
                 for epoch in self.keys_ts[entity][statistics[0]].keys():
                     keys = [
                         self.keys_ts[entity][key][epoch]

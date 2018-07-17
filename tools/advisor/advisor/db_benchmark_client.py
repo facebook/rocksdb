@@ -166,9 +166,9 @@ class DBBenchRunner(BenchmarkRunner):
 
         return (logs_file_prefix, stats_freq_sec)
 
-    def _build_experiment_command(self, curr_options):
-        command = "%s --benchmarks=%s --statistics --perf_level=3" % (
-            self.db_bench_binary, self.benchmark
+    def _build_experiment_command(self, curr_options, db_path):
+        command = "%s --benchmarks=%s --statistics --perf_level=3 --db=%s" % (
+            self.db_bench_binary, self.benchmark, db_path
         )
         optional_args_str = DBBenchRunner.get_opt_args_str(
             curr_options.get_misc_options()
@@ -193,7 +193,8 @@ class DBBenchRunner(BenchmarkRunner):
                 if NO_FAM in diff[option]:
                     if diff[option][NO_FAM][1]:
                         cmd_line_arg = (
-                            ' --' + opt_name + '=' + diff[option][NO_FAM][1]
+                            ' --' + opt_name + '=' +
+                            str(diff[option][NO_FAM][1])
                         )
                 else:
                     def_val = None
@@ -226,9 +227,9 @@ class DBBenchRunner(BenchmarkRunner):
         out_file.close()
         err_file.close()
 
-    def run_experiment(self, db_options):
+    def run_experiment(self, db_options, db_path):
         # type: (List[str], str) -> str
-        command = self._build_experiment_command(db_options)
+        command = self._build_experiment_command(db_options, db_path)
         self._run_command(command)
 
         parsed_output = self._parse_output(get_perf_context=True)
