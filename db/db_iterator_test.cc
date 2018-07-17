@@ -120,6 +120,34 @@ TEST_P(DBIteratorTest, PersistedTierOnIterator) {
   Close();
 }
 
+TEST_P(DBIteratorTest, SeekForPrevWithNoexistPrefix) {	
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.index_type = rocksdb::BlockBasedTableOptions::kHashSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  CreateAndReopenWithCF({"test"}, options);
+  
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  sst_file_writer.Open("/tmp/fake_data.sst");
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(sst_file_writer.Put("518$^$" + Key(i), "value" + std::to_string(i)));
+  }
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(sst_file_writer.Put("726$^$" + Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(sst_file_writer.Finish());
+  db_->IngestExternalFile(handles_[1], {"/tmp/fake_data.sst"}, IngestExternalFileOptions());
+
+  ReadOptions ropt;
+  ropt.total_order_seek = false;
+  auto *iter = db_->NewIterator(ropt, handles_[1]);
+  iter->SeekForPrev("526$^$" + Key(1));
+  ASSERT_TRUE(iter->Valid());
+  delete iter;
+  Close();
+}
+
 TEST_P(DBIteratorTest, NonBlockingIteration) {
   do {
     ReadOptions non_blocking_opts, regular_opts;
