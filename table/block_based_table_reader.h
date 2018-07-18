@@ -23,6 +23,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "table/block.h"
+#include "table/block_based_table_factory.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
@@ -93,7 +94,8 @@ class BlockBasedTable : public TableReader {
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
-                     const bool immortal_table = false);
+                     const bool immortal_table = false,
+                     TailPrefetchStats* tail_prefetch_stats = nullptr);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,

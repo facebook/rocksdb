@@ -213,14 +213,23 @@ class WritableFileWriter {
 // readahead_size will be doubled on every IO, until max_readahead_size.
 class FilePrefetchBuffer {
  public:
+  // If `track_min_offset` is true, track minimum offset ever read.
   FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
-                     size_t readadhead_size = 0, size_t max_readahead_size = 0)
+                     size_t readadhead_size = 0, size_t max_readahead_size = 0,
+                     bool enable = true, bool track_min_offset = false)
       : buffer_offset_(0),
         file_reader_(file_reader),
         readahead_size_(readadhead_size),
-        max_readahead_size_(max_readahead_size) {}
+        max_readahead_size_(max_readahead_size),
+        min_offset_read_(port::kMaxSizet),
+        enable_(enable),
+        track_min_offset_(track_min_offset) {}
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
   bool TryReadFromCache(uint64_t offset, size_t n, Slice* result);
+
+  // The minimum `offset` ever passed to TryReadFromCache(). Only be tracked
+  // if track_min_offset = true.
+  size_t min_offset_read() const { return min_offset_read_; }
 
  private:
   AlignedBuffer buffer_;
@@ -228,6 +237,14 @@ class FilePrefetchBuffer {
   RandomAccessFileReader* file_reader_;
   size_t readahead_size_;
   size_t max_readahead_size_;
+  // The minimum `offset` ever passed to TryReadFromCache().
+  size_t min_offset_read_;
+  // if false, TryReadFromCache() always return false, and we only take stats
+  // for track_min_offset_ if track_min_offset_ = true
+  bool enable_;
+  // If true, track minimum `offset` ever passed to TryReadFromCache(), which
+  // can be fetched from min_offset_read().
+  bool track_min_offset_;
 };
 
 extern Status NewWritableFile(Env* env, const std::string& fname,
