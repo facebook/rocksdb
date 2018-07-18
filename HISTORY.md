@@ -1,25 +1,32 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
-* For users of `Statistics` objects created via `CreateDBStatistics()`, the format of the string returned by its `ToString()` method has changed.
-* With LRUCache, when high_pri_pool_ratio > 0, midpoint insertion strategy will be enabled to put low-pri items to the tail of low-pri list (the midpoint) when they first inserted into the cache. This is to make cache entries never get hit age out faster, improving cache efficiency when large background scan presents.
-* For bottommost_compression, a compatible CompressionOptions is added via `bottommost_compression_opts`. To keep backward compatible, a new boolean `enabled` is added to CompressionOptions. For compression_opts, it will be always used no matter what value of `enabled` is. For bottommost_compression_opts, it will only be used when user set `enabled=true`, otherwise, compression_opts will be used for bottommost_compression as default.
-* The "rocksdb.num.entries" table property no longer counts range deletion tombstones as entries.
+### New Features
+### Bug Fixes
+
+## 5.15.0 (7/17/2018)
+### Public API Change
 * Remove managed iterator. ReadOptions.managed is not effective anymore.
+* For bottommost_compression, a compatible CompressionOptions is added via `bottommost_compression_opts`. To keep backward compatible, a new boolean `enabled` is added to CompressionOptions. For compression_opts, it will be always used no matter what value of `enabled` is. For bottommost_compression_opts, it will only be used when user set `enabled=true`, otherwise, compression_opts will be used for bottommost_compression as default.
+* With LRUCache, when high_pri_pool_ratio > 0, midpoint insertion strategy will be enabled to put low-pri items to the tail of low-pri list (the midpoint) when they first inserted into the cache. This is to make cache entries never get hit age out faster, improving cache efficiency when large background scan presents.
+* For users of `Statistics` objects created via `CreateDBStatistics()`, the format of the string returned by its `ToString()` method has changed.
+* The "rocksdb.num.entries" table property no longer counts range deletion tombstones as entries.
 
 ### New Features
 * Changes the format of index blocks by storing the key in their raw form rather than converting them to InternalKey. This saves 8 bytes per index key. The feature is backward compatbile but not forward compatible. It is disabled by default unless format_version 3 or above is used.
+* Avoid memcpy when reading mmap files with OpenReadOnly and max_open_files==-1.
+* Support dynamically changing `ColumnFamilyOptions::ttl` via `SetOptions()`.
 * Add a new table property, "rocksdb.num.range-deletions", which counts the number of range deletion tombstones in the table.
 * Improve the performance of iterators doing long range scans by using readahead, when using direct IO.
 * pin_top_level_index_and_filter (default true) in BlockBasedTableOptions can be used in combination with cache_index_and_filter_blocks to prefetch and pin the top-level index of partitioned index and filter blocks in cache. It has no impact when cache_index_and_filter_blocks is false.
-* Avoid memcpy when reading mmap files with OpenReadOnly and max_open_files==-1.
-* Support dynamically changing `ColumnFamilyOptions::ttl` via `SetOptions()`.
 
 ### Bug Fixes
-* fix deadlock with enable_pipelined_write=true and max_successive_merges > 0
+* Fix deadlock with enable_pipelined_write=true and max_successive_merges > 0
+* Check conflict at output level in CompactFiles.
 * Fix corruption in non-iterator reads when mmap is used for file reads
 * Fix bug with prefix search in partition filters where a shared prefix would be ignored from the later partitions. The bug could report an eixstent key as missing. The bug could be triggered if prefix_extractor is set and partition filters is enabled.
 * Change default value of `bytes_max_delete_chunk` to 0 in NewSstFileManager() as it doesn't work well with checkpoints.
+* Fix a bug caused by not copying the block trailer with compressed SST file, direct IO, prefetcher and no compressed block cache.
 * Fix write can stuck indefinitely if enable_pipelined_write=true. The issue exists since pipelined write was introduced in 5.5.0.
 
 ## 5.14.0 (5/16/2018)
