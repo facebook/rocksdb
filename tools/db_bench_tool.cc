@@ -3389,14 +3389,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
-    if (FLAGS_cache_size) {
-      // If this is a block based table, also need to set block_cache
-      if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
-          options.table_factory->GetOptions() != nullptr) {
-        BlockBasedTableOptions* table_options =
-            reinterpret_cast<BlockBasedTableOptions*>(
-                options.table_factory->GetOptions());
+    // If this is a block based table, set some related options
+    if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
+        options.table_factory->GetOptions() != nullptr) {
+      BlockBasedTableOptions* table_options =
+          reinterpret_cast<BlockBasedTableOptions*>(
+              options.table_factory->GetOptions());
+      if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
+      }
+      if (FLAGS_bloom_bits >= 0) {
+        table_options->filter_policy.reset(NewBloomFilterPolicy(
+            FLAGS_bloom_bits, FLAGS_use_block_based_filter));
       }
     }
     if (FLAGS_row_cache_size) {
@@ -4174,7 +4178,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     delete iter;
     thread->stats.AddBytes(bytes);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(
+          std::string("PERF_CONTEXT:\n") + get_perf_context()->ToString());
     }
   }
 
@@ -4256,7 +4261,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(
+          std::string("PERF_CONTEXT:\n") + get_perf_context()->ToString());
     }
   }
 
@@ -4334,7 +4340,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(
+          std::string("PERF_CONTEXT:\n") + get_perf_context()->ToString());
     }
   }
 
@@ -4491,7 +4498,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(
+          std::string("PERF_CONTEXT:\n") + get_perf_context()->ToString());
     }
   }
 
@@ -5242,7 +5250,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(
+          std::string("PERF_CONTEXT:\n") + get_perf_context()->ToString());
     }
     thread->stats.AddBytes(static_cast<int64_t>(inserter.GetBytesInserted()));
   }
@@ -5404,7 +5413,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(
+          std::string("PERF_CONTEXT:\n") + get_perf_context()->ToString());
     }
   }
 
