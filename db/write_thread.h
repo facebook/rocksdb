@@ -392,6 +392,10 @@ class WriteThread {
   // concurrently with itself.
   void CreateMissingNewerLinks(Writer* head);
 
+  // Starting from a pending writer, follow link_older to search for next
+  // leader, until we hit boundary.
+  Writer* FindNextLeader(Writer* pending_writer, Writer* boundary);
+
   // Set the leader in write_group to completed state and remove it from the
   // write group.
   void CompleteLeader(WriteGroup& write_group);
