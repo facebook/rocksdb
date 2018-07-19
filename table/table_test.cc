@@ -409,16 +409,16 @@ class TableConstructor: public Constructor {
 
   bool ConvertToInternalKey() { return convert_to_internal_key_; }
 
+  test::StringSink* GetSink() {
+    return static_cast<test::StringSink*>(file_writer_->writable_file());
+  }
+
  private:
   void Reset() {
     uniq_id_ = 0;
     table_reader_.reset();
     file_writer_.reset();
     file_reader_.reset();
-  }
-
-  test::StringSink* GetSink() {
-    return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
   uint64_t uniq_id_;
@@ -3492,6 +3492,84 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     ASSERT_EQ(properties_block.NumRestarts(), 1);
   }
+}
+
+TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
+  // The properties meta-block should come at the end since we always need to
+  // read it when opening a file, unlike index/filter/other meta-blocks, which
+  // are sometimes read depending on the user's configuration. This ordering
+  // allows us to do a small readahead on the end of the file to read properties
+  // and meta-index blocks with one I/O.
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  c.Add("a1", "val1");
+  c.Add("b2", "val2");
+  c.Add("c3", "val3");
+  c.Add("d4", "val4");
+  c.Add("e5", "val5");
+  c.Add("f6", "val6");
+  c.Add("g7", "val7");
+  c.Add("h8", "val8");
+  c.Add("j9", "val9");
+
+  // write an SST file
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.filter_policy.reset(NewBloomFilterPolicy(
+      8 /* bits_per_key */, false /* use_block_based_filter */));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  // get file reader
+  test::StringSink* table_sink = c.GetSink();
+  std::unique_ptr<RandomAccessFileReader> table_reader{
+      test::GetRandomAccessFileReader(
+          new test::StringSource(table_sink->contents(), 0 /* unique_id */,
+                                 false /* allow_mmap_reads */))};
+  size_t table_size = table_sink->contents().size();
+
+  // read footer
+  Footer footer;
+  ASSERT_OK(ReadFooterFromFile(table_reader.get(),
+                               nullptr /* prefetch_buffer */, table_size,
+                               &footer, kBlockBasedTableMagicNumber));
+
+  // read metaindex
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  BlockFetcher block_fetcher(
+      table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      Slice() /* compression_dict */, PersistentCacheOptions());
+  ASSERT_OK(block_fetcher.ReadBlockContents());
+  Block metaindex_block(std::move(metaindex_contents),
+                        kDisableGlobalSequenceNumber);
+
+  // verify properties block comes last
+  std::unique_ptr<InternalIterator> metaindex_iter{
+      metaindex_block.NewIterator<DataBlockIter>(options.comparator,
+                                                 options.comparator)};
+  uint64_t max_offset = 0;
+  std::string key_at_max_offset;
+  for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
+       metaindex_iter->Next()) {
+    BlockHandle handle;
+    Slice value = metaindex_iter->value();
+    ASSERT_OK(handle.DecodeFrom(&value));
+    if (handle.offset() > max_offset) {
+      max_offset = handle.offset();
+      key_at_max_offset = metaindex_iter->key().ToString();
+    }
+  }
+  ASSERT_EQ(kPropertiesBlock, key_at_max_offset);
+  // index handle is stored in footer rather than metaindex block, so need
+  // separate logic to verify it comes before properties block.
+  ASSERT_GT(max_offset, footer.index_handle().offset());
+  c.ResetTableReader();
 }
 
 TEST_P(BlockBasedTableTest, BadOptions) {
