@@ -43,7 +43,6 @@ def main(args):
         db_bench_runner,
         db_options,
         rule_spec_parser,
-        args.ldb,
         args.base_db_path
     )
     # run the optimiser to improve the database configuration for given
@@ -68,7 +67,6 @@ if __name__ == '__main__':
     parser.add_argument('--rocksdb_options', required=True, type=str)
     # these are options that are column-family agnostic and are not yet
     # supported by the Rocksdb Options file: eg. bloom_bits=2
-    parser.add_argument('--ldb', required=True, type=str)
     parser.add_argument('--base_db_path', required=True, type=str)
     parser.add_argument('--misc_options', nargs='*')
     parser.add_argument('--rules_spec', required=True, type=str)

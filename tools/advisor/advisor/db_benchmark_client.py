@@ -7,6 +7,7 @@ from advisor.db_stats_fetcher import (
 import glob
 import os
 import re
+import shutil
 import subprocess
 import time
 
@@ -36,7 +37,21 @@ class DBBenchRunner(BenchmarkRunner):
 
     # Map from Rocksdb option to its corresponding db_bench command-line arg
     OPTION_CMD_LINE_FLAG = {
-        "max_subcompactions": "subcompactions"
+        "max_subcompactions": {'name': 'subcompactions'},
+        "compression": {
+            'name': 'compression_type',
+            'value': {
+                'kNoCompression': 'none',
+                'kSnappyCompression': 'snappy',
+                'kZlibCompression': 'zlib',
+                'kBZip2Compression': 'bzip2',
+                'kLZ4Compression': 'lz4',
+                'kLZ4HCCompression': 'lz4hc',
+                'kXpressCompression': 'xpress',
+                'kZSTD': 'zstd'
+            }
+        },
+        "arena_block_size": {'name': ''}
     }
 
     @staticmethod
@@ -55,7 +70,9 @@ class DBBenchRunner(BenchmarkRunner):
         optional_args_str = ""
         for option_name, option_value in misc_options_dict.items():
             if option_value:
-                optional_args_str += (" --" + option_name + "=" + option_value)
+                optional_args_str += (
+                    " --" + option_name + "=" + str(option_value)
+                )
         return optional_args_str
 
     def __init__(self, positional_args, ods_args=None):
@@ -110,8 +127,9 @@ class DBBenchRunner(BenchmarkRunner):
                             output[self.THROUGHPUT] = (
                                 float(token_list[ix - 1])
                             )
-                            perf_context_begins = True
                             break
+                elif line.startswith(' PERF_CONTEXT:'):
+                    perf_context_begins = True
                 elif get_perf_context and perf_context_begins:
                     token_list = line.strip().split(',')
                     perf_context = {
@@ -132,10 +150,6 @@ class DBBenchRunner(BenchmarkRunner):
                     output[self.DB_PATH] = (
                         line.split('[')[1].split(']')[0]
                     )
-        print('_parse_output:')
-        print(output[self.THROUGHPUT])
-        print(output[self.DB_PATH])
-        print(output[self.PERF_CON])
         return output
 
     def get_log_options(self, db_options, db_path):
@@ -166,10 +180,7 @@ class DBBenchRunner(BenchmarkRunner):
 
         return (logs_file_prefix, stats_freq_sec)
 
-    def _build_experiment_command(self, curr_options, db_path):
-        command = "%s --benchmarks=%s --statistics --perf_level=3 --db=%s" % (
-            self.db_bench_binary, self.benchmark, db_path
-        )
+    def _get_options_command_line_args_str(self, curr_options):
         optional_args_str = DBBenchRunner.get_opt_args_str(
             curr_options.get_misc_options()
         )
@@ -187,15 +198,24 @@ class DBBenchRunner(BenchmarkRunner):
             curr_col_fam = curr_options.get_column_families()[0]
             for option in diff:
                 cmd_line_arg = ""
-                opt_name = option.split('.')[-1]
-                if opt_name in self.OPTION_CMD_LINE_FLAG:
-                    opt_name = self.OPTION_CMD_LINE_FLAG[opt_name]
+                value_map = None
+                cmd_opt = option.split('.')[-1]
+                opt_name = cmd_opt
+                if cmd_opt in self.OPTION_CMD_LINE_FLAG:
+                    opt_name = self.OPTION_CMD_LINE_FLAG[cmd_opt]['name']
+                    if not opt_name:
+                        # this option is not supported from the command-line
+                        print('Warning: ' + option + ' not command-line flag')
+                        continue
+                    # check if values need to be changed as well
+                    if 'value' in self.OPTION_CMD_LINE_FLAG[cmd_opt]:
+                        value_map = self.OPTION_CMD_LINE_FLAG[cmd_opt]['value']
                 if NO_FAM in diff[option]:
                     if diff[option][NO_FAM][1]:
-                        cmd_line_arg = (
-                            ' --' + opt_name + '=' +
-                            str(diff[option][NO_FAM][1])
-                        )
+                        value = diff[option][NO_FAM][1]
+                        if value_map:
+                            value = value_map[diff[option][NO_FAM][1]]
+                        cmd_line_arg = ' --' + opt_name + '=' + str(value)
                 else:
                     def_val = None
                     curr_val = None
@@ -204,18 +224,39 @@ class DBBenchRunner(BenchmarkRunner):
                     if curr_col_fam in diff[option]:
                         curr_val = diff[option][curr_col_fam][1]
                     if curr_val and def_val != curr_val:
-                        cmd_line_arg = ' --' + opt_name + '=' + curr_val
+                        if value_map:
+                            curr_val = value_map[curr_val]
+                        cmd_line_arg = ' --' + opt_name + '=' + str(curr_val)
                 optional_args_str += cmd_line_arg
         else:  # use the --options_file flag
             # generate an options configuration file
             options_file = curr_options.generate_options_config(nonce='12345')
             optional_args_str = " --options_file=" + options_file
 
+        return optional_args_str
+
+    def _setup_db_before_experiment(self, curr_options, db_path):
+        # remove destination directory if it already exists
+        try:
+            shutil.rmtree(db_path, ignore_errors=True)
+        except OSError as e:
+            print('Error: rmdir ' + e.filename + ' ' + e.strerror)
+        command = "%s --benchmarks=fillrandom --db=%s --num=1000000" % (
+            self.db_bench_binary, db_path
+        )
+        args_str = self._get_options_command_line_args_str(curr_options)
+        command += args_str
+        self._run_command(command)
+
+    def _build_experiment_command(self, curr_options, db_path):
+        command = "%s --benchmarks=%s --statistics --perf_level=3 --db=%s" % (
+            self.db_bench_binary, self.benchmark, db_path
+        )
+        args_str = self._get_options_command_line_args_str(curr_options)
         # handle the command-line args passed in the constructor
         for cmd_line_arg in self.db_bench_args:
-            optional_args_str += (" --" + cmd_line_arg)
-
-        command += optional_args_str
+            args_str += (" --" + cmd_line_arg)
+        command += args_str
         return command
 
     def _run_command(self, command):
@@ -229,6 +270,7 @@ class DBBenchRunner(BenchmarkRunner):
 
     def run_experiment(self, db_options, db_path):
         # type: (List[str], str) -> str
+        self._setup_db_before_experiment(db_options, db_path)
         command = self._build_experiment_command(db_options, db_path)
         self._run_command(command)
 
