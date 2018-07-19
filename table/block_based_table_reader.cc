@@ -720,8 +720,17 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  // Before read footer, readahead backwards to prefetch data
-  const size_t kTailPrefetchSize = 512 * 1024;
+  // prefetch both index and filters, down to all partitions
+  const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
+  const bool preload_all = !table_options.cache_index_and_filter_blocks;
+  // Before read footer, readahead backwards to prefetch data. Do more readahead
+  // if we're going to read index/filter.
+  // TODO: This may incorrectly select small readahead in case partitioned
+  // index/filter is enabled and top-level partition pinning is enabled. That's
+  // because we need to issue readahead before we read the properties, at which
+  // point we don't yet know the index type.
+  const size_t kTailPrefetchSize =
+      prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
   size_t prefetch_off;
   size_t prefetch_len;
   if (file_size < kTailPrefetchSize) {
@@ -917,8 +926,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                                 rep->ioptions.info_log);
   }
 
-  // prefetch both index and filters, down to all partitions
-  const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   BlockBasedTableOptions::IndexType index_type = new_table->UpdateIndexType();
   // prefetch the first level of index
   const bool prefetch_index =
