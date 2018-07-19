@@ -9,8 +9,11 @@
 #include <vector>
 
 namespace rocksdb {
-
-// The format of the datablock hash map is as follows:
+// This is an experimental feature aiming to reduce the CPU utilization of
+// point-lookup within a data-block. It is not used in per-table index-blocks.
+//
+// A serialized hash index is appended to the data-block.
+// The format of the data-block hash index is as follows:
 //
 // B B B ... B IDX NUM_BUCK MAP_START
 //
@@ -18,19 +21,37 @@ namespace rocksdb {
 //
 // IDX:      Array of offsets of the index hash bucket (relative to MAP_START).
 //
-// B:        B = bucket, an array consisting of a list of restart index, and the
-//           second hash value as tag.
+// B:        B = bucket, an array of pairs <TAG, restart index>.
+//           TAG is the second hash value of the string. It is used to flag a
+//           matching entry among different keys that are hashed to the same
+//           bucket. A similar idea is used in [Lim et. al, SOSP'11].
 //           We do not have to store the length of individual buckets, as they
 //           are delimited by the next bucket offset.
 //
-// MAP_START: the starting offset of the datablock hash map.
+// MAP_START: the starting offset of the data-block hash index.
 //
 // Each bucket B has the following structure:
 // [TAG RESTART_INDEX][TAG RESTART_INDEX]...[TAG RESTART_INDEX]
 // where TAG is the hash value of the second hash funtion.
 //
-// The datablock hash map is construct right in-place of the block without any
-// data been copied.
+// pairs of <key, restart index> are inserted to the hash index. Queries will
+// first lookup this hash index to find the restart index, then go to the
+// corresponding restart interval to search linearly for the key.
+//
+// For a point-lookup for a key K:
+// 1) K ==Hash1()==> bucket_id
+// 2) Look up this bucket_id in the IDX table to find the offset of the bucket
+// 3) K ==Hash2()==> TAG
+// 3) examine the first field (which is TAG) of each entry within this bucket,
+//    skip those without a matching TAG.
+// 4) for the entries matching the TAG, get the restart interval index from the
+//    second field.
+//
+// (following step are implemented in block.cc)
+// 5) lookup the restart index table (refer to the traditional block format),
+//    use the restart interval index to find the offset of the restart interval.
+// 6) linearly search the restart interval for the key.
+//
 
 class DataBlockHashIndexBuilder {
  public:
@@ -64,6 +85,12 @@ class DataBlockHashIndex {
 
  private:
   const char *data_;
+  // To make the serialized hash index compact and to save the space overhead,
+  // here all the data fields persisted in the block are in uint16 format.
+  // We find that a uint16 is large enough to index every offset of a 64KiB
+  // block.
+  // So in other words, DataBlockHashIndex does not support block size equal
+  // or greater then 64KiB.
   uint16_t size_;
   uint16_t num_buckets_;
   const char *map_start_;    // start of the map
