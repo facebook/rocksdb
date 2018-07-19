@@ -33,8 +33,6 @@ void DataBlockHashIndexBuilder::Add(const Slice& key,
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
-  // Because we use uint16_t address, we only support block less than 64KB
-  assert(buffer.size() < (1 << 16));
   // offset is the byte offset within the buffer
   std::vector<uint16_t> bucket_offsets(num_buckets_, 0);
 
@@ -60,6 +58,9 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 
   // write MAP_START
   PutFixed16(&buffer, map_start);
+
+  // Because we use uint16_t address, we only support block less than 64KB
+  assert(buffer.size() < (1 << 16));
 }
 
 void DataBlockHashIndexBuilder::Reset() {
