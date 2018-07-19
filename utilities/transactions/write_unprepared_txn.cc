@@ -48,28 +48,35 @@ WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
                                        const TransactionOptions& txn_options)
     : WritePreparedTxn(txn_db, write_options, txn_options), wupt_db_(txn_db) {
   max_write_batch_size_ = txn_options.max_write_batch_size;
+  // We set max bytes to zero so that we don't get a memory limit error.
+  // Instead of trying to keep write batch strictly under the size limit, we
+  // just flush to DB when the limit is exceeded in write unprepared, to avoid
+  // having retry logic.
   write_batch_.SetMaxBytes(0);
 }
 
 WriteUnpreparedTxn::~WriteUnpreparedTxn() {
   if (!unprep_seqs_.empty()) {
     assert(log_number_ > 0);
-    assert(id_ > 0);
-    assert(name_.size() > 0);
+    assert(GetId() > 0);
+    assert(!name_.empty());
 
-    // We should really always rollback, but some tests rely on the destructor
-    // not doing the rollback for us for crash testing.
+    // We should rollback regardless of GetState, but some unit tests that
+    // test crash recovery run the destructor assuming that rollback does not
+    // happen, so that rollback during recovery can be exercised.
     if (GetState() == STARTED) {
-      auto s = RollbackInternal();
+      auto s __attribute__((__unused__)) = RollbackInternal();
       // TODO(lth): Better error handling.
       assert(s.ok());
+      dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+          log_number_);
     }
   }
 }
 
 void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
-  max_write_batch_size_ = txn_options.max_write_batch_size;
   PessimisticTransaction::Initialize(txn_options);
+  max_write_batch_size_ = txn_options.max_write_batch_size;
   write_batch_.SetMaxBytes(0);
   unprep_seqs_.clear();
   write_set_keys_.clear();
@@ -139,27 +146,34 @@ Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
 }
 
 Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
+  const bool kPrepared = true;
+  Status s;
+
+  bool needs_mark = log_number_ == 0;
+
   if (max_write_batch_size_ != 0 &&
       write_batch_.GetDataSize() > max_write_batch_size_) {
     assert(GetState() != PREPARED);
-    const bool kPrepared = false;
-    return FlushWriteBatchToDB(kPrepared);
+    s = FlushWriteBatchToDB(!kPrepared);
+    if (s.ok()) {
+      assert(log_number_ > 0);
+      // This is done to prevent WAL files after log_number_ from being
+      // deleted, because they could potentially contain unprepared batches.
+      if (needs_mark) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
+            log_number_);
+      }
+    }
   }
-  return Status::OK();
+  return s;
 }
 
 void WriteUnpreparedTxn::UpdateWriteKeySet(uint32_t cfid, const Slice& key) {
-  if (write_set_keys_.count(cfid) == 0) {
-    auto comp_map = *wupt_db_->GetCFComparatorMap();
-    auto cmp = comp_map[cfid];
-    write_set_keys_[cfid] = CFKeys(SetComparator(cmp));
-  }
-
-  write_set_keys_[cfid].insert(key.ToString());
+  write_set_keys_[cfid].push_back(key.ToString());
 }
 
 Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
-  if (name_.size() == 0) {
+  if (name_.empty()) {
     return Status::InvalidArgument("Cannot write to DB without SetName.");
   }
 
@@ -192,15 +206,20 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
       db_impl_->immutable_db_options().two_write_queues);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
+  // We only set log_number_ if it hasn't been set, so that log_number_ always
+  // refers to the oldest log file referenced by this transaction. This helps
+  // ensure that log files containing batches from this transaction are not
+  // deleted.
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          /*callback*/ nullptr,
+                          log_number_ ? nullptr : &log_number_, /*log ref*/
+                          0, !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
                           &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
 
   // Only call SetId if it hasn't been set yet.
-  if (id_ == 0) {
+  if (GetId() == 0) {
     SetId(prepare_seq);
   }
   unprep_seqs_[prepare_seq] = prepare_batch_cnt_;
@@ -223,11 +242,12 @@ Status WriteUnpreparedTxn::PrepareInternal() {
 Status WriteUnpreparedTxn::CommitWithoutPrepareInternal() {
   if (unprep_seqs_.empty()) {
     assert(log_number_ == 0);
-    assert(id_ == 0);
+    assert(GetId() == 0);
     return WritePreparedTxn::CommitWithoutPrepareInternal();
   }
 
-  assert(name_.size() > 0);
+  // TODO(lth): We should optimize commit without prepare to not perform
+  // a prepare under the hood.
   auto s = PrepareInternal();
   if (!s.ok()) {
     return s;
@@ -302,10 +322,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
    public:
     explicit PublishSeqPreReleaseCallback(DBImpl* db_impl)
         : db_impl_(db_impl) {}
-    virtual Status Callback(SequenceNumber seq, bool is_mem_disabled) override {
-#ifdef NDEBUG
-      (void)is_mem_disabled;
-#endif
+    virtual Status Callback(SequenceNumber seq, bool is_mem_disabled
+                            __attribute__((__unused__))) override {
       assert(is_mem_disabled);
       assert(db_impl_->immutable_db_options().two_write_queues);
       db_impl_->SetLastPublishedSequence(seq);
@@ -338,7 +356,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
 
 Status WriteUnpreparedTxn::RollbackInternal() {
   // TODO(lth): Reduce duplicate code with WritePrepared rollback logic.
-  WriteBatch rollback_batch;
+  WriteBatchWithIndex rollback_batch(
+      wpt_db_->DefaultColumnFamily()->GetComparator(), 0, true, 0);
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
@@ -347,6 +366,9 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   Status s;
 
   ReadOptions roptions;
+  // Note that we do not use WriteUnpreparedTxnReadCallback because we do not
+  // need to read our own writes when reading prior versions of the key for
+  // rollback.
   WritePreparedTxnReadCallback callback(wpt_db_, last_visible_txn, 0);
   for (const auto& cfkey : write_set_keys_) {
     const auto cfid = cfkey.first;
@@ -371,7 +393,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   }
 
   // The Rollback marker will be used as a batch separator
-  WriteBatchInternal::MarkRollback(&rollback_batch, name_);
+  WriteBatchInternal::MarkRollback(rollback_batch.GetWriteBatch(), name_);
   bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   const bool DISABLE_MEMTABLE = true;
   const uint64_t NO_REF_LOG = 0;
@@ -393,8 +415,9 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while the roolback
   // batch commits with PreReleaseCallback.
-  s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, rollback_batch.GetWriteBatch(),
+                          nullptr, nullptr, NO_REF_LOG, !DISABLE_MEMTABLE,
+                          &seq_used, rollback_batch.SubBatchCnt(),
                           do_one_write ? &update_commit_map : nullptr);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {

@@ -191,14 +191,22 @@ Status PessimisticTransaction::Prepare() {
   }
 
   if (can_prepare) {
+    bool needs_mark = true;
     txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
+    if (log_number_ > 0) {
+      assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
+      needs_mark = false;
+    }
+
     s = PrepareInternal();
     if (s.ok()) {
       assert(log_number_ != 0);
-      dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
-          log_number_);
+      if (needs_mark) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
+            log_number_);
+      }
       txn_state_.store(PREPARED);
     }
   } else if (txn_state_ == LOCKS_STOLEN) {
@@ -269,7 +277,7 @@ Status PessimisticTransaction::Commit() {
             log_number_);
       }
       s = CommitWithoutPrepareInternal();
-      if (name_.size() > 0) {
+      if (!name_.empty()) {
         txn_db_impl_->UnregisterTransaction(this);
       }
       Clear();

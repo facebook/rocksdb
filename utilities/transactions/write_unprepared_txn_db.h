@@ -59,14 +59,12 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert(unprep_seqs.size() > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq,
-                          bool is_mem_disabled) override {
-#ifdef NDEBUG
-    (void)is_mem_disabled;
-#endif
+  virtual Status Callback(SequenceNumber commit_seq, bool is_mem_disabled
+                          __attribute__((__unused__))) override {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
+    // Recall that unprep_seqs maps (un)prepared_seq => prepare_batch_cnt.
     for (const auto& s : unprep_seqs_) {
       for (size_t i = 0; i < s.second; i++) {
         db_->AddCommitted(s.first + i, last_commit_seq);

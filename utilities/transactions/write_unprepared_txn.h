@@ -69,9 +69,12 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                               const SliceParts& key) override;
 
   virtual Status RebuildFromWriteBatch(WriteBatch*) override {
-    // This makes no sense for WriteUnprepared because the contents for
-    // a Transaction can exist beyond a write batch if it has already been
-    // written to DB.
+    // This function was only useful for recovering prepared transactions, but
+    // is unused for write prepared because a transaction may consist of
+    // multiple write batches.
+    //
+    // If there are use cases outside of recovery that can make use of this,
+    // then support could be added.
     return Status::NotSupported("Not supported for WriteUnprepared");
   }
 
@@ -110,21 +113,28 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   Status MaybeFlushWriteBatchToDB();
   Status FlushWriteBatchToDB(bool prepared);
 
+  // For write unprepared, we check on every writebatch append to see if
+  // max_write_batch_size_ has been exceeded, and then call
+  // FlushWriteBatchToDB if so. This logic is encapsulated in
+  // MaybeFlushWriteBatchToDB.
   size_t max_write_batch_size_;
   WriteUnpreparedTxnDB* wupt_db_;
 
   // Ordered list of unprep_seq sequence numbers that we have already written
   // to DB.
   //
-  // This maps unprep_seq => prepare_batch_cnt for each prepared batch written
-  // by this transactioin.
+  // This maps unprep_seq => prepare_batch_cnt for each unprepared batch
+  // written by this transaction.
+  //
+  // Note that this contains both prepared and unprepared batches, since they
+  // are treated similarily in prepare heap/commit map, so it simplifies the
+  // commit callbacks.
   std::map<SequenceNumber, size_t> unprep_seqs_;
 
   // Set of keys that have written to that have already been written to DB
   // (ie. not in write_batch_).
   //
-  using CFKeys = std::set<std::string, SetComparator>;
-  std::map<uint32_t, CFKeys> write_set_keys_;
+  std::map<uint32_t, std::vector<std::string>> write_set_keys_;
 };
 
 }  // namespace rocksdb
