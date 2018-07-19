@@ -352,19 +352,19 @@ class TableConstructor: public Constructor {
     file_writer_->Flush();
     EXPECT_TRUE(s.ok()) << s.ToString();
 
-    EXPECT_EQ(GetSink()->contents().size(), builder->FileSize());
+    EXPECT_EQ(TEST_GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
-        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     const bool kSkipFilters = true;
     const bool kImmortal = true;
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
                            level_),
-        std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
+        std::move(file_reader_), TEST_GetSink()->contents().size(), &table_reader_);
   }
 
   virtual InternalIterator* NewIterator(
@@ -390,11 +390,11 @@ class TableConstructor: public Constructor {
   virtual Status Reopen(const ImmutableCFOptions& ioptions,
                         const MutableCFOptions& moptions) {
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
-        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            *last_internal_key_),
-        std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
+        std::move(file_reader_), TEST_GetSink()->contents().size(), &table_reader_);
   }
 
   virtual TableReader* GetTableReader() {
@@ -409,7 +409,7 @@ class TableConstructor: public Constructor {
 
   bool ConvertToInternalKey() { return convert_to_internal_key_; }
 
-  test::StringSink* GetSink() {
+  test::StringSink* TEST_GetSink() {
     return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
@@ -3525,7 +3525,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
   // get file reader
-  test::StringSink* table_sink = c.GetSink();
+  test::StringSink* table_sink = c.TEST_GetSink();
   std::unique_ptr<RandomAccessFileReader> table_reader{
       test::GetRandomAccessFileReader(
           new test::StringSource(table_sink->contents(), 0 /* unique_id */,

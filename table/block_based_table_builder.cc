@@ -669,16 +669,15 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
 void BlockBasedTableBuilder::WriteFilterBlock(
     MetaIndexBuilder* meta_index_builder) {
-  Rep* r = rep_;
   BlockHandle filter_block_handle;
-  bool empty_filter_block = (r->filter_builder == nullptr ||
-                             r->filter_builder->NumAdded() == 0);
+  bool empty_filter_block = (rep_->filter_builder == nullptr ||
+                             rep_->filter_builder->NumAdded() == 0);
   if (ok() && !empty_filter_block) {
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
-      Slice filter_content = r->filter_builder->Finish(filter_block_handle, &s);
+      Slice filter_content = rep_->filter_builder->Finish(filter_block_handle, &s);
       assert(s.ok() || s.IsIncomplete());
-      r->props.filter_size += filter_content.size();
+      rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
     }
   }
@@ -686,30 +685,29 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     // Add mapping from "<filter_block_prefix>.Name" to location
     // of filter data.
     std::string key;
-    if (r->filter_builder->IsBlockBased()) {
+    if (rep_->filter_builder->IsBlockBased()) {
       key = BlockBasedTable::kFilterBlockPrefix;
     } else {
-      key = r->table_options.partition_filters
+      key = rep_->table_options.partition_filters
                 ? BlockBasedTable::kPartitionedFilterBlockPrefix
                 : BlockBasedTable::kFullFilterBlockPrefix;
     }
-    key.append(r->table_options.filter_policy->Name());
+    key.append(rep_->table_options.filter_policy->Name());
     meta_index_builder->Add(key, filter_block_handle);
   }
 }
 
 void BlockBasedTableBuilder::WriteIndexBlock(
     MetaIndexBuilder* meta_index_builder, BlockHandle* index_block_handle) {
-  Rep* r = rep_;
   IndexBuilder::IndexBlocks index_blocks;
-  auto index_builder_status = r->index_builder->Finish(&index_blocks);
+  auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
   if (index_builder_status.IsIncomplete()) {
     // We we have more than one index partition then meta_blocks are not
     // supported for the index. Currently meta_blocks are used only by
     // HashIndexBuilder which is not multi-partition.
     assert(index_blocks.meta_blocks.empty());
   } else if (ok() && !index_builder_status.ok()) {
-    r->status = index_builder_status;
+    rep_->status = index_builder_status;
   }
   if (ok()) {
     for (const auto& item : index_blocks.meta_blocks) {
@@ -722,7 +720,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     }
   }
   if (ok()) {
-    if (r->table_options.enable_index_compression) {
+    if (rep_->table_options.enable_index_compression) {
       WriteBlock(index_blocks.index_block_contents, index_block_handle, false);
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
@@ -732,12 +730,12 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   // If there are more index partitions, finish them and write them out
   Status s = index_builder_status;
   while (ok() && s.IsIncomplete()) {
-    s = r->index_builder->Finish(&index_blocks, *index_block_handle);
+    s = rep_->index_builder->Finish(&index_blocks, *index_block_handle);
     if (!s.ok() && !s.IsIncomplete()) {
-      r->status = s;
+      rep_->status = s;
       return;
     }
-    if (r->table_options.enable_index_compression) {
+    if (rep_->table_options.enable_index_compression) {
       WriteBlock(index_blocks.index_block_contents, index_block_handle, false);
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
@@ -749,57 +747,56 @@ void BlockBasedTableBuilder::WriteIndexBlock(
 
 void BlockBasedTableBuilder::WritePropertiesBlock(
     MetaIndexBuilder* meta_index_builder) {
-  Rep* r = rep_;
   BlockHandle properties_block_handle;
   if (ok()) {
     PropertyBlockBuilder property_block_builder;
-    r->props.column_family_id = r->column_family_id;
-    r->props.column_family_name = r->column_family_name;
-    r->props.filter_policy_name = r->table_options.filter_policy != nullptr
-                                      ? r->table_options.filter_policy->Name()
+    rep_->props.column_family_id = rep_->column_family_id;
+    rep_->props.column_family_name = rep_->column_family_name;
+    rep_->props.filter_policy_name = rep_->table_options.filter_policy != nullptr
+                                      ? rep_->table_options.filter_policy->Name()
                                       : "";
-    r->props.index_size = r->index_builder->EstimatedSize() + kBlockTrailerSize;
-    r->props.comparator_name = r->ioptions.user_comparator != nullptr
-                                   ? r->ioptions.user_comparator->Name()
+    rep_->props.index_size = rep_->index_builder->EstimatedSize() + kBlockTrailerSize;
+    rep_->props.comparator_name = rep_->ioptions.user_comparator != nullptr
+                                   ? rep_->ioptions.user_comparator->Name()
                                    : "nullptr";
-    r->props.merge_operator_name = r->ioptions.merge_operator != nullptr
-                                       ? r->ioptions.merge_operator->Name()
+    rep_->props.merge_operator_name = rep_->ioptions.merge_operator != nullptr
+                                       ? rep_->ioptions.merge_operator->Name()
                                        : "nullptr";
-    r->props.compression_name =
-        CompressionTypeToString(r->compression_ctx.type());
-    r->props.prefix_extractor_name = r->moptions.prefix_extractor != nullptr
-                                         ? r->moptions.prefix_extractor->Name()
+    rep_->props.compression_name =
+        CompressionTypeToString(rep_->compression_ctx.type());
+    rep_->props.prefix_extractor_name = rep_->moptions.prefix_extractor != nullptr
+                                         ? rep_->moptions.prefix_extractor->Name()
                                          : "nullptr";
 
     std::string property_collectors_names = "[";
     for (size_t i = 0;
-         i < r->ioptions.table_properties_collector_factories.size(); ++i) {
+         i < rep_->ioptions.table_properties_collector_factories.size(); ++i) {
       if (i != 0) {
         property_collectors_names += ",";
       }
       property_collectors_names +=
-          r->ioptions.table_properties_collector_factories[i]->Name();
+          rep_->ioptions.table_properties_collector_factories[i]->Name();
     }
     property_collectors_names += "]";
-    r->props.property_collectors_names = property_collectors_names;
-    if (r->table_options.index_type ==
+    rep_->props.property_collectors_names = property_collectors_names;
+    if (rep_->table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      assert(r->p_index_builder_ != nullptr);
-      r->props.index_partitions = r->p_index_builder_->NumPartitions();
-      r->props.top_level_index_size =
-          r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
+      assert(rep_->p_index_builder_ != nullptr);
+      rep_->props.index_partitions = rep_->p_index_builder_->NumPartitions();
+      rep_->props.top_level_index_size =
+          rep_->p_index_builder_->EstimateTopLevelIndexSize(rep_->offset);
     }
-    r->props.index_key_is_user_key =
-        !r->index_builder->seperator_is_key_plus_seq();
-    r->props.creation_time = r->creation_time;
-    r->props.oldest_key_time = r->oldest_key_time;
+    rep_->props.index_key_is_user_key =
+        !rep_->index_builder->seperator_is_key_plus_seq();
+    rep_->props.creation_time = rep_->creation_time;
+    rep_->props.oldest_key_time = rep_->oldest_key_time;
 
     // Add basic properties
-    property_block_builder.AddTableProperty(r->props);
+    property_block_builder.AddTableProperty(rep_->props);
 
     // Add use collected properties
-    NotifyCollectTableCollectorsOnFinish(r->table_properties_collectors,
-                                         r->ioptions.info_log,
+    NotifyCollectTableCollectorsOnFinish(rep_->table_properties_collectors,
+                                         rep_->ioptions.info_log,
                                          &property_block_builder);
 
     WriteRawBlock(property_block_builder.Finish(), kNoCompression,
