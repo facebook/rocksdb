@@ -2149,6 +2149,9 @@ static void GCThreadBody(void* arg) {
 
 }  // namespace
 
+#ifndef TRAVIS
+// Disable this test temporarily on Travis as it fails intermittently.
+// Github issue: #4151
 TEST_F(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
@@ -2195,6 +2198,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
 }
+#endif  // TRAVIS
 
 namespace {
 typedef std::map<std::string, std::string> KVMap;
