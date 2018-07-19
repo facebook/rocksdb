@@ -33,6 +33,8 @@ class ConfigOptimizer:
         if suggested_values:
             chosen_sugg_val = random.choice(list(suggested_values))
         if action is Suggestion.Action.increase:
+            if old_value:
+                old_value = float(old_value)
             if (not old_value or old_value <= 0) and chosen_sugg_val:
                 new_value = chosen_sugg_val
             elif not old_value:
@@ -41,13 +43,17 @@ class ConfigOptimizer:
                 new_value = old_value + 2
             else:
                 new_value = 1.3 * old_value
+            new_value = int(new_value)
         elif action is Suggestion.Action.decrease:
+            if old_value:
+                old_value = float(old_value)
             if (not old_value or old_value <= 0) and chosen_sugg_val:
                 new_value = chosen_sugg_val
             elif not old_value:
                 new_value = None
             else:
                 new_value = 0.7 * old_value
+            new_value = int(new_value)
         elif action is Suggestion.Action.set:
             # don't care about old value of option
             new_value = chosen_sugg_val
@@ -109,7 +115,7 @@ class ConfigOptimizer:
                 continue
             # case: when the option is present in the current configuration
             if NO_FAM in current_config[sugg.option]:
-                old_value = float(current_config[sugg.option][NO_FAM])
+                old_value = current_config[sugg.option][NO_FAM]
                 new_value = ConfigOptimizer.apply_action_on_value(
                     old_value, sugg.action, sugg.suggested_values
                 )
@@ -121,7 +127,7 @@ class ConfigOptimizer:
                 for col_fam in rule.get_trigger_column_families():
                     old_value = None
                     if col_fam in current_config[sugg.option]:
-                        old_value = float(current_config[sugg.option][col_fam])
+                        old_value = current_config[sugg.option][col_fam]
                     new_value = ConfigOptimizer.apply_action_on_value(
                         old_value, sugg.action, sugg.suggested_values
                     )
@@ -191,28 +197,11 @@ class ConfigOptimizer:
         print(bt_config)
         return bt_config
 
-    def __init__(self, bench_runner, db_options, rule_parser, ldb, base_db):
+    def __init__(self, bench_runner, db_options, rule_parser, base_db):
         self.bench_runner = bench_runner
         self.db_options = db_options
         self.rule_parser = rule_parser
-        self.ldb_binary = ldb
         self.base_db_path = base_db
-        # Create a backup of the base database
-        self.create_db_checkpoint(self.base_db_path, self.DB_CHECKPOINT)
-
-    def create_db_checkpoint(self, db_dir, checkpoint_dir):
-        print(
-            "Creating db checkpoint from  " + db_dir + " to " + checkpoint_dir
-        )
-        # remove destination directory if it already exists
-        try:
-            shutil.rmtree(checkpoint_dir, ignore_errors=True)
-        except OSError as e:
-            print('Error: rmdir ' + e.filename + ' ' + e.strerror)
-        command = "%s checkpoint --db=%s --checkpoint_dir=%s" % (
-            self.ldb_binary, db_dir, checkpoint_dir
-        )
-        subprocess.call(command, shell=True)
 
     def disambiguate_guidelines(self, guidelines):
         final_guidelines = copy.deepcopy(guidelines)
@@ -321,8 +310,6 @@ class ConfigOptimizer:
         # bootstrapping the optimizer
         print('Bootstrapping optimizer:')
         options = copy.deepcopy(self.db_options)
-        # Setup the base database to start experiment from and run experiment
-        self.create_db_checkpoint(self.DB_CHECKPOINT, self.base_db_path)
         old_data_sources, old_throughput = (
             self.bench_runner.run_experiment(options, self.base_db_path)
         )
@@ -356,7 +343,6 @@ class ConfigOptimizer:
             print(updated_conf)
             options.update_options(updated_conf)
             # run bench_runner with updated config: data_sources, throughput
-            self.create_db_checkpoint(self.DB_CHECKPOINT, self.base_db_path)
             new_data_sources, new_throughput = (
                 self.bench_runner.run_experiment(options, self.base_db_path)
             )
