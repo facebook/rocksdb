@@ -2994,23 +2994,29 @@ Status VersionSet::ProcessManifestWrites(
         delete first_writer.cfd;
       }
     } else {
-      uint64_t max_log_number_in_batch  = 0;
+      // Each version in versions corresponds to a column family.
+      // For each column family, update its log number indicating that logs
+      // with number smaller than this should be ignored.
+      for (const auto version : versions) {
+        uint64_t max_log_number_in_batch = 0;
+        uint32_t cf_id = version->cfd_->GetID();
+        for (const auto& e : batch_edits) {
+          if (e->has_log_number_ && e->column_family_ == cf_id) {
+            max_log_number_in_batch =
+                std::max(max_log_number_in_batch, e->log_number_);
+          }
+        }
+        if (max_log_number_in_batch != 0) {
+          assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
+          version->cfd_->SetLogNumber(max_log_number_in_batch);
+        }
+      }
+
       uint64_t last_min_log_number_to_keep = 0;
       for (auto& e : batch_edits) {
-        if (e->has_log_number_) {
-          max_log_number_in_batch =
-              std::max(max_log_number_in_batch, e->log_number_);
-        }
         if (e->has_min_log_number_to_keep_) {
           last_min_log_number_to_keep =
               std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
-        }
-      }
-      if (max_log_number_in_batch != 0) {
-        for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-          ColumnFamilyData* cfd = versions[i]->cfd_;
-          assert(cfd->GetLogNumber() <= max_log_number_in_batch);
-          cfd->SetLogNumber(max_log_number_in_batch);
         }
       }
 
