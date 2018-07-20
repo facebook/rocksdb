@@ -316,6 +316,14 @@ class Transaction {
                               const SliceParts& key) = 0;
   virtual Status SingleDelete(const SliceParts& key) = 0;
 
+  virtual Status DeleteRange(const ReadOptions& read_options,
+                             ColumnFamilyHandle* column_family,
+                             const Slice& begin_key,
+                             const Slice& end_key) = 0;
+  virtual Status DeleteRange(const ReadOptions& read_options,
+                             const Slice& begin_key,
+                             const Slice& end_key) = 0;
+
   // PutUntracked() will write a Put to the batch of operations to be committed
   // in this transaction.  This write will only happen if this transaction
   // gets committed successfully.  But unlike Transaction::Put(),
@@ -344,10 +352,19 @@ class Transaction {
   virtual Status DeleteUntracked(ColumnFamilyHandle* column_family,
                                  const SliceParts& key) = 0;
   virtual Status DeleteUntracked(const SliceParts& key) = 0;
+
   virtual Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
                                        const Slice& key) = 0;
 
   virtual Status SingleDeleteUntracked(const Slice& key) = 0;
+
+  virtual Status DeleteRangeUntracked(const ReadOptions& read_options,
+                                      ColumnFamilyHandle* column_family,
+                                      const Slice& begin_key,
+                                      const Slice& end_key) = 0;
+  virtual Status DeleteRangeUntracked(const ReadOptions& read_options,
+                                      const Slice& begin_key,
+                                      const Slice& end_key) = 0;
 
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;

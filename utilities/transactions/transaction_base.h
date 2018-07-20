@@ -141,6 +141,16 @@ class TransactionBaseImpl : public Transaction {
     return SingleDelete(nullptr, key);
   }
 
+  Status DeleteRange(const ReadOptions& read_options,
+                     ColumnFamilyHandle* column_family,
+                     const Slice& begin_key,
+                     const Slice& end_key) override;
+  Status DeleteRange(const ReadOptions& read_options,
+                     const Slice& begin_key,
+                     const Slice& end_key) override {
+    return DeleteRange(options, nullptr, begin_key, end_key);
+  }
+
   Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
                       const Slice& value) override;
   Status PutUntracked(const Slice& key, const Slice& value) override {
@@ -174,6 +184,16 @@ class TransactionBaseImpl : public Transaction {
                                const Slice& key) override;
   Status SingleDeleteUntracked(const Slice& key) override {
     return SingleDeleteUntracked(nullptr, key);
+  }
+
+  Status DeleteRangeUntracked(const ReadOptions& read_options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& begin_key,
+                              const Slice& end_key) override;
+  Status DeleteRangeUntracked(const ReadOptions& read_options,
+                              const Slice& begin_key,
+                              const Slice& end_key) override {
+    return DeleteRangeUntracked(read_options, nullptr, begin_key, end_key);
   }
 
   void PutLogData(const Slice& blob) override;

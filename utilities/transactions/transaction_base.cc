@@ -395,6 +395,33 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
   return s;
 }
 
+Status TransactionBaseImpl::DeleteRange(const ReadOptions& read_options,
+                                        ColumnFamilyHandle* column_family,
+                                        const Slice& begin_key,
+                                        const Slice& end_key) {
+  Iterator* iter = GetIterator(read_options);
+
+  Status s;
+  uint64_t num_keys = 0;
+  for (iter->Seek(begin_key);
+       iter->Valid() && iter->key() != end_key;
+       iter->Next()) {
+    s = TryLock(column_family, iter->key(), false /* read_only */, true /* exclusive */);
+    if (s.ok()) {
+      num_keys++;
+    } else {
+      return s;
+    }
+  }
+
+  s = GetBatchForWrite()->DeleteRange(column_family, begin_key, end_key);
+  if (s.ok()) {
+    num_deletes_ += num_keys;
+  }
+
+  return s;
+}
+
 Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                                          const Slice& key, const Slice& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
@@ -482,6 +509,33 @@ Status TransactionBaseImpl::SingleDeleteUntracked(
     if (s.ok()) {
       num_deletes_++;
     }
+  }
+
+  return s;
+}
+
+Status TransactionBaseImpl::DeleteRangeUntracked(const ReadOptions& read_options,
+                                                 ColumnFamilyHandle* column_family,
+                                                 const Slice& begin_key,
+                                                 const Slice& end_key) {
+  Iterator* iter = GetIterator(read_options);
+
+  Status s;
+  uint64_t num_keys = 0;
+  for (iter->Seek(begin_key);
+       iter->Valid() && iter->key() != end_key;
+       iter->Next()) {
+    s = TryLock(column_family, iter->key(), false /* read_only */, true /* exclusive */);
+    if (s.ok()) {
+      num_keys++;
+    } else {
+      return s;
+    }
+  }
+
+  s = GetBatchForWrite()->DeleteRange(column_family, begin_key, end_key);
+  if (s.ok()) {
+    num_deletes_ += num_keys;
   }
 
   return s;
