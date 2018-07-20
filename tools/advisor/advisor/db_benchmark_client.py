@@ -18,8 +18,9 @@ NOTE: This is not thread-safe, because the output file is simply overwritten.
 
 
 class BenchmarkRunner(ABC):
+    @staticmethod
     @abstractmethod
-    def get_available_workloads(self):
+    def is_metric_better(new_metric, old_metric):
         pass
 
     @abstractmethod
@@ -53,6 +54,11 @@ class DBBenchRunner(BenchmarkRunner):
         },
         "arena_block_size": {'name': ''}
     }
+
+    @staticmethod
+    def is_metric_better(new_metric, old_metric):
+        # for db_bench 'throughput' is the metric returned by run_experiment
+        return new_metric >= old_metric
 
     @staticmethod
     def get_info_log_file_name(db_path):

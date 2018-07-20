@@ -310,10 +310,10 @@ class ConfigOptimizer:
         # bootstrapping the optimizer
         print('Bootstrapping optimizer:')
         options = copy.deepcopy(self.db_options)
-        old_data_sources, old_throughput = (
+        old_data_sources, old_metric = (
             self.bench_runner.run_experiment(options, self.base_db_path)
         )
-        print('Initial throughput: ' + str(old_throughput))
+        print('Initial metric: ' + str(old_metric))
         self.rule_parser.load_rules_from_spec()
         self.rule_parser.perform_section_checks()
         triggered_rules = self.rule_parser.get_triggered_rules(
@@ -342,13 +342,15 @@ class ConfigOptimizer:
             print('updated config:')
             print(updated_conf)
             options.update_options(updated_conf)
-            # run bench_runner with updated config: data_sources, throughput
-            new_data_sources, new_throughput = (
+            # run bench_runner with updated config
+            new_data_sources, new_metric = (
                 self.bench_runner.run_experiment(options, self.base_db_path)
             )
-            print('\nnew throughput: ' + str(new_throughput))
-            backtrack = (new_throughput < old_throughput)
-            # update triggered_rules, throughput, data_sources, if required
+            print('\nnew metric: ' + str(new_metric))
+            backtrack = not self.bench_runner.is_metric_better(
+                new_metric, old_metric
+            )
+            # update triggered_rules, metric, data_sources, if required
             if backtrack:
                 # revert changes to options config
                 print('\nBacktracking to previous configuration')
@@ -365,7 +367,7 @@ class ConfigOptimizer:
                 )
                 print('\nTriggered:')
                 self.rule_parser.print_rules(triggered_rules)
-                old_throughput = new_throughput
+                old_metric = new_metric
                 old_data_sources = new_data_sources
                 rules_tried = set()
             # pick rule to work on and set curr_rule to that
