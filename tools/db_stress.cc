@@ -2022,6 +2022,30 @@ class StressTest {
     const Snapshot* snapshot = db_->GetSnapshot();
     ReadOptions readoptionscopy = read_opts;
     readoptionscopy.snapshot = snapshot;
+
+    std::string upper_bound_str;
+    Slice upper_bound;
+    if (thread->rand.OneIn(16)) {
+      // in 1/16 chance, set a iterator upper bound
+      int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      upper_bound_str = Key(rand_upper_key);
+      upper_bound = Slice(upper_bound_str);
+      // uppder_bound can be smaller than seek key, but the query itself
+      // should not crash either.
+      readoptionscopy.iterate_upper_bound = &upper_bound;
+    }
+    std::string lower_bound_str;
+    Slice lower_bound;
+    if (thread->rand.OneIn(16)) {
+      // in 1/16 chance, set a iterator lower bound
+      int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      lower_bound_str = Key(rand_lower_key);
+      lower_bound = Slice(lower_bound_str);
+      // uppder_bound can be smaller than seek key, but the query itself
+      // should not crash either.
+      readoptionscopy.iterate_lower_bound = &lower_bound;
+    }
+
     auto cfh = column_families_[rand_column_families[0]];
     std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
 
