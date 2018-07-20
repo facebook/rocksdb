@@ -26,6 +26,22 @@ struct EnvOptions;
 using std::unique_ptr;
 class BlockBasedTableBuilder;
 
+// A class used to track actual bytes written from the tail in the recent SST
+// file opens, and provide a suggestion for following open.
+class TailPrefetchStats {
+ public:
+  void RecordEffectiveSize(size_t len);
+  // 0 indicates no information to determine.
+  size_t GetSuggestedPrefetchSize();
+
+ private:
+  const static size_t kNumTracked = 32;
+  size_t records_[kNumTracked];
+  port::Mutex mutex_;
+  size_t next_ = 0;
+  size_t num_records_ = 0;
+};
+
 class BlockBasedTableFactory : public TableFactory {
  public:
   explicit BlockBasedTableFactory(
@@ -64,6 +80,7 @@ class BlockBasedTableFactory : public TableFactory {
 
  private:
   BlockBasedTableOptions table_options_;
+  mutable TailPrefetchStats tail_prefetch_stats_;
 };
 
 extern const std::string kHashIndexPrefixesBlock;

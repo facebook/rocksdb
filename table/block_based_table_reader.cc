@@ -731,7 +731,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const SliceTransform* prefix_extractor,
                              const bool prefetch_index_and_filter_in_cache,
                              const bool skip_filters, const int level,
-                             const bool immortal_table) {
+                             const bool immortal_table,
+                             TailPrefetchStats* tail_prefetch_stats) {
   table_reader->reset();
 
   Footer footer;
@@ -741,29 +742,40 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
-  // Before read footer, readahead backwards to prefetch data. Do more readahead
-  // if we're going to read index/filter.
-  // TODO: This may incorrectly select small readahead in case partitioned
-  // index/filter is enabled and top-level partition pinning is enabled. That's
-  // because we need to issue readahead before we read the properties, at which
-  // point we don't yet know the index type.
-  const size_t kTailPrefetchSize =
-      prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
+
+  size_t tail_prefetch_size = 0;
+  if (tail_prefetch_stats != nullptr) {
+    // Multiple threads may get a 0 (no history) when running in parallel,
+    // but it will get cleared after the first of them finishes.
+    tail_prefetch_size = tail_prefetch_stats->GetSuggestedPrefetchSize();
+  }
+  if (tail_prefetch_size == 0) {
+    // Before read footer, readahead backwards to prefetch data. Do more
+    // readahead if we're going to read index/filter.
+    // TODO: This may incorrectly select small readahead in case partitioned
+    // index/filter is enabled and top-level partition pinning is enabled.
+    // That's because we need to issue readahead before we read the properties,
+    // at which point we don't yet know the index type.
+    tail_prefetch_size = prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
+  }
   size_t prefetch_off;
   size_t prefetch_len;
-  if (file_size < kTailPrefetchSize) {
+  if (file_size < tail_prefetch_size) {
     prefetch_off = 0;
     prefetch_len = static_cast<size_t>(file_size);
   } else {
-    prefetch_off = static_cast<size_t>(file_size - kTailPrefetchSize);
-    prefetch_len = kTailPrefetchSize;
+    prefetch_off = static_cast<size_t>(file_size - tail_prefetch_size);
+    prefetch_len = tail_prefetch_size;
   }
+  TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::TailPrefetchLen",
+                           &tail_prefetch_size);
   Status s;
   // TODO should not have this special logic in the future.
   if (!file->use_direct_io()) {
+    prefetch_buffer.reset(new FilePrefetchBuffer(nullptr, 0, 0, false, true));
     s = file->Prefetch(prefetch_off, prefetch_len);
   } else {
-    prefetch_buffer.reset(new FilePrefetchBuffer());
+    prefetch_buffer.reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
     s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
   }
   s = ReadFooterFromFile(file.get(), prefetch_buffer.get(), file_size, &footer,
@@ -1060,6 +1072,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   }
 
   if (s.ok()) {
+    assert(prefetch_buffer.get() != nullptr);
+    if (tail_prefetch_stats != nullptr) {
+      assert(prefetch_buffer->min_offset_read() < file_size);
+      tail_prefetch_stats->RecordEffectiveSize(
+          file_size - prefetch_buffer->min_offset_read());
+    }
     *table_reader = std::move(new_table);
   }
 
