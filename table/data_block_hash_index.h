@@ -11,23 +11,38 @@
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of
 // point-lookup within a data-block. It is not used in per-table index-blocks.
+// It is suppport Get(), but not Seek() or Scan(). If the key does not exist,
+// the iterator is set to invalid.
 //
-// A serialized hash index is appended to the data-block.
-// The format of the data-block hash index is as follows:
+// A serialized hash index is appended to the data-block. The new block data
+// format is as follows:
 //
-// B B B ... B IDX NUM_BUCK MAP_START
+// DATA_BLOCK: [RI RI RI ... RI RI_IDX HASH_IDX FOOTER]
 //
-// NUM_BUCK: Number of buckets, which is the length of the IDX array.
+// RI:       Restart Interval (the same as the default data-block format)
+// RI_IDX:   Restart Interval index (the same as the default data-block format)
+// HASH_IDX: The new data-block hash index feature.
+// FOOTER:   A 32bit block footer, which is the NUM_RESTARTS with the MSB as
+//           the flag indicating if this hash index is in use. Note that
+//           given a data block < 32KB, the MSB is never used. So we can
+//           borrow the MSB as the hash index flag. Besides, this format is
+//           compatible with the legacy data-blocks < 32KB, as the MSB is 0.
 //
-// IDX:      Array of offsets of the index hash bucket (relative to MAP_START).
+// If we zoom in the HASH_IDX, the format of the data-block hash index is as
+// follows:
+//
+// HASH_IDX: [B B B ... B IDX NUM_BUCK MAP_START]
 //
 // B:        B = bucket, an array of pairs <TAG, restart index>.
 //           TAG is the second hash value of the string. It is used to flag a
 //           matching entry among different keys that are hashed to the same
-//           bucket. A similar idea is used in [Lim et. al, SOSP'11].
+//           bucket. A similar tagging idea is used in [Lim et. al, SOSP'11].
+//           However we have a differnet hash design that is not based on cuckoo
+//           hashing as Lim's paper is.
 //           We do not have to store the length of individual buckets, as they
 //           are delimited by the next bucket offset.
-//
+// IDX:      Array of offsets of the index hash bucket (relative to MAP_START)
+// NUM_BUCK: Number of buckets, which is the length of the IDX array.
 // MAP_START: the starting offset of the data-block hash index.
 //
 // Each bucket B has the following structure:
@@ -39,9 +54,14 @@ namespace rocksdb {
 // corresponding restart interval to search linearly for the key.
 //
 // For a point-lookup for a key K:
-// 1) K ==Hash1()==> bucket_id
+//
+//        Hash1()
+// 1) K ===========> bucket_id
+//
 // 2) Look up this bucket_id in the IDX table to find the offset of the bucket
-// 3) K ==Hash2()==> TAG
+//
+//        Hash2()
+// 3) K ============> TAG
 // 3) examine the first field (which is TAG) of each entry within this bucket,
 //    skip those without a matching TAG.
 // 4) for the entries matching the TAG, get the restart interval index from the
