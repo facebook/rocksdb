@@ -297,6 +297,10 @@ class DB {
   //
   // Consider setting ReadOptions::ignore_range_deletions = true to speed
   // up reads for key(s) that are known to be unaffected by range deletions.
+  //
+  // Because the pessimistic transaction must lock all of the keys before
+  // operating them, so use the Iterator to iterate over the range of keys
+  // before deleting them, it has a negative effect on performance.
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
