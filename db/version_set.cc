@@ -1212,12 +1212,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
     // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
-        get_context.State() != GetContext::kMerge) {
-      for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
-        if (get_context.tickers_value[t] > 0) {
-          RecordTick(db_statistics_, t, get_context.tickers_value[t]);
-        }
-      }
+        get_context.State() != GetContext::kMerge &&
+        db_statistics_ != nullptr) {
+      get_context.ReportCounters();
     }
     switch (get_context.State()) {
       case GetContext::kNotFound:
@@ -1251,10 +1248,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     f = fp.GetNextFile();
   }
 
-  for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
-    if (get_context.tickers_value[t] > 0) {
-      RecordTick(db_statistics_, t, get_context.tickers_value[t]);
-    }
+  if (db_statistics_ != nullptr) {
+    get_context.ReportCounters();
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {
