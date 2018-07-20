@@ -2575,6 +2575,9 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
   Put("9", "1");
   Flush();
 
+  // Full compaction to make sure there is no L0 file after the open.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  
   ASSERT_TRUE(called.load());
   called = false;
 
@@ -2586,7 +2589,7 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
       "BlockBasedTable::Open::TailPrefetchLen", [&](void* arg) {
         size_t* prefetch_size = static_cast<size_t*>(arg);
         if (first_call) {
-          EXPECT_EQ(8 * 1024, *prefetch_size);
+          EXPECT_EQ(4 * 1024, *prefetch_size);
           first_call = false;
         } else {
           EXPECT_GE(4 * 1024, *prefetch_size);
@@ -2602,8 +2605,6 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.max_open_files = -1;
   Reopen(options);
-
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   Put("1", "1");
   Put("9", "1");
