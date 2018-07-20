@@ -146,6 +146,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   // reality, it may not be the case when a partial block is inside the range,
   // or there are data in the middle that is not read. We ignore those cases
   // for simplicity.
+  assert(!sorted.empty());
   size_t prev_size = sorted[0];
   size_t max_qualified_size = sorted[0];
   size_t wasted = 0;

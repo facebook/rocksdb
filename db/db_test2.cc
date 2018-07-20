@@ -2577,7 +2577,7 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
 
   // Full compaction to make sure there is no L0 file after the open.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  
+
   ASSERT_TRUE(called.load());
   called = false;
 

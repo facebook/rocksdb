@@ -750,12 +750,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     tail_prefetch_size = tail_prefetch_stats->GetSuggestedPrefetchSize();
   }
   if (tail_prefetch_size == 0) {
-    // Before read footer, readahead backwards to prefetch data. Do more readahead
-    // if we're going to read index/filter.
+    // Before read footer, readahead backwards to prefetch data. Do more
+    // readahead if we're going to read index/filter.
     // TODO: This may incorrectly select small readahead in case partitioned
-    // index/filter is enabled and top-level partition pinning is enabled. That's
-    // because we need to issue readahead before we read the properties, at which
-    // point we don't yet know the index type.
+    // index/filter is enabled and top-level partition pinning is enabled.
+    // That's because we need to issue readahead before we read the properties,
+    // at which point we don't yet know the index type.
     tail_prefetch_size = prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
   }
   size_t prefetch_off;
