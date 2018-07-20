@@ -352,19 +352,20 @@ class TableConstructor: public Constructor {
     file_writer_->Flush();
     EXPECT_TRUE(s.ok()) << s.ToString();
 
-    EXPECT_EQ(GetSink()->contents().size(), builder->FileSize());
+    EXPECT_EQ(TEST_GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
-        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     const bool kSkipFilters = true;
     const bool kImmortal = true;
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
                            level_),
-        std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
+        std::move(file_reader_), TEST_GetSink()->contents().size(),
+        &table_reader_);
   }
 
   virtual InternalIterator* NewIterator(
@@ -390,16 +391,15 @@ class TableConstructor: public Constructor {
   virtual Status Reopen(const ImmutableCFOptions& ioptions,
                         const MutableCFOptions& moptions) {
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
-        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            *last_internal_key_),
-        std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
+        std::move(file_reader_), TEST_GetSink()->contents().size(),
+        &table_reader_);
   }
 
-  virtual TableReader* GetTableReader() {
-    return table_reader_.get();
-  }
+  virtual TableReader* GetTableReader() { return table_reader_.get(); }
 
   virtual bool AnywayDeleteIterator() const override {
     return convert_to_internal_key_;
@@ -409,16 +409,16 @@ class TableConstructor: public Constructor {
 
   bool ConvertToInternalKey() { return convert_to_internal_key_; }
 
+  test::StringSink* TEST_GetSink() {
+    return static_cast<test::StringSink*>(file_writer_->writable_file());
+  }
+
  private:
   void Reset() {
     uniq_id_ = 0;
     table_reader_.reset();
     file_writer_.reset();
     file_reader_.reset();
-  }
-
-  test::StringSink* GetSink() {
-    return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
   uint64_t uniq_id_;
@@ -1075,6 +1075,7 @@ class BlockBasedTableTest
 };
 class PlainTableTest : public TableTest {};
 class TablePropertyTest : public testing::Test {};
+class BBTTailPrefetchTest : public TableTest {};
 
 INSTANTIATE_TEST_CASE_P(FormatDef, BlockBasedTableTest,
                         testing::Values(test::kDefaultFormatVersion));
@@ -3494,6 +3495,86 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   }
 }
 
+TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
+  // The properties meta-block should come at the end since we always need to
+  // read it when opening a file, unlike index/filter/other meta-blocks, which
+  // are sometimes read depending on the user's configuration. This ordering
+  // allows us to do a small readahead on the end of the file to read properties
+  // and meta-index blocks with one I/O.
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  c.Add("a1", "val1");
+  c.Add("b2", "val2");
+  c.Add("c3", "val3");
+  c.Add("d4", "val4");
+  c.Add("e5", "val5");
+  c.Add("f6", "val6");
+  c.Add("g7", "val7");
+  c.Add("h8", "val8");
+  c.Add("j9", "val9");
+
+  // write an SST file
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.filter_policy.reset(NewBloomFilterPolicy(
+      8 /* bits_per_key */, false /* use_block_based_filter */));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  // get file reader
+  test::StringSink* table_sink = c.TEST_GetSink();
+  std::unique_ptr<RandomAccessFileReader> table_reader{
+      test::GetRandomAccessFileReader(
+          new test::StringSource(table_sink->contents(), 0 /* unique_id */,
+                                 false /* allow_mmap_reads */))};
+  size_t table_size = table_sink->contents().size();
+
+  // read footer
+  Footer footer;
+  ASSERT_OK(ReadFooterFromFile(table_reader.get(),
+                               nullptr /* prefetch_buffer */, table_size,
+                               &footer, kBlockBasedTableMagicNumber));
+
+  // read metaindex
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  Slice compression_dict;
+  PersistentCacheOptions pcache_opts;
+  BlockFetcher block_fetcher(
+      table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      compression_dict, pcache_opts);
+  ASSERT_OK(block_fetcher.ReadBlockContents());
+  Block metaindex_block(std::move(metaindex_contents),
+                        kDisableGlobalSequenceNumber);
+
+  // verify properties block comes last
+  std::unique_ptr<InternalIterator> metaindex_iter{
+      metaindex_block.NewIterator<DataBlockIter>(options.comparator,
+                                                 options.comparator)};
+  uint64_t max_offset = 0;
+  std::string key_at_max_offset;
+  for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
+       metaindex_iter->Next()) {
+    BlockHandle handle;
+    Slice value = metaindex_iter->value();
+    ASSERT_OK(handle.DecodeFrom(&value));
+    if (handle.offset() > max_offset) {
+      max_offset = handle.offset();
+      key_at_max_offset = metaindex_iter->key().ToString();
+    }
+  }
+  ASSERT_EQ(kPropertiesBlock, key_at_max_offset);
+  // index handle is stored in footer rather than metaindex block, so need
+  // separate logic to verify it comes before properties block.
+  ASSERT_GT(max_offset, footer.index_handle().offset());
+  c.ResetTableReader();
+}
+
 TEST_P(BlockBasedTableTest, BadOptions) {
   rocksdb::Options options;
   options.compression = kNoCompression;
@@ -3512,6 +3593,49 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   options.compression = kSnappyCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   ASSERT_NOK(rocksdb::DB::Open(options, kDBPath, &db));
+}
+
+TEST_F(BBTTailPrefetchTest, TestTailPrefetchStats) {
+  TailPrefetchStats tpstats;
+  ASSERT_EQ(0, tpstats.GetSuggestedPrefetchSize());
+  tpstats.RecordEffectiveSize(size_t{1000});
+  tpstats.RecordEffectiveSize(size_t{1005});
+  tpstats.RecordEffectiveSize(size_t{1002});
+  ASSERT_EQ(1005, tpstats.GetSuggestedPrefetchSize());
+
+  // One single super large value shouldn't influence much
+  tpstats.RecordEffectiveSize(size_t{1002000});
+  tpstats.RecordEffectiveSize(size_t{999});
+  ASSERT_LE(1005, tpstats.GetSuggestedPrefetchSize());
+  ASSERT_GT(1200, tpstats.GetSuggestedPrefetchSize());
+
+  // Only history of 32 is kept
+  for (int i = 0; i < 32; i++) {
+    tpstats.RecordEffectiveSize(size_t{100});
+  }
+  ASSERT_EQ(100, tpstats.GetSuggestedPrefetchSize());
+
+  // 16 large values and 16 small values. The result should be closer
+  // to the small value as the algorithm.
+  for (int i = 0; i < 16; i++) {
+    tpstats.RecordEffectiveSize(size_t{1000});
+  }
+  tpstats.RecordEffectiveSize(size_t{10});
+  tpstats.RecordEffectiveSize(size_t{20});
+  for (int i = 0; i < 6; i++) {
+    tpstats.RecordEffectiveSize(size_t{100});
+  }
+  ASSERT_LE(80, tpstats.GetSuggestedPrefetchSize());
+  ASSERT_GT(200, tpstats.GetSuggestedPrefetchSize());
+}
+
+TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
+  TailPrefetchStats tpstats;
+  FilePrefetchBuffer buffer(nullptr, 0, 0, false, true);
+  buffer.TryReadFromCache(500, 10, nullptr);
+  buffer.TryReadFromCache(480, 10, nullptr);
+  buffer.TryReadFromCache(490, 10, nullptr);
+  ASSERT_EQ(480, buffer.min_offset_read());
 }
 
 }  // namespace rocksdb
