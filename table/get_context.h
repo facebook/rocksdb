@@ -37,7 +37,6 @@ struct GetContextStats {
   uint64_t num_cache_filter_bytes_insert = 0;
 };
 
-
 class GetContext {
  public:
   enum GetState {

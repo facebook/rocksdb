@@ -1214,7 +1214,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     if (get_context.State() != GetContext::kNotFound &&
         get_context.State() != GetContext::kMerge &&
         db_statistics_ != nullptr) {
-          get_context.ReportCounters();
+      get_context.ReportCounters();
     }
     switch (get_context.State()) {
       case GetContext::kNotFound:
