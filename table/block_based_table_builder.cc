@@ -39,11 +39,11 @@
 #include "table/full_filter_block.h"
 #include "table/table_builder.h"
 
-#include "util/string_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/xxhash.h"
 
 #include "table/index_builder.h"
@@ -675,7 +675,8 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   if (ok() && !empty_filter_block) {
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
-      Slice filter_content = rep_->filter_builder->Finish(filter_block_handle, &s);
+      Slice filter_content =
+          rep_->filter_builder->Finish(filter_block_handle, &s);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
@@ -752,21 +753,25 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     PropertyBlockBuilder property_block_builder;
     rep_->props.column_family_id = rep_->column_family_id;
     rep_->props.column_family_name = rep_->column_family_name;
-    rep_->props.filter_policy_name = rep_->table_options.filter_policy != nullptr
-                                      ? rep_->table_options.filter_policy->Name()
-                                      : "";
-    rep_->props.index_size = rep_->index_builder->EstimatedSize() + kBlockTrailerSize;
+    rep_->props.filter_policy_name =
+        rep_->table_options.filter_policy != nullptr
+            ? rep_->table_options.filter_policy->Name()
+            : "";
+    rep_->props.index_size =
+        rep_->index_builder->EstimatedSize() + kBlockTrailerSize;
     rep_->props.comparator_name = rep_->ioptions.user_comparator != nullptr
-                                   ? rep_->ioptions.user_comparator->Name()
-                                   : "nullptr";
-    rep_->props.merge_operator_name = rep_->ioptions.merge_operator != nullptr
-                                       ? rep_->ioptions.merge_operator->Name()
-                                       : "nullptr";
+                                      ? rep_->ioptions.user_comparator->Name()
+                                      : "nullptr";
+    rep_->props.merge_operator_name =
+        rep_->ioptions.merge_operator != nullptr
+            ? rep_->ioptions.merge_operator->Name()
+            : "nullptr";
     rep_->props.compression_name =
         CompressionTypeToString(rep_->compression_ctx.type());
-    rep_->props.prefix_extractor_name = rep_->moptions.prefix_extractor != nullptr
-                                         ? rep_->moptions.prefix_extractor->Name()
-                                         : "nullptr";
+    rep_->props.prefix_extractor_name =
+        rep_->moptions.prefix_extractor != nullptr
+            ? rep_->moptions.prefix_extractor->Name()
+            : "nullptr";
 
     std::string property_collectors_names = "[";
     for (size_t i = 0;
