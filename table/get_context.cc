@@ -91,11 +91,73 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   }
 }
 
-void GetContext::RecordCounters(Tickers ticker, size_t val) {
-  if (ticker == Tickers::TICKER_ENUM_MAX) {
-    return;
+void GetContext::ReportCounters() {
+  if (get_context_stats_.num_cache_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_HIT, get_context_stats_.num_cache_hit);
   }
-  tickers_value[ticker] += static_cast<uint64_t>(val);
+  if (get_context_stats_.num_cache_index_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_HIT,
+               get_context_stats_.num_cache_index_hit);
+  }
+  if (get_context_stats_.num_cache_data_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_HIT,
+               get_context_stats_.num_cache_data_hit);
+  }
+  if (get_context_stats_.num_cache_filter_hit > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_HIT,
+               get_context_stats_.num_cache_filter_hit);
+  }
+  if (get_context_stats_.num_cache_index_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_MISS,
+               get_context_stats_.num_cache_index_miss);
+  }
+  if (get_context_stats_.num_cache_filter_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_MISS,
+               get_context_stats_.num_cache_filter_miss);
+  }
+  if (get_context_stats_.num_cache_data_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_MISS,
+               get_context_stats_.num_cache_data_miss);
+  }
+  if (get_context_stats_.num_cache_bytes_read > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_BYTES_READ,
+               get_context_stats_.num_cache_bytes_read);
+  }
+  if (get_context_stats_.num_cache_miss > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_MISS,
+               get_context_stats_.num_cache_miss);
+  }
+  if (get_context_stats_.num_cache_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_ADD, get_context_stats_.num_cache_add);
+  }
+  if (get_context_stats_.num_cache_bytes_write > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_BYTES_WRITE,
+               get_context_stats_.num_cache_bytes_write);
+  }
+  if (get_context_stats_.num_cache_index_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_ADD,
+               get_context_stats_.num_cache_index_add);
+  }
+  if (get_context_stats_.num_cache_index_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_INDEX_BYTES_INSERT,
+               get_context_stats_.num_cache_index_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_data_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_ADD,
+               get_context_stats_.num_cache_data_add);
+  }
+  if (get_context_stats_.num_cache_data_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_DATA_BYTES_INSERT,
+               get_context_stats_.num_cache_data_bytes_insert);
+  }
+  if (get_context_stats_.num_cache_filter_add > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_ADD,
+               get_context_stats_.num_cache_filter_add);
+  }
+  if (get_context_stats_.num_cache_filter_bytes_insert > 0) {
+    RecordTick(statistics_, BLOCK_CACHE_FILTER_BYTES_INSERT,
+               get_context_stats_.num_cache_filter_bytes_insert);
+  }
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,

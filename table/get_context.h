@@ -17,6 +17,26 @@ namespace rocksdb {
 class MergeContext;
 class PinnedIteratorsManager;
 
+struct GetContextStats {
+  uint64_t num_cache_hit = 0;
+  uint64_t num_cache_index_hit = 0;
+  uint64_t num_cache_data_hit = 0;
+  uint64_t num_cache_filter_hit = 0;
+  uint64_t num_cache_index_miss = 0;
+  uint64_t num_cache_filter_miss = 0;
+  uint64_t num_cache_data_miss = 0;
+  uint64_t num_cache_bytes_read = 0;
+  uint64_t num_cache_miss = 0;
+  uint64_t num_cache_add = 0;
+  uint64_t num_cache_bytes_write = 0;
+  uint64_t num_cache_index_add = 0;
+  uint64_t num_cache_index_bytes_insert = 0;
+  uint64_t num_cache_data_add = 0;
+  uint64_t num_cache_data_bytes_insert = 0;
+  uint64_t num_cache_filter_add = 0;
+  uint64_t num_cache_filter_bytes_insert = 0;
+};
+
 class GetContext {
  public:
   enum GetState {
@@ -27,7 +47,7 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
-  uint64_t tickers_value[Tickers::TICKER_ENUM_MAX] = {0};
+  GetContextStats get_context_stats_;
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
@@ -77,7 +97,7 @@ class GetContext {
     return true;
   }
 
-  void RecordCounters(Tickers ticker, size_t val);
+  void ReportCounters();
 
  private:
   const Comparator* ucmp_;
