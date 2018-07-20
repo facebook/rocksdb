@@ -364,7 +364,8 @@ class TableConstructor: public Constructor {
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
                            level_),
-        std::move(file_reader_), TEST_GetSink()->contents().size(), &table_reader_);
+        std::move(file_reader_), TEST_GetSink()->contents().size(),
+        &table_reader_);
   }
 
   virtual InternalIterator* NewIterator(
@@ -394,12 +395,11 @@ class TableConstructor: public Constructor {
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            *last_internal_key_),
-        std::move(file_reader_), TEST_GetSink()->contents().size(), &table_reader_);
+        std::move(file_reader_), TEST_GetSink()->contents().size(),
+        &table_reader_);
   }
 
-  virtual TableReader* GetTableReader() {
-    return table_reader_.get();
-  }
+  virtual TableReader* GetTableReader() { return table_reader_.get(); }
 
   virtual bool AnywayDeleteIterator() const override {
     return convert_to_internal_key_;

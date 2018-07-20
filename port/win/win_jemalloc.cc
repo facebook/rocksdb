@@ -43,8 +43,8 @@ void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT {
   return je_aligned_alloc(alignment, size);
 }
 void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT { je_free(p); }
-} // port
-} // rocksdb
+}  // namespace port
+}  // namespace rocksdb
 
 void* operator new(size_t size) {
   void* p = je_malloc(size);
