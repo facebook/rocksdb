@@ -409,14 +409,15 @@ Status TransactionBaseImpl::DeleteRange(const ReadOptions& read_options,
     s = TryLock(column_family, iter->key(), false /* read_only */, true /* exclusive */);
     if (s.ok()) {
       num_keys++;
-    } else {
-      return s;
     }
   }
+  delete iter;
 
-  s = GetBatchForWrite()->DeleteRange(column_family, begin_key, end_key);
   if (s.ok()) {
-    num_deletes_ += num_keys;
+    s = GetBatchForWrite()->DeleteRange(column_family, begin_key, end_key);
+    if (s.ok()) {
+      num_deletes_ += num_keys;
+    }
   }
 
   return s;

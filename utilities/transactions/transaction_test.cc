@@ -4356,6 +4356,64 @@ TEST_P(TransactionTest, SingleDeleteTest) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
+TEST_P(TransactionTest, DeleteRangeTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  // Write some keys to the db
+  s = db->Put(write_options, "A", "a");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "G", "g");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "F", "f");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "C", "c");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "D", "d");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "E", "e");
+  ASSERT_OK(s);
+
+  s = txn->DeleteRange(read_options, "C", "F");
+  ASSERT_OK(s);
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  s = db->Get(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Get(read_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Get(read_options, "E", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Get(read_options, "F", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("f", value);
+
+  s = db->Get(read_options, "G", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("g", value);
+
+  delete txn;
+}
+
 TEST_P(TransactionTest, MergeTest) {
   WriteOptions write_options;
   ReadOptions read_options;

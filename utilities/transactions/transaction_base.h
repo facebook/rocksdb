@@ -148,7 +148,7 @@ class TransactionBaseImpl : public Transaction {
   Status DeleteRange(const ReadOptions& read_options,
                      const Slice& begin_key,
                      const Slice& end_key) override {
-    return DeleteRange(options, nullptr, begin_key, end_key);
+    return DeleteRange(read_options, nullptr, begin_key, end_key);
   }
 
   Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
