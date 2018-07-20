@@ -17,14 +17,22 @@
 #include <vector>
 
 #include "db/version_edit.h"
+#include "table/block_fetcher.h"
+#include "table/block_based_table_factory.h"
+#include "table/block_based_table_builder.h"
+#include "table/format.h"
 #include "table/merging_iterator.h"
+#include "table/meta_blocks.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/table_properties_internal.h"
 #include "util/file_reader_writer.h"
 #include "util/file_util.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
+#include "util/crc32c.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -545,6 +553,183 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     return Status::InvalidArgument(
         "Trying to set global seqno for a file that dont have a global seqno "
         "field");
+  }
+
+  if (true) {
+    std::unique_ptr<RandomAccessFile> file;
+    Status s =
+        env_->NewRandomAccessFile(file_to_ingest->internal_file_path, &file, env_options_);
+    std::unique_ptr<RandomAccessFileReader> file_reader;
+    file_reader.reset(new RandomAccessFileReader(std::move(file), file_to_ingest->internal_file_path));
+    Footer footer;
+    s = ReadFooterFromFile(
+        file_reader.get(), nullptr, file_to_ingest->file_size,
+        &footer, Footer::kInvalidTableMagicNumber);
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin 1\n");
+      return s;
+    }
+    auto metaindex_handle = footer.metaindex_handle();
+    BlockContents metaindex_contents;
+    ReadOptions read_options;
+    read_options.verify_checksums = false;
+    Slice compression_dict;
+    PersistentCacheOptions cache_options;
+    BlockFetcher block_fetcher(file_reader.get(), nullptr, footer, read_options,
+        metaindex_handle, &metaindex_contents, *cfd_->ioptions(), false /* decompress */,
+        compression_dict, cache_options);
+    s = block_fetcher.ReadBlockContents();
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin 2\n");
+      return s;
+    }
+    Block metaindex_block(std::move(metaindex_contents), kDisableGlobalSequenceNumber);
+    std::unique_ptr<InternalIterator> meta_iter(
+        metaindex_block.NewIterator<DataBlockIter>(BytewiseComparator(),
+                                                   BytewiseComparator()));
+    bool found_properties_block = true;
+    s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin 3\n");
+      return s;
+    }
+    TableProperties* properties;
+    if (found_properties_block) {
+      s = ReadProperties(meta_iter->value(), file_reader.get(), nullptr,
+          footer, *cfd_->ioptions(), &properties, false);
+    } else {
+      s = Status::NotFound();
+      fprintf(stderr, "y7jin 4\n");
+    }
+    fprintf(stderr, "%s\n", properties->ToString().c_str());
+    fprintf(stderr, "y7jin: user collected:\n");
+    for (const auto& elem : properties->user_collected_properties) {
+      fprintf(stderr, "%s: %s\n", elem.first.c_str(), elem.second.c_str());
+    }
+    std::unique_ptr<RandomRWFile> writable_file;
+    s = env_->NewRandomRWFile(file_to_ingest->internal_file_path, &writable_file, env_options_);
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin: cannot open file for append\n");
+      return s;
+    }
+    // Build new properties block
+    PropertyBlockBuilder property_block_builder;
+    std::string seqno_val;
+    PutFixed64(&seqno_val, seqno);
+    auto seqno_it =
+        properties->user_collected_properties.find(ExternalSstFilePropertyNames::kGlobalSeqno);
+    if (seqno_it != properties->user_collected_properties.end()) {
+      seqno_it->second = seqno_val;
+    } else {
+      fprintf(stderr, "y7jin: cannot find global seqno\n");
+    }
+    property_block_builder.AddTableProperty(*properties);
+    property_block_builder.Add(properties->user_collected_properties);
+    BlockHandle properties_block_handle;
+    Slice new_properties_block_content = property_block_builder.Finish();
+    uint64_t curr_offset = file_to_ingest->file_size;
+    // Start to append
+    properties_block_handle.set_offset(curr_offset);
+    properties_block_handle.set_size(new_properties_block_content.size());
+    s = writable_file->Write(curr_offset, new_properties_block_content);
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin faield to write properties block %s\n", s.ToString().c_str());
+      return s;
+    }
+    curr_offset += new_properties_block_content.size();
+    char trailer[kBlockTrailerSize];
+    trailer[0] = kNoCompression;
+    char* trailer_without_type = trailer + 1;
+    switch(static_cast<BlockBasedTableFactory*>(cfd_->ioptions()->table_factory)->table_options().checksum) {
+      case kNoChecksum:
+        EncodeFixed32(trailer_without_type, 0);
+        break;
+      case kCRC32c: {
+        auto crc = crc32c::Value(new_properties_block_content.data(),
+                                 new_properties_block_content.size());
+        crc = crc32c::Extend(crc, trailer, 1);
+        EncodeFixed32(trailer_without_type, crc32c::Mask(crc));
+        break;
+      }
+      case kxxHash: {
+        void* xxh = XXH32_init(0);
+        XXH32_update(xxh, new_properties_block_content.data(),
+            static_cast<int>(new_properties_block_content.size()));
+        XXH32_update(xxh, trailer, 1);
+        EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
+        break;
+      }
+    }
+    s = writable_file->Write(curr_offset, Slice(trailer, kBlockTrailerSize));
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin failed to append trailer to property block\n");
+      return s;
+    }
+    curr_offset += kBlockTrailerSize;
+    // write trailer
+
+    // Build new metaindex block
+    MetaIndexBuilder meta_index_builder;
+    meta_iter->SeekToFirst();
+    for (; meta_iter->Valid(); meta_iter->Next()) {
+      std::string meta_block_name(meta_iter->key().ToString());
+      BlockHandle block_handle;
+      Slice v = meta_iter->value();
+      block_handle.DecodeFrom(&v);
+      fprintf(stderr, "y7jin what %s %d %x %d\n", meta_block_name.c_str(), (int) meta_iter->key().size(), (int)block_handle.offset(), (int)block_handle.size());
+      meta_index_builder.Add(meta_block_name, block_handle);
+    }
+    BlockHandle new_meta_index_handle;
+    Slice new_meta_index_block_content = meta_index_builder.Finish();
+    new_meta_index_handle.set_offset(curr_offset);
+    new_meta_index_handle.set_size(new_meta_index_block_content.size());
+    s = writable_file->Write(curr_offset, new_meta_index_block_content);
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin fail to append new meta index block: %s\n", s.ToString().c_str());
+      return s;
+    }
+    curr_offset += new_meta_index_block_content.size();
+    char trailer1[kBlockTrailerSize];
+    trailer1[0] = kNoCompression;
+    trailer_without_type = trailer1 + 1;
+    switch(static_cast<BlockBasedTableFactory*>(cfd_->ioptions()->table_factory)->table_options().checksum) {
+      case kNoChecksum:
+        break;
+      case kCRC32c: {
+        auto crc = crc32c::Value(new_meta_index_block_content.data(),
+                                 new_meta_index_block_content.size());
+        crc = crc32c::Extend(crc, trailer1, 1);
+        EncodeFixed32(trailer_without_type, crc32c::Mask(crc));
+        break;
+      }
+      case kxxHash: {
+        void* xxh = XXH32_init(0);
+        XXH32_update(xxh, new_meta_index_block_content.data(),
+                     static_cast<int>(new_meta_index_block_content.size()));
+        XXH32_update(xxh, trailer1, 1);
+        EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
+        break;
+      }
+    }
+    s = writable_file->Write(curr_offset, Slice(trailer1, kBlockTrailerSize));
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin faile to append trailer to new metaindex %s\n", s.ToString().c_str());
+      return s;
+    }
+    curr_offset += kBlockTrailerSize;
+
+    // Write new footer
+    Footer new_footer(footer.version() == 0 ? kLegacyBlockBasedTableMagicNumber : kBlockBasedTableMagicNumber, footer.version());
+    new_footer.set_metaindex_handle(new_meta_index_handle);
+    new_footer.set_index_handle(footer.index_handle());
+    new_footer.set_checksum(footer.checksum());
+    std::string new_footer_encoding;
+    new_footer.EncodeTo(&new_footer_encoding);
+    s = writable_file->Write(curr_offset, new_footer_encoding);
+    if (!s.ok()) {
+      fprintf(stderr, "y7jin failed to write footer %s\n", s.ToString().c_str());
+      return s;
+    }
   }
 
   std::unique_ptr<RandomRWFile> rwfile;

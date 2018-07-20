@@ -345,7 +345,6 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
     return s;
   }
 
-  TableProperties table_properties;
   if (found_properties_block == true) {
     s = ReadProperties(meta_iter->value(), file, nullptr /* prefetch_buffer */,
                        footer, ioptions, properties, compression_type_missing);
