@@ -579,6 +579,23 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
+
+bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
+  std::string ret = src.ToString();
+  for (int i = static_cast<int>(ret.size()) - 1; i >= 0; i--) {
+    if (ret[i] != static_cast<char>(255)) {
+      ret[i] = ret[i] + 1;
+      break;
+    } else if (i != 0) {
+      ret[i] = 0;
+    } else {
+      // all FF. No next prefix
+      return false;
+    }
+  }
+  *v = ret;
+  return true;
+}
 }  // namespace
 
 static enum RepFactory FLAGS_rep_factory;
@@ -2588,7 +2605,17 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     Slice prefix = Slice(key.data(), FLAGS_prefix_size);
-    Iterator* iter = db_->NewIterator(read_opts, cfh);
+
+    std::string upper_bound;
+    Slice ub_slice;
+    ReadOptions ro_copy = read_opts;
+    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+      // For half of the time, set the upper bound to the next prefix
+      ub_slice = Slice(upper_bound);
+      ro_copy.iterate_upper_bound = &ub_slice;
+    }
+
+    Iterator* iter = db_->NewIterator(ro_copy, cfh);
     int64_t count = 0;
     for (iter->Seek(prefix);
         iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
@@ -3109,6 +3136,8 @@ class BatchedOpsStressTest : public StressTest {
     ReadOptions readoptionscopy[10];
     const Snapshot* snapshot = db_->GetSnapshot();
     Iterator* iters[10];
+    std::string upper_bounds[10];
+    Slice ub_slices[10];
     Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
       prefixes[i] += key.ToString();
@@ -3116,6 +3145,12 @@ class BatchedOpsStressTest : public StressTest {
       prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
       readoptionscopy[i].snapshot = snapshot;
+      if (thread->rand.OneIn(2) &&
+          GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
+        // For half of the time, set the upper bound to the next prefix
+        ub_slices[i] = Slice(upper_bounds[i]);
+        readoptionscopy[i].iterate_upper_bound = &(ub_slices[i]);
+      }
       iters[i] = db_->NewIterator(readoptionscopy[i], cfh);
       iters[i]->Seek(prefix_slices[i]);
     }
