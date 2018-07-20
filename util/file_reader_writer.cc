@@ -714,7 +714,10 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 
 bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
                                           Slice* result) {
-  if (offset < buffer_offset_) {
+  if (track_min_offset_ && offset < min_offset_read_) {
+    min_offset_read_ = offset;
+  }
+  if (!enable_ || offset < buffer_offset_) {
     return false;
   }
 
