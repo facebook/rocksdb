@@ -650,7 +650,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
   // Before read footer, readahead backwards to prefetch data
-  const size_t kTailPrefetchSize = 4 * 1024;
+  const size_t kTailPrefetchSize = 512 * 1024;
   size_t prefetch_off;
   size_t prefetch_len;
   if (file_size < kTailPrefetchSize) {
