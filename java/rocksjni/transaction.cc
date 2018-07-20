@@ -18,8 +18,7 @@ using namespace std::placeholders;
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable : 4503)  // identifier' : decorated name length
-                                 // exceeded, name was truncated
+#pragma warning(disable : 4503) // identifier' : decorated name length exceeded, name was truncated
 #endif
 
 /*
@@ -272,8 +271,8 @@ typedef std::function<std::vector<rocksdb::Status>(
 
 void free_parts(
     JNIEnv* env,
-    std::vector<std::tuple<jbyteArray, jbyte*, jobject>>& parts_to_free) {
-  for (auto& value : parts_to_free) {
+    std::vector<std::tuple<jbyteArray, jbyte*, jobject>> &parts_to_free) {
+  for (auto &value : parts_to_free) {
     jobject jk;
     jbyteArray jk_ba;
     jbyte* jk_val;
@@ -672,10 +671,10 @@ void txn_write_kv_parts_helper(JNIEnv* env,
       return;
     }
 
-    jparts_to_free.push_back(
-        std::make_tuple(jba_key_part, jkey_part, jobj_key_part));
-    jparts_to_free.push_back(
-        std::make_tuple(jba_value_part, jvalue_part, jobj_value_part));
+    jparts_to_free.push_back(std::make_tuple(
+        jba_key_part, jkey_part, jobj_key_part));
+    jparts_to_free.push_back(std::make_tuple(
+        jba_value_part, jvalue_part, jobj_value_part));
 
     key_parts.push_back(
         rocksdb::Slice(reinterpret_cast<char*>(jkey_part), jkey_part_len));
@@ -685,8 +684,8 @@ void txn_write_kv_parts_helper(JNIEnv* env,
 
   // call the write_multi function
   rocksdb::Status s = fn_write_kv_parts(
-      rocksdb::SliceParts(key_parts.data(), (int)key_parts.size()),
-      rocksdb::SliceParts(value_parts.data(), (int)value_parts.size()));
+    rocksdb::SliceParts(key_parts.data(), (int)key_parts.size()),
+    rocksdb::SliceParts(value_parts.data(), (int)value_parts.size()));
 
   // cleanup temporary memory
   free_parts(env, jparts_to_free);
@@ -837,6 +836,7 @@ void txn_write_k_parts_helper(JNIEnv* env,
                               const FnWriteKParts& fn_write_k_parts,
                               const jobjectArray& jkey_parts,
                               const jint& jkey_parts_len) {
+
   std::vector<rocksdb::Slice> key_parts;
   std::vector<std::tuple<jbyteArray, jbyte*, jobject>> jkey_parts_to_free;
 
@@ -868,13 +868,12 @@ void txn_write_k_parts_helper(JNIEnv* env,
     jkey_parts_to_free.push_back(std::tuple<jbyteArray, jbyte*, jobject>(
         jba_key_part, jkey_part, jobj_key_part));
 
-    key_parts.push_back(
-        rocksdb::Slice(reinterpret_cast<char*>(jkey_part), jkey_part_len));
+    key_parts.push_back(rocksdb::Slice(reinterpret_cast<char*>(jkey_part), jkey_part_len));
   }
 
   // call the write_multi function
-  rocksdb::Status s = fn_write_k_parts(
-      rocksdb::SliceParts(key_parts.data(), (int)key_parts.size()));
+  rocksdb::Status s =
+      fn_write_k_parts(rocksdb::SliceParts(key_parts.data(), (int)key_parts.size()));
 
   // cleanup temporary memory
   free_parts(env, jkey_parts_to_free);

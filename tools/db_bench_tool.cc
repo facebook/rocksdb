@@ -5062,7 +5062,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
-      int64_t key_rand = GetRandomKey(&thread->rand);
+      int64_t key_rand = thread->rand.Next() % merge_keys_;
       GenerateKeyFromInt(key_rand, merge_keys_, &key);
 
       Status s;
