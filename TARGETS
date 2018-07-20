@@ -379,6 +379,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "block_suffix_index_test",
+        "table/block_suffix_index_test.cc",
+        "serial",
+    ],
+    [
         "bloom_test",
         "util/bloom_test.cc",
         "serial",
