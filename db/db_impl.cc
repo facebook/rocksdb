@@ -2917,9 +2917,12 @@ Status DBImpl::IngestExternalFile(
 
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,
-                                            &snapshots_, ingestion_options, &mutex_,
-                                            directories_.GetDbDir());
+                                            &snapshots_, ingestion_options);
 
+  SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
+  VersionEdit dummy_edit;
+  uint64_t next_file_number =
+      versions_->FetchAddFileNumber(external_files.size());
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -2930,10 +2933,26 @@ Status DBImpl::IngestExternalFile(
 
     // Make sure that bg cleanup wont delete the files that we are ingesting
     pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+
+    // If crash happen after a hard link established, Recover function may
+    // reuse the file number that has already assigned to the internal file,
+    // and this will overwrite the external file. To protect the external
+    // file, we have to make sure the file number will never being reused.
+    auto new_options = cfd->GetLatestMutableCFOptions();
+    status = versions_->LogAndApply(cfd, *new_options, &dummy_edit,
+                                    &mutex_, directories_.GetDbDir());
+    if (status.ok()) {
+      InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *new_options);
+    }
+  }
+  dummy_sv_ctx.Clean();
+  if (!status.ok()) {
+    return status;
   }
 
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-  status = ingestion_job.Prepare(external_files, super_version);
+  status = ingestion_job.Prepare(external_files, next_file_number,
+                                 super_version);
   CleanupSuperVersion(super_version);
   if (!status.ok()) {
     return status;

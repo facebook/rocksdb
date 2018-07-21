@@ -29,7 +29,9 @@
 namespace rocksdb {
 
 Status ExternalSstFileIngestionJob::Prepare(
-    const std::vector<std::string>& external_files_paths, SuperVersion* sv) {
+    const std::vector<std::string>& external_files_paths,
+    uint64_t next_file_number,
+    SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
@@ -89,26 +91,9 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   // Copy/Move external files into DB
-
-  // If crash happen after a hard link established, Recover function may
-  // reuse the file number that has already assigned to the internal file,
-  // and this will overwrite the external file. To protect the external
-  // file, we have to make sure the file number will never being reused.
-  uint64_t new_file_number =
-      versions_->FetchAddFileNumber(files_to_ingest_.size());
-  auto mutable_cf_options = cfd_->GetLatestMutableCFOptions();
-  {
-    VersionEdit tmp_edit;
-    InstrumentedMutexLock l(mutex_);
-    tmp_edit.SetNextFile(versions_->current_next_file_number());
-    status = versions_->LogAndApply(cfd_, *mutable_cf_options, &tmp_edit, mutex_,
-                                    db_dir_);
-  }
-  if (!status.ok()) {
-    return status;
-  }
+  assert(files_to_ingest_.size() <= external_files_paths.size());
   for (IngestedFileInfo& f : files_to_ingest_) {
-    f.fd = FileDescriptor(new_file_number++, 0, f.file_size);
+    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
 
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
