@@ -26,7 +26,7 @@
 namespace rocksdb {
 
 bool DBImpl::EnoughRoomForCompaction(
-    const std::vector<CompactionInputFiles>& inputs,
+    ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
     bool* sfm_reserved_compact_space, LogBuffer* log_buffer) {
   // Check if we have enough room to do the compaction
   bool enough_room = true;
@@ -34,7 +34,7 @@ bool DBImpl::EnoughRoomForCompaction(
   auto sfm = static_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
   if (sfm) {
-    enough_room = sfm->EnoughRoomForCompaction(inputs);
+    enough_room = sfm->EnoughRoomForCompaction(cfd, inputs);
     if (enough_room) {
       *sfm_reserved_compact_space = true;
     }
@@ -632,7 +632,7 @@ Status DBImpl::CompactFilesImpl(
   bool sfm_reserved_compact_space = false;
   // First check if we have enough room to do the compaction
   bool enough_room = EnoughRoomForCompaction(
-      input_files, &sfm_reserved_compact_space, log_buffer);
+      cfd, input_files, &sfm_reserved_compact_space, log_buffer);
 
   if (!enough_room) {
     // m's vars will get set properly at the end of this function,
@@ -960,6 +960,63 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                  "[%s] Manual flush finished, status: %s\n",
                  cfh->GetName().c_str(), s.ToString().c_str());
   return s;
+}
+
+Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
+  Status ret;
+  WriteContext context;
+  WriteThread::Writer w;
+
+  mutex_.AssertHeld();
+  write_thread_.EnterUnbatched(&w, &mutex_);
+
+  std::vector<std::pair<ColumnFamilyData*, uint64_t>> cfd_id_pairs;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+        cached_recoverable_state_empty_.load()) {
+      // Nothing to flush
+      continue;
+    }
+
+    // SwitchMemtable() will release and reacquire mutex during execution
+    Status s;
+    s = SwitchMemtable(cfd, &context);
+    if (!s.ok()) {
+      ret = s;
+      break;
+    }
+
+    cfd->imm()->FlushRequested();
+
+    // schedule flush
+    SchedulePendingFlush(cfd, flush_reason);
+    MaybeScheduleFlushOrCompaction();
+    cfd_id_pairs.emplace_back(
+        std::make_pair(cfd, cfd->imm()->GetLatestMemTableID()));
+  }
+
+  write_thread_.ExitUnbatched(&w);
+
+  for (auto& pair : cfd_id_pairs) {
+    auto cfd = pair.first;
+    auto flush_memtable_id = pair.second;
+    while (cfd->imm()->NumNotFlushed() > 0 &&
+           cfd->imm()->GetEarliestMemTableID() <= flush_memtable_id) {
+      if (!error_handler_.GetRecoveryError().ok()) {
+        break;
+      }
+      if (cfd->IsDropped()) {
+        // FlushJob cannot flush a dropped CF, if we did not break here
+        // we will loop forever since cfd->imm()->NumNotFlushed() will never
+        // drop to zero
+        continue;
+      }
+      cfd->Ref();
+      bg_cv_.Wait();
+      cfd->Unref();
+    }
+  }
+  return ret;
 }
 
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
@@ -1397,15 +1454,18 @@ void DBImpl::UnscheduleCallback(void* arg) {
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
-                               LogBuffer* log_buffer) {
+                               LogBuffer* log_buffer, FlushReason* reason) {
   mutex_.AssertHeld();
 
   Status status;
+  *reason = FlushReason::kOthers;
+  // If BG work is stopped due to an error, but a recovery is in progress,
+  // that means this flush is part of the recovery. So allow it to go through
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
     }
-  } else {
+  } else if (!error_handler_.IsRecoveryInProgress()) {
     status = error_handler_.GetBGError();
   }
 
@@ -1462,6 +1522,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         delete cfd;
         arg.cfd_ = nullptr;
       }
+    *reason = cfd->GetFlushReason();
     }
   }
   return status;
@@ -1482,9 +1543,12 @@ void DBImpl::BackgroundCallFlush() {
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
+    FlushReason reason;
 
-    Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer);
-    if (!s.ok() && !s.IsShutdownInProgress()) {
+    Status s =
+        BackgroundFlush(&made_progress, &job_context, &log_buffer, &reason);
+    if (!s.ok() && !s.IsShutdownInProgress() &&
+        reason != FlushReason::kErrorRecovery) {
       // Wait a little bit before retrying background flush in
       // case this is an environmental problem and we do not want to
       // chew up resources for failed flushes for the duration of
@@ -1709,7 +1773,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     } else {
       // First check if we have enough room to do the compaction
       bool enough_room = EnoughRoomForCompaction(
-          *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
+          m->cfd, *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
       if (!enough_room) {
         // Then don't do the compaction
@@ -1772,7 +1836,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
       if (c != nullptr) {
         bool enough_room = EnoughRoomForCompaction(
-            *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
+            cfd, *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
         if (!enough_room) {
           // Then don't do the compaction

@@ -217,7 +217,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
-      error_handler_(immutable_db_options_, &mutex_) {
+      error_handler_(this, immutable_db_options_, &mutex_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -259,16 +259,48 @@ Status DBImpl::Resume() {
     return Status::OK();
   }
 
-  Status s = error_handler_.GetBGError();
-  if (s.severity() > Status::Severity::kHardError) {
+  if (error_handler_.IsRecoveryInProgress()) {
+    // Don't allow a mix of manual and automatic recovery
+    return Status::Busy();
+  }
+
+  mutex_.Unlock();
+  Status s = error_handler_.RecoverFromBGError(true);
+  mutex_.Lock();
+  return s;
+}
+
+Status DBImpl::ResumeImpl() {
+  mutex_.AssertHeld();
+
+  bool shutdown = shutting_down_.load(std::memory_order_acquire);
+  Status bg_error = error_handler_.GetBGError();
+  Status s;
+  if (shutdown) {
+    s = Status::ShutdownInProgress();
+  }
+  if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
         "DB resume requested but failed due to Fatal/Unrecoverable error");
-    return s;
+    s = bg_error;
+  }
+
+  // We cannot guarantee consistency of the WAL. So force flush Memtables of
+  // all the column families
+  if (s.ok()) {
+    s = FlushAllCFs(FlushReason::kErrorRecovery);
+    if (!s.ok()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "DB resume requested but failed due to Flush failure [%s]",
+                     s.ToString().c_str());
+    }
   }
 
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  error_handler_.ClearBGError();
+  if (s.ok()) {
+    s = error_handler_.ClearBGError();
+  }
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -277,39 +309,57 @@ Status DBImpl::Resume() {
   }
   job_context.Clean();
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  }
   mutex_.Lock();
-  MaybeScheduleFlushOrCompaction();
+  // Check for shutdown again before scheduling further compactions,
+  // since we released and re-acquired the lock above
+  shutdown = shutting_down_.load(std::memory_order_acquire);
+  if (shutdown) {
+    s = Status::ShutdownInProgress();
+  }
+  if (s.ok()) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      SchedulePendingCompaction(cfd);
+    }
+    MaybeScheduleFlushOrCompaction();
+  }
+
+  // Wake up any waiters - in this case, it could be the shutdown thread
+  bg_cv_.SignalAll();
 
   // No need to check BGError again. If something happened, event listener would be
   // notified and the operation causing it would have failed
-  return Status::OK();
+  return s;
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
-void DBImpl::CancelAllBackgroundWork(bool wait) {
+void DBImpl::CancelAllBackgroundWork(bool wait, bool shutdown) {
   InstrumentedMutexLock l(&mutex_);
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Shutdown: canceling all background work");
+  if (shutdown) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Shutdown: canceling all background work");
 
-  if (!shutting_down_.load(std::memory_order_acquire) &&
-      has_unpersisted_data_.load(std::memory_order_relaxed) &&
-      !mutable_db_options_.avoid_flush_during_shutdown) {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-        cfd->Ref();
-        mutex_.Unlock();
-        FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-        mutex_.Lock();
-        cfd->Unref();
+    if (!shutting_down_.load(std::memory_order_acquire) &&
+        has_unpersisted_data_.load(std::memory_order_relaxed) &&
+        !mutable_db_options_.avoid_flush_during_shutdown) {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
+          cfd->Ref();
+          mutex_.Unlock();
+          FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          mutex_.Lock();
+          cfd->Unref();
+        }
       }
+      versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
     }
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-  }
 
-  shutting_down_.store(true, std::memory_order_release);
-  bg_cv_.SignalAll();
+    shutting_down_.store(true, std::memory_order_release);
+    bg_cv_.SignalAll();
+  }
   if (!wait) {
     return;
   }
@@ -324,7 +374,7 @@ Status DBImpl::CloseHelper() {
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
-  CancelAllBackgroundWork(false);
+  CancelAllBackgroundWork(false, true);
   int bottom_compactions_unscheduled =
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
@@ -338,7 +388,8 @@ Status DBImpl::CloseHelper() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || bg_purge_scheduled_ ||
-         pending_purge_obsolete_files_) {
+         pending_purge_obsolete_files_ ||
+         error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }

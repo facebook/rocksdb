@@ -3613,7 +3613,7 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
     if (i == 0) {
       ASSERT_OK(db_->DropColumnFamily(handles_[1]));
     } else {
-      dbfull()->CancelAllBackgroundWork(false /* wait */);
+      dbfull()->CancelAllBackgroundWork(false /* wait */, true /*shutdown*/);
     }
     manual_compaction_thread.join();
     TEST_SYNC_POINT(

@@ -218,6 +218,19 @@ void Java_org_rocksdb_SstFileManager_setMaxTrashDBRatio(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_SstFileManager
+ * Method:    noSpaceError
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_SstFileManager_noSpaceError(JNIEnv* /*env*/,
+                                                  jobject /*jobj*/,
+                                                  jlong jhandle) {
+  auto* sptr_sst_file_manager =
+      reinterpret_cast<std::shared_ptr<rocksdb::SstFileManager>*>(jhandle);
+  sptr_sst_file_manager->get()->NoSpaceError();
+}
+
+/*
+ * Class:     org_rocksdb_SstFileManager
  * Method:    disposeInternal
  * Signature: (J)V
  */

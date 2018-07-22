@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "db/db_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
@@ -23,20 +24,38 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
     : env_(env),
       logger_(logger),
       total_files_size_(0),
+      in_progress_files_size_(0),
       compaction_buffer_size_(0),
       cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
       delete_scheduler_(env, rate_bytes_per_sec, logger.get(), this,
-                        max_trash_db_ratio, bytes_max_delete_chunk) {}
+                        max_trash_db_ratio, bytes_max_delete_chunk),
+      cv_(&mu_),
+      closing_(false),
+      check_free_space_(false),
+      reserved_disk_buffer_(0),
+      free_space_trigger_(0) {
+  bg_thread_.reset(new port::Thread(&SstFileManagerImpl::ClearError, this));
+}
 
-SstFileManagerImpl::~SstFileManagerImpl() {}
+SstFileManagerImpl::~SstFileManagerImpl() {
+  {
+    MutexLock l(&mu_);
+    closing_ = true;
+    cv_.SignalAll();
+  }
+  if (bg_thread_) {
+    bg_thread_->join();
+  }
+}
 
-Status SstFileManagerImpl::OnAddFile(const std::string& file_path) {
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
+                                     TableFileCreationReason reason) {
   uint64_t file_size;
   Status s = env_->GetFileSize(file_path, &file_size);
   if (s.ok()) {
     MutexLock l(&mu_);
-    OnAddFileImpl(file_path, file_size);
+    OnAddFileImpl(file_path, file_size, reason);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
   return s;
@@ -61,6 +80,19 @@ void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
     }
   }
   cur_compactions_reserved_size_ -= size_added_by_compaction;
+
+  auto new_files = c->edit()->GetNewFiles();
+  for (auto& new_file : new_files) {
+    auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
+                            new_file.second.fd.GetNumber(),
+                            new_file.second.fd.GetPathId());
+    if (in_progress_files_.find(fn) != in_progress_files_.end()) {
+      auto tracked_file = tracked_files_.find(fn);
+      assert(tracked_file != tracked_files_.end());
+      in_progress_files_size_ -= tracked_file->second;
+      in_progress_files_.erase(fn);
+    }
+  }
 }
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
@@ -107,7 +139,7 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
 }
 
 bool SstFileManagerImpl::EnoughRoomForCompaction(
-    const std::vector<CompactionInputFiles>& inputs) {
+    ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
@@ -118,15 +150,29 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     }
   }
 
-  if (max_allowed_space_ != 0 &&
-      (size_added_by_compaction + cur_compactions_reserved_size_ +
-           total_files_size_ + compaction_buffer_size_ >
-       max_allowed_space_)) {
-    return false;
-  }
   // Update cur_compactions_reserved_size_ so concurrent compaction
   // don't max out space
   cur_compactions_reserved_size_ += size_added_by_compaction;
+  size_t needed_headroom =
+      cur_compactions_reserved_size_ - in_progress_files_size_ +
+      (compaction_buffer_size_ > 0 ? compaction_buffer_size_
+                                   : reserved_disk_buffer_);
+  if (max_allowed_space_ != 0 &&
+      (needed_headroom + total_files_size_ > max_allowed_space_)) {
+    return false;
+  }
+
+  if (check_free_space_) {
+    auto fn =
+        TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
+                      inputs[0][0]->fd.GetPathId());
+    size_t free_space = 0;
+    env_->GetFreeSpace(fn, &free_space);
+    if (free_space < needed_headroom) {
+      // We hit the condition of not enough disk space
+      return false;
+    }
+  }
   return true;
 }
 
@@ -166,6 +212,122 @@ uint64_t SstFileManagerImpl::GetTotalTrashSize() {
   return delete_scheduler_.GetTotalTrashSize();
 }
 
+void SstFileManagerImpl::ReserveDiskBuffer(uint64_t size,
+                                           const std::string& path) {
+  MutexLock l(&mu_);
+
+  reserved_disk_buffer_ += size;
+  if (path_.empty()) {
+    path_ = path;
+  }
+}
+
+void SstFileManagerImpl::ClearError() {
+  while (true) {
+    MutexLock l(&mu_);
+
+    while (error_handler_list_.empty() && !check_free_space_ && !closing_) {
+      cv_.Wait();
+      ;
+    }
+
+    if (closing_) {
+      return;
+    }
+
+    uint64_t free_space;
+    Status s = env_->GetFreeSpace(path_, &free_space);
+    if (s.ok()) {
+      if (!error_handler_list_.empty()) {
+        // Give priority to hard errors
+        if (free_space < reserved_disk_buffer_) {
+          s = Status::NoSpace();
+        }
+      } else {
+        assert(check_free_space_);
+        if (free_space < free_space_trigger_) {
+          s = Status::NoSpace();
+        } else {
+          check_free_space_ = false;
+        }
+      }
+    }
+
+    if (s.ok()) {
+      while (!error_handler_list_.empty()) {
+        ErrorHandler* handler = error_handler_list_.front();
+        error_handler_list_.pop_front();
+        // Resume() might try to flush memtable and can fail again with
+        // NoSpace. If that happens, we abort the recovery here and start
+        // over.
+        mu_.Unlock();
+        s = handler->RecoverFromBGError();
+        mu_.Lock();
+        if (!s.ok()) {
+          // If shutdown is in progress, abandon this handler instance
+          // and continue with the others
+          if (!s.IsShutdownInProgress()) {
+            if (s.severity() < Status::Severity::kFatalError) {
+              error_handler_list_.push_front(handler);
+            }
+            // Abort and try again later
+            break;
+          }
+        }
+      }
+    }
+
+    if (!s.ok() && (!error_handler_list_.empty() || check_free_space_)) {
+      // If recovery failed, reschedule after 5 seconds
+      cv_.TimedWait(5000000);
+    }
+  }
+}
+
+void SstFileManagerImpl::StartErrorRecovery(ErrorHandler* handler,
+                                            Status bg_error) {
+  MutexLock l(&mu_);
+  if (bg_error.severity() == Status::Severity::kSoftError) {
+    if (!check_free_space_) {
+      // This is the first instance of a NoSpace error. Set the flag to check
+      // for disk space, and take a snapshot of compaction_start_count_.
+      // Setting the check_free_space_ flag basically means we're in degraded
+      // mode
+      check_free_space_ = true;
+      // Assume that all pending compactions will fail similarly. Set the
+      // trigger for clearing this condition to current compaction reserved
+      // size, so we stop checking disk space available in
+      // EnoughRoomForCompaction once this much free space is available
+      free_space_trigger_ = cur_compactions_reserved_size_;
+      cv_.SignalAll();
+    }
+  } else if (bg_error.severity() == Status::Severity::kHardError) {
+    // If this is the first instance of this error, kick of a thread to poll
+    // and recover from this condition
+    if (error_handler_list_.empty()) {
+      error_handler_list_.push_back(handler);
+      cv_.SignalAll();
+    } else {
+      error_handler_list_.push_back(handler);
+    }
+  } else {
+    assert(false);
+  }
+}
+
+bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
+  MutexLock l(&mu_);
+
+  for (auto iter = error_handler_list_.begin();
+       iter != error_handler_list_.end(); ++iter) {
+    if ((*iter) == handler) {
+      error_handler_list_.erase(iter);
+      return true;
+    }
+  }
+  return false;
+}
+
 Status SstFileManagerImpl::ScheduleFileDeletion(
     const std::string& file_path, const std::string& path_to_sync) {
   return delete_scheduler_.DeleteFile(file_path, path_to_sync);
@@ -176,14 +338,22 @@ void SstFileManagerImpl::WaitForEmptyTrash() {
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
-                                       uint64_t file_size) {
+                                       uint64_t file_size,
+                                       TableFileCreationReason reason) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file != tracked_files_.end()) {
     // File was added before, we will just update the size
+    assert(reason != TableFileCreationReason::kCompaction);
+    assert(reason != TableFileCreationReason::kFlush);
     total_files_size_ -= tracked_file->second;
     total_files_size_ += file_size;
+    cur_compactions_reserved_size_ -= file_size;
   } else {
     total_files_size_ += file_size;
+    if (reason == TableFileCreationReason::kCompaction) {
+      in_progress_files_size_ += file_size;
+      in_progress_files_.insert(file_path);
+    }
   }
   tracked_files_[file_path] = file_size;
 }
@@ -192,10 +362,16 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file == tracked_files_.end()) {
     // File is not tracked
+    assert(in_progress_files_.find(file_path) == in_progress_files_.end());
     return;
   }
 
   total_files_size_ -= tracked_file->second;
+  // Check if it belonged to an in-progress compaction
+  if (in_progress_files_.find(file_path) != in_progress_files_.end()) {
+    in_progress_files_size_ -= tracked_file->second;
+    in_progress_files_.erase(file_path);
+  }
   tracked_files_.erase(tracked_file);
 }
 

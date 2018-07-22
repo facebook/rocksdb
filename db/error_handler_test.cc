@@ -33,27 +33,76 @@ class DBErrorHandlingEnv : public EnvWrapper {
     bool trig_io_error;
 };
 
+class ErrorHandlerListener : public EventListener {
+ public:
+  ErrorHandlerListener()
+      : mutex_(),
+        cv_(&mutex_),
+        no_auto_recovery_(false),
+        recovery_complete_(false) {}
+
+  void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
+                            Status /*bg_error*/, bool* auto_recovery) {
+    if (*auto_recovery && no_auto_recovery_) {
+      *auto_recovery = false;
+    }
+  }
+
+  void OnErrorRecoveryCompleted(Status /*old_bg_error*/) {
+    InstrumentedMutexLock l(&mutex_);
+    recovery_complete_ = true;
+    cv_.SignalAll();
+  }
+
+  bool WaitForRecovery(uint64_t /*abs_time_us*/) {
+    InstrumentedMutexLock l(&mutex_);
+    if (!recovery_complete_) {
+      cv_.Wait(/*abs_time_us*/);
+    }
+    if (recovery_complete_) {
+      recovery_complete_ = false;
+      return true;
+    }
+    return false;
+  }
+
+  void EnableAutoRecovery(bool enable = true) { no_auto_recovery_ = !enable; }
+
+ private:
+  InstrumentedMutex mutex_;
+  InstrumentedCondVar cv_;
+  bool no_auto_recovery_;
+  bool recovery_complete_;
+};
+
 TEST_F(DBErrorHandlingTest, FLushWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
+  ErrorHandlerListener* listener = new ErrorHandlerListener();
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.env = fault_env.get();
+  options.listeners.emplace_back(listener);
   Status s;
+
+  listener->EnableAutoRecovery(false);
   DestroyAndReopen(options);
 
-  Put(Key(0), "va;");
+  Put(Key(0), "val");
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::Start", [&](void *) {
     fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
   });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kSoftError);
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
   fault_env->SetFilesystemActive(true);
   s = dbfull()->Resume();
   ASSERT_EQ(s, Status::OK());
 
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
   Destroy(options);
 }
 
@@ -127,6 +176,65 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   s = dbfull()->Resume();
   ASSERT_NE(s, Status::OK());
   Destroy(options);
+}
+
+TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  ErrorHandlerListener* listener = new ErrorHandlerListener();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = fault_env.get();
+  options.listeners.emplace_back(listener);
+  Status s;
+
+  listener->EnableAutoRecovery();
+  DestroyAndReopen(options);
+
+  Put(Key(0), "val");
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_env->SetFilesystemActive(true);
+  ASSERT_EQ(listener->WaitForRecovery(5000000), true);
+
+  s = Put(Key(1), "val");
+  ASSERT_EQ(s, Status::OK());
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  ASSERT_EQ("val", Get(Key(1)));
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  ErrorHandlerListener* listener = new ErrorHandlerListener();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = fault_env.get();
+  options.listeners.emplace_back(listener);
+  Status s;
+
+  listener->EnableAutoRecovery();
+  DestroyAndReopen(options);
+
+  Put(Key(0), "val");
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  // We should be able to shutdown the database while auto recovery is going
+  // on in the background
+  Close();
+  DestroyDB(dbname_, options);
 }
 
 }  // namespace rocksdb

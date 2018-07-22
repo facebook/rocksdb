@@ -730,7 +730,7 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   // At this point there could be running compaction/flush holding a
   // SnapshotChecker, which holds a pointer back to WritePreparedTxnDB.
   // Make sure those jobs finished before destructing WritePreparedTxnDB.
-  db_impl_->CancelAllBackgroundWork(true /*wait*/);
+  db_impl_->CancelAllBackgroundWork(true /*wait*/, true /*shutdown*/);
 }
 
 void SubBatchCounter::InitWithComp(const uint32_t cf) {

@@ -710,6 +710,8 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   assert(write_context != nullptr && need_log_sync != nullptr);
   Status status;
 
+  status = error_handler_.GetBGError();
+
   PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
 
   assert(!single_column_family_mode_ ||
@@ -726,10 +728,6 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
     status = HandleWriteBufferFull(write_context);
-  }
-
-  if (UNLIKELY(status.ok())) {
-    status = error_handler_.GetBGError();
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
