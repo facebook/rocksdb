@@ -41,12 +41,26 @@
 
 namespace rocksdb {
 
-BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding)
+BlockBuilder::BlockBuilder(int block_restart_interval,
+                           bool use_delta_encoding,
+                           BlockBasedTableOptions::DataBlockIndexType
+                           index_type)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       restarts_(),
       counter_(0),
       finished_(false) {
+  switch(index_type) {
+    case BlockBasedTableOptions::kDataBlockBinarySearch:
+      break;
+    case BlockBasedTableOptions::kDataBlockHashIndex:
+      // TODO(fwu) dynamic num_buckets. Now it's hard coded as 500.
+      data_block_hash_index_builder_.reset(
+          new DataBlockHashIndexBuilder(500 /*num_buckets */));
+      break;
+    default:
+      assert(0);
+  }
   assert(block_restart_interval_ >= 1);
   restarts_.push_back(0);       // First restart point is at offset 0
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
@@ -60,6 +74,9 @@ void BlockBuilder::Reset() {
   counter_ = 0;
   finished_ = false;
   last_key_.clear();
+  if (data_block_hash_index_builder_) {
+    data_block_hash_index_builder_->Reset();
+  }
 }
 
 size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
@@ -74,6 +91,9 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
   estimate += VarintLength(key.size()); // varint for key length.
   estimate += VarintLength(value.size()); // varint for value length.
 
+   /* one more <TAG, restart_index_> pair in bucket */;
+  estimate += data_block_hash_index_builder_ ? sizeof(uint16_t) * 2 : 0;
+
   return estimate;
 }
 
@@ -82,7 +102,17 @@ Slice BlockBuilder::Finish() {
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
   }
-  PutFixed32(&buffer_, static_cast<uint32_t>(restarts_.size()));
+
+  // footer is the num_restarts with the MSB as a flag indicating if
+  // data_block_hash_index is used.
+  uint32_t block_footer = static_cast<uint32_t>(restarts_.size());
+  if (data_block_hash_index_builder_) {
+    data_block_hash_index_builder_->Finish(buffer_);
+    // embed the data block index type to the MSB of the num_restarts
+    block_footer |= BlockBasedTableOptions::kDataBlockHashIndex << 31;
+  }
+
+  PutFixed32(&buffer_, block_footer);
   finished_ = true;
   return Slice(buffer_);
 }
@@ -123,6 +153,11 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   // Add string delta to buffer_ followed by value
   buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
+
+  if (data_block_hash_index_builder_) {
+    data_block_hash_index_builder_->Add(ExtractUserKey(key),
+                                        restarts_.size() - 1);
+  }
 
   counter_++;
   estimate_ += buffer_.size() - curr_size;

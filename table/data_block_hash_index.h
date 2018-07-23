@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/slice.h"
+
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of
 // point-lookup within a data-block. It is not used in per-table index-blocks.

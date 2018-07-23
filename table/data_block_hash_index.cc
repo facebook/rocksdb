@@ -65,8 +65,8 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 
 void DataBlockHashIndexBuilder::Reset() {
 //  buckets_.clear();
-std::fill(buckets_.begin(), buckets_.end(), std::vector<uint16_t>());
-estimate_ = 0;
+  std::fill(buckets_.begin(), buckets_.end(), std::vector<uint16_t>());
+  estimate_ = (num_buckets_ + 2) * sizeof(uint16_t);
 }
 
 DataBlockHashIndex::DataBlockHashIndex(Slice block_content) {
