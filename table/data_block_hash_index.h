@@ -11,7 +11,7 @@
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of
 // point-lookup within a data-block. It is not used in per-table index-blocks.
-// It is suppport Get(), but not Seek() or Scan(). If the key does not exist,
+// It supports Get(), but not Seek() or Scan(). If the key does not exist,
 // the iterator is set to invalid.
 //
 // A serialized hash index is appended to the data-block. The new block data
@@ -75,7 +75,7 @@ namespace rocksdb {
 
 class DataBlockHashIndexBuilder {
  public:
-  DataBlockHashIndexBuilder(uint16_t n)
+  explicit DataBlockHashIndexBuilder(uint16_t n)
       : num_buckets_(n),
         buckets_(n),
         estimate_((n + 2) *
@@ -95,7 +95,7 @@ class DataBlockHashIndexIterator;
 
 class DataBlockHashIndex {
  public:
-  DataBlockHashIndex(Slice  block_content);
+  explicit DataBlockHashIndex(Slice  block_content);
 
   inline uint16_t DataBlockHashMapStart() const {
     return static_cast<uint16_t>(map_start_ - data_);
