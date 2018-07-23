@@ -510,6 +510,8 @@ uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
+Block::~Block() { TEST_SYNC_POINT("Block::~Block"); }
+
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
              size_t read_amp_bytes_per_bit, Statistics* statistics)
     : contents_(std::move(contents)),
@@ -518,6 +520,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       restart_offset_(0),
       num_restarts_(0),
       global_seqno_(_global_seqno) {
+  TEST_SYNC_POINT("Block::Block:0");
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
