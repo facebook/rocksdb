@@ -291,7 +291,8 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   } else {
     return "new-file4 entry";
   }
-  f.fd = FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
+  f.fd =
+      FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
   new_files_.push_back(std::make_pair(level, f));
   return nullptr;
 }
@@ -419,7 +420,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &smallest_seqno) &&
             GetVarint64(&input, &largest_seqno)) {
-          f.fd = FileDescriptor(number, 0, file_size, smallest_seqno, largest_seqno);
+          f.fd = FileDescriptor(number, 0, file_size, smallest_seqno,
+                                largest_seqno);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -441,7 +443,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &smallest_seqno) &&
             GetVarint64(&input, &largest_seqno)) {
-          f.fd = FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
+          f.fd = FileDescriptor(number, path_id, file_size, smallest_seqno,
+                                largest_seqno);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
