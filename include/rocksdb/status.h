@@ -282,8 +282,6 @@ class Status {
   Severity sev_;
   const char* state_;
 
-  static const char* msgs[static_cast<int>(kMaxSubCode)];
-
   explicit Status(Code _code, SubCode _subcode = kNone)
       : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
 

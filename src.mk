@@ -147,7 +147,6 @@ LIB_SOURCES =                                                   \
   util/slice.cc                                                 \
   util/sst_file_manager_impl.cc                                 \
   util/status.cc                                                \
-  util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
   util/sync_point_impl.cc                                       \
