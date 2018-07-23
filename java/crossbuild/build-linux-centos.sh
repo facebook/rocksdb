@@ -26,6 +26,6 @@ export JAVA_HOME=/usr/lib/jvm/java-1.7.0
 # build rocksdb
 cd /rocksdb
 scl enable devtoolset-2 'make jclean clean'
-scl enable devtoolset-2 'PORTABLE=1 make rocksdbjavastatic'
+scl enable devtoolset-2 'PORTABLE=1 make -j8 rocksdbjavastatic'
 cp /rocksdb/java/target/librocksdbjni-* /rocksdb-build
 cp /rocksdb/java/target/rocksdbjni-* /rocksdb-build
