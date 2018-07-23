@@ -51,7 +51,8 @@ WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
   // We set max bytes to zero so that we don't get a memory limit error.
   // Instead of trying to keep write batch strictly under the size limit, we
   // just flush to DB when the limit is exceeded in write unprepared, to avoid
-  // having retry logic.
+  // having retry logic. This also allows very big key-value pairs that exceed
+  // max bytes to succeed.
   write_batch_.SetMaxBytes(0);
 }
 
@@ -149,7 +150,7 @@ Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
 
-  bool needs_mark = log_number_ == 0;
+  bool needs_mark = (log_number_ == 0);
 
   if (max_write_batch_size_ != 0 &&
       write_batch_.GetDataSize() > max_write_batch_size_) {
@@ -169,6 +170,7 @@ Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
 }
 
 void WriteUnpreparedTxn::UpdateWriteKeySet(uint32_t cfid, const Slice& key) {
+  // TODO(lth): write_set_keys_ can just be a std::string instead of a vector.
   write_set_keys_[cfid].push_back(key.ToString());
 }
 
@@ -206,13 +208,13 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
       db_impl_->immutable_db_options().two_write_queues);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
-  // We only set log_number_ if it hasn't been set, so that log_number_ always
-  // refers to the oldest log file referenced by this transaction. This helps
-  // ensure that log files containing batches from this transaction are not
-  // deleted.
+  // log_number_ should refer to the oldest log containing uncommitted data
+  // from the current transaction. This means that if log_number_ is set,
+  // WriteImpl should not overwrite that value, so set log_used to nullptr if
+  // log_number_ is already set.
+  uint64_t* log_used = log_number_ ? nullptr : &log_number_;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr,
-                          log_number_ ? nullptr : &log_number_, /*log ref*/
+                          /*callback*/ nullptr, log_used, /*log ref*/
                           0, !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
                           &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -222,6 +224,9 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
   if (GetId() == 0) {
     SetId(prepare_seq);
   }
+  // unprep_seqs_ will also contain prepared seqnos since they are treated in
+  // the same way in the prepare/commit callbacks. See the comment on the
+  // definition of unprep_seqs_.
   unprep_seqs_[prepare_seq] = prepare_batch_cnt_;
 
   // Reset transaction state.

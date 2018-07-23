@@ -230,7 +230,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           txn->SetName("xid");
           for (int i = 0; i < num_batches; i++) {
             ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
-            if (batch_size == 1) {
+            if (txn_options.max_write_batch_size == 1) {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
             } else {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
@@ -350,7 +350,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
 // after memtable finishes flushing, and whether they are removed when
 // transaction commits/aborts.
 //
-// Similar to TransactionTest/TwoPhaseLogRollingTest.
+// TODO(lth): Merge with TransactionTest/TwoPhaseLogRollingTest tests.
 TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
   WriteOptions write_options;
   TransactionOptions txn_options;
@@ -388,11 +388,11 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
       ASSERT_GT(txn1->GetLogNumber(), 0);
       ASSERT_GT(txn2->GetLogNumber(), 0);
 
-      if (prepare) {
-        ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
-                  txn1->GetLogNumber());
-        ASSERT_GT(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+      ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+                txn1->GetLogNumber());
+      ASSERT_GT(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
 
+      if (prepare) {
         ASSERT_OK(txn1->Prepare());
         ASSERT_OK(txn2->Prepare());
       }

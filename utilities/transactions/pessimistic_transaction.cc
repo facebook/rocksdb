@@ -191,19 +191,19 @@ Status PessimisticTransaction::Prepare() {
   }
 
   if (can_prepare) {
-    bool needs_mark = true;
+    bool wal_already_marked = false;
     txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
     if (log_number_ > 0) {
       assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
-      needs_mark = false;
+      wal_already_marked = true;
     }
 
     s = PrepareInternal();
     if (s.ok()) {
       assert(log_number_ != 0);
-      if (needs_mark) {
+      if (!wal_already_marked) {
         dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
             log_number_);
       }
@@ -366,7 +366,7 @@ Status PessimisticTransaction::Rollback() {
   } else if (txn_state_ == STARTED) {
     if (log_number_ > 0) {
       assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
-      assert(id_ > 0);
+      assert(GetId() > 0);
       s = RollbackInternal();
 
       if (s.ok()) {
