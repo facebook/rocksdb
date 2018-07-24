@@ -549,6 +549,7 @@ set(SOURCES
         table/cuckoo_table_builder.cc
         table/cuckoo_table_factory.cc
         table/cuckoo_table_reader.cc
+        table/data_block_hash_index.cc
         table/flush_block_policy.cc
         table/format.cc
         table/full_filter_block.cc
@@ -913,6 +914,7 @@ if(WITH_TESTS)
         table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc
+        table/data_block_hash_index_test.cc
         table/full_filter_block_test.cc
         table/merger_test.cc
         table/table_test.cc

@@ -437,6 +437,7 @@ TESTS = \
 	table_properties_collector_test \
 	arena_test \
 	block_test \
+	data_block_hash_index_test \
 	cache_test \
 	corruption_test \
 	slice_transform_test \
@@ -1348,6 +1349,9 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+data_block_hash_index_test: table/data_block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
