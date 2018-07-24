@@ -384,7 +384,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
   friend class WriteUnpreparedTxnDB;
-  friend class WriteUnpreparedTransactionTest_RecoveryRollbackUnprepared_Test;
+  friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
 

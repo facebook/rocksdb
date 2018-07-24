@@ -191,14 +191,22 @@ Status PessimisticTransaction::Prepare() {
   }
 
   if (can_prepare) {
+    bool wal_already_marked = false;
     txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
+    if (log_number_ > 0) {
+      assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
+      wal_already_marked = true;
+    }
+
     s = PrepareInternal();
     if (s.ok()) {
       assert(log_number_ != 0);
-      dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
-          log_number_);
+      if (!wal_already_marked) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
+            log_number_);
+      }
       txn_state_.store(PREPARED);
     }
   } else if (txn_state_ == LOCKS_STOLEN) {
@@ -264,7 +272,14 @@ Status PessimisticTransaction::Commit() {
           "Commit-time batch contains values that will not be committed.");
     } else {
       txn_state_.store(AWAITING_COMMIT);
+      if (log_number_ > 0) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+            log_number_);
+      }
       s = CommitWithoutPrepareInternal();
+      if (!name_.empty()) {
+        txn_db_impl_->UnregisterTransaction(this);
+      }
       Clear();
       if (s.ok()) {
         txn_state_.store(COMMITED);
@@ -349,6 +364,16 @@ Status PessimisticTransaction::Rollback() {
       txn_state_.store(ROLLEDBACK);
     }
   } else if (txn_state_ == STARTED) {
+    if (log_number_ > 0) {
+      assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
+      assert(GetId() > 0);
+      s = RollbackInternal();
+
+      if (s.ok()) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+            log_number_);
+      }
+    }
     // prepare couldn't have taken place
     Clear();
   } else if (txn_state_ == COMMITED) {

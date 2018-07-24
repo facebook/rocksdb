@@ -136,13 +136,15 @@ class PessimisticTransactionDB : public TransactionDB {
  private:
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
+  friend class WriteUnpreparedTxn;
   friend class TransactionTest_DoubleEmptyWrite_Test;
   friend class TransactionTest_DuplicateKeys_Test;
   friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
   friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
   friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
-  friend class WriteUnpreparedTransactionTest_RecoveryRollbackUnprepared_Test;
+  friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
+  friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
   TransactionLockMgr lock_mgr_;
 
   // Must be held when adding/dropping column families.

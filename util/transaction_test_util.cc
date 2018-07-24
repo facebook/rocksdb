@@ -47,6 +47,14 @@ RandomTransactionInserter::~RandomTransactionInserter() {
 bool RandomTransactionInserter::TransactionDBInsert(
     TransactionDB* db, const TransactionOptions& txn_options) {
   txn_ = db->BeginTransaction(write_options_, txn_options, txn_);
+
+  std::hash<std::thread::id> hasher;
+  char name[64];
+  snprintf(name, 64, "txn%" ROCKSDB_PRIszt "-%d",
+           hasher(std::this_thread::get_id()), txn_id_++);
+  assert(strlen(name) < 64 - 1);
+  txn_->SetName(name);
+
   bool take_snapshot = rand_->OneIn(2);
   if (take_snapshot) {
     txn_->SetSnapshot();
@@ -173,14 +181,8 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
   if (s.ok()) {
     if (txn != nullptr) {
-      std::hash<std::thread::id> hasher;
-      char name[64];
-      snprintf(name, 64, "txn%" ROCKSDB_PRIszt "-%d", hasher(std::this_thread::get_id()),
-               txn_id_++);
-      assert(strlen(name) < 64 - 1);
       if (!is_optimistic && !rand_->OneIn(10)) {
         // also try commit without prpare
-        txn->SetName(name);
         s = txn->Prepare();
         assert(s.ok());
       }
