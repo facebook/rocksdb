@@ -306,7 +306,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
 
         for (int i = 0; i < kNumKeys; i++) {
           txn->Put("k" + ToString(i), "v" + ToString(i));
-          if (batch_size == 1) {
+          if (txn_options.max_write_batch_size == 1) {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
           } else {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
