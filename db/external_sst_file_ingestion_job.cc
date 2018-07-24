@@ -91,7 +91,6 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   // Copy/Move external files into DB
-  assert(files_to_ingest_.size() <= external_files_paths.size());
   for (IngestedFileInfo& f : files_to_ingest_) {
     f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
 
