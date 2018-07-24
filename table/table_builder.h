@@ -55,7 +55,16 @@ struct TableReaderOptions {
   bool immortal;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
+
+  // if smallest_seqno == largest_seqno, then there are two possibilities:
+  //   a) the table is external SST if table properties has global_seqno
+  //       field (even if its value is not used any more);
+  //   b) the table is NOT external SST if table properties does NOT have
+  //       global_seqno field.
+  //
+  // smallest seqno in the table
   SequenceNumber smallest_seqno;
+  // largest seqno in the table
   SequenceNumber largest_seqno;
 };
 
