@@ -149,13 +149,13 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(status_list.size(), static_cast<uint64_t>(6));
   ASSERT_EQ(values.size(), static_cast<uint64_t>(6));
   ASSERT_OK(status_list[0]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), values[0]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), values[0].data());
   ASSERT_TRUE(status_list[1].IsNotFound());
   ASSERT_OK(status_list[2]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), values[2]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), values[2].data());
   ASSERT_TRUE(status_list[3].IsNotFound());
   ASSERT_OK(status_list[4]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), values[4]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), values[4].data());
   ASSERT_TRUE(status_list[5].IsNotFound());
 
   Reopen(options);
@@ -737,16 +737,20 @@ TEST_F(DBBasicTest, MultiGetSimple) {
 
     std::vector<Slice> keys({"k1", "k2", "k3", "k4", "k5", "no_key"});
 
-    std::vector<std::string> values(20, "Temporary data to be overwritten");
+    std::string tmp_string("Temporary data to be overwritten");
+    std::vector<PinnableSlice> values;
+    for (size_t i = 0; i < 20; ++i) {
+      values.emplace_back(&tmp_string);
+    }
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
     get_perf_context()->Reset();
     std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(values.size(), keys.size());
-    ASSERT_EQ(values[0], "v1");
-    ASSERT_EQ(values[1], "v2");
-    ASSERT_EQ(values[2], "v3");
-    ASSERT_EQ(values[4], "v5");
+    ASSERT_EQ(values[0].data(), "v1");
+    ASSERT_EQ(values[1].data(), "v2");
+    ASSERT_EQ(values[2].data(), "v3");
+    ASSERT_EQ(values[4].data(), "v5");
     // four kv pairs * two bytes per value
     ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
 
@@ -765,7 +769,7 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     // Empty Key Set
     std::vector<Slice> keys;
-    std::vector<std::string> values;
+    std::vector<PinnableSlice> values;
     std::vector<ColumnFamilyHandle*> cfs;
     std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(s.size(), 0U);

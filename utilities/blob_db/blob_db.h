@@ -162,7 +162,7 @@ class BlobDB : public StackableDB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override {
+      std::vector<PinnableSlice>* values) override {
     for (auto column_family : column_families) {
       if (column_family != DefaultColumnFamily()) {
         return std::vector<Status>(
@@ -171,7 +171,11 @@ class BlobDB : public StackableDB {
                 "Blob DB doesn't support non-default column family."));
       }
     }
-    return MultiGet(options, keys, values);
+    std::vector<std::string> string_values;
+    for (size_t i = 0; i < values->size(); ++i) {
+      string_values.push_back(*(*values)[i].GetSelf());
+    }
+    return MultiGet(options, keys, &string_values);
   }
 
   using rocksdb::StackableDB::SingleDelete;

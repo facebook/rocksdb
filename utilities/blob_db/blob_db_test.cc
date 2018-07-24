@@ -806,7 +806,7 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
   ColumnFamilyHandle *handle = nullptr;
   std::string value;
-  std::vector<std::string> values;
+  std::vector<PinnableSlice> values;
   // The call simply pass through to base db. It should succeed.
   ASSERT_OK(
       blob_db_->CreateColumnFamily(ColumnFamilyOptions(), "foo", &handle));

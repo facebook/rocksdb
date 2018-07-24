@@ -1180,7 +1180,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -1237,7 +1237,7 @@ std::vector<Status> DBImpl::MultiGet(
   for (size_t i = 0; i < num_keys; ++i) {
     merge_context.Clear();
     Status& s = stat_list[i];
-    std::string* value = &(*values)[i];
+    PinnableSlice* pinnable_val = &(*values)[i];
 
     LookupKey lkey(keys[i], snapshot);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
@@ -1252,27 +1252,27 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, &s, &merge_context,
-                                  &range_del_agg, read_options)) {
+      if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s,
+                                  &merge_context, &range_del_agg,
+                                  read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(lkey, value, &s, &merge_context,
-                                         &range_del_agg, read_options)) {
+      } else if (super_version->imm->Get(lkey, pinnable_val->GetSelf(), &s,
+                                         &merge_context, &range_del_agg,
+                                         read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
     }
     if (!done) {
-      PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, &pinnable_val, &s,
+      super_version->current->Get(read_options, lkey, pinnable_val, &s,
                                   &merge_context, &range_del_agg);
-      value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
 
     if (s.ok()) {
-      bytes_read += value->size();
+      bytes_read += pinnable_val->size();
       num_found++;
     }
   }

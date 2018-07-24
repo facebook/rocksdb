@@ -208,7 +208,7 @@ class TtlTest : public testing::Test {
     size_t i = 0;
     for (auto& kv : kvmap_) {
       ASSERT_OK(statuses[i]);
-      ASSERT_EQ(values[i], kv.second);
+      ASSERT_EQ(values[i].data(), kv.second);
       ++i;
     }
   }

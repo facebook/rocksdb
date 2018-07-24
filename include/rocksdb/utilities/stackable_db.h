@@ -95,7 +95,7 @@ class StackableDB : public DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override {
+      std::vector<PinnableSlice>* values) override {
     return db_->MultiGet(options, column_family, keys, values);
   }
 

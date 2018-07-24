@@ -58,7 +58,7 @@ class DBWithTTLImpl : public DBWithTTL {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+      std::vector<PinnableSlice>* values) override;
 
   using StackableDB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,

@@ -205,6 +205,12 @@ class Transaction {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
+  // virtual std::vector<Status> MultiGet(
+  //    const ReadOptions& options,
+  //    const std::vector<ColumnFamilyHandle*>& column_family,
+  //    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
+  //
+  // }
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
