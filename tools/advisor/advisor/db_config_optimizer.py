@@ -59,8 +59,8 @@ class ConfigOptimizer:
             new_value = chosen_sugg_val
         return new_value
 
-    # TODO: try other algorithms for improving the database configuration
-    # currently, this picks an option at random
+    # TODO(poojam23): try other algorithms for improving the database
+    # configuration currently, this picks an option at random
     @staticmethod
     def improve_db_config(current_config, guidelines):
         option = random.choice(list(guidelines.keys()))

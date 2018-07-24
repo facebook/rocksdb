@@ -90,6 +90,8 @@ class LogStatsParser(TimeSeriesData):
 
 
 class DatabasePerfContext(TimeSeriesData):
+    # TODO(poojam23): check if any benchrunner provides PerfContext sampled at
+    # regular intervals
     def __init__(self, perf_context_ts, stats_freq_sec=0, cumulative=True):
         '''
         perf_context_ts is expected to be in the following format:
@@ -238,7 +240,7 @@ class OdsStatsFetcher(TimeSeriesData):
                 if key.startswith('[]'):
                     use_prefix = True
                     key = key[2:]
-                # TODO: this is very hacky and needs to be improved
+                # TODO(poojam23): this is very hacky and needs to be improved
                 if key.startswith("rocksdb"):
                     key += ".60"
                 if use_prefix:
@@ -277,7 +279,8 @@ class OdsStatsFetcher(TimeSeriesData):
         return url
 
 
-# TODO: remove these blocks once the unittests for LogStatsParser are in place
+# TODO(poojam23): remove these blocks once the unittests for LogStatsParser are
+# in place
 def main():
     # populating the statistics
     log_stats = LogStatsParser('temp/db_stats_fetcher_main_LOG.tmp', 20)
@@ -344,7 +347,7 @@ def main():
     print(cond3.get_trigger())
 
 
-# TODO: shift this code to the unit tests for DatabasePerfContext
+# TODO(poojam23): shift this code to the unit tests for DatabasePerfContext
 def check_perf_context_code():
     string = (
         " user_key_comparison_count = 675903942, " +

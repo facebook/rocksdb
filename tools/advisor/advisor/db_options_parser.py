@@ -287,7 +287,8 @@ class DatabaseOptions(DataSource):
                 cond.set_trigger(col_fam_options_dict)
 
 
-# TODO: remove these methods once the unit tests for this class are in place
+# TODO(poojam23): remove these methods once the unit tests for this class are
+# in place
 def main():
     options_file = 'temp/OPTIONS_default.tmp'
     misc_options = ["misc_opt1=10", "misc_opt2=100", "misc_opt3=1000"]

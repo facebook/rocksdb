@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from advisor.bench_runner import BenchmarkRunner
 from advisor.db_log_parser import DataSource, DatabaseLogs, NO_FAM
 from advisor.db_options_parser import DatabaseOptions
 from advisor.db_stats_fetcher import (
@@ -17,18 +17,6 @@ NOTE: This is not thread-safe, because the output file is simply overwritten.
 '''
 
 
-class BenchmarkRunner(ABC):
-    @staticmethod
-    @abstractmethod
-    def is_metric_better(new_metric, old_metric):
-        pass
-
-    @abstractmethod
-    def run_experiment(self):
-        # should return a list of DataSource objects
-        pass
-
-
 class DBBenchRunner(BenchmarkRunner):
     OUTPUT_FILE = "temp/dbbench_out.tmp"
     ERROR_FILE = "temp/dbbench_err.tmp"
@@ -36,40 +24,10 @@ class DBBenchRunner(BenchmarkRunner):
     THROUGHPUT = "ops/sec"
     PERF_CON = "db perf context"
 
-    # Map from Rocksdb option to its corresponding db_bench command-line arg
-    OPTION_CMD_LINE_FLAG = {
-        "max_subcompactions": {'name': 'subcompactions'},
-        "compression": {
-            'name': 'compression_type',
-            'value': {
-                'kNoCompression': 'none',
-                'kSnappyCompression': 'snappy',
-                'kZlibCompression': 'zlib',
-                'kBZip2Compression': 'bzip2',
-                'kLZ4Compression': 'lz4',
-                'kLZ4HCCompression': 'lz4hc',
-                'kXpressCompression': 'xpress',
-                'kZSTD': 'zstd'
-            }
-        },
-        "arena_block_size": {'name': ''}
-    }
-
     @staticmethod
     def is_metric_better(new_metric, old_metric):
         # for db_bench 'throughput' is the metric returned by run_experiment
         return new_metric >= old_metric
-
-    @staticmethod
-    def get_info_log_file_name(db_path):
-        file_name = db_path[1:]
-        to_be_replaced = re.compile('[^0-9a-zA-Z\-_\.]')
-        for character in to_be_replaced.findall(db_path):
-            file_name = file_name.replace(character, '_')
-        if not file_name.endswith('_'):
-            file_name += '_'
-        file_name += 'LOG'
-        return file_name
 
     @staticmethod
     def get_opt_args_str(misc_options_dict):
@@ -85,40 +43,23 @@ class DBBenchRunner(BenchmarkRunner):
         # parse positional_args list appropriately
         self.db_bench_binary = positional_args[0]
         self.benchmark = positional_args[1]
-        self.default_db_options = None
         self.db_bench_args = None
         self.supported_benchmarks = None
         if len(positional_args) > 2:
-            self.default_db_options = DatabaseOptions(positional_args[2], None)
             # options list with each option given as "<option>=<value>"
-            if len(positional_args) > 3:
-                self.db_bench_args = positional_args[3:]
+            self.db_bench_args = positional_args[2:]
         # save ods_args if provided
         self.ods_args = ods_args
-        if not self.default_db_options:
-            default_options_file = self._fetch_default_options()
-            if default_options_file:
-                self.default_db_options = DatabaseOptions(
-                    default_options_file, None
-                )
-
-    def _fetch_default_options(self):
-        command = self.db_bench_binary + ' --duration=1'
-        self._run_command(command)
-        parsed_output = self._parse_output(get_perf_context=False)
-        db_path = parsed_output[self.DB_PATH]
-        if not db_path.endswith('/'):
-            db_path += '/'
-        options_files_regex = db_path + 'OPTIONS*'
-        options_files = glob.glob(options_files_regex)
-        latest_options_file = None
-        if options_files:
-            options_files.sort(key=os.path.getmtime, reverse=True)
-            latest_options_file = options_files[0]
-        return latest_options_file
 
     def _parse_output(self, get_perf_context=False):
-        # get the db_path and throughput of this db_bench experiment
+        '''
+        Sample db_bench output after running 'readwhilewriting' benchmark:
+        DB path: [/tmp/rocksdbtest-155919/dbbench]\n
+        readwhilewriting : 16.582 micros/op 60305 ops/sec; 4.2 MB/s (3433828\
+        of 5427999 found)\n
+        PERF_CONTEXT:\n
+        user_key_comparison_count = 500466712, block_cache_hit_count = ...\n
+        '''
         output = {
             self.THROUGHPUT: None, self.DB_PATH: None, self.PERF_CON: None
         }
@@ -137,6 +78,9 @@ class DBBenchRunner(BenchmarkRunner):
                 elif line.startswith(' PERF_CONTEXT:'):
                     perf_context_begins = True
                 elif get_perf_context and perf_context_begins:
+                    # Sample perf_context output:
+                    # user_key_comparison_count = 500, block_cache_hit_count =\
+                    # 468, block_read_count = 580, block_read_byte = 445, ...
                     token_list = line.strip().split(',')
                     perf_context = {
                         tk.split('=')[0].strip(): tk.split('=')[1].strip()
@@ -174,71 +118,31 @@ class DBBenchRunner(BenchmarkRunner):
         if log_dir in log_options:
             log_dir_path = log_options[log_dir][NO_FAM]
 
+        log_file_name = DBBenchRunner.get_info_log_file_name(
+            log_dir_path, db_path
+        )
+
         if not log_dir_path:
             log_dir_path = db_path
-            log_file_name = 'LOG'
-        else:
-            log_file_name = DBBenchRunner.get_info_log_file_name(db_path)
-
         if not log_dir_path.endswith('/'):
             log_dir_path += '/'
-        logs_file_prefix = log_dir_path + log_file_name
 
+        logs_file_prefix = log_dir_path + log_file_name
         return (logs_file_prefix, stats_freq_sec)
 
     def _get_options_command_line_args_str(self, curr_options):
+        '''
+        This method uses the provided Rocksdb OPTIONS to create a string of
+        command-line arguments for db_bench.
+        The --options_file argument is always given and the options that are
+        not supported by the OPTIONS file are given as separate arguments.
+        '''
         optional_args_str = DBBenchRunner.get_opt_args_str(
             curr_options.get_misc_options()
         )
-
-        if optional_args_str:  # send all options as command-line args
-            optional_args_str = ""
-            diff = DatabaseOptions.get_options_diff(
-                self.default_db_options.get_all_options(),
-                curr_options.get_all_options()
-            )
-            # use diff to extend the optional_args_str
-            def_col_fam = 'default'  # name of the default column family
-            # db_bench uses the options from the first column family in the
-            # options file
-            curr_col_fam = curr_options.get_column_families()[0]
-            for option in diff:
-                cmd_line_arg = ""
-                value_map = None
-                cmd_opt = option.split('.')[-1]
-                opt_name = cmd_opt
-                if cmd_opt in self.OPTION_CMD_LINE_FLAG:
-                    opt_name = self.OPTION_CMD_LINE_FLAG[cmd_opt]['name']
-                    if not opt_name:
-                        # this option is not supported from the command-line
-                        print('Warning: ' + option + ' not command-line flag')
-                        continue
-                    # check if values need to be changed as well
-                    if 'value' in self.OPTION_CMD_LINE_FLAG[cmd_opt]:
-                        value_map = self.OPTION_CMD_LINE_FLAG[cmd_opt]['value']
-                if NO_FAM in diff[option]:
-                    if diff[option][NO_FAM][1]:
-                        value = diff[option][NO_FAM][1]
-                        if value_map:
-                            value = value_map[diff[option][NO_FAM][1]]
-                        cmd_line_arg = ' --' + opt_name + '=' + str(value)
-                else:
-                    def_val = None
-                    curr_val = None
-                    if def_col_fam in diff[option]:
-                        def_val = diff[option][def_col_fam][0]
-                    if curr_col_fam in diff[option]:
-                        curr_val = diff[option][curr_col_fam][1]
-                    if curr_val and def_val != curr_val:
-                        if value_map:
-                            curr_val = value_map[curr_val]
-                        cmd_line_arg = ' --' + opt_name + '=' + str(curr_val)
-                optional_args_str += cmd_line_arg
-        else:  # use the --options_file flag
-            # generate an options configuration file
-            options_file = curr_options.generate_options_config(nonce='12345')
-            optional_args_str = " --options_file=" + options_file
-
+        # generate an options configuration file
+        options_file = curr_options.generate_options_config(nonce='12345')
+        optional_args_str += " --options_file=" + options_file
         return optional_args_str
 
     def _setup_db_before_experiment(self, curr_options, db_path):
@@ -310,6 +214,7 @@ class DBBenchRunner(BenchmarkRunner):
             ))
         return data_sources, parsed_output[self.THROUGHPUT]
 
+    # TODO: this method is for testing, shift it out to unit-tests when ready
     def get_available_workloads(self):
         if not self.supported_benchmarks:
             self.supported_benchmarks = []
@@ -340,7 +245,6 @@ def main():
     pos_args = [
         '/home/poojamalik/workspace/rocksdb/db_bench',
         'readwhilewriting',
-        'temp/OPTIONS_default.tmp',
         'use_existing_db=true',
         'duration=10'
     ]
