@@ -806,7 +806,7 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
   ColumnFamilyHandle *handle = nullptr;
   std::string value;
-  std::vector<PinnableSlice> values;
+  std::vector<PinnableSlice*> values;
   // The call simply pass through to base db. It should succeed.
   ASSERT_OK(
       blob_db_->CreateColumnFamily(ColumnFamilyOptions(), "foo", &handle));
@@ -823,7 +823,7 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   ASSERT_TRUE(
       blob_db_->Get(ReadOptions(), handle, "k", &value).IsNotSupported());
   auto statuses = blob_db_->MultiGet(ReadOptions(), {default_handle, handle},
-                                     {"k1", "k2"}, &values);
+                                     {"k1", "k2"}, values);
   ASSERT_EQ(2, statuses.size());
   ASSERT_TRUE(statuses[0].IsNotSupported());
   ASSERT_TRUE(statuses[1].IsNotSupported());

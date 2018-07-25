@@ -1180,7 +1180,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
+    const std::vector<Slice>& keys, std::vector<PinnableSlice*>& values) {
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -1223,7 +1223,7 @@ std::vector<Status> DBImpl::MultiGet(
   // Note: this always resizes the values array
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
-  values->resize(num_keys);
+  values.resize(num_keys);
 
   // Keep track of bytes that we read for statistics-recording later
   uint64_t bytes_read = 0;
@@ -1237,7 +1237,7 @@ std::vector<Status> DBImpl::MultiGet(
   for (size_t i = 0; i < num_keys; ++i) {
     merge_context.Clear();
     Status& s = stat_list[i];
-    PinnableSlice* pinnable_val = &(*values)[i];
+    PinnableSlice* pinnable_val = values[i];
 
     LookupKey lkey(keys[i], snapshot);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);

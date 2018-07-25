@@ -59,7 +59,7 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
 
 std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>&,
-    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
+    const std::vector<Slice>& keys, std::vector<PinnableSlice*>& values) {
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
     const FdWithKeyRange& f = files_.files[FindFile(key)];
@@ -72,12 +72,12 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     }
   }
   std::vector<Status> statuses(keys.size(), Status::NotFound());
-  values->resize(keys.size());
+  values.resize(keys.size());
   int idx = 0;
   for (auto* r : reader_list) {
     if (r != nullptr) {
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                             GetContext::kNotFound, keys[idx], &(*values)[idx],
+                             GetContext::kNotFound, keys[idx], (values)[idx],
                              nullptr, nullptr, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       r->Get(options, lkey.internal_key(), &get_context, nullptr);

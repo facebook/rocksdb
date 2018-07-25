@@ -361,20 +361,21 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values) {
-    std::vector<PinnableSlice> pinnable_vector;
+    assert(values != nullptr);
+    std::vector<PinnableSlice*> pinnable_vector;
     for (size_t i = 0; i < values->size(); ++i) {
-      assert((*values)[i] != nullptr);
-      PinnableSlice pinnable_val(&(*values)[i]);
-      assert(!pinnable_val.IsPinned());
-      pinnable_vector.emplace_back(&(*values)[i]);
+      PinnableSlice* pinnable_val = new PinnableSlice(&(*values)[i]);
+      assert(!pinnable_val->IsPinned());
+      pinnable_vector.push_back(pinnable_val);
     }
-    std::vector<Status> s = MultiGet(options, column_family, keys, &pinnable_vector);
+    std::vector<Status> s = MultiGet(options, column_family, keys, pinnable_vector);
     assert(s.size() == pinnable_vector.size());
     for (size_t i = 0; i < s.size(); ++i) {
-      if (s[i].ok() && pinnable_vector[i].IsPinned()) {
-        (*values)[i].assign(pinnable_vector[i].data(), pinnable_vector[i].size());
+      if (s[i].ok() && pinnable_vector[i]->IsPinned()) {
+        (*values)[i].assign(pinnable_vector[i]->data(), pinnable_vector[i]->size());
       }
     }  // else value is already assigned
+    pinnable_vector.clear();
     return s;
   }
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
@@ -387,7 +388,7 @@ class DB {
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) = 0;
+      const std::vector<Slice>& keys, std::vector<PinnableSlice*>& values) = 0;
 
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key

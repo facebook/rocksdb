@@ -737,20 +737,21 @@ TEST_F(DBBasicTest, MultiGetSimple) {
 
     std::vector<Slice> keys({"k1", "k2", "k3", "k4", "k5", "no_key"});
 
-    std::string tmp_string("Temporary data to be overwritten");
-    std::vector<PinnableSlice> values;
+    std::vector<PinnableSlice*> values;
     for (size_t i = 0; i < 20; ++i) {
-      values.emplace_back(&tmp_string);
+      std::string tmp_string("Temporary data to be overwritten");
+      PinnableSlice* pinnable_val = new PinnableSlice(&tmp_string);
+      values.push_back(pinnable_val);
     }
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
     get_perf_context()->Reset();
-    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, values);
     ASSERT_EQ(values.size(), keys.size());
-    ASSERT_EQ(values[0].data(), "v1");
-    ASSERT_EQ(values[1].data(), "v2");
-    ASSERT_EQ(values[2].data(), "v3");
-    ASSERT_EQ(values[4].data(), "v5");
+    ASSERT_EQ(values[0]->data(), "v1");
+    ASSERT_EQ(values[1]->data(), "v2");
+    ASSERT_EQ(values[2]->data(), "v3");
+    ASSERT_EQ(values[4]->data(), "v5");
     // four kv pairs * two bytes per value
     ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
 
@@ -761,6 +762,7 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     ASSERT_OK(s[4]);
     ASSERT_TRUE(s[5].IsNotFound());
     SetPerfLevel(kDisable);
+    values.clear();
   } while (ChangeCompactOptions());
 }
 
@@ -769,9 +771,9 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     // Empty Key Set
     std::vector<Slice> keys;
-    std::vector<PinnableSlice> values;
+    std::vector<PinnableSlice*> values;
     std::vector<ColumnFamilyHandle*> cfs;
-    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, values);
     ASSERT_EQ(s.size(), 0U);
 
     // Empty Database, Empty Key Set
@@ -779,7 +781,7 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     options.create_if_missing = true;
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    s = db_->MultiGet(ReadOptions(), cfs, keys, values);
     ASSERT_EQ(s.size(), 0U);
 
     // Empty Database, Search for Keys
@@ -788,7 +790,7 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     keys[1] = "b";
     cfs.push_back(handles_[0]);
     cfs.push_back(handles_[1]);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    s = db_->MultiGet(ReadOptions(), cfs, keys, values);
     ASSERT_EQ(static_cast<int>(s.size()), 2);
     ASSERT_TRUE(s[0].IsNotFound() && s[1].IsNotFound());
   } while (ChangeCompactOptions());

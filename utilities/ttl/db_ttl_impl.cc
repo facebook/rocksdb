@@ -217,17 +217,17 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
 std::vector<Status> DBWithTTLImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
+    const std::vector<Slice>& keys, std::vector<PinnableSlice*>& values) {
   auto statuses = db_->MultiGet(options, column_family, keys, values);
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = SanityCheckTimestamp((*values)[i].data());
+    statuses[i] = SanityCheckTimestamp(values[i]->data());
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = StripTS((*values)[i].GetSelf());
+    statuses[i] = StripTS(values[i]->GetSelf());
   }
   return statuses;
 }
