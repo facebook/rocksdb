@@ -130,7 +130,9 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   std::unordered_map<std::string, uint16_t> m;
 
   for (uint16_t i = 0; i < 10000; i++) {
-    if (std::rand() % 2) continue;  // randomly leave half of the keys out
+    if (i % 2) {
+      continue;  // leave half of the keys out
+    }
     std::string key = "key" + std::to_string(i);
     uint16_t restart_point = i;
     builder.Add(key, restart_point);

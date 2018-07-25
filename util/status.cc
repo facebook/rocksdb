@@ -32,6 +32,18 @@ const char* Status::CopyState(const char* state) {
 #endif
 }
 
+static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
+    "",                                                   // kNone
+    "Timeout Acquiring Mutex",                            // kMutexTimeout
+    "Timeout waiting to lock key",                        // kLockTimeout
+    "Failed to acquire lock due to max_num_locks limit",  // kLockLimit
+    "No space left on device",                            // kNoSpace
+    "Deadlock",                                           // kDeadlock
+    "Stale file handle",                                  // kStaleFile
+    "Memory limit reached",                               // kMemoryLimit
+    "Space limit reached"                                 // kSpaceLimit
+};
+
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,
                const Slice& msg2)
     : code_(_code), subcode_(_subcode), sev_(kNoError) {
