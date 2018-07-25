@@ -1265,6 +1265,9 @@ struct IngestExternalFileOptions {
   // with allow_ingest_behind=true since the dawn of time.
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
+  // Set to true if you would like to write global_seqno to a given offset in
+  // the external SST file.
+  bool write_global_seqno = true;
 };
 
 }  // namespace rocksdb
