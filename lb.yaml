@@ -1,0 +1,4 @@
+rocksdb:
+    rocksdb_lib:
+        deps:
+        - file://.
