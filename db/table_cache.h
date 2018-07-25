@@ -87,7 +87,7 @@ class TableCache {
   // @param level == -1 means not specified
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
-                   const FileDescriptor& file_fd, Cache::Handle**,
+                   const FileMetaData& file_meta, Cache::Handle**,
                    const SliceTransform* prefix_extractor = nullptr,
                    const bool no_io = false, bool record_read_stats = true,
                    HistogramImpl* file_read_hist = nullptr,
@@ -105,7 +105,7 @@ class TableCache {
   //            we set `no_io` to be true.
   Status GetTableProperties(const EnvOptions& toptions,
                             const InternalKeyComparator& internal_comparator,
-                            const FileDescriptor& file_meta,
+                            const FileMetaData& file_meta,
                             std::shared_ptr<const TableProperties>* properties,
                             const SliceTransform* prefix_extractor = nullptr,
                             bool no_io = false);
@@ -115,7 +115,7 @@ class TableCache {
   size_t GetMemoryUsageByTableReader(
       const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& fd,
+      const FileMetaData& file_meta,
       const SliceTransform* prefix_extractor = nullptr);
 
   // Release the handle from a cache
@@ -137,7 +137,7 @@ class TableCache {
   // Build a table reader
   Status GetTableReader(const EnvOptions& env_options,
                         const InternalKeyComparator& internal_comparator,
-                        const FileDescriptor& fd, bool sequential_mode,
+                        const FileMetaData& file_meta, bool sequential_mode,
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,

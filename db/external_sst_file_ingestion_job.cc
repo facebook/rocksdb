@@ -547,24 +547,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         "field");
   }
 
-  std::unique_ptr<RandomRWFile> rwfile;
-  Status status = env_->NewRandomRWFile(file_to_ingest->internal_file_path,
-                                        &rwfile, env_options_);
-  if (!status.ok()) {
-    return status;
-  }
-
-  // Write the new seqno in the global sequence number field in the file
-  std::string seqno_val;
-  PutFixed64(&seqno_val, seqno);
-  status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
-  if (status.ok()) {
-    status = rwfile->Fsync();
-  }
-  if (status.ok()) {
-    file_to_ingest->assigned_seqno = seqno;
-  }
-  return status;
+  file_to_ingest->assigned_seqno = seqno;
+  return Status::OK();
 }
 
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
