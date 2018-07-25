@@ -49,7 +49,7 @@ namespace rocksdb {
 //
 // Each bucket B has the following structure:
 // [TAG RESTART_INDEX][TAG RESTART_INDEX]...[TAG RESTART_INDEX]
-// where TAG is the hash value of the second hash funtion.
+// where TAG is the hash value of the second hash function.
 //
 // pairs of <key, restart index> are inserted to the hash index. Queries will
 // first lookup this hash index to find the restart index, then go to the
@@ -97,13 +97,14 @@ class DataBlockHashIndexIterator;
 
 class DataBlockHashIndex {
  public:
-  explicit DataBlockHashIndex(Slice  block_content);
+  explicit DataBlockHashIndex(Slice block_content);
 
   inline uint16_t DataBlockHashMapStart() const {
     return static_cast<uint16_t>(map_start_ - data_);
   }
 
-  DataBlockHashIndexIterator* NewIterator(const Slice& key) const;
+  void NewIterator(DataBlockHashIndexIterator* data_block_hash_iter,
+                   const Slice& key) const;
 
  private:
   const char *data_;
@@ -121,19 +122,14 @@ class DataBlockHashIndex {
 
 class DataBlockHashIndexIterator {
  public:
-  DataBlockHashIndexIterator(const char* start, const char* end,
-                             const uint16_t tag)
-      : end_(end), tag_(tag) {
-    current_ = start - 2 * sizeof(uint16_t);
-    Next();
-  }
+  void Initialize(const char* start, const char* end, const uint16_t tag);
   bool Valid();
   void Next();
   uint16_t Value();
 
  private:
   const char* end_; // the end of the bucket
-  const uint16_t tag_;  // the fingerprint (2nd hash value) of the searching key
+  uint16_t tag_;    // the fingerprint (2nd hash value) of the searching key
   const char* current_;
 };
 

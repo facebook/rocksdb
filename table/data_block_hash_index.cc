@@ -65,8 +65,8 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 
 void DataBlockHashIndexBuilder::Reset() {
 //  buckets_.clear();
-  std::fill(buckets_.begin(), buckets_.end(), std::vector<uint16_t>());
-  estimate_ = (num_buckets_ + 2) * sizeof(uint16_t);
+std::fill(buckets_.begin(), buckets_.end(), std::vector<uint16_t>());
+estimate_ = (num_buckets_ + 2) * sizeof(uint16_t);
 }
 
 DataBlockHashIndex::DataBlockHashIndex(Slice block_content) {
@@ -88,8 +88,9 @@ DataBlockHashIndex::DataBlockHashIndex(Slice block_content) {
   assert(map_start_ <  bucket_table_);
 }
 
-DataBlockHashIndexIterator* DataBlockHashIndex::NewIterator(
-    const Slice& key) const {
+void DataBlockHashIndex::NewIterator(
+    DataBlockHashIndexIterator* data_block_hash_iter, const Slice& key) const {
+  assert(data_block_hash_iter);
   uint16_t idx = HashToBucket(key, num_buckets_);
   uint16_t bucket_off = DecodeFixed16(bucket_table_ + idx * sizeof(uint16_t));
   const char* limit;
@@ -101,7 +102,15 @@ DataBlockHashIndexIterator* DataBlockHashIndex::NewIterator(
     limit = data_ + (size_ - 2 * sizeof(uint16_t));
   }
   uint16_t tag = (uint16_t)rocksdb::Hash(key.data(), key.size(), kSeed_tag);
-  return new DataBlockHashIndexIterator(data_ + bucket_off, limit, tag);
+  data_block_hash_iter->Initialize(data_ + bucket_off, limit, tag);
+}
+
+void DataBlockHashIndexIterator::Initialize(const char* start, const char* end,
+                                            const uint16_t tag) {
+  end_ = end;
+  tag_ = tag;
+  current_ = start - 2 * sizeof(uint16_t);
+  Next();
 }
 
 bool DataBlockHashIndexIterator::Valid() {

@@ -41,16 +41,15 @@
 
 namespace rocksdb {
 
-BlockBuilder::BlockBuilder(int block_restart_interval,
-                           bool use_delta_encoding,
-                           BlockBasedTableOptions::DataBlockIndexType
-                           index_type)
+BlockBuilder::BlockBuilder(
+    int block_restart_interval, bool use_delta_encoding,
+    BlockBasedTableOptions::DataBlockIndexType index_type)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       restarts_(),
       counter_(0),
       finished_(false) {
-  switch(index_type) {
+  switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
     case BlockBasedTableOptions::kDataBlockHashIndex:
@@ -91,7 +90,7 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
   estimate += VarintLength(key.size()); // varint for key length.
   estimate += VarintLength(value.size()); // varint for value length.
 
-   /* one more <TAG, restart_index_> pair in bucket */;
+  /* one more <TAG, restart_index_> pair in bucket */;
   estimate += data_block_hash_index_builder_ ? sizeof(uint16_t) * 2 : 0;
 
   return estimate;
@@ -155,8 +154,9 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   buffer_.append(value.data(), value.size());
 
   if (data_block_hash_index_builder_) {
-    data_block_hash_index_builder_->Add(ExtractUserKey(key),
-                                        restarts_.size() - 1);
+    assert(restarts_.size() < (1 << 16));
+    data_block_hash_index_builder_->Add(
+        ExtractUserKey(key), static_cast<uint16_t>(restarts_.size()) - 1);
   }
 
   counter_++;

@@ -530,7 +530,8 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
   // non-existent keys.
   for (int i = 0; i < num_records; i++) {
     builder.Add(keys[i] + "1" /* existing key marker */ +
-                "seq00000" /* fake internal key footer 8Bytes */, values[i]);
+                    "seq00000" /* fake internal key footer 8Bytes */,
+                values[i]);
   }
 
   // read serialized contents of the block
@@ -543,13 +544,13 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   // random seek existent keys
-  auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
-                                                options.comparator);
+  auto iter =
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
 
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
-    std::string k(keys[index] + "1"  /*existing keys*/ +
+    std::string k(keys[index] + "1" /*existing keys*/ +
                   "seq11111" /*fake different footer */);
 
     // search in block for this key

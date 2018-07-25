@@ -520,11 +520,11 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 bool DataBlockIter::HashSeek(const Slice& target) {
   assert(data_block_hash_index_);
   Slice user_key = ExtractUserKey(target);
-  std::unique_ptr<DataBlockHashIndexIterator> data_block_hash_iter(
-      data_block_hash_index_->NewIterator(user_key));
+  DataBlockHashIndexIterator data_block_hash_iter;
+  data_block_hash_index_->NewIterator(&data_block_hash_iter, user_key);
 
-  for (; data_block_hash_iter->Valid(); data_block_hash_iter->Next()) {
-    uint32_t restart_index = data_block_hash_iter->Value();
+  for (; data_block_hash_iter.Valid(); data_block_hash_iter.Next()) {
+    uint32_t restart_index = data_block_hash_iter.Value();
     SeekToRestartPoint(restart_index);
     while (true) {
       if (!ParseNextDataKey() || Compare(key_, user_key) >= 0) {
@@ -539,11 +539,11 @@ bool DataBlockIter::HashSeek(const Slice& target) {
         // Currently we ignore the seq_num, so not supporting snapshot Get().
         // TODO(fwu) support snapshot Get().
         comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
-      return true; // found
+      return true;  // found
     }
   }
 
-  current_ = restarts_; // not found, Invalidate the iterator
+  current_ = restarts_;  // not found, Invalidate the iterator
   return false;
 }
 
@@ -554,7 +554,7 @@ uint32_t Block::NumRestarts() const {
 }
 
 uint32_t Block::IndexType() const {
-  assert(size_ >= 2*sizeof(uint32_t));
+  assert(size_ >= 2 * sizeof(uint32_t));
   uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
   return block_footer >> 31;
 }
@@ -572,12 +572,11 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
   } else {
     // Should only decode restart points for uncompressed blocks
     if (compression_type() == kNoCompression) {
-
       num_restarts_ = NumRestarts();
       switch (IndexType()) {
         case BlockBasedTableOptions::kDataBlockBinarySearch:
-          restart_offset_ = static_cast<uint32_t>(size_)
-            - (1 + num_restarts_) * sizeof(uint32_t);
+          restart_offset_ = static_cast<uint32_t>(size_) -
+                            (1 + num_restarts_) * sizeof(uint32_t);
           if (restart_offset_ > size_ - sizeof(uint32_t)) {
             // The size is too small for NumRestarts() and therefore
             // restart_offset_ wrapped around.
@@ -586,18 +585,17 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
           break;
         case BlockBasedTableOptions::kDataBlockHashIndex:
           if (size_ < sizeof(uint32_t) /* NUM_RESTARTS*/ +
-              sizeof(uint16_t) * 2 /* NUM_BUCK and MAP_START */) {
+                          sizeof(uint16_t) * 2 /* NUM_BUCK and MAP_START */) {
             size_ = 0;
             break;
           }
 
-          data_block_hash_index_.reset(
-              new DataBlockHashIndex(
-                  Slice(contents.data.data(), /* chop off NUM_RESTARTS */
-                        contents.data.size() - sizeof(uint32_t))));
+          data_block_hash_index_.reset(new DataBlockHashIndex(
+              Slice(contents.data.data(), /* chop off NUM_RESTARTS */
+                    contents.data.size() - sizeof(uint32_t))));
 
-          restart_offset_ = data_block_hash_index_->DataBlockHashMapStart()
-            -  num_restarts_ * sizeof(uint32_t);
+          restart_offset_ = data_block_hash_index_->DataBlockHashMapStart() -
+                            num_restarts_ * sizeof(uint32_t);
 
           if (restart_offset_ >
               data_block_hash_index_->DataBlockHashMapStart()) {
@@ -608,7 +606,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
           }
           break;
         default:
-          size_ = 0; // Error marker
+          size_ = 0;  // Error marker
       }
     }
   }

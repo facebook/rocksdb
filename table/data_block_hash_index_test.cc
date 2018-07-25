@@ -16,8 +16,9 @@ namespace rocksdb {
 
 bool SearchForOffset(DataBlockHashIndex& index, const Slice& key,
                      uint16_t& restart_point) {
-  std::unique_ptr<DataBlockHashIndexIterator> iter;
-  iter.reset(index.NewIterator(key));
+  DataBlockHashIndexIterator data_block_hash_index_iter;
+  DataBlockHashIndexIterator* iter = &data_block_hash_index_iter;
+  index.NewIterator(iter, key);
   for (; iter->Valid(); iter->Next()) {
     if (iter->Value() == restart_point) {
       return true;
