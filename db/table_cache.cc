@@ -89,11 +89,13 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 
 Status TableCache::GetTableReader(
     const EnvOptions& env_options,
-    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    bool sequential_mode, size_t readahead, bool record_read_stats,
-    HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta, bool sequential_mode, size_t readahead,
+    bool record_read_stats, HistogramImpl* file_read_hist,
+    unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache, bool for_compaction) {
+  const auto& fd = file_meta.fd;
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
@@ -120,7 +122,8 @@ Status TableCache::GetTableReader(
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
                            internal_comparator, skip_filters, immortal_tables_,
-                           level),
+                           level, file_meta.smallest_seqno,
+                           file_meta.largest_seqno),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -137,7 +140,8 @@ void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
 
 Status TableCache::FindTable(const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
-                             const FileDescriptor& fd, Cache::Handle** handle,
+                             const FileMetaData& file_meta,
+                             Cache::Handle** handle,
                              const SliceTransform* prefix_extractor,
                              const bool no_io, bool record_read_stats,
                              HistogramImpl* file_read_hist, bool skip_filters,
@@ -145,6 +149,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                              bool prefetch_index_and_filter_in_cache) {
   PERF_TIMER_GUARD(find_table_nanos);
   Status s;
+  const auto& fd = file_meta.fd;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);
@@ -156,7 +161,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
     unique_ptr<TableReader> table_reader;
-    s = GetTableReader(env_options, internal_comparator, fd,
+    s = GetTableReader(env_options, internal_comparator, file_meta,
                        false /* sequential mode */, 0 /* readahead */,
                        record_read_stats, file_read_hist, &table_reader,
                        prefix_extractor, skip_filters, level,
@@ -215,17 +220,18 @@ InternalIterator* TableCache::NewIterator(
   if (create_new_table_reader) {
     unique_ptr<TableReader> table_reader_unique_ptr;
     s = GetTableReader(
-        env_options, icomparator, fd, true /* sequential_mode */, readahead,
-        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-        prefix_extractor, false /* skip_filters */, level,
-        true /* prefetch_index_and_filter_in_cache */, for_compaction);
+        env_options, icomparator, file_meta, true /* sequential_mode */,
+        readahead, !for_compaction /* record stats */, nullptr,
+        &table_reader_unique_ptr, prefix_extractor, false /* skip_filters */,
+        level, true /* prefetch_index_and_filter_in_cache */, for_compaction);
     if (s.ok()) {
       table_reader = table_reader_unique_ptr.release();
     }
   } else {
     table_reader = fd.table_reader;
     if (table_reader == nullptr) {
-      s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
+      s = FindTable(env_options, icomparator, file_meta, &handle,
+                    prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     !for_compaction /* record read_stats */, file_read_hist,
                     skip_filters, level);
@@ -356,8 +362,8 @@ Status TableCache::Get(const ReadOptions& options,
   if (!done && s.ok()) {
     if (t == nullptr) {
       s = FindTable(
-          env_options_, internal_comparator, fd, &handle, prefix_extractor,
-          options.read_tier == kBlockCacheTier /* no_io */,
+          env_options_, internal_comparator, file_meta, &handle,
+          prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
           true /* record_read_stats */, file_read_hist, skip_filters, level);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
@@ -408,10 +414,12 @@ Status TableCache::Get(const ReadOptions& options,
 
 Status TableCache::GetTableProperties(
     const EnvOptions& env_options,
-    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
     std::shared_ptr<const TableProperties>* properties,
     const SliceTransform* prefix_extractor, bool no_io) {
   Status s;
+  const auto& fd = file_meta.fd;
   auto table_reader = fd.table_reader;
   // table already been pre-loaded?
   if (table_reader) {
@@ -421,7 +429,7 @@ Status TableCache::GetTableProperties(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(env_options, internal_comparator, fd, &table_handle,
+  s = FindTable(env_options, internal_comparator, file_meta, &table_handle,
                 prefix_extractor, no_io);
   if (!s.ok()) {
     return s;
@@ -435,9 +443,10 @@ Status TableCache::GetTableProperties(
 
 size_t TableCache::GetMemoryUsageByTableReader(
     const EnvOptions& env_options,
-    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    const SliceTransform* prefix_extractor) {
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta, const SliceTransform* prefix_extractor) {
   Status s;
+  const auto& fd = file_meta.fd;
   auto table_reader = fd.table_reader;
   // table already been pre-loaded?
   if (table_reader) {
@@ -445,7 +454,7 @@ size_t TableCache::GetMemoryUsageByTableReader(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(env_options, internal_comparator, fd, &table_handle,
+  s = FindTable(env_options, internal_comparator, file_meta, &table_handle,
                 prefix_extractor, true);
   if (!s.ok()) {
     return 0;

@@ -13,6 +13,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
@@ -31,14 +32,18 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1)
+                     int _level = -1,
+                     SequenceNumber _smallest_seqno = kMaxSequenceNumber,
+                     SequenceNumber _largest_seqno = 0)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
         immortal(_immortal),
-        level(_level) {}
+        level(_level),
+        smallest_seqno(_smallest_seqno),
+        largest_seqno(_largest_seqno) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -50,6 +55,17 @@ struct TableReaderOptions {
   bool immortal;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
+
+  // if smallest_seqno == largest_seqno, then there are two possibilities:
+  //   a) the table is external SST if table properties has global_seqno
+  //       field (even if its value is not used any more);
+  //   b) the table is NOT external SST if table properties does NOT have
+  //       global_seqno field.
+  //
+  // smallest seqno in the table
+  SequenceNumber smallest_seqno;
+  // largest seqno in the table
+  SequenceNumber largest_seqno;
 };
 
 struct TableBuilderOptions {
