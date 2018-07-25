@@ -4,7 +4,6 @@ from advisor.db_options_parser import DatabaseOptions
 from advisor.db_stats_fetcher import (
     LogStatsParser, OdsStatsFetcher, DatabasePerfContext
 )
-import glob
 import os
 import re
 import shutil
@@ -44,6 +43,7 @@ class DBBenchRunner(BenchmarkRunner):
         self.db_bench_binary = positional_args[0]
         self.benchmark = positional_args[1]
         self.db_bench_args = None
+        # TODO(poojam23): move to unittest with method get_available_workloads
         self.supported_benchmarks = None
         if len(positional_args) > 2:
             # options list with each option given as "<option>=<value>"
@@ -87,7 +87,9 @@ class DBBenchRunner(BenchmarkRunner):
                         for tk in token_list
                         if tk
                     }
-                    # add timestamp information
+                    # TODO(poojam23): this is a hack and should be replaced
+                    # with the timestamp that db_bench will provide per printed
+                    # perf_context
                     timestamp = int(time.time())
                     perf_context_ts = {}
                     for stat in perf_context.keys():

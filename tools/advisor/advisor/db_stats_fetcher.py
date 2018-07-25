@@ -18,6 +18,15 @@ class LogStatsParser(TimeSeriesData):
 
     @staticmethod
     def parse_log_line_for_stats(log_line):
+        # Example stat line from LOG file:
+        # rocksdb.db.get.micros P50 : 8.478936 P95 : 21.852479 P99 : 33.920851\
+        # P100 : 92.000000 COUNT : 1231 SUM : 12249
+        # This will be converted to the following stats:
+        # rocksdb.db.get.micros.p50 = 8.478936,
+        # rocksdb.db.get.micros.p95 = 21.852479,
+        # rocksdb.db.get.micros.p99 = 33.920851,
+        # rocksdb.db.get.micros.p100 = 92.000000,
+        # rocksdb.db.get.micros.count = 1231, rocksdb.db.get.micros.sum = 12249
         # Note: case insensitive stat names
         token_list = log_line.strip().split()
         stat_prefix = token_list[0] + '.'

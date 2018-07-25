@@ -103,6 +103,11 @@ class DatabaseLogs(DataSource):
 
     def check_and_trigger_conditions(self, conditions):
         for file_name in glob.glob(self.logs_path_prefix + '*'):
+            # TODO(poojam23): find a way to distinguish between log files
+            # - generated in the current experiment but are labeled 'old'
+            # because they LOGs exceeded the file size limit  AND
+            # - generated in some previous experiment that are also labeled
+            # 'old' and were not deleted for some reason
             if re.search('old', file_name, re.IGNORECASE):
                 continue
             with open(file_name, 'r') as db_logs:

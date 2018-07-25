@@ -1,3 +1,8 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from abc import ABC, abstractmethod
 import re
 
@@ -15,9 +20,11 @@ class BenchmarkRunner(ABC):
 
     @staticmethod
     def get_info_log_file_name(log_dir, db_path):
-        # if the log_dir is explicitly specified in the Rocksdb OPTIONS, then
-        # the name of the log file has a prefix created from the db_path; else
-        # the default log file name is LOG.
+        # Example: DB Path = /dev/shm and OPTIONS file has option
+        # db_log_dir=/tmp/rocks/, then the name of the log file will be
+        # 'dev_shm_LOG' and its location will be /tmp/rocks. If db_log_dir is
+        # not specified in the OPTIONS file, then the location of the log file
+        # will be /dev/shm and the name of the file will be 'LOG'
         file_name = ''
         if log_dir:
             # refer GetInfoLogPrefix() in rocksdb/util/filename.cc
