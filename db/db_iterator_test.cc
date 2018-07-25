@@ -2433,7 +2433,6 @@ TEST_P(DBIteratorTest, SeekBackwardAfterOutOfUpperBound) {
   it->SeekForPrev("a");
   ASSERT_OK(it->status());
 
-  // This used to fail at some point.
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("a", it->key().ToString());
 }
