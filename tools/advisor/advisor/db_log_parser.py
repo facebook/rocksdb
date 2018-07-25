@@ -9,13 +9,14 @@ import re
 from enum import Enum
 
 
+NO_FAM = 'DB_WIDE'
+
+
 class DataSource(ABC):
     class Type(Enum):
         LOG = 1
         DB_OPTIONS = 2
-        STATS = 3
-        PERF_CONTEXT = 4
-        ODS = 5
+        TIME_SERIES = 3
 
     def __init__(self, type):
         self.type = type
@@ -33,11 +34,19 @@ class Log:
         date_regex = '\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}'
         return re.match(date_regex, log_line)
 
-    def __init__(self, log_line):
+    def __init__(self, log_line, column_families):
         token_list = log_line.strip().split()
         self.time = token_list[0]
         self.context = token_list[1]
         self.message = " ".join(token_list[2:])
+        self.column_family = None
+        for col_fam in column_families:
+            search_for_str = '[' + col_fam + ']'
+            if re.search(search_for_str, self.message):
+                self.column_family = col_fam
+                break
+        if not self.column_family:
+            self.column_family = NO_FAM
 
     def get_time(self):
         return self.time
@@ -57,40 +66,36 @@ class Log:
 
 
 class DatabaseLogs(DataSource):
-    def __init__(self, logs_path_prefix):
+    def __init__(self, logs_path_prefix, column_families):
         super().__init__(DataSource.Type.LOG)
         self.logs_path_prefix = logs_path_prefix
+        self.column_families = column_families
 
-    def trigger_appropriate_conditions(self, conditions, log):
-        conditions_to_be_removed = []
+    def trigger_conditions_for_log(self, conditions, log):
         for cond in conditions:
             if re.search(cond.regex, log.get_message(), re.IGNORECASE):
-                cond.set_trigger(log)
-                conditions_to_be_removed.append(cond)
-        for remove_cond in conditions_to_be_removed:
-            conditions.remove(remove_cond)
-        return conditions
+                trigger = cond.get_trigger()
+                if not trigger:
+                    trigger = {}
+                if log.column_family not in trigger:
+                    trigger[log.column_family] = []
+                trigger[log.column_family].append(log)
+                cond.set_trigger(trigger)
 
     def check_and_trigger_conditions(self, conditions):
         for file_name in glob.glob(self.logs_path_prefix + '*'):
             with open(file_name, 'r') as db_logs:
                 new_log = None
                 for line in db_logs:
-                    if not conditions:
-                        break
                     if Log.is_new_log(line):
                         if new_log:
-                            conditions = self.trigger_appropriate_conditions(
-                                conditions,
-                                new_log
+                            self.trigger_conditions_for_log(
+                                conditions, new_log
                             )
-                        new_log = Log(line)
+                        new_log = Log(line, self.column_families)
                     else:
                         # To account for logs split into multiple lines
                         new_log.append_message(line)
             # Check for the last log in the file.
-            if new_log and conditions:
-                conditions = self.trigger_appropriate_conditions(
-                    conditions,
-                    new_log
-                )
+            if new_log:
+                self.trigger_conditions_for_log(conditions, new_log)
