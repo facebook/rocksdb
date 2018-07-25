@@ -664,19 +664,8 @@ bool IsFeatureSupported(const TableProperties& table_properties,
 }
 
 SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
-                                       SequenceNumber smallest_seqno,
                                        SequenceNumber largest_seqno,
                                        Logger* info_log) {
-  if (smallest_seqno < largest_seqno) {
-    // Not an external ingested SST file.
-    return kDisableGlobalSequenceNumber;
-  } else if (smallest_seqno > largest_seqno) {
-    if (smallest_seqno != kMaxSequenceNumber || largest_seqno != 0) {
-      assert(false);
-    }
-    return kDisableGlobalSequenceNumber;
-  }
-
   const auto& props = table_properties.user_collected_properties;
   const auto version_pos = props.find(ExternalSstFilePropertyNames::kVersion);
   const auto seqno_pos = props.find(ExternalSstFilePropertyNames::kGlobalSeqno);
@@ -707,7 +696,9 @@ SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
     return kDisableGlobalSequenceNumber;
   }
 
-  SequenceNumber global_seqno = largest_seqno;
+  SequenceNumber global_seqno = DecodeFixed64(seqno_pos->second.c_str());
+  assert(global_seqno == 0 || global_seqno == largest_seqno);
+  global_seqno = largest_seqno;
 
   if (global_seqno > kMaxSequenceNumber) {
     assert(false);
@@ -734,17 +725,19 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
   return Slice(cache_key, static_cast<size_t>(end - cache_key));
 }
 
-Status BlockBasedTable::Open(
-    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-    const BlockBasedTableOptions& table_options,
-    const InternalKeyComparator& internal_comparator,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader,
-    const SliceTransform* prefix_extractor,
-    const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
-    const int level, const bool immortal_table,
-    const SequenceNumber smallest_seqno, const SequenceNumber largest_seqno,
-    TailPrefetchStats* tail_prefetch_stats) {
+Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
+                             const EnvOptions& env_options,
+                             const BlockBasedTableOptions& table_options,
+                             const InternalKeyComparator& internal_comparator,
+                             unique_ptr<RandomAccessFileReader>&& file,
+                             uint64_t file_size,
+                             unique_ptr<TableReader>* table_reader,
+                             const SliceTransform* prefix_extractor,
+                             const bool prefetch_index_and_filter_in_cache,
+                             const bool skip_filters, const int level,
+                             const bool immortal_table,
+                             const SequenceNumber largest_seqno,
+                             TailPrefetchStats* tail_prefetch_stats) {
   table_reader->reset();
 
   Footer footer;
@@ -946,9 +939,8 @@ Status BlockBasedTable::Open(
         *(rep->table_properties),
         BlockBasedTablePropertyNames::kPrefixFiltering, rep->ioptions.info_log);
 
-    rep->global_seqno =
-        GetGlobalSequenceNumber(*(rep->table_properties), smallest_seqno,
-                                largest_seqno, rep->ioptions.info_log);
+    rep->global_seqno = GetGlobalSequenceNumber(
+        *(rep->table_properties), largest_seqno, rep->ioptions.info_log);
   }
 
   // Read the range del meta block

@@ -547,6 +547,23 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         "field");
   }
 
+  // Determine if we can write global_seqno to a given offset of file.
+  // If the file system does not support random write, then we should not.
+  // Otherwise we should.
+  std::unique_ptr<RandomRWFile> rwfile;
+  Status status = env_->NewRandomRWFile(file_to_ingest->internal_file_path,
+                                        &rwfile, env_options_);
+  if (status.ok()) {
+    std::string seqno_val;
+    PutFixed64(&seqno_val, seqno);
+    status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
+    if (!status.ok()) {
+      return status;
+    }
+  } else if (!status.IsNotSupported()) {
+    return status;
+  }
+
   file_to_ingest->assigned_seqno = seqno;
   return Status::OK();
 }

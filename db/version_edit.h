@@ -41,9 +41,11 @@ struct FileDescriptor {
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
+  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
+      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
+
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
-                 SequenceNumber _smallest_seqno = kMaxSequenceNumber,
-                 SequenceNumber _largest_seqno = 0)
+                 SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
       : table_reader(nullptr),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
         file_size(_file_size),
