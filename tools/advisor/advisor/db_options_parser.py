@@ -35,38 +35,45 @@ class OptionsSpecParser(IniParser):
 
     @staticmethod
     def get_section_str(section_type, section_name):
-        # Example: let section_type = 'TableOptions.BlockBasedTable' and let
-        # section_name = 'default'; then the section string returned is:
-        # '[TableOptions/BlockBasedTable "default"]'
+        # Example:
+        # Case 1: get_section_str('DBOptions', NO_COL_FAMILY)
+        # Case 2: get_section_str('TableOptions.BlockBasedTable', 'default')
         section_type = '/'.join(section_type.strip().split('.'))
+        # Case 1: section_type = 'DBOptions'
+        # Case 2: section_type = 'TableOptions/BlockBasedTable'
         section_str = '[' + section_type
         if section_name == NO_COL_FAMILY:
+            # Case 1: '[DBOptions]'
             return (section_str + ']')
         else:
+            # Case 2: '[TableOptions/BlockBasedTable "default"]'
             return section_str + ' "' + section_name + '"]'
 
     @staticmethod
     def get_option_str(key, values):
-        # Examples- case: when values is list: let
-        # key='max_bytes_for_level_multiplier_additional',
-        # values=[1,1,1,1,1,1,1], then option_str =
-        # 'max_bytes_for_level_multiplier_additional=1:1:1:1:1:1:1'
-        # case: when values is not list: let key='write_buffer_size',
-        # values=1048576, then option_str='write_buffer_size=1048576'
-        # case: when values is None: let key='db_log_dir', values=None, then
-        # option_str='db_log_dir='
         option_str = key + '='
+        # get_option_str('db_log_dir', None), returns 'db_log_dir='
         if values:
+            # example:
+            # get_option_str('max_bytes_for_level_multiplier_additional',
+            # [1,1,1,1,1,1,1]), returned string:
+            # 'max_bytes_for_level_multiplier_additional=1:1:1:1:1:1:1'
             if isinstance(values, list):
                 for value in values:
                     option_str += (str(value) + ':')
                 option_str = option_str[:-1]
             else:
+                # example: get_option_str('write_buffer_size', 1048576)
+                # returned string: 'write_buffer_size=1048576'
                 option_str += str(values)
         return option_str
 
 
 class DatabaseOptions(DataSource):
+
+    @staticmethod
+    def is_misc_option(option_name):
+        return '.' not in option_name
 
     @staticmethod
     def get_options_diff(opt_old, opt_new):
@@ -204,10 +211,10 @@ class DatabaseOptions(DataSource):
                     self.misc_options[option]
                 )
             else:
-                # Example: say required option is
-                # 'TableOptions.BlockBasedTable.block_align', then sec_type is
-                # 'TableOptions.BlockBasedTable' and opt_name is 'block_align'
+                # Example: option = 'TableOptions.BlockBasedTable.block_align'
+                # then, sec_type = 'TableOptions.BlockBasedTable'
                 sec_type = '.'.join(option.split('.')[:-1])
+                # opt_name = 'block_align'
                 opt_name = option.split('.')[-1]
                 if sec_type not in self.options_dict:
                     continue
@@ -232,6 +239,10 @@ class DatabaseOptions(DataSource):
                 # by '<section_type>.' and must be stored in the separate
                 # misc_options dictionary
                 if NO_COL_FAMILY not in options[option]:
+                    print(
+                        'WARNING(DatabaseOptions): check format of option: ' +
+                        option
+                    )
                     continue
                 self.misc_options[option] = options[option][NO_COL_FAMILY]
             else:
@@ -281,6 +292,11 @@ class DatabaseOptions(DataSource):
             missing_reqd_option = False
             for ix, option in enumerate(cond.options):
                 if option not in reqd_options_dict:
+                    print(
+                        'WARNING(DatabaseOptions): condition ' + cond.name +
+                        ' requires option ' + option + ' but this option is' +
+                        ' not available'
+                    )
                     missing_reqd_option = True
                     break  # required option is absent
                 if NO_COL_FAMILY in reqd_options_dict[option]:
@@ -298,7 +314,9 @@ class DatabaseOptions(DataSource):
                     if eval(cond.eval_expr):
                         cond.set_trigger({NO_COL_FAMILY: options})
                 except Exception as e:
-                    print('DatabaseOptions check_and_trigger: ' + str(e))
+                    print(
+                        'WARNING(DatabaseOptions) check_and_trigger:' + str(e)
+                    )
                 continue
 
             # for all the options that are not database-wide, we look for their
@@ -319,7 +337,10 @@ class DatabaseOptions(DataSource):
                                 copy.deepcopy(options)
                             )
                     except Exception as e:
-                        print('DatabaseOptions check_and_trigger: ' + str(e))
+                        print(
+                            'WARNING(DatabaseOptions) check_and_trigger: ' +
+                            str(e)
+                        )
             # Trigger for an OptionCondition object is of the form:
             # Dict[col_fam_name: List[option_value]]
             # where col_fam_name is the name of a column family for which

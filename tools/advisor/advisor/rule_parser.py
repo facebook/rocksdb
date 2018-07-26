@@ -88,6 +88,10 @@ class Rule(Section):
                 self.overlap_time_seconds = in_seconds
 
     def get_overlap_timestamps(self, key1_trigger_epochs, key2_trigger_epochs):
+        # this method takes in 2 timeseries i.e. timestamps at which the
+        # rule's 2 TIME_SERIES conditions were triggered and it finds
+        # (if present) the first pair of timestamps at which the 2 conditions
+        # were triggered within 'overlap_time_seconds' of each other
         key1_lower_bounds = [
             epoch - self.overlap_time_seconds
             for epoch in key1_trigger_epochs
@@ -229,6 +233,12 @@ class Suggestion(Section):
 
     def set_parameter(self, key, value):
         if key == 'option':
+            # Note:
+            # case 1: 'option' is supported by Rocksdb OPTIONS file; in this
+            # case the option belongs to one of the sections in the config
+            # file and it's name is prefixed by "<section_type>."
+            # case 2: 'option' is not supported by Rocksdb OPTIONS file; the
+            # option is not expected to have the character '.' in its name
             self.option = value
         elif key == 'action':
             if self.option and not value:

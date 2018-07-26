@@ -30,17 +30,26 @@ class TimeSeriesData(DataSource):
         self.stats_freq_sec = None
 
     @abstractmethod
-    def get_keys_from_conditions(self):
+    def get_keys_from_conditions(self, conditions):
+        # This method takes in a list of time-series conditions; for each
+        # condition it manipulates the 'keys' in the way that is supported by
+        # the subclass implementing this method
         pass
 
     @abstractmethod
-    def fetch_timeseries(self):
+    def fetch_timeseries(self, required_statistics):
+        # this method takes in a list of statistics and fetches the timeseries
+        # for each of them and populates the 'keys_ts' dictionary
         pass
 
     def fetch_burst_epochs(
         self, entities, statistic, window_sec, threshold, percent
     ):
         # type: (str, int, float, bool) -> Dict[str, Dict[int, float]]
+        # this method calculates the (percent) rate change in the 'statistic'
+        # for each entity (over 'window_sec' seconds) and returns the epochs
+        # where this rate change is greater than or equal to the 'threshold'
+        # value
         if self.stats_freq_sec == 0:
             # not time series data, cannot check for bursty behavior
             return
@@ -170,7 +179,9 @@ class TimeSeriesData(DataSource):
                     if eval(condition.expression):
                         trigger[entity] = keys
                 except Exception as e:
-                    print('TimeSeriesData check_and_trigger: ' + str(e))
+                    print(
+                        'WARNING(TimeSeriesData) check_and_trigger: ' + str(e)
+                    )
             else:
                 # assumption: all stats have same series of timestamps
                 # this is similar to the above but 'expression' is evaluated at
@@ -189,6 +200,9 @@ class TimeSeriesData(DataSource):
                                 trigger[entity] = {}
                             trigger[entity][epoch] = keys
                     except Exception as e:
-                        print('TimeSeriesData check_&_trigger: ' + str(e))
+                        print(
+                            'WARNING(TimeSeriesData) check_and_trigger: ' +
+                            str(e)
+                        )
         if trigger:
             condition.set_trigger(trigger)

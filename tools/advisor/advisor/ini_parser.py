@@ -63,7 +63,7 @@ class IniParser:
         line = line.strip()
         key = line.split('=')[0].strip()
         value = "=".join(line.split('=')[1:])
-        if not value:
+        if value == "":  # if the option has no value
             return (key, None)
         values = IniParser.get_list_from_value(value)
         if len(values) == 1:

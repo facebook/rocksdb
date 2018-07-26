@@ -58,11 +58,11 @@ class ConfigOptimizer:
         for sugg_name in rule.get_suggestions():
             option = suggestions_dict[sugg_name].option
             action = suggestions_dict[sugg_name].action
-            if not (option and action):
-                # A Suggestion in the rules spec must have the 'option' and
-                # 'action' fields defined, always call perform_checks() method
-                # after parsing the rules file using RulesSpec
-                continue
+            # A Suggestion in the rules spec must have the 'option' and
+            # 'action' fields defined, always call perform_checks() method
+            # after parsing the rules file using RulesSpec
+            assert(option)
+            assert(action)
             required_options.append(option)
             rule_suggestions.append(suggestions_dict[sugg_name])
         current_config = options.get_options(required_options)
@@ -77,10 +77,10 @@ class ConfigOptimizer:
                     )
                     if sugg.option not in updated_config:
                         updated_config[sugg.option] = {}
-                    if '.' not in sugg.option:
+                    if DatabaseOptions.is_misc_option(sugg.option):
                         # this suggestion is on an option that is not yet
                         # supported by the Rocksdb OPTIONS file and so it is
-                        # not prefixed by an section type.
+                        # not prefixed by a section type.
                         updated_config[sugg.option][NO_COL_FAMILY] = new_value
                     else:
                         for col_fam in rule.get_trigger_column_families():

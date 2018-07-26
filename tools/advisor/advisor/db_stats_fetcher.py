@@ -18,30 +18,29 @@ class LogStatsParser(TimeSeriesData):
 
     @staticmethod
     def parse_log_line_for_stats(log_line):
-        # Example stat line from LOG file:
-        # rocksdb.db.get.micros P50 : 8.478936 P95 : 21.852479 P99 : 33.920851\
-        # P100 : 92.000000 COUNT : 1231 SUM : 12249
-        # This will be converted to the following stats:
-        # rocksdb.db.get.micros.p50 = 8.478936,
-        # rocksdb.db.get.micros.p95 = 21.852479,
-        # rocksdb.db.get.micros.p99 = 33.920851,
-        # rocksdb.db.get.micros.p100 = 92.000000,
-        # rocksdb.db.get.micros.count = 1231, rocksdb.db.get.micros.sum = 12249
-        # Note: case insensitive stat names
+        # Example stat line (from LOG file):
+        # "rocksdb.db.get.micros P50 : 8.4 P95 : 21.8 P99 : 33.9 P100 : 92.0\n"
         token_list = log_line.strip().split()
-        stat_prefix = token_list[0] + '.'
+        # token_list = ['rocksdb.db.get.micros', 'P50', ':', '8.4', 'P95', ':',
+        # '21.8', 'P99', ':', '33.9', 'P100', ':', '92.0']
+        stat_prefix = token_list[0] + '.'  # 'rocksdb.db.get.micros.'
         stat_values = [
             token
             for token in token_list[1:]
             if token != ':'
         ]
+        # stat_values = ['P50', '8.4', 'P95', '21.8', 'P99', '33.9', 'P100',
+        # '92.0']
         stat_dict = {}
         for ix, metric in enumerate(stat_values):
             if ix % 2 == 0:
                 stat_name = stat_prefix + metric
-                stat_name = stat_name.lower()
+                stat_name = stat_name.lower()  # Note: case insensitive names
             else:
                 stat_dict[stat_name] = float(metric)
+        # stat_dict = {'rocksdb.db.get.micros.p50': 8.4,
+        # 'rocksdb.db.get.micros.p95': 21.8, 'rocksdb.db.get.micros.p99': 33.9,
+        # 'rocksdb.db.get.micros.p100': 92.0}
         return stat_dict
 
     def __init__(self, logs_path_prefix, stats_freq_sec):
@@ -70,23 +69,22 @@ class LogStatsParser(TimeSeriesData):
         # this method takes in the Log object that contains the Rocksdb stats
         # and a list of required stats, then it parses the stats line by line
         # to fetch required stats and add them to the keys_ts object
-        # Example: let reqd_stats = ['rocksdb.block.cache.hit.count',
+        # Example: reqd_stats = ['rocksdb.block.cache.hit.count',
         # 'rocksdb.db.get.micros.p99']
-        # in the LOG file, stats are printed like:
-        # 2018/07/25-11:30:19.143434 7ff8d3fa9700 ... STATISTICS:\n
+        # Let log.get_message() returns following string:
+        # "[WARN] [db/db_impl.cc:485] STATISTICS:\n
         # rocksdb.block.cache.miss COUNT : 1459\n
         # rocksdb.block.cache.hit COUNT : 37\n
         # ...
-        # rocksdb.db.get.micros P50 : 15.670213 P95 : 39.761111 P99 :\
-        # 62.634615 P100 : 148.000000 COUNT : 895 SUM : 16614\n
-        # ...
-        # Then the updates to keys_ts are:
-        # keys_ts[NO_ENTITY]['rocksdb.db.get.micros.p99'][1532518219]=62.634615
-        # keys_ts[NO_ENTITY]['rocksdb.block.cache.hit.count'][1532518219]=37
+        # rocksdb.db.get.micros P50 : 15.6 P95 : 39.7 P99 : 62.6 P100 : 148.0\n
+        # ..."
         new_lines = log.get_message().split('\n')
+        # let log_ts = 1532518219
         log_ts = log.get_timestamp()
-        # the first line in the log does not contain any statistics
-        for line in new_lines[1:]:
+        # example updates to keys_ts:
+        # keys_ts[NO_ENTITY]['rocksdb.db.get.micros.p99'][1532518219] = 62.6
+        # keys_ts[NO_ENTITY]['rocksdb.block.cache.hit.count'][1532518219] = 37
+        for line in new_lines[1:]:  # new_lines[0] does not contain any stats
             stats_on_line = self.parse_log_line_for_stats(line)
             for stat in stats_on_line:
                 if stat in reqd_stats:

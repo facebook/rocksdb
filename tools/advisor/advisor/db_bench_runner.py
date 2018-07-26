@@ -21,7 +21,7 @@ class DBBenchRunner(BenchmarkRunner):
     ERROR_FILE = "temp/dbbench_err.tmp"
     DB_PATH = "DB path"
     THROUGHPUT = "ops/sec"
-    PERF_CON = "db perf context"
+    PERF_CON = " PERF_CONTEXT:"
 
     @staticmethod
     def is_metric_better(new_metric, old_metric):
@@ -75,7 +75,7 @@ class DBBenchRunner(BenchmarkRunner):
                                 float(token_list[ix - 1])
                             )
                             break
-                elif line.startswith(' PERF_CONTEXT:'):
+                elif line.startswith(self.PERF_CON):
                     perf_context_begins = True
                 elif get_perf_context and perf_context_begins:
                     # Sample perf_context output:

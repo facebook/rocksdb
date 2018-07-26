@@ -42,6 +42,9 @@ class Log:
         self.context = token_list[1]
         self.message = " ".join(token_list[2:])
         self.column_family = None
+        # example log for 'default' column family:
+        # "2018/07/25-17:29:05.176080 7f969de68700 [db/compaction_job.cc:1634]
+        # [default] [JOB 3] Compacting 24@0 + 16@1 files to L1, score 6.00\n"
         for col_fam in column_families:
             search_for_str = '\[' + col_fam + '\]'
             if re.search(search_for_str, self.message):
@@ -67,14 +70,9 @@ class Log:
         self.message = self.message + '\n' + remaining_log.strip()
 
     def get_timestamp(self):
-        # assumes that the LOG timestamp is in GMT; this means that if this
-        # timestamp is to be converted to a human-readable value, one could
-        # either use the method get_human_readable_time() in this class or
-        # one can use 'datetime.utcfromtimestamp(<timestamp>).isoformat()';
-        # in either case the value returned would match the Log time in the LOG
-        # file
         # example: '2018/07/25-11:25:45.782710' will be converted to the GMT
-        # Unix timestamp 1532517945
+        # Unix timestamp 1532517945 (note: this method assumes that self.time
+        # is in GMT)
         hr_time = self.time + 'GMT'
         timestamp = timegm(time.strptime(hr_time, "%Y/%m/%d-%H:%M:%S.%f%Z"))
         return timestamp
