@@ -663,53 +663,70 @@ bool IsFeatureSupported(const TableProperties& table_properties,
   return true;
 }
 
-SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
-                                       SequenceNumber largest_seqno,
-                                       Logger* info_log) {
+// Caller has to ensure seqno is not nullptr.
+Status GetGlobalSequenceNumber(const TableProperties& table_properties,
+                               SequenceNumber largest_seqno,
+                               SequenceNumber* seqno) {
   const auto& props = table_properties.user_collected_properties;
   const auto version_pos = props.find(ExternalSstFilePropertyNames::kVersion);
   const auto seqno_pos = props.find(ExternalSstFilePropertyNames::kGlobalSeqno);
 
+  *seqno = kDisableGlobalSequenceNumber;
   if (version_pos == props.end()) {
     if (seqno_pos != props.end()) {
+      char msg_buf[128] = {0};
       // This is not an external sst file, global_seqno is not supported.
-      assert(false);
-      ROCKS_LOG_ERROR(
-          info_log,
+      snprintf(
+          msg_buf, sizeof(msg_buf),
           "A non-external sst file have global seqno property with value %s",
           seqno_pos->second.c_str());
+      return Status::Corruption(msg_buf);
     }
-    return kDisableGlobalSequenceNumber;
+    return Status::OK();
   }
 
   uint32_t version = DecodeFixed32(version_pos->second.c_str());
   if (version < 2) {
     if (seqno_pos != props.end() || version != 1) {
+      char msg_buf[128] = {0};
       // This is a v1 external sst file, global_seqno is not supported.
-      assert(false);
-      ROCKS_LOG_ERROR(
-          info_log,
-          "An external sst file with version %u have global seqno property "
-          "with value %s",
-          version, seqno_pos->second.c_str());
+      snprintf(msg_buf, sizeof(msg_buf),
+               "An external sst file with version %u have global seqno "
+               "property with value %s",
+               version, seqno_pos->second.c_str());
+      return Status::Corruption(msg_buf);
     }
-    return kDisableGlobalSequenceNumber;
+    return Status::OK();
   }
 
-  SequenceNumber global_seqno = DecodeFixed64(seqno_pos->second.c_str());
-  assert(global_seqno == 0 || global_seqno == largest_seqno);
+  // Since we have a plan to deprecate global_seqno, we do not return failure
+  // if seqno_pos == props.end(). We rely on version_pos to detect whether the
+  // SST is external.
+  SequenceNumber global_seqno(0);
+  if (seqno_pos != props.end()) {
+    global_seqno = DecodeFixed64(seqno_pos->second.c_str());
+  }
+  if (global_seqno != 0 && global_seqno != largest_seqno) {
+    char msg_buf[128];
+    snprintf(msg_buf, sizeof(msg_buf),
+             "An external sst file with version %u have global seqno property "
+             "with value %s, while largest seqno in the file is %lu",
+             version, seqno_pos->second.c_str(), largest_seqno);
+    return Status::Corruption(msg_buf);
+  }
   global_seqno = largest_seqno;
+  *seqno = largest_seqno;
 
   if (global_seqno > kMaxSequenceNumber) {
-    assert(false);
-    ROCKS_LOG_ERROR(
-        info_log,
-        "An external sst file with version %u have global seqno property "
-        "with value %llu, which is greater than kMaxSequenceNumber",
-        version, global_seqno);
+    char msg_buf[128] = {0};
+    snprintf(msg_buf, sizeof(msg_buf),
+             "An external sst file with version %u have global seqno property "
+             "with value %lu, which is greater than kMaxSequenceNumber",
+             version, global_seqno);
+    return Status::Corruption(msg_buf);
   }
 
-  return global_seqno;
+  return Status::OK();
 }
 }  // namespace
 
@@ -939,8 +956,12 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         *(rep->table_properties),
         BlockBasedTablePropertyNames::kPrefixFiltering, rep->ioptions.info_log);
 
-    rep->global_seqno = GetGlobalSequenceNumber(
-        *(rep->table_properties), largest_seqno, rep->ioptions.info_log);
+    s = GetGlobalSequenceNumber(*(rep->table_properties), largest_seqno,
+                                &(rep->global_seqno));
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(rep->ioptions.info_log, "%s", s.ToString().c_str());
+      return s;
+    }
   }
 
   // Read the range del meta block

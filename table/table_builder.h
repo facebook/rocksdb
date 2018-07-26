@@ -32,7 +32,18 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1, SequenceNumber _largest_seqno = 0)
+                     int _level = -1)
+      : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
+                           _internal_comparator, _skip_filters, _immortal,
+                           _level, 0 /* _largest_seqno */) {}
+
+  // @param skip_filters Disables loading/accessing the filter block
+  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+                     const SliceTransform* _prefix_extractor,
+                     const EnvOptions& _env_options,
+                     const InternalKeyComparator& _internal_comparator,
+                     bool _skip_filters, bool _immortal, int _level,
+                     SequenceNumber _largest_seqno)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
