@@ -338,9 +338,9 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       std::vector<Slice> multiget_keys;
       multiget_keys.push_back("foo");
       multiget_keys.push_back("bar");
-      std::vector<PinnableSlice*> multiget_values;
+      std::vector<PinnableSlice> multiget_values;
       auto statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, multiget_values);
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[0].IsNotFound());
         ASSERT_TRUE(statuses[1].IsNotFound());
@@ -371,11 +371,11 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       multiget_cfs.push_back(handles_[1]);
       multiget_keys.push_back("rocksdb");
       statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, multiget_values);
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
       ASSERT_TRUE(statuses[0].ok());
-      ASSERT_EQ("first", multiget_values[0]->data());
+      ASSERT_EQ("first", multiget_values[0].data());
       ASSERT_TRUE(statuses[1].ok());
-      ASSERT_EQ("one", multiget_values[1]->data());
+      ASSERT_EQ("one", multiget_values[1].data());
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[2].IsNotFound());
       } else {
@@ -400,16 +400,16 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       ASSERT_EQ(value, "hello");
 
       statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, multiget_values);
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
       ASSERT_TRUE(statuses[0].IsNotFound());
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[1].ok());
-        ASSERT_EQ("one", multiget_values[1]->data());
+        ASSERT_EQ("one", multiget_values[1].data());
       } else {
         ASSERT_TRUE(statuses[1].IsNotFound());
       }
       ASSERT_TRUE(statuses[2].ok());
-      ASSERT_EQ("hello", multiget_values[2]->data());
+      ASSERT_EQ("hello", multiget_values[2].data());
       if (wopt.disableWAL == 0) {
         DestroyAndReopen(options);
       }
@@ -2017,9 +2017,9 @@ static void MTThreadBody(void* arg) {
       // and that writes to all column families were atomic (unique_id is the
       // same)
       std::vector<Slice> keys(kColumnFamilies, Slice(keybuf));
-      std::vector<PinnableSlice*> values;
+      std::vector<PinnableSlice> values;
       std::vector<Status> statuses =
-          db->MultiGet(ReadOptions(), t->state->test->handles_, keys, values);
+          db->MultiGet(ReadOptions(), t->state->test->handles_, keys, &values);
       Status s = statuses[0];
       // all statuses have to be the same
       for (size_t i = 1; i < statuses.size(); ++i) {
@@ -2035,9 +2035,9 @@ static void MTThreadBody(void* arg) {
         int unique_id = -1;
         for (int i = 0; i < kColumnFamilies; ++i) {
           int k, w, c, cf, u;
-          ASSERT_EQ(5, sscanf(values[i]->data(), "%d.%d.%d.%d.%d", &k, &w, &c,
+          ASSERT_EQ(5, sscanf(values[i].data(), "%d.%d.%d.%d.%d", &k, &w, &c,
                               &cf, &u))
-              << values[i]->data();
+              << values[i].data();
           ASSERT_EQ(k, key);
           ASSERT_GE(w, 0);
           ASSERT_LT(w, kNumThreads);
@@ -2259,7 +2259,7 @@ class ModelDB : public DB {
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_family*/,
       const std::vector<Slice>& keys,
-      std::vector<PinnableSlice*>& /*values*/) override {
+      std::vector<PinnableSlice>* /*values*/) override {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
     return s;

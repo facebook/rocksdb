@@ -118,7 +118,7 @@ class DBImpl : public DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
-      std::vector<PinnableSlice*>& values) override;
+      std::vector<PinnableSlice>* values) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,

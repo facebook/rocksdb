@@ -28,7 +28,7 @@ class CompactedDBImpl : public DBImpl {
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>&,
-      const std::vector<Slice>& keys, std::vector<PinnableSlice*>& values)
+      const std::vector<Slice>& keys, std::vector<PinnableSlice>* values)
     override;
 
   using DBImpl::Put;
