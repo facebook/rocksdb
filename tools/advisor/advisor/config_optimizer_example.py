@@ -5,7 +5,7 @@
 
 import argparse
 from advisor.db_config_optimizer import ConfigOptimizer
-from advisor.db_log_parser import NO_FAM
+from advisor.db_log_parser import NO_COL_FAMILY
 from advisor.db_options_parser import DatabaseOptions
 from advisor.rule_parser import RulesSpec
 
@@ -34,7 +34,7 @@ def main(args):
     # location of the LOG file.
     db_log_dump_settings = {
         "DBOptions.stats_dump_period_sec": {
-            NO_FAM: args.stats_dump_period_sec
+            NO_COL_FAMILY: args.stats_dump_period_sec
         }
     }
     db_options.update_options(db_log_dump_settings)
@@ -47,7 +47,7 @@ def main(args):
     )
     # run the optimiser to improve the database configuration for given
     # benchmarks, with the help of expert-specified rules
-    final_db_options = config_optimizer.run_v2()
+    final_db_options = config_optimizer.run()
     # generate the final rocksdb options file
     print(
         'Final configuration in: ' +
@@ -57,8 +57,6 @@ def main(args):
         'Final miscellaneous options: ' +
         repr(final_db_options.get_misc_options())
     )
-    # the ConfigOptimizer has another optimization logic:
-    # config_optimizer.run(num_iterations=CONFIG_OPT_NUM_ITER)
 
 
 if __name__ == '__main__':

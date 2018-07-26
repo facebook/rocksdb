@@ -1,4 +1,4 @@
-from advisor.db_log_parser import DatabaseLogs, Log, NO_FAM
+from advisor.db_log_parser import DatabaseLogs, Log, NO_COL_FAMILY
 from advisor.rule_parser import Condition, LogCondition
 import os
 import unittest
@@ -22,7 +22,7 @@ class TestLog(unittest.TestCase):
         )
         db_log = Log(test_log, self.column_families)
         db_log.append_message('[default] some remaining part of log')
-        self.assertEqual(NO_FAM, db_log.get_column_family())
+        self.assertEqual(NO_COL_FAMILY, db_log.get_column_family())
 
     def test_get_methods(self):
         hr_time = "2018/05/25-14:30:25.491635"
@@ -72,7 +72,9 @@ class TestDatabaseLogs(unittest.TestCase):
         )
         cond1_trigger = condition1.get_trigger()
         self.assertEqual(2, len(cond1_trigger.keys()))
-        self.assertSetEqual({'col-fam-A', NO_FAM}, set(cond1_trigger.keys()))
+        self.assertSetEqual(
+            {'col-fam-A', NO_COL_FAMILY}, set(cond1_trigger.keys())
+        )
         self.assertEqual(2, len(cond1_trigger['col-fam-A']))
         messages = [
             "[db/db_impl.cc:563] [col-fam-A] random log message for testing",
@@ -80,9 +82,9 @@ class TestDatabaseLogs(unittest.TestCase):
         ]
         self.assertIn(cond1_trigger['col-fam-A'][0].get_message(), messages)
         self.assertIn(cond1_trigger['col-fam-A'][1].get_message(), messages)
-        self.assertEqual(1, len(cond1_trigger[NO_FAM]))
+        self.assertEqual(1, len(cond1_trigger[NO_COL_FAMILY]))
         self.assertEqual(
-            cond1_trigger[NO_FAM][0].get_message(),
+            cond1_trigger[NO_COL_FAMILY][0].get_message(),
             "[db/db_impl.cc:331] [unknown] random log message no column family"
         )
         cond2_trigger = condition2.get_trigger()

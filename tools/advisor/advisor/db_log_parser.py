@@ -11,7 +11,7 @@ import re
 import time
 
 
-NO_FAM = 'DB_WIDE'
+NO_COL_FAMILY = 'DB_WIDE'
 
 
 class DataSource(ABC):
@@ -48,9 +48,10 @@ class Log:
                 self.column_family = col_fam
                 break
         if not self.column_family:
-            self.column_family = NO_FAM
+            self.column_family = NO_COL_FAMILY
 
     def get_human_readable_time(self):
+        # example from a log line: '2018/07/25-11:25:45.782710'
         return self.time
 
     def get_column_family(self):
@@ -72,6 +73,8 @@ class Log:
         # one can use 'datetime.utcfromtimestamp(<timestamp>).isoformat()';
         # in either case the value returned would match the Log time in the LOG
         # file
+        # example: '2018/07/25-11:25:45.782710' will be converted to the GMT
+        # Unix timestamp 1532517945
         hr_time = self.time + 'GMT'
         timestamp = timegm(time.strptime(hr_time, "%Y/%m/%d-%H:%M:%S.%f%Z"))
         return timestamp
@@ -91,6 +94,9 @@ class DatabaseLogs(DataSource):
         self.column_families = column_families
 
     def trigger_conditions_for_log(self, conditions, log):
+        # For a LogCondition object, trigger is:
+        # Dict[column_family_name, List[Log]]. This explains why the condition
+        # was triggered and for which column families.
         for cond in conditions:
             if re.search(cond.regex, log.get_message(), re.IGNORECASE):
                 trigger = cond.get_trigger()

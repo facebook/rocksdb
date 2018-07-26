@@ -56,6 +56,10 @@ class LogStatsParser(TimeSeriesData):
         for cond in conditions:
             for key in cond.keys:
                 key = key.lower()
+                # some keys are prepended with '[]' for OdsStatsFetcher to
+                # replace this with the appropriate key_prefix, remove these
+                # characters here since the LogStatsParser does not need
+                # a prefix
                 if key.startswith('[]'):
                     reqd_stats.append(key[2:])
                 else:
@@ -63,7 +67,22 @@ class LogStatsParser(TimeSeriesData):
         return reqd_stats
 
     def add_to_timeseries(self, log, reqd_stats):
-        # type: (Log, List[str]) -> Dict[int, float]
+        # this method takes in the Log object that contains the Rocksdb stats
+        # and a list of required stats, then it parses the stats line by line
+        # to fetch required stats and add them to the keys_ts object
+        # Example: let reqd_stats = ['rocksdb.block.cache.hit.count',
+        # 'rocksdb.db.get.micros.p99']
+        # in the LOG file, stats are printed like:
+        # 2018/07/25-11:30:19.143434 7ff8d3fa9700 ... STATISTICS:\n
+        # rocksdb.block.cache.miss COUNT : 1459\n
+        # rocksdb.block.cache.hit COUNT : 37\n
+        # ...
+        # rocksdb.db.get.micros P50 : 15.670213 P95 : 39.761111 P99 :\
+        # 62.634615 P100 : 148.000000 COUNT : 895 SUM : 16614\n
+        # ...
+        # Then the updates to keys_ts are:
+        # keys_ts[NO_ENTITY]['rocksdb.db.get.micros.p99'][1532518219]=62.634615
+        # keys_ts[NO_ENTITY]['rocksdb.block.cache.hit.count'][1532518219]=37
         new_lines = log.get_message().split('\n')
         log_ts = log.get_timestamp()
         # the first line in the log does not contain any statistics
@@ -75,9 +94,14 @@ class LogStatsParser(TimeSeriesData):
                         self.keys_ts[NO_ENTITY][stat] = {}
                     self.keys_ts[NO_ENTITY][stat][log_ts] = stats_on_line[stat]
 
-    def fetch_timeseries(self, statistics):
+    def fetch_timeseries(self, reqd_stats):
+        # this method parses the Rocksdb LOG file and generates timeseries for
+        # each of the statistic in the list reqd_stats
         self.keys_ts = {NO_ENTITY: {}}
         for file_name in glob.glob(self.logs_file_prefix + '*'):
+            # TODO(poojam23): find a way to distinguish between 'old' log files
+            # from current and previous experiments, present in the same
+            # directory
             if re.search('old', file_name, re.IGNORECASE):
                 continue
             with open(file_name, 'r') as db_logs:
@@ -88,14 +112,14 @@ class LogStatsParser(TimeSeriesData):
                             new_log and
                             re.search(self.STATS, new_log.get_message())
                         ):
-                            self.add_to_timeseries(new_log, statistics)
+                            self.add_to_timeseries(new_log, reqd_stats)
                         new_log = Log(line, column_families=[])
                     else:
                         # To account for logs split into multiple lines
                         new_log.append_message(line)
             # Check for the last log in the file.
             if new_log and re.search(self.STATS, new_log.get_message()):
-                self.add_to_timeseries(new_log, statistics)
+                self.add_to_timeseries(new_log, reqd_stats)
 
 
 class DatabasePerfContext(TimeSeriesData):
@@ -116,6 +140,8 @@ class DatabasePerfContext(TimeSeriesData):
             self.unaccumulate_metrics()
 
     def unaccumulate_metrics(self):
+        # if the perf context metrics provided are cumulative in nature, this
+        # method can be used to convert them to a disjoint format
         epoch_ts = copy.deepcopy(self.keys_ts)
         for stat in self.keys_ts[NO_ENTITY]:
             timeseries = sorted(
@@ -141,6 +167,8 @@ class DatabasePerfContext(TimeSeriesData):
         return reqd_stats
 
     def fetch_timeseries(self, statistics):
+        # this method is redundant for DatabasePerfContext because the __init__
+        # does the job of populating 'keys_ts'
         pass
 
 
@@ -158,6 +186,7 @@ class OdsStatsFetcher(TimeSeriesData):
 
     @staticmethod
     def _get_time_value_pair(pair_string):
+        # example pair_string: '[1532544591, 97.3653601828]'
         pair_string = pair_string.replace('[', '')
         pair_string = pair_string.replace(']', '')
         pair = pair_string.split(',')
@@ -186,6 +215,9 @@ class OdsStatsFetcher(TimeSeriesData):
         err_file.close()
 
     def parse_rapido_output(self):
+        # Output looks like the following:
+        # <entity_name>\t<key_name>\t[[ts, value], [ts, value], ...]
+        # ts = timestamp; value = value of key_name in entity_name at time ts
         self.keys_ts = {}
         with open(self.OUTPUT_FILE, 'r') as fp:
             for line in fp:
@@ -204,6 +236,9 @@ class OdsStatsFetcher(TimeSeriesData):
                 self.keys_ts[entity][key] = value
 
     def parse_ods_output(self):
+        # Output looks like the following:
+        # <entity_name>\t<key_name>\t<timestamp>\t<value>
+        # there is one line per (entity_name, key_name, timestamp)
         self.keys_ts = {}
         with open(self.OUTPUT_FILE, 'r') as fp:
             for line in fp:
@@ -217,6 +252,8 @@ class OdsStatsFetcher(TimeSeriesData):
                 self.keys_ts[entity][key][token_list[2]] = token_list[3]
 
     def fetch_timeseries(self, statistics):
+        # this method fetches the timeseries of required stats from the ODS
+        # service and populates the 'keys_ts' object appropriately
         print('OdsStatsFetcher: fetching ' + str(statistics))
         if re.search('rapido', self.client, re.IGNORECASE):
             command = self.RAPIDO_COMMAND % (

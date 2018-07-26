@@ -1,5 +1,5 @@
 from advisor.bench_runner import BenchmarkRunner
-from advisor.db_log_parser import DataSource, DatabaseLogs, NO_FAM
+from advisor.db_log_parser import DataSource, DatabaseLogs, NO_COL_FAMILY
 from advisor.db_options_parser import DatabaseOptions
 from advisor.db_stats_fetcher import (
     LogStatsParser, OdsStatsFetcher, DatabasePerfContext
@@ -116,9 +116,9 @@ class DBBenchRunner(BenchmarkRunner):
         log_dir = 'DBOptions.db_log_dir'
         log_options = db_options.get_options([dump_period, log_dir])
         if dump_period in log_options:
-            stats_freq_sec = int(log_options[dump_period][NO_FAM])
+            stats_freq_sec = int(log_options[dump_period][NO_COL_FAMILY])
         if log_dir in log_options:
-            log_dir_path = log_options[log_dir][NO_FAM]
+            log_dir_path = log_options[log_dir][NO_COL_FAMILY]
 
         log_file_name = DBBenchRunner.get_info_log_file_name(
             log_dir_path, db_path

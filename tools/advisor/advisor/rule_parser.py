@@ -4,7 +4,7 @@
 #  (found in the LICENSE.Apache file in the root directory).
 
 from abc import ABC, abstractmethod
-from advisor.db_log_parser import DataSource, NO_FAM
+from advisor.db_log_parser import DataSource, NO_COL_FAMILY
 from advisor.db_timeseries_parser import TimeSeriesData
 from enum import Enum
 from advisor.ini_parser import IniParser
@@ -166,7 +166,7 @@ class Rule(Section):
                     cond.get_data_source() is DataSource.Type.DB_OPTIONS
                 ):
                     cond_col_fam = set(cond.get_trigger().keys())
-                    if NO_FAM in cond_col_fam:
+                    if NO_COL_FAMILY in cond_col_fam:
                         cond_col_fam = set(column_families)
                     self.trigger_column_families = (
                         self.trigger_column_families.intersection(cond_col_fam)
