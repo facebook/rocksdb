@@ -1951,6 +1951,7 @@ bool BlockBasedTable::PrefixMayMatch(
 
 template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::Seek(const Slice& target) {
+  is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
@@ -1980,6 +1981,7 @@ void BlockBasedTableIterator<TBlockIter>::Seek(const Slice& target) {
 
 template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::SeekForPrev(const Slice& target) {
+  is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
     return;
@@ -2022,6 +2024,7 @@ void BlockBasedTableIterator<TBlockIter>::SeekForPrev(const Slice& target) {
 
 template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::SeekToFirst() {
+  is_out_of_bound_ = false;
   SavePrevIndexValue();
   index_iter_->SeekToFirst();
   if (!index_iter_->Valid()) {
@@ -2035,6 +2038,7 @@ void BlockBasedTableIterator<TBlockIter>::SeekToFirst() {
 
 template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::SeekToLast() {
+  is_out_of_bound_ = false;
   SavePrevIndexValue();
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
@@ -2113,7 +2117,7 @@ void BlockBasedTableIterator<TBlockIter>::InitDataBlock() {
 
 template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::FindKeyForward() {
-  is_out_of_bound_ = false;
+  assert(!is_out_of_bound_);
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
   while (!block_iter_.Valid()) {
@@ -2153,6 +2157,7 @@ void BlockBasedTableIterator<TBlockIter>::FindKeyForward() {
 
 template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::FindKeyBackward() {
+  assert(!is_out_of_bound_);
   while (!block_iter_.Valid()) {
     if (!block_iter_.status().ok()) {
       return;
