@@ -199,7 +199,7 @@ class DatabaseOptions(DataSource):
         # List[option] -> Dict[option, Dict[col_fam, value]]
         reqd_options_dict = {}
         for option in reqd_options:
-            if '.' not in option:
+            if DatabaseOptions.is_misc_option(option):
                 # the option is not prefixed by '<section_type>.' because it is
                 # not yet supported by the Rocksdb OPTIONS file; so it has to
                 # be fetched from the misc_options dictionary
@@ -233,15 +233,17 @@ class DatabaseOptions(DataSource):
         # 'CFOptions.write_buffer_size': {'default': 1048576, 'cf_A': 128000},
         # 'bloom_bits': {NO_COL_FAMILY: 4}}
         for option in options:
-            if '.' not in option:
+            if DatabaseOptions.is_misc_option(option):
                 # this is a misc_option i.e. an option that is not yet
                 # supported by the Rocksdb OPTIONS file, so it is not prefixed
                 # by '<section_type>.' and must be stored in the separate
                 # misc_options dictionary
                 if NO_COL_FAMILY not in options[option]:
                     print(
-                        'WARNING(DatabaseOptions): check format of option: ' +
-                        option
+                        'WARNING(DatabaseOptions.update_options): not ' +
+                        'updating option ' + option + ' because it is in ' +
+                        'misc_option format but its scope is not ' +
+                        NO_COL_FAMILY + '. Check format of option.'
                     )
                     continue
                 self.misc_options[option] = options[option][NO_COL_FAMILY]
@@ -293,8 +295,9 @@ class DatabaseOptions(DataSource):
             for ix, option in enumerate(cond.options):
                 if option not in reqd_options_dict:
                     print(
-                        'WARNING(DatabaseOptions): condition ' + cond.name +
-                        ' requires option ' + option + ' but this option is' +
+                        'WARNING(DatabaseOptions.check_and_trigger): ' +
+                        'skipping condition ' + cond.name + ' because it '
+                        'requires option ' + option + ' but this option is' +
                         ' not available'
                     )
                     missing_reqd_option = True
