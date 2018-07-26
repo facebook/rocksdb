@@ -2925,8 +2925,7 @@ Status DBImpl::IngestExternalFile(
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
-  uint64_t next_file_number =
-      versions_->FetchAddFileNumber(external_files.size());
+  uint64_t next_file_number = 0;
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -2942,16 +2941,20 @@ Status DBImpl::IngestExternalFile(
     // reuse the file number that has already assigned to the internal file,
     // and this will overwrite the external file. To protect the external
     // file, we have to make sure the file number will never being reused.
-    auto new_options = cfd->GetLatestMutableCFOptions();
-    status = versions_->LogAndApply(cfd, *new_options, &dummy_edit,
-                                    &mutex_, directories_.GetDbDir());
+    next_file_number = versions_->FetchAddFileNumber(external_files.size());
+    auto cf_options = cfd->GetLatestMutableCFOptions();
+    status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
+                                    directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *new_options);
+      InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
     }
   }
   dummy_sv_ctx.Clean();
   if (!status.ok()) {
     return status;
+  }
+  if (next_file_number == 0) {
+    return Status::Aborted("Can't get next_file_number");
   }
 
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
