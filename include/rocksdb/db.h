@@ -362,8 +362,8 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values) {
     std::vector<PinnableSlice> pinnable_vector;
+    assert(values != nullptr);
     for (size_t i = 0; i < values->size(); ++i) {
-      assert((*values)[i] != nullptr);
       PinnableSlice pinnable_val(&(*values)[i]);
       assert(!pinnable_val.IsPinned());
       pinnable_vector.emplace_back(&(*values)[i]);
@@ -375,6 +375,7 @@ class DB {
         (*values)[i].assign(pinnable_vector[i].data(), pinnable_vector[i].size());
       }
     }  // else value is already assigned
+    pinnable_vector.clear();
     return s;
   }
   virtual std::vector<Status> MultiGet(const ReadOptions& options,

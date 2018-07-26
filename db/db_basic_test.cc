@@ -761,6 +761,7 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     ASSERT_OK(s[4]);
     ASSERT_TRUE(s[5].IsNotFound());
     SetPerfLevel(kDisable);
+    values.clear();
   } while (ChangeCompactOptions());
 }
 
