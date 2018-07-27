@@ -1708,6 +1708,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     iter = block.value->NewIterator<TBlockIter>(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
         iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
+    // we set rep->use_data_block_hash_index according to the block content
+    rep->use_data_block_hash_index = block.value->UseDataBlockHashIndex();
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
@@ -2376,7 +2378,16 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (biter.Seek(key); biter.Valid(); biter.Next()) {
+        for (biter.Seek(key); ; biter.Next()) {
+          if (!biter.Valid()) {
+            // If the block uses DataBlockHashIndex, biter is invalid when the
+            // key is not found in the block. So we can break early.
+            if (rep_->use_data_block_hash_index) {
+              done = true;
+            }
+            break;
+          }
+
           ParsedInternalKey parsed_key;
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
