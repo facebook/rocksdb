@@ -520,7 +520,7 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
 
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockHashIndex);
+                       BlockBasedTableOptions::kDataBlockHashSearch);
   int num_records = 500;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);
