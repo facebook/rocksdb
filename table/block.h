@@ -191,6 +191,8 @@ class Block {
 
   SequenceNumber global_seqno() const { return global_seqno_; }
 
+  bool UseDataBlockHashIndex() const { return data_block_hash_index_ != nullptr;}
+
  private:
   BlockContents contents_;
   const char* data_;            // contents_.data.data()

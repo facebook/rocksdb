@@ -435,6 +435,9 @@ struct BlockBasedTable::Rep {
         filter_type(FilterType::kNoFilter),
         index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
         hash_index_allow_collision(false),
+        // This is set to false by default. Later it will be determined by
+        // the block content
+        use_data_block_hash_index(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
         range_del_handle(BlockHandle::NullBlockHandle()),
@@ -483,6 +486,10 @@ struct BlockBasedTable::Rep {
   std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
   bool hash_index_allow_collision;
+
+   // true if the block is a data block and uses DataBlockHashIndex
+  bool use_data_block_hash_index;
+
   bool whole_key_filtering;
   bool prefix_filtering;
   // TODO(kailiu) It is very ugly to use internal key in table, since table
