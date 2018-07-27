@@ -527,10 +527,7 @@ bool DataBlockIter::HashSeek(const Slice& target) {
     uint32_t restart_index = data_block_hash_iter.Value();
     SeekToRestartPoint(restart_index);
     while (true) {
-      if (!ParseNextDataKey() || Compare(key_, user_key) >= 0) {
-        // key_ is internal key. If key_ is parsed successfully, it is either:
-        // 1) user_key + seq + type
-        // 2) (a key larger than user_key) + seq + type
+      if (!ParseNextDataKey() || Compare(key_, target) >= 0) {
         break;
       }
     }

@@ -529,9 +529,9 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
   // Later will Seeking for keys with a trailing "0" to test seeking
   // non-existent keys.
   for (int i = 0; i < num_records; i++) {
-    builder.Add(keys[i] + "1" /* existing key marker */ +
-                    "seq00000" /* fake internal key footer 8Bytes */,
-                values[i]);
+    std::string ukey(keys[i] + "1" /* existing key marker */);
+    InternalKey ikey(ukey, 0, kTypeValue);
+    builder.Add(ikey.Encode().ToString(), values[i]);
   }
 
   // read serialized contents of the block
@@ -550,11 +550,11 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
-    std::string k(keys[index] + "1" /*existing keys*/ +
-                  "seq11111" /*fake different footer */);
+    std::string ukey(keys[index] + "1" /* existing key marker */);
+    InternalKey ikey(ukey, 0, kTypeValue);
 
     // search in block for this key
-    iter->Seek(k);
+    iter->Seek(ikey.Encode().ToString());
     ASSERT_TRUE(iter->Valid());
     Slice v = iter->value();
     ASSERT_EQ(v.ToString().compare(values[index]), 0);
@@ -564,11 +564,11 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
-    std::string k(keys[index] + "0" /* no keys ends by "0"*/ +
-                  "seq22222" /* fake footer */);
+    std::string ukey(keys[index] + "0" /* existing key marker */);
+    InternalKey ikey(ukey, 0, kTypeValue);
 
     // search in block for this key
-    iter->Seek(k);
+    iter->Seek(ikey.Encode().ToString());
     ASSERT_FALSE(iter->Valid());
   }
 
