@@ -430,6 +430,8 @@ struct DBOptions {
   // (i.e. the ones that are causing all the space amplification). If set to 0
   // (default), we will dynamically choose the WAL size limit to be
   // [sum of all write_buffer_size * max_write_buffer_number] * 4
+  // This option takes effect only when there are more than one column family as
+  // otherwise the wal size is dictated by the write_buffer_size.
   // Default: 0
   uint64_t max_total_wal_size = 0;
 
