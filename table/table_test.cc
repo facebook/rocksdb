@@ -3644,7 +3644,6 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   const int kValSize = 40;
 
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   table_options.data_block_index_type =
     BlockBasedTableOptions::kDataBlockHashIndex;
 
@@ -3679,6 +3678,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   seek_iter.reset(reader->NewIterator(ReadOptions(),
                                       moptions.prefix_extractor.get()));
   for (int i = 0; i < 2; ++i) {
+
     ReadOptions ro;
     // for every kv, we seek using two method: Get() and Seek()
     // Get() will use the SuffixIndexHash in Block. For non-existent key it
@@ -3688,14 +3688,15 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
 
     // Search for existent keys
     for (auto& kv : kvmap) {
-       { // Search using Seek()
+      if (i == 0) {
+        // Search using Seek()
         seek_iter->Seek(kv.first);
         ASSERT_OK(seek_iter->status());
         ASSERT_TRUE(seek_iter->Valid());
         ASSERT_EQ(seek_iter->key(), kv.first);
         ASSERT_EQ(seek_iter->value(), kv.second);
-      }
-      { // Search using Get()
+      } else {
+        // Search using Get()
         PinnableSlice value;
         std::string user_key = ExtractUserKey(kv.first).ToString();
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
@@ -3715,15 +3716,14 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
       user_key.back() = '0'; // make it non-existent key
       InternalKey internal_key(user_key, 0, kTypeValue);
       std::string encoded_key = internal_key.Encode().ToString();
-      { // Search using Seek()
+      if (i == 0) { // Search using Seek()
         seek_iter->Seek(encoded_key);
         ASSERT_OK(seek_iter->status());
         if (seek_iter->Valid()){
           ASSERT_TRUE(BytewiseComparator()->Compare(
                           user_key, ExtractUserKey(seek_iter->key())) < 0);
         }
-      }
-      { // Search using Get()
+      } else { // Search using Get()
         PinnableSlice value;
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
