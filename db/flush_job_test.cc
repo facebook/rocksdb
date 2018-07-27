@@ -147,19 +147,20 @@ TEST_F(FlushJobTest, NonEmpty) {
                      db_options_.statistics.get(), &event_logger, true);
 
   HistogramData hist;
-  FileMetaData fd;
+  FileMetaData file_meta;
   mutex_.Lock();
   flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(nullptr, &fd));
+  ASSERT_OK(flush_job.Run(nullptr, &file_meta));
   mutex_.Unlock();
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
 
-  ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
-  ASSERT_EQ("9999a",
-            fd.largest.user_key().ToString());  // range tombstone end key
-  ASSERT_EQ(1, fd.smallest_seqno);
-  ASSERT_EQ(10000, fd.largest_seqno);  // range tombstone seqnum 10000
+  ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
+  ASSERT_EQ(
+      "9999a",
+      file_meta.largest.user_key().ToString());  // range tombstone end key
+  ASSERT_EQ(1, file_meta.fd.smallest_seqno);
+  ASSERT_EQ(10000, file_meta.fd.largest_seqno);  // range tombstone seqnum 10000
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }
