@@ -97,17 +97,17 @@ void GetSmallestLargestSeqno(const std::vector<FileMetaData*>& files,
                              SequenceNumber* largest_seqno) {
   bool is_first = true;
   for (FileMetaData* f : files) {
-    assert(f->smallest_seqno <= f->largest_seqno);
+    assert(f->fd.smallest_seqno <= f->fd.largest_seqno);
     if (is_first) {
       is_first = false;
-      *smallest_seqno = f->smallest_seqno;
-      *largest_seqno = f->largest_seqno;
+      *smallest_seqno = f->fd.smallest_seqno;
+      *largest_seqno = f->fd.largest_seqno;
     } else {
-      if (f->smallest_seqno < *smallest_seqno) {
-        *smallest_seqno = f->smallest_seqno;
+      if (f->fd.smallest_seqno < *smallest_seqno) {
+        *smallest_seqno = f->fd.smallest_seqno;
       }
-      if (f->largest_seqno > *largest_seqno) {
-        *largest_seqno = f->largest_seqno;
+      if (f->fd.largest_seqno > *largest_seqno) {
+        *largest_seqno = f->fd.largest_seqno;
       }
     }
   }
@@ -365,11 +365,11 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   size_t level_index = 0U;
   if (c->start_level() == 0) {
     for (auto f : *c->inputs(0)) {
-      assert(f->smallest_seqno <= f->largest_seqno);
+      assert(f->fd.smallest_seqno <= f->fd.largest_seqno);
       if (is_first) {
         is_first = false;
       }
-      prev_smallest_seqno = f->smallest_seqno;
+      prev_smallest_seqno = f->fd.smallest_seqno;
     }
     level_index = 1U;
   }
