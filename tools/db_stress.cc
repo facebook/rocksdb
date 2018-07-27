@@ -1634,8 +1634,8 @@ class StressTest {
       snprintf(buf, 4, "%X", value[i]);
       tmp.append(buf);
     }
-    fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") %s\n",
-            cf, key, sz, tmp.c_str());
+    fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") %s\n", cf,
+            key, sz, tmp.c_str());
   }
 
   static int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration) {

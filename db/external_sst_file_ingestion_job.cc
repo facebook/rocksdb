@@ -30,8 +30,7 @@ namespace rocksdb {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
-    uint64_t next_file_number,
-    SuperVersion* sv) {
+    uint64_t next_file_number, SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
