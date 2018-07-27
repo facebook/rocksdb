@@ -89,6 +89,8 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
+  // [Universal] trivial move files
+  kUniversalTrivialMove,
 };
 
 enum class FlushReason : int {

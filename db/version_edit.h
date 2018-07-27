@@ -73,6 +73,12 @@ struct FileSampledStats {
   mutable std::atomic<uint64_t> num_reads_sampled;
 };
 
+enum class FileGene {
+  kSST,
+  kLink,
+  kMap
+};
+
 struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
@@ -107,6 +113,8 @@ struct FileMetaData {
   bool marked_for_compaction;  // True if client asked us nicely to compact this
                                // file.
 
+  uint8_t file_gene;           // Zero for plain sst
+
   FileMetaData()
       : smallest_seqno(kMaxSequenceNumber),
         largest_seqno(0),
@@ -119,7 +127,8 @@ struct FileMetaData {
         refs(0),
         being_compacted(false),
         init_stats_from_file(false),
-        marked_for_compaction(false) {}
+        marked_for_compaction(false),
+        file_gene(0) {}
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
@@ -230,7 +239,7 @@ class VersionEdit {
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno,
-               bool marked_for_compaction) {
+               bool marked_for_compaction, uint8_t file_gene) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.fd = FileDescriptor(file, file_path_id, file_size);
@@ -239,6 +248,7 @@ class VersionEdit {
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
+    f.file_gene = file_gene;
     new_files_.emplace_back(level, std::move(f));
   }
 

@@ -31,6 +31,12 @@ class ColumnFamilyData;
 class VersionStorageInfo;
 class CompactionFilter;
 
+enum CompactionVarieties : int {
+  kGeneralCompaction,
+  kLinkCompaction,
+  kMapCompaction,
+};
+
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:
@@ -44,6 +50,8 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
+             CompactionVarieties compaction_varieties = kGeneralCompaction,
+             const std::vector<InternalKeyRange>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
 
   // No copying allowed
@@ -133,6 +141,16 @@ class Compaction {
 
   // If true, then the compaction can be done by simply deleting input files.
   bool deletion_compaction() const { return deletion_compaction_; }
+
+  // Compaction varieties
+  CompactionVarieties compaction_varieties() const {
+    return compaction_varieties_;
+  }
+
+  // Range limit for inputs
+  const std::vector<InternalKeyRange>& input_range() const {
+    return input_range_;
+  };
 
   // Add all inputs to this compaction as delete operations to *edit.
   void AddInputDeletions(VersionEdit* edit);
@@ -291,6 +309,12 @@ class Compaction {
   CompressionOptions output_compression_opts_;
   // If true, then the comaction can be done by simply deleting input files.
   const bool deletion_compaction_;
+
+  // Compaction varieties
+  const CompactionVarieties compaction_varieties_;
+
+  // Range limit for inputs
+  const std::vector<InternalKeyRange> input_range_;
 
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;

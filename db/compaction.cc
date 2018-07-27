@@ -139,6 +139,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
+                       CompactionVarieties _compaction_varieties,
+                       const std::vector<InternalKeyRange>& _input_range,
                        CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
@@ -162,6 +164,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
+      compaction_varieties_(_compaction_varieties),
+      input_range_(_input_range),
       compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
@@ -219,6 +223,12 @@ bool Compaction::IsTrivialMove() const {
   // a very expensive merge later on.
   // If start_level_== output_level_, the purpose is to force compaction
   // filter to be applied to that level, and thus cannot be a trivial move.
+
+  // kUniversalTrivialMove don't need check
+  if (compaction_reason_ == CompactionReason::kUniversalTrivialMove) {
+    assert(is_trivial_move_);
+    return true;
+  }
 
   // Check if start level have files with overlapping ranges
   if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false) {

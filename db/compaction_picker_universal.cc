@@ -179,9 +179,10 @@ void UniversalCompactionPicker::SortedRun::Dump(char* out_buf,
     if (file->fd.GetPathId() == 0 || !print_path) {
       snprintf(out_buf, out_buf_size, "file %" PRIu64, file->fd.GetNumber());
     } else {
-      snprintf(out_buf, out_buf_size, "file %" PRIu64
-                                      "(path "
-                                      "%" PRIu32 ")",
+      snprintf(out_buf, out_buf_size,
+               "file %" PRIu64
+               "(path "
+               "%" PRIu32 ")",
                file->fd.GetNumber(), file->fd.GetPathId());
     }
   } else {
@@ -352,8 +353,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
 
-  if (mutable_cf_options.compaction_options_universal.allow_trivial_move ==
-      true) {
+  if (c->compaction_reason() != CompactionReason::kUniversalTrivialMove &&
+      mutable_cf_options.compaction_options_universal.allow_trivial_move) {
     c->set_is_trivial_move(IsInputFilesNonOverlapping(c));
   }
 
@@ -438,6 +439,101 @@ uint32_t UniversalCompactionPicker::GetPathId(
     accumulated_size += target_size;
   }
   return p;
+}
+
+Compaction* UniversalCompactionPicker::PickTrivialMove(
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+  if (!mutable_cf_options.compaction_options_universal.allow_trivial_move) {
+    return nullptr;
+  }
+  int output_level = vstorage->num_levels() - 1;
+  // last level is reserved for the files ingested behind
+  if (ioptions_.allow_ingest_behind) {
+    --output_level;
+  }
+  int start_level = 0;
+  while (true) {
+    // found an empty level
+    for (; output_level >= 1; --output_level) {
+      if (!vstorage->LevelFiles(output_level).empty()) {
+        continue;
+      }
+      bool invalid = false;
+      for (auto c : compactions_in_progress_) {
+        if (c->output_level() == output_level) {
+          invalid = true;
+          break;
+        }
+      }
+      if (invalid) {
+        continue;
+      }
+      break;
+    }
+    if (output_level < 1) {
+      return nullptr;
+    }
+    bool invalid = false;
+    // found an non empty level
+    for (start_level = output_level - 1; start_level > 0; --start_level) {
+      invalid = false;
+      for (auto c : compactions_in_progress_) {
+        if (c->output_level() == start_level) {
+          invalid = true;
+          break;
+        }
+      }
+      if (!invalid && vstorage->LevelFiles(start_level).empty()) {
+        continue;
+      }
+      break;
+    }
+    if (!invalid) {
+      // will move lv0 last sst
+      if (start_level == 0) {
+        break;
+      }
+      auto& files = vstorage->LevelFiles(start_level);
+      for (size_t i = 0; i < files.size(); i++) {
+        if (files[i]->being_compacted) {
+          invalid = true;
+        }
+      }
+      if (!invalid) {
+        break;
+      }
+    }
+    output_level = start_level - 1;
+  }
+  CompactionInputFiles inputs;
+  inputs.level = start_level;
+  uint32_t path_id = 0;
+  if (start_level == 0) {
+    auto& level0_files = vstorage->LevelFiles(0);
+    if (level0_files.empty() || level0_files.back()->being_compacted) {
+      return nullptr;
+    }
+    FileMetaData* meta = level0_files.back();
+    inputs.files = {meta};
+    path_id = meta->fd.GetPathId();
+  } else {
+    inputs.files = vstorage->LevelFiles(start_level);
+    path_id = inputs.files.front()->fd.GetPathId();
+  }
+  assert(!AreFilesInCompaction(inputs.files));
+  auto c = new Compaction(
+      vstorage, ioptions_, mutable_cf_options, {std::move(inputs)},
+      output_level,
+      MaxFileSizeForLevel(mutable_cf_options, output_level,
+                          kCompactionStyleUniversal),
+      LLONG_MAX, path_id, kNoCompression,
+      GetCompressionOptions(ioptions_, vstorage, output_level), 0,
+      /* grandparents */ {}, /* is manual */ false, 0,
+      false /* deletion_compaction */, kGeneralCompaction, {},
+      CompactionReason::kUniversalTrivialMove);
+  c->set_is_trivial_move(true);
+  return c;
 }
 
 //
@@ -639,7 +735,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       GetCompressionOptions(ioptions_, vstorage, start_level,
                             enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */, compaction_reason);
+      score, false /* deletion_compaction */, kGeneralCompaction, {},
+      compaction_reason);
 }
 
 // Look at overall size amplification. If size amplification
@@ -779,7 +876,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */,
+      score, false /* deletion_compaction */, kGeneralCompaction, {},
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -899,7 +996,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
-      score, false /* deletion_compaction */,
+      score, false /* deletion_compaction */, kGeneralCompaction, {},
       CompactionReason::kFilesMarkedForCompaction);
 }
 }  // namespace rocksdb

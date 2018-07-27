@@ -218,6 +218,7 @@ struct MutableCFOptions {
 
   // Compaction related options
   bool disable_auto_compactions;
+  bool enable_lazy_compaction;
   uint64_t soft_pending_compaction_bytes_limit;
   uint64_t hard_pending_compaction_bytes_limit;
   int level0_file_num_compaction_trigger;

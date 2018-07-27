@@ -910,7 +910,8 @@ void ColumnFamilyData::CreateNewMemtable(
 }
 
 bool ColumnFamilyData::NeedsCompaction() const {
-  return compaction_picker_->NeedsCompaction(current_->storage_info());
+  return !current_->storage_info()->IsPickFail() &&
+         compaction_picker_->NeedsCompaction(current_->storage_info());
 }
 
 Compaction* ColumnFamilyData::PickCompaction(
@@ -919,6 +920,8 @@ Compaction* ColumnFamilyData::PickCompaction(
       GetName(), mutable_options, current_->storage_info(), log_buffer);
   if (result != nullptr) {
     result->SetInputVersion(current_);
+  } else {
+    current_->storage_info()->SetPickFail();
   }
   return result;
 }

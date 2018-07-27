@@ -2508,6 +2508,10 @@ void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t* opt, int di
   opt->rep.disable_auto_compactions = disable;
 }
 
+void rocksdb_options_set_enable_lazy_compaction(rocksdb_options_t* opt, int enable) {
+  opt->rep.enable_lazy_compaction = enable;
+}
+
 void rocksdb_options_set_optimize_filters_for_hits(rocksdb_options_t* opt, int v) {
   opt->rep.optimize_filters_for_hits = v;
 }

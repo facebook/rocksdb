@@ -242,6 +242,12 @@ class VersionStorageInfo {
   bool HasOverlappingUserKey(const std::vector<FileMetaData*>* inputs,
                              int level);
 
+  // Set picker compaction fail
+  void SetPickFail() { is_pick_fail_ = true; }
+
+  // Is picker compaction fail
+  bool IsPickFail() const { return is_pick_fail_; }
+
   int num_levels() const { return num_levels_; }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -514,6 +520,7 @@ class VersionStorageInfo {
   uint64_t estimated_compaction_needed_bytes_;
 
   bool finalized_;
+  bool is_pick_fail_;
 
   // If set to true, we will run consistency checks even if RocksDB
   // is compiled in release mode

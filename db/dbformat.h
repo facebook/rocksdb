@@ -250,6 +250,11 @@ class InternalKey {
   std::string DebugString(bool hex = false) const;
 };
 
+// range smallest .. largest (close interval)
+struct InternalKeyRange {
+  InternalKey smallest, largest;
+};
+
 inline int InternalKeyComparator::Compare(
     const InternalKey& a, const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());

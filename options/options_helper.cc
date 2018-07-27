@@ -150,6 +150,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   // Compaction related options
   cf_opts.disable_auto_compactions =
       mutable_cf_options.disable_auto_compactions;
+  cf_opts.enable_lazy_compaction =
+      mutable_cf_options.enable_lazy_compaction;
   cf_opts.soft_pending_compaction_bytes_limit =
       mutable_cf_options.soft_pending_compaction_bytes_limit;
   cf_opts.hard_pending_compaction_bytes_limit =
@@ -1659,6 +1661,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::disable_auto_compactions),
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, disable_auto_compactions)}},
+        {"enable_lazy_compactions",
+         {offset_of(&ColumnFamilyOptions::enable_lazy_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, enable_lazy_compaction)}},
         {"filter_deletes",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, true,
           0}},

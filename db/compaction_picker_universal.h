@@ -60,6 +60,11 @@ class UniversalCompactionPicker : public CompactionPicker {
     bool being_compacted;
   };
 
+  // Pick universal trivial move for push sst to bottom level
+  Compaction* PickTrivialMove(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      VersionStorageInfo* vstorage, LogBuffer* log_buffer);
+
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionToReduceSortedRuns(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,

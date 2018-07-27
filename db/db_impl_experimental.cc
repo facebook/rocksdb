@@ -132,7 +132,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
       edit.AddFile(target_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->smallest_seqno, f->largest_seqno,
-                   f->marked_for_compaction);
+                   f->marked_for_compaction, f->file_gene);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

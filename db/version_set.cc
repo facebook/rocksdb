@@ -1114,6 +1114,7 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
       finalized_(false),
+      is_pick_fail_(false),
       force_consistency_checks_(_force_consistency_checks) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
@@ -1658,6 +1659,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
     }
   }
+  is_pick_fail_ = false;
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
@@ -3964,7 +3966,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->smallest_seqno, f->largest_seqno,
-                       f->marked_for_compaction);
+                       f->marked_for_compaction, f->file_gene);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
