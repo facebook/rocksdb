@@ -1627,11 +1627,15 @@ class StressTest {
     if (!FLAGS_verbose) {
       return;
     }
-    fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") ", cf, key, sz);
+    std::string tmp;
+    tmp.reserve(sz * 2 + 16);
+    char buf[4];
     for (size_t i = 0; i < sz; i++) {
-      fprintf(stdout, "%X", value[i]);
+      snprintf(buf, 4, "%X", value[i]);
+      tmp.append(buf);
     }
-    fprintf(stdout, "\n");
+    fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") %s\n",
+            cf, key, sz, tmp.c_str());
   }
 
   static int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration) {
