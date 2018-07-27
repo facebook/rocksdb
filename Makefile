@@ -666,7 +666,7 @@ $(SHARED4): $(shared_all_libobjects)
 endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
-	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
+	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib
 
@@ -1017,6 +1017,13 @@ clean:
 tags:
 	ctags -R .
 	cscope -b `$(FIND) . -name '*.cc'` `$(FIND) . -name '*.h'` `$(FIND) . -name '*.c'`
+	ctags -e -R -o etags *
+
+tags0:
+	ctags -R .
+	cscope -b `$(FIND) . -name '*.cc' -and ! -name '*_test.cc'` \
+		  `$(FIND) . -name '*.c' -and ! -name '*_test.c'` \
+		  `$(FIND) . -name '*.h' -and ! -name '*_test.h'`
 	ctags -e -R -o etags *
 
 format:

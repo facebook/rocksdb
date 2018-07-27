@@ -262,6 +262,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * </p>
    * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
    * be [sum of all write_buffer_size * max_write_buffer_number] * 2</p>
+   * <p>This option takes effect only when there are more than one column family as
+   * otherwise the wal size is dictated by the write_buffer_size.</p>
    * <p>Default: 0</p>
    *
    * @param maxTotalWalSize max total wal size.

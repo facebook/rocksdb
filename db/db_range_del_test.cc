@@ -191,7 +191,7 @@ TEST_F(DBRangeDelTest, SentinelsOmittedFromOutputFile) {
 
   std::vector<std::vector<FileMetaData>> files;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
-  ASSERT_GT(files[0][0].smallest_seqno, 0);
+  ASSERT_GT(files[0][0].fd.smallest_seqno, 0);
 
   db_->ReleaseSnapshot(snapshot);
 }
