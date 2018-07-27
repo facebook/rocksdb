@@ -2091,7 +2091,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
                         old_sv->mutable_cf_options.max_write_buffer_number;
   }
 
-  if (sv_context->new_superversion == nullptr) {
+  // this branch is unlikely to step in
+  if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);

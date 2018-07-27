@@ -29,7 +29,9 @@
 namespace rocksdb {
 
 Status ExternalSstFileIngestionJob::Prepare(
-    const std::vector<std::string>& external_files_paths, SuperVersion* sv) {
+    const std::vector<std::string>& external_files_paths,
+    uint64_t next_file_number,
+    SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
@@ -90,7 +92,7 @@ Status ExternalSstFileIngestionJob::Prepare(
 
   // Copy/Move external files into DB
   for (IngestedFileInfo& f : files_to_ingest_) {
-    f.fd = FileDescriptor(versions_->NewFileNumber(), 0, f.file_size);
+    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
 
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
