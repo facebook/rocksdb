@@ -2953,9 +2953,6 @@ Status DBImpl::IngestExternalFile(
   if (!status.ok()) {
     return status;
   }
-  if (next_file_number == 0) {
-    return Status::Aborted("Can't get next_file_number");
-  }
 
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
   status = ingestion_job.Prepare(external_files, next_file_number,
