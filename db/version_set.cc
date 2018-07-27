@@ -897,8 +897,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
       }
       files.emplace_back(
           MakeTableFileName("", file->fd.GetNumber()), file_path,
-          file->fd.GetFileSize(), file->smallest_seqno, file->largest_seqno,
-          file->smallest.user_key().ToString(),
+          file->fd.GetFileSize(), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted);
@@ -1891,13 +1891,15 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [](const Fsize& f1, const Fsize& f2) -> bool {
-                    return f1.file->largest_seqno < f2.file->largest_seqno;
+                    return f1.file->fd.largest_seqno <
+                           f2.file->fd.largest_seqno;
                   });
         break;
       case kOldestSmallestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [](const Fsize& f1, const Fsize& f2) -> bool {
-                    return f1.file->smallest_seqno < f2.file->smallest_seqno;
+                    return f1.file->fd.smallest_seqno <
+                           f2.file->fd.smallest_seqno;
                   });
         break;
       case kMinOverlappingRatio:
@@ -1981,17 +1983,17 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
-        level_and_file.second->largest_seqno != 0 &&
+        level_and_file.second->fd.largest_seqno != 0 &&
         level_and_file.second->num_deletions > 1) {
       // largest_seqno might be nonzero due to containing the final key in an
       // earlier compaction, whose seqnum we didn't zero out. Multiple deletions
       // ensures the file really contains deleted or overwritten keys.
-      if (level_and_file.second->largest_seqno < oldest_snapshot_seqnum_) {
+      if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
         bottommost_files_marked_for_compaction_.push_back(level_and_file);
       } else {
         bottommost_files_mark_threshold_ =
             std::min(bottommost_files_mark_threshold_,
-                     level_and_file.second->largest_seqno);
+                     level_and_file.second->fd.largest_seqno);
       }
     }
   }
@@ -2417,7 +2419,7 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
     AppendHumanBytes(f->fd.GetFileSize(), sztxt, sizeof(sztxt));
     int ret = snprintf(scratch->buffer + len, sz,
                        "#%" PRIu64 "(seq=%" PRIu64 ",sz=%s,%d) ",
-                       f->fd.GetNumber(), f->smallest_seqno, sztxt,
+                       f->fd.GetNumber(), f->fd.smallest_seqno, sztxt,
                        static_cast<int>(f->being_compacted));
     if (ret < 0 || ret >= sz)
       break;
@@ -3963,7 +3965,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
              cfd->current()->storage_info()->LevelFiles(level)) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno,
+                       f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction);
         }
       }
@@ -4288,8 +4290,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();
         filemetadata.largestkey = file->largest.user_key().ToString();
-        filemetadata.smallest_seqno = file->smallest_seqno;
-        filemetadata.largest_seqno = file->largest_seqno;
+        filemetadata.smallest_seqno = file->fd.smallest_seqno;
+        filemetadata.largest_seqno = file->fd.largest_seqno;
         metadata->push_back(filemetadata);
       }
     }

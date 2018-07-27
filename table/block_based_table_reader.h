@@ -95,6 +95,7 @@ class BlockBasedTable : public TableReader {
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
                      const bool immortal_table = false,
+                     const SequenceNumber largest_seqno = 0,
                      TailPrefetchStats* tail_prefetch_stats = nullptr);
 
   bool PrefixMayMatch(const Slice& internal_key,

@@ -2932,8 +2932,8 @@ Status DBImpl::IngestExternalFile(
   }
 
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-  status = ingestion_job.Prepare(external_files, next_file_number,
-                                 super_version);
+  status =
+      ingestion_job.Prepare(external_files, next_file_number, super_version);
   CleanupSuperVersion(super_version);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
