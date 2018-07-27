@@ -31,6 +31,12 @@ PerfContext* get_perf_context() {
 #endif
 }
 
+// PerfContext::PerfContext() {
+//   bloom_filter_useful = new uint64_t[PERF_CONTEXT_ARRAY_SIZE];
+//   bloom_filter_full_positive = new uint64_t[PERF_CONTEXT_ARRAY_SIZE];
+//   bloom_filter_full_true_positive = new uint64_t[PERF_CONTEXT_ARRAY_SIZE];
+// }
+
 void PerfContext::Reset() {
 #ifndef NPERF_CONTEXT
   user_key_comparison_count = 0;
@@ -104,6 +110,11 @@ void PerfContext::Reset() {
   env_lock_file_nanos = 0;
   env_unlock_file_nanos = 0;
   env_new_logger_nanos = 0;
+  for (size_t i = 0; i < PERF_CONTEXT_ARRAY_SIZE; ++i) {
+    bloom_filter_useful[i] = 0;
+    bloom_filter_full_positive[i] = 0;
+    bloom_filter_full_true_positive[i] = 0;
+  }
 #endif
 }
 
@@ -111,6 +122,12 @@ void PerfContext::Reset() {
   if (!exclude_zero_counters || (counter > 0)) { \
     ss << #counter << " = " << counter << ", ";  \
   }
+
+#define PERF_CONTEXT_ARRAY_OUTPUT(counter)                 \
+  ss << #counter << " = ";                               \
+  for (size_t i = 0; i < PERF_CONTEXT_ARRAY_SIZE; ++i) { \
+    ss << counter[i] << ", ";                            \
+  }                                                      \
 
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #ifdef NPERF_CONTEXT
@@ -164,6 +181,9 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(bloom_memtable_miss_count);
   PERF_CONTEXT_OUTPUT(bloom_sst_hit_count);
   PERF_CONTEXT_OUTPUT(bloom_sst_miss_count);
+  PERF_CONTEXT_ARRAY_OUTPUT(bloom_filter_useful);
+  PERF_CONTEXT_ARRAY_OUTPUT(bloom_filter_full_positive);
+  PERF_CONTEXT_ARRAY_OUTPUT(bloom_filter_full_true_positive);
   PERF_CONTEXT_OUTPUT(key_lock_wait_time);
   PERF_CONTEXT_OUTPUT(key_lock_wait_count);
   PERF_CONTEXT_OUTPUT(env_new_sequential_file_nanos);

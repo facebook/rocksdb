@@ -59,6 +59,13 @@ extern __thread PerfContext perf_context;
     perf_context.metric += value;              \
   }
 
+// Increase metric value
+#define PERF_COUNTER_ARRAY_ADD(metric, value, index) \
+  if (perf_level >= PerfLevel::kEnableCount &&       \
+      index < PERF_CONTEXT_ARRAY_SIZE) {             \
+    perf_context.metric[index] += value;             \
+  }
+
 #endif
 
 }

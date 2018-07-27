@@ -2339,6 +2339,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   if (!FullFilterKeyMayMatch(read_options, filter, key, no_io,
                              prefix_extractor)) {
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
+    PERF_COUNTER_ARRAY_ADD(bloom_filter_useful, 1, 0/*level*/);
   } else {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
@@ -2371,6 +2372,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // TODO: think about interaction with Merge. If a user key cannot
         // cross one data block, we should be fine.
         RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
+        PERF_COUNTER_ARRAY_ADD(bloom_filter_useful, 1, 0/*level*/);
         break;
       } else {
         DataBlockIter biter;
