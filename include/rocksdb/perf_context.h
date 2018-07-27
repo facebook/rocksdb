@@ -15,15 +15,26 @@ namespace rocksdb {
 // A thread local context for gathering performance counter efficiently
 // and transparently.
 // Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
-#define PERF_CONTEXT_ARRAY_SIZE 20
+
+struct PerfContextByLevel {
+  // # of times bloom filter has avoided file reads, i.e., negatives.
+  uint64_t bloom_filter_useful;
+  // # of times bloom FullFilter has not avoided the reads.
+  uint64_t bloom_filter_full_positive;
+  // # of times bloom FullFilter has not avoided the reads and data actually
+  // exist.
+  uint64_t bloom_filter_full_true_positive;
+};
 
 struct PerfContext {
-
-//  PerfContext(); // need to initialize pointers
 
   void Reset(); // reset all performance counters to zero
 
   std::string ToString(bool exclude_zero_counters = false) const;
+
+  void EnablePerLevelPerfContext(int levels);
+
+  void DisablePerLevelPerfContext();
 
   uint64_t user_key_comparison_count; // total number of user key comparisons
   uint64_t block_cache_hit_count;     // total number of block cache hits
@@ -143,14 +154,6 @@ struct PerfContext {
   uint64_t bloom_sst_hit_count;
   // total number of SST table bloom misses
   uint64_t bloom_sst_miss_count;
-  // # of times bloom filter has avoided file reads, i.e., negatives.
-  uint64_t bloom_filter_useful[PERF_CONTEXT_ARRAY_SIZE];
-  // # of times bloom FullFilter has not avoided the reads.
-  uint64_t bloom_filter_full_positive[PERF_CONTEXT_ARRAY_SIZE];
-  // # of times bloom FullFilter has not avoided the reads and data actually
-  // exist.
-  uint64_t bloom_filter_full_true_positive[PERF_CONTEXT_ARRAY_SIZE];
-
 
   // Time spent waiting on key locks in transaction lock manager.
   uint64_t key_lock_wait_time;
@@ -179,6 +182,9 @@ struct PerfContext {
   uint64_t env_lock_file_nanos;
   uint64_t env_unlock_file_nanos;
   uint64_t env_new_logger_nanos;
+  PerfContextByLevel* perf_context_by_level;
+  bool per_level_perf_context_enabled;
+  size_t num_levels;
 };
 
 // Get Thread-local PerfContext object pointer
