@@ -796,6 +796,31 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " not compressed. Otherwise, apply compression_type to "
              "all levels.");
 
+typedef enum rocksdb::BlockBasedTableOptions::DataBlockIndexType
+                        DataBlockIndexType;
+
+static DataBlockIndexType StringToDataBlockIndexType(const char* ctype
+) {
+  assert(ctype);
+
+  if (!strcasecmp(ctype, "none"))
+    return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+  else if (!strcasecmp(ctype, "binary"))
+    return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+  else if (!strcasecmp(ctype, "hash"))
+    return rocksdb::BlockBasedTableOptions::kDataBlockHashIndex;
+
+  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
+
+  // return default value
+  return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+}
+
+DEFINE_string(data_block_index_type, "binary",
+              "Index type for data blocks");
+static DataBlockIndexType FLAGS_data_block_index_type_e =
+  rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
   if (0 >= value || value > 20) {
@@ -2061,6 +2086,15 @@ class Benchmark {
     auto compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression: %s\n", compression.c_str());
 
+    switch (FLAGS_data_block_index_type_e) {
+      case rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch:
+        fprintf(stdout, "DataBlockIndexType: binary\n");
+        break;
+      case rocksdb::BlockBasedTableOptions::kDataBlockHashIndex:
+        fprintf(stdout, "DataBlockIndexType: hash\n");
+        break;
+    }
+
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
         fprintf(stdout, "Memtablerep: prefix_hash\n");
@@ -3224,6 +3258,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      block_based_options.data_block_index_type =
+        FLAGS_data_block_index_type_e;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;
@@ -5593,6 +5629,9 @@ int db_bench_tool(int argc, char** argv) {
 
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
+
+  FLAGS_data_block_index_type_e =
+    StringToDataBlockIndexType(FLAGS_data_block_index_type.c_str());
 
 #ifndef ROCKSDB_LITE
   std::unique_ptr<Env> custom_env_guard;
