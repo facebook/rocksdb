@@ -674,7 +674,7 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   *seqno = kDisableGlobalSequenceNumber;
   if (version_pos == props.end()) {
     if (seqno_pos != props.end()) {
-      char msg_buf[128] = {0};
+      char msg_buf[200] = {0};
       // This is not an external sst file, global_seqno is not supported.
       snprintf(
           msg_buf, sizeof(msg_buf),
@@ -688,7 +688,7 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   uint32_t version = DecodeFixed32(version_pos->second.c_str());
   if (version < 2) {
     if (seqno_pos != props.end() || version != 1) {
-      char msg_buf[128] = {0};
+      char msg_buf[200] = {0};
       // This is a v1 external sst file, global_seqno is not supported.
       snprintf(msg_buf, sizeof(msg_buf),
                "An external sst file with version %u have global seqno "
@@ -707,22 +707,23 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
     global_seqno = DecodeFixed64(seqno_pos->second.c_str());
   }
   if (global_seqno != 0 && global_seqno != largest_seqno) {
-    char msg_buf[128];
+    char msg_buf[200] = {0};
     snprintf(msg_buf, sizeof(msg_buf),
              "An external sst file with version %u have global seqno property "
-             "with value %s, while largest seqno in the file is %lu",
-             version, seqno_pos->second.c_str(), largest_seqno);
+             "with value %s, while largest seqno in the file is %llu",
+             version, seqno_pos->second.c_str(),
+             static_cast<unsigned long long>(largest_seqno));
     return Status::Corruption(msg_buf);
   }
   global_seqno = largest_seqno;
   *seqno = largest_seqno;
 
   if (global_seqno > kMaxSequenceNumber) {
-    char msg_buf[128] = {0};
+    char msg_buf[200] = {0};
     snprintf(msg_buf, sizeof(msg_buf),
              "An external sst file with version %u have global seqno property "
-             "with value %lu, which is greater than kMaxSequenceNumber",
-             version, global_seqno);
+             "with value %llu, which is greater than kMaxSequenceNumber",
+             version, static_cast<unsigned long long>(global_seqno));
     return Status::Corruption(msg_buf);
   }
 
