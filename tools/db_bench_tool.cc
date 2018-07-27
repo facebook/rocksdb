@@ -808,7 +808,7 @@ static DataBlockIndexType StringToDataBlockIndexType(const char* ctype
   else if (!strcasecmp(ctype, "binary"))
     return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
   else if (!strcasecmp(ctype, "hash"))
-    return rocksdb::BlockBasedTableOptions::kDataBlockHashIndex;
+    return rocksdb::BlockBasedTableOptions::kDataBlockHashSearch;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
 
@@ -2090,7 +2090,7 @@ class Benchmark {
       case rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch:
         fprintf(stdout, "DataBlockIndexType: binary\n");
         break;
-      case rocksdb::BlockBasedTableOptions::kDataBlockHashIndex:
+      case rocksdb::BlockBasedTableOptions::kDataBlockHashSearch:
         fprintf(stdout, "DataBlockIndexType: hash\n");
         break;
     }
