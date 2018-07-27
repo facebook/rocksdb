@@ -52,7 +52,7 @@ BlockBuilder::BlockBuilder(
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
-    case BlockBasedTableOptions::kDataBlockHashIndex:
+    case BlockBasedTableOptions::kDataBlockHashSearch:
       // TODO(fwu) dynamic num_buckets. Now it's hard coded as 500.
       data_block_hash_index_builder_.reset(
           new DataBlockHashIndexBuilder(500 /*num_buckets */));
@@ -108,7 +108,7 @@ Slice BlockBuilder::Finish() {
   if (data_block_hash_index_builder_) {
     data_block_hash_index_builder_->Finish(buffer_);
     // embed the data block index type to the MSB of the num_restarts
-    block_footer |= BlockBasedTableOptions::kDataBlockHashIndex << 31;
+    block_footer |= BlockBasedTableOptions::kDataBlockHashSearch << 31;
   }
 
   PutFixed32(&buffer_, block_footer);

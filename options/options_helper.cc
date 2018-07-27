@@ -1567,8 +1567,8 @@ std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
     OptionsHelper::block_base_table_data_block_index_type_string_map = {
         {"kDataBlockBinarySearch",
          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch},
-        {"kDataBlockHashIndex",
-         BlockBasedTableOptions::DataBlockIndexType::kDataBlockHashIndex}};
+        {"kDataBlockHashSearch",
+         BlockBasedTableOptions::DataBlockIndexType::kDataBlockHashSearch}};
 
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
