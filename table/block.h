@@ -341,7 +341,7 @@ class DataBlockIter final : public BlockIter {
                data_block_hash_index);
   }
   void Initialize(const Comparator* comparator,
-                  const Comparator* /*user_comparator*/, const char* data,
+                  const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
@@ -349,6 +349,7 @@ class DataBlockIter final : public BlockIter {
                   DataBlockHashIndex* data_block_hash_index) {
     InitializeBase(comparator, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
+    user_comparator_ = user_comparator;
     key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
@@ -415,12 +416,15 @@ class DataBlockIter final : public BlockIter {
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_ = -1;
 
+  DataBlockHashIndex* data_block_hash_index_;
+  const Comparator* user_comparator_;
+
   bool ParseNextDataKey();
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
-  DataBlockHashIndex* data_block_hash_index_;
+
   bool HashSeek(const Slice& target);
 };
 

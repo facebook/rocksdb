@@ -535,7 +535,7 @@ bool DataBlockIter::HashSeek(const Slice& target) {
         // If the user key portion match do we consider key_ matches
         // Currently we ignore the seq_num, so not supporting snapshot Get().
         // TODO(fwu) support snapshot Get().
-        comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+        user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
       return true;  // found
     }
   }
