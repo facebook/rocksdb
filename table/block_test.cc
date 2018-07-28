@@ -545,7 +545,12 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
 
   // random seek existent keys
   auto iter =
-      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
+    reader.NewIterator<DataBlockIter>(options.comparator, options.comparator,
+                                      nullptr /*iter*/, nullptr /*stats*/,
+                                      true /*total_order_seek*/,
+                                      true /*key_includes_seq*/,
+                                      nullptr /*prefix_index*/,
+                                      true /*is_data_block_point_lookup*/);
 
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array

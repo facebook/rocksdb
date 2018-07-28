@@ -225,14 +225,15 @@ class BlockBasedTable : public TableReader {
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
       TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
-      FilePrefetchBuffer* prefetch_buffer = nullptr);
+      FilePrefetchBuffer* prefetch_buffer = nullptr,
+      bool is_data_block_point_lookup = false);
   template <typename TBlockIter>
   static TBlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
       TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
-      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
-
+      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr,
+      bool is_data_block_point_lookup = false);
   class PartitionedIndexIteratorState;
 
   friend class PartitionIndexReader;

@@ -1664,7 +1664,8 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     TBlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context, FilePrefetchBuffer* prefetch_buffer) {
+    GetContext* get_context, FilePrefetchBuffer* prefetch_buffer,
+    bool is_data_block_point_lookup) {
   BlockHandle handle;
   Slice input = index_value;
   // We intentionally allow extra stuff in index_value so that we
@@ -1672,7 +1673,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   Status s = handle.DecodeFrom(&input);
   return NewDataBlockIterator<TBlockIter>(rep, ro, handle, input_iter, is_index,
                                           key_includes_seq, get_context, s,
-                                          prefetch_buffer);
+                                          prefetch_buffer,
+                                          is_data_block_point_lookup);
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -1683,7 +1685,8 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
     TBlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer) {
+    GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer,
+    bool is_data_block_point_lookup) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   const bool no_io = (ro.read_tier == kBlockCacheTier);
@@ -1733,7 +1736,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const bool kTotalOrderSeek = true;
     iter = block.value->NewIterator<TBlockIter>(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-        iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
+        iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq,
+        nullptr /*prefix_index*/, is_data_block_point_lookup);
     // we set rep->use_data_block_hash_index according to the block content
     rep->use_data_block_hash_index = block.value->UseDataBlockHashIndex();
     if (block.cache_handle != nullptr) {
@@ -2393,7 +2397,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         DataBlockIter biter;
         NewDataBlockIterator<DataBlockIter>(
             rep_, read_options, iiter->value(), &biter, false,
-            true /* key_includes_seq */, get_context);
+            true /* key_includes_seq */, get_context,
+            nullptr /* prefetch_buffer */,
+            true /* is_data_block_point_lookup */);
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter.status().IsIncomplete()) {
