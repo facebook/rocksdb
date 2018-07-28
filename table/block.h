@@ -184,7 +184,8 @@ class Block {
                           Statistics* stats = nullptr,
                           bool total_order_seek = true,
                           bool key_includes_seq = true,
-                          BlockPrefixIndex* prefix_index = nullptr);
+                          BlockPrefixIndex* prefix_index = nullptr,
+                          bool is_data_block_point_lookup = false);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
