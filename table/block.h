@@ -419,7 +419,7 @@ class DataBlockIter final : public BlockIter {
   DataBlockHashIndex* data_block_hash_index_;
   const Comparator* user_comparator_;
 
-  bool ParseNextDataKey();
+  bool ParseNextDataKey(bool within_restart_interval = false);
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);
