@@ -293,10 +293,20 @@ void BlockIter::CorruptionError() {
   value_.clear();
 }
 
-bool DataBlockIter::ParseNextDataKey() {
+// if within_restart_interval == true, we only parse next key within
+// current restart invterval. The default value of within_restart_interval
+// is false.
+bool DataBlockIter::ParseNextDataKey(bool within_restart_interval) {
   current_ = NextEntryOffset();
   const char* p = data_ + current_;
   const char* limit = data_ + restarts_;  // Restarts come right after data
+  if (within_restart_interval) {
+    assert(restart_index_ < num_restarts_);
+    if (restart_index_ + 1 < num_restarts_) {
+      limit = data_ + GetRestartPoint(restart_index_ + 1);
+    }
+  }
+
   if (p >= limit) {
     // No more entries to return.  Mark as invalid.
     current_ = restarts_;
@@ -513,7 +523,7 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   }
 }
 
-// NOTE: in suffix seek, if the key is not found in the restart intervals,
+// NOTE: in hash seek, if the key is not found in the restart intervals,
 // the iterator will simply be set as "invalid", rather than returning
 // the key that is just pass the target key.
 // return value: found
@@ -527,7 +537,17 @@ bool DataBlockIter::HashSeek(const Slice& target) {
     uint32_t restart_index = data_block_hash_iter.Value();
     SeekToRestartPoint(restart_index);
     while (true) {
-      if (!ParseNextDataKey() || Compare(key_, target) >= 0) {
+      // Here we only linear seek the target key inside the restart interval.
+      // When we check each [TAG restart_index] pair in the DataBlockHashIndex
+      // bucket, if a key does not exist inside a restart interval, we avoid
+      // further searching the block content accross restart interval boundary.
+      // Rather, we check the next restart_index in the hash bucket that has
+      // a matching TAG.
+      //
+      // TODO(fwu): check the left and write boundary of the restart interval
+      // to avoid linear seek a target key that is out of range.
+      if (!ParseNextDataKey(true /*within_restart_interval*/) ||
+          Compare(key_, target) >= 0) {
         break;
       }
     }
@@ -535,7 +555,7 @@ bool DataBlockIter::HashSeek(const Slice& target) {
         // If the user key portion match do we consider key_ matches
         // Currently we ignore the seq_num, so not supporting snapshot Get().
         // TODO(fwu) support snapshot Get().
-        comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+        user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
       return true;  // found
     }
   }
