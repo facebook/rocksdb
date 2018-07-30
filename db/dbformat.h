@@ -224,7 +224,7 @@ class InternalKey {
   }
 
   Slice user_key() const { return ExtractUserKey(rep_); }
-  size_t size() { return rep_.size(); }
+  size_t size() const { return rep_.size(); }
 
   void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
     SetFrom(ParsedInternalKey(_user_key, s, t));
@@ -250,10 +250,6 @@ class InternalKey {
   std::string DebugString(bool hex = false) const;
 };
 
-// range smallest .. largest (close interval)
-struct InternalKeyRange {
-  InternalKey smallest, largest;
-};
 
 inline int InternalKeyComparator::Compare(
     const InternalKey& a, const InternalKey& b) const {

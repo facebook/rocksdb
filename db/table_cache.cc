@@ -234,7 +234,7 @@ InternalIterator* TableCache::NewIterator(
       }
     }
   }
-  InternalIterator* result = nullptr;
+  SourceInternalIterator* result = nullptr;
   if (s.ok()) {
     if (options.table_filter &&
         !options.table_filter(*table_reader->GetTableProperties())) {
@@ -242,6 +242,8 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
                                          skip_filters, for_compaction);
+      result->SetSource(
+          IteratorSource(IteratorSource::kSST, (uintptr_t)&file_meta));
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);

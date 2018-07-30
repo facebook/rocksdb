@@ -106,11 +106,10 @@ class BlockBasedTable : public TableReader {
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
-  InternalIterator* NewIterator(const ReadOptions&,
-                                const SliceTransform* prefix_extractor,
-                                Arena* arena = nullptr,
-                                bool skip_filters = false,
-                                bool for_compaction = false) override;
+  SourceInternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor,
+      Arena* arena = nullptr, bool skip_filters = false,
+      bool for_compaction = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -521,7 +520,7 @@ struct BlockBasedTable::Rep {
 };
 
 template <class TBlockIter>
-class BlockBasedTableIterator : public InternalIterator {
+class BlockBasedTableIterator : public SourceInternalIterator {
  public:
   BlockBasedTableIterator(BlockBasedTable* table,
                           const ReadOptions& read_options,

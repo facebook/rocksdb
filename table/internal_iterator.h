@@ -15,6 +15,36 @@ namespace rocksdb {
 
 class PinnedIteratorsManager;
 
+struct IteratorSource {
+  enum SourceType : uintptr_t {
+    kUnknow,
+    kSST,
+    kMemTable,
+    kWriteBatch,
+  };
+  SourceType type;
+  uintptr_t data;
+
+  IteratorSource()
+    : type(kUnknow),
+      data(0) {}
+
+  IteratorSource(const void* ptr)
+    : type(kUnknow),
+      data((uintptr_t)ptr) {}
+
+  IteratorSource(SourceType _type, uintptr_t _data)
+    : type(_type),
+      data(_data) {}
+
+  bool operator==(const IteratorSource& other) {
+    return type == other.type && data == other.data;
+  }
+  bool operator!=(const IteratorSource& other) {
+    return type != other.type || data != other.data;
+  }
+};
+
 class InternalIterator : public Cleanable {
  public:
   InternalIterator() {}
@@ -73,6 +103,9 @@ class InternalIterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  // Return source of current key value
+  virtual IteratorSource source() const { return IteratorSource(this); }
+
   // True if the iterator is invalidated because it is out of the iterator
   // upper bound
   virtual bool IsOutOfBound() { return false; }
@@ -121,10 +154,27 @@ class InternalIterator : public Cleanable {
   InternalIterator& operator=(const InternalIterator&) = delete;
 };
 
+class SourceInternalIterator : public InternalIterator {
+ public:
+  SourceInternalIterator()
+    : source_(InternalIterator::source()) {}
+
+  SourceInternalIterator(const IteratorSource& _source)
+    : source_(_source) {}
+
+  virtual IteratorSource source() const override { return source_; }
+
+  void SetSource(const IteratorSource& _source) { source_ = _source; }
+
+ private:
+  IteratorSource source_;
+};
+
 // Return an empty iterator (yields nothing).
-extern InternalIterator* NewEmptyInternalIterator();
+extern SourceInternalIterator* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
-extern InternalIterator* NewErrorInternalIterator(const Status& status);
+extern SourceInternalIterator* NewErrorInternalIterator(
+    const Status& status);
 
 }  // namespace rocksdb

@@ -98,10 +98,11 @@ class IteratorWrapper {
 
 class Arena;
 // Return an empty iterator (yields nothing) allocated from arena.
-extern InternalIterator* NewEmptyInternalIterator(Arena* arena);
+extern SourceInternalIterator* NewEmptyInternalIterator(
+    Arena* arena);
 
 // Return an empty iterator with the specified status, allocated arena.
-extern InternalIterator* NewErrorInternalIterator(const Status& status,
-                                                  Arena* arena);
+extern SourceInternalIterator* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
 
 }  // namespace rocksdb

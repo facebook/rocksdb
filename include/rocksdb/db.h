@@ -107,6 +107,68 @@ struct RangePtr {
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) { }
 };
 
+struct ExtendRangePtr {
+  const Slice* start;
+  const Slice* end;
+  bool include_start;
+  bool include_end;
+  
+  ExtendRangePtr()
+      : start(nullptr),
+        end(nullptr),
+        include_start(false),
+        include_end(false) { }
+
+  ExtendRangePtr(const Slice* _start, const Slice* _end,
+                 bool _include_start = true,
+                 bool _include_end = false)
+      : start(_start),
+        end(_end),
+        include_start(_include_start),
+        include_end(_include_end) { }
+};
+
+class ExtendRangePtrStorage {
+ public:
+  ExtendRangePtrStorage()
+      : has_start_(false),
+        has_end_(false),
+        include_start_(false),
+        include_end_(false) { }
+
+  ExtendRangePtrStorage(const Slice* _start, const Slice* _end,
+                        bool _include_start = true,
+                        bool _include_end = false) {
+    has_start_ = _start != nullptr;
+    has_end_ = _end != nullptr;
+    include_start_ = _include_start;
+    include_end_ = _include_end;
+    if (has_start_) {
+      start_storage_.assign(_start->data(), _start->size());
+    }
+    if (has_end_) {
+      end_storage_.assign(_end->data(), _end->size());
+    }
+  }
+
+  const std::string* start() const {
+    return has_start_ ? &start_storage_ : nullptr;
+  }
+  const std::string* end() const {
+    return has_end_ ? &end_storage_ : nullptr;
+  }
+  bool include_start() const { return include_start_; }
+  bool include_end() const { return include_end_; }
+
+ private:
+  bool has_start_;
+  bool has_end_;
+  bool include_start_;
+  bool include_end_;
+  std::string start_storage_;
+  std::string end_storage_;
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.

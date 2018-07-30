@@ -201,7 +201,7 @@ class VersionStorageInfo {
       const;
 
   void GetOverlappingInputsRangeBinarySearch(
-      int level,           // level > 0
+      int level,                 // level > 0
       const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
@@ -249,6 +249,15 @@ class VersionStorageInfo {
   bool IsPickFail() const { return is_pick_fail_; }
 
   int num_levels() const { return num_levels_; }
+
+  bool has_space_amplification() const {
+    return has_space_amplification_.empty();
+  }
+
+  bool has_space_amplification(int level) const {
+    return has_space_amplification_.find(level) !=
+           has_space_amplification_.end();
+  }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   int num_non_empty_levels() const {
@@ -495,6 +504,9 @@ class VersionStorageInfo {
   // These are used to pick the best compaction level
   std::vector<double> compaction_score_;
   std::vector<int> compaction_level_;
+
+  std::unordered_set<int> has_space_amplification_;
+
   int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
                                     // for number of L0 files.
 
@@ -520,6 +532,7 @@ class VersionStorageInfo {
   uint64_t estimated_compaction_needed_bytes_;
 
   bool finalized_;
+
   bool is_pick_fail_;
 
   // If set to true, we will run consistency checks even if RocksDB

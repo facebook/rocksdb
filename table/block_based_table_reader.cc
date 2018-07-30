@@ -2218,7 +2218,7 @@ void BlockBasedTableIterator<TBlockIter>::FindKeyBackward() {
   // code simplicity.
 }
 
-InternalIterator* BlockBasedTable::NewIterator(
+SourceInternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
     Arena* arena, bool skip_filters, bool for_compaction) {
   bool need_upper_bound_check =

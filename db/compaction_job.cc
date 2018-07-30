@@ -112,7 +112,12 @@ struct CompactionJob::SubcompactionState {
   // The boundaries of the key-range this compaction is interested in. No two
   // subcompactions may have overlapping key-ranges.
   // 'start' is inclusive, 'end' is exclusive, and nullptr means unbounded
-  Slice *start, *end;
+  const Slice *start, *end;
+  bool include_start;
+  int include_end;
+
+  InternalKey actual_start;
+  InternalKey actual_end;
 
   // The return status of this subcompaction
   Status status;
@@ -158,11 +163,13 @@ struct CompactionJob::SubcompactionState {
   bool seen_key = false;
   std::string compression_dict;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
+  SubcompactionState(Compaction* c, const ExtendRangePtr& range,
                      uint64_t size = 0)
       : compaction(c),
-        start(_start),
-        end(_end),
+        start(range.start),
+        end(range.end),
+        include_start(range.include_start),
+        include_end(!!range.include_end),
         outfile(nullptr),
         builder(nullptr),
         current_output_file_size(0),
@@ -415,7 +422,28 @@ void CompactionJob::Prepare() {
   // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
-  if (c->ShouldFormSubcompactions()) {
+  if (!c->input_range().empty()) {
+    auto& input_range = c->input_range();
+    boundaries_.resize(input_range.size() * 2);
+    for (size_t i = 0; i < input_range.size(); i++) {
+      Slice* start = &boundaries_[i * 2];
+      Slice* end = &boundaries_[i * 2 + 1];
+      if (input_range[i].start() != nullptr) {
+        *start = Slice(*input_range[i].start());
+      } else {
+        start = nullptr;
+      }
+      if (input_range[i].end() != nullptr) {
+        *end = Slice(*input_range[i].end());
+      } else {
+        end = nullptr;
+      }
+      ExtendRangePtr range_ptr(start, end,
+                               input_range[i].include_start(),
+                               input_range[i].include_end());
+      compact_->sub_compact_states.emplace_back(c, range_ptr);
+    }
+  } else if (c->ShouldFormSubcompactions()) {
     const uint64_t start_micros = env_->NowMicros();
     GenSubcompactionBoundaries();
     MeasureTime(stats_, SUBCOMPACTION_SETUP_TIME,
@@ -426,12 +454,13 @@ void CompactionJob::Prepare() {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       Slice* start = i == 0 ? nullptr : &boundaries_[i - 1];
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
-      compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i]);
+      compact_->sub_compact_states.emplace_back(c, ExtendRangePtr(start, end),
+                                                sizes_[i]);
     }
     MeasureTime(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                 compact_->sub_compact_states.size());
   } else {
-    compact_->sub_compact_states.emplace_back(c, nullptr, nullptr);
+    compact_->sub_compact_states.emplace_back(c, ExtendRangePtr());
   }
 }
 
@@ -870,14 +899,21 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
 
-  Slice* start = sub_compact->start;
-  Slice* end = sub_compact->end;
+  const Slice* start = sub_compact->start;
+  const Slice* end = sub_compact->end;
   if (start != nullptr) {
     IterKey start_iter;
-    start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    if (sub_compact->include_start) {
+      start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    } else {
+      start_iter.SetInternalKey(*start, 0, static_cast<ValueType>(0));
+    }
     input->Seek(start_iter.GetInternalKey());
   } else {
     input->SeekToFirst();
+  }
+  if (input->Valid()) {
+    sub_compact->actual_start.DecodeFrom(input->key());
   }
 
   Status status;
@@ -910,10 +946,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     const Slice& key = c_iter->key();
     const Slice& value = c_iter->value();
 
-    // If an end key (exclusive) is specified, check if the current key is
-    // >= than it and exit if it is because the iterator is out of its range
+    // If an end key (exclusive) is specified
+    // when include_end , check current key is greater than end
+    // otherwise , check current key is greater or equal than end
+    // so we use compare result >= include_end
     if (end != nullptr &&
-        cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
+        cfd->user_comparator()->Compare(c_iter->user_key(), *end) >=
+            sub_compact->include_end) {
       break;
     }
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
@@ -1017,11 +1056,25 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input_status = input->status();
       output_file_ended = true;
     }
+    const Slice* next_key = nullptr;
     if (output_file_ended) {
-      const Slice* next_key = nullptr;
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
       }
+      if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
+        if (next_key != nullptr &&
+            ExtractUserKey(*next_key) !=
+                sub_compact->outputs.back().meta.largest.user_key()) {
+          sub_compact->actual_end.SetMinPossibleForUserKey(
+              ExtractUserKey(*next_key));
+          // TODO lazy merge : check is cover any sst
+          break;
+        } else {
+          output_file_ended = false;
+        }
+      }
+    }
+    if (output_file_ended) {
       CompactionIterationStats range_del_out_stats;
       status = FinishCompactionOutputFile(input_status, sub_compact,
                                           range_del_agg.get(),
@@ -1090,6 +1143,22 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       status = s;
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
+  }
+  if (sub_compact->actual_end.size() == 0) {
+    if (end != nullptr) {
+      IterKey end_iter;
+      if (sub_compact->include_end) {
+        end_iter.SetInternalKey(*end, 0, static_cast<ValueType>(0));
+      } else {
+        end_iter.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
+      }
+      input->SeekForPrev(end_iter.GetInternalKey());
+    } else {
+      input->SeekToLast();
+    }
+    if (input->Valid()) {
+      sub_compact->actual_end.DecodeFrom(input->key());
+    }
   }
 
   if (measure_io_stats_) {

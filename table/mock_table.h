@@ -38,11 +38,10 @@ class MockTableReader : public TableReader {
  public:
   explicit MockTableReader(const stl_wrappers::KVMap& table) : table_(table) {}
 
-  InternalIterator* NewIterator(const ReadOptions&,
-                                const SliceTransform* prefix_extractor,
-                                Arena* arena = nullptr,
-                                bool skip_filters = false,
-                                bool for_compaction = false) override;
+  SourceInternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor,
+      Arena* arena = nullptr, bool skip_filters = false,
+      bool for_compaction = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
@@ -62,7 +61,7 @@ class MockTableReader : public TableReader {
   const stl_wrappers::KVMap& table_;
 };
 
-class MockTableIterator : public InternalIterator {
+class MockTableIterator : public SourceInternalIterator {
  public:
   explicit MockTableIterator(const stl_wrappers::KVMap& table) : table_(table) {
     itr_ = table_.end();

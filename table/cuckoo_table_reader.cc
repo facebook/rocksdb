@@ -194,7 +194,7 @@ void CuckooTableReader::Prepare(const Slice& key) {
   }
 }
 
-class CuckooTableIterator : public InternalIterator {
+class CuckooTableIterator : public SourceInternalIterator {
  public:
   explicit CuckooTableIterator(CuckooTableReader* reader);
   ~CuckooTableIterator() {}
@@ -374,10 +374,10 @@ Slice CuckooTableIterator::value() const {
   return curr_value_;
 }
 
-extern InternalIterator* NewErrorInternalIterator(const Status& status,
-                                                  Arena* arena);
+extern SourceInternalIterator* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
 
-InternalIterator* CuckooTableReader::NewIterator(
+SourceInternalIterator* CuckooTableReader::NewIterator(
     const ReadOptions& /*read_options*/,
     const SliceTransform* /* prefix_extractor */, Arena* arena,
     bool /*skip_filters*/, bool /*for_compaction*/) {
