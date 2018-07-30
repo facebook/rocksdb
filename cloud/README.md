@@ -12,7 +12,14 @@ the default location of /usr/local. You can follow the steps listed
 here https://github.com/aws/aws-sdk-cpp to install the c++ AWS sdk.
 
 If you want to compile rocksdb with AWS support, please set the following
-environment variable USE_AWS=1 and then
+environment variable USE_AWS=1. 
+
+If you want to compile rocksdb so that the write ahead log is stored
+in Kafka, then set environment variable USE_KAFKA=1. You have to use
+the C++ kafka client by downloading and installing the code from
+https://github.com/edenhill/librdkafka.
+
+Then run
 
    make clean all db_bench
 
