@@ -21,7 +21,7 @@ namespace spatial {
 class SpatialDBTest : public testing::Test {
  public:
   SpatialDBTest() {
-    dbname_ = test::TmpDir() + "/spatial_db_test";
+    dbname_ = test::PerThreadDBPath("spatial_db_test");
     DestroyDB(dbname_, Options());
   }
 

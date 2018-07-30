@@ -790,6 +790,8 @@ class DBImpl : public DB {
   friend class WritePreparedTxnDB;
   friend class WriteBatchWithIndex;
   friend class WriteUnpreparedTxnDB;
+  friend class WriteUnpreparedTxn;
+
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
@@ -801,7 +803,7 @@ class DBImpl : public DB {
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
-  friend class WriteUnpreparedTransactionTest_RecoveryRollbackUnprepared_Test;
+  friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
 #endif
   struct CompactionState;
 

@@ -24,7 +24,7 @@ class CompactFilesTest : public testing::Test {
  public:
   CompactFilesTest() {
     env_ = Env::Default();
-    db_name_ = test::TmpDir(env_) + "/compact_files_test";
+    db_name_ = test::PerThreadDBPath("compact_files_test");
   }
 
   std::string db_name_;

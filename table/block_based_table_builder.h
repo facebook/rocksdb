@@ -18,6 +18,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/compression.h"
 
@@ -106,6 +107,14 @@ class BlockBasedTableBuilder : public TableBuilder {
   Status InsertBlockInCache(const Slice& block_contents,
                             const CompressionType type,
                             const BlockHandle* handle);
+
+  void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,
+                       BlockHandle* index_block_handle);
+  void WritePropertiesBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteCompressionDictBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteRangeDelBlock(MetaIndexBuilder* meta_index_builder);
+
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;

@@ -32,7 +32,7 @@ class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
       : env_(new MockEnv(Env::Default())),
-        dbname_(test::TmpDir() + "/wal_manager_test"),
+        dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),

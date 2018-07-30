@@ -26,7 +26,7 @@ class Status {
  public:
   // Create a success status.
   Status() : code_(kOk), subcode_(kNone), sev_(kNoError), state_(nullptr) {}
-  ~Status() { free((void *) state_); }
+  ~Status() { delete[] state_; }
 
   // Copy the specified status.
   Status(const Status& s);
@@ -282,8 +282,6 @@ class Status {
   Severity sev_;
   const char* state_;
 
-  static const char* msgs[static_cast<int>(kMaxSubCode)];
-
   explicit Status(Code _code, SubCode _subcode = kNone)
       : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
 
@@ -308,7 +306,7 @@ inline Status& Status::operator=(const Status& s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
     sev_ = s.sev_;
-    free((void *) state_);
+    delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
   }
   return *this;
@@ -334,7 +332,7 @@ inline Status& Status::operator=(Status&& s)
     s.subcode_ = kNone;
     sev_ = std::move(s.sev_);
     s.sev_ = kNoError;
-    free((void *)state_);
+    delete[] state_;
     state_ = nullptr;
     std::swap(state_, s.state_);
   }

@@ -45,7 +45,7 @@ class DeleteFileTest : public testing::Test {
     options_.max_bytes_for_level_base = 1024*1024*1000;
     options_.WAL_ttl_seconds = 300; // Used to test log files
     options_.WAL_size_limit_MB = 1024; // Used to test log files
-    dbname_ = test::TmpDir() + "/deletefile_test";
+    dbname_ = test::PerThreadDBPath("deletefile_test");
     options_.wal_dir = dbname_ + "/wal_files";
 
     // clean up all the files that might have been there before

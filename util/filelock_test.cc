@@ -19,8 +19,9 @@ class LockTest : public testing::Test {
   std::string file_;
   rocksdb::Env* env_;
 
-  LockTest() : file_(test::TmpDir() + "/db_testlock_file"),
-               env_(rocksdb::Env::Default()) {
+  LockTest()
+      : file_(test::PerThreadDBPath("db_testlock_file")),
+        env_(rocksdb::Env::Default()) {
     current_ = this;
   }
 

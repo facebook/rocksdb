@@ -60,7 +60,7 @@ class TransactionTestBase : public ::testing::Test {
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
     options.two_write_queues = two_write_queue;
-    dbname = test::TmpDir() + "/transaction_testdb";
+    dbname = test::PerThreadDBPath("transaction_testdb");
 
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
@@ -272,8 +272,6 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
-    auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-    pdb->UnregisterTransaction(txn);
     delete txn;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
@@ -387,12 +385,6 @@ class TransactionTestBase : public ::testing::Test {
             ASSERT_OK(txn->Prepare());
           }
           ASSERT_OK(txn->Commit());
-          if (type == 2) {
-            auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-            // TODO(myabandeh): this is counter-intuitive. The destructor should
-            // also do the unregistering.
-            pdb->UnregisterTransaction(txn);
-          }
           delete txn;
           break;
         default:
@@ -448,6 +440,8 @@ class TransactionTest : public TransactionTestBase,
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
                             std::get<2>(GetParam())){};
 };
+
+class TransactionStressTest : public TransactionTest {};
 
 class MySQLStyleTransactionTest : public TransactionTest {};
 

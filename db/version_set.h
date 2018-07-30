@@ -137,7 +137,8 @@ class VersionStorageInfo {
 
   // This computes ttl_expired_files_ and is called by
   // ComputeCompactionScore()
-  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions);
+  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
+                              const uint64_t ttl);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -201,8 +202,8 @@ class VersionStorageInfo {
 
   void GetOverlappingInputsRangeBinarySearch(
       int level,           // level > 0
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
       int hint_index,                // index of overlap file
       int* file_index,               // return index of overlap file
@@ -211,20 +212,20 @@ class VersionStorageInfo {
 
   void ExtendFileRangeOverlappingInterval(
       int level,
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
-      unsigned int index,  // start extending from this index
-      int* startIndex,     // return the startIndex of input range
-      int* endIndex)       // return the endIndex of input range
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
+      unsigned int index,        // start extending from this index
+      int* startIndex,           // return the startIndex of input range
+      int* endIndex)             // return the endIndex of input range
       const;
 
   void ExtendFileRangeWithinInterval(
       int level,
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
-      unsigned int index,  // start extending from this index
-      int* startIndex,     // return the startIndex of input range
-      int* endIndex)       // return the endIndex of input range
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
+      unsigned int index,        // start extending from this index
+      int* startIndex,           // return the startIndex of input range
+      int* endIndex)             // return the endIndex of input range
       const;
 
   // Returns true iff some file in the specified level overlaps
@@ -830,6 +831,11 @@ class VersionSet {
 
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
+
+  // Fetch And Add n new file number
+  uint64_t FetchAddFileNumber(uint64_t n) {
+    return next_file_number_.fetch_add(n);
+  }
 
   // Return the last sequence number.
   uint64_t LastSequence() const {
