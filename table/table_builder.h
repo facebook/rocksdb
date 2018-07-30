@@ -13,6 +13,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
@@ -30,13 +31,27 @@ struct TableReaderOptions {
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false, int _level = -1)
+                     bool _skip_filters = false, bool _immortal = false,
+                     int _level = -1)
+      : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
+                           _internal_comparator, _skip_filters, _immortal,
+                           _level, 0 /* _largest_seqno */) {}
+
+  // @param skip_filters Disables loading/accessing the filter block
+  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+                     const SliceTransform* _prefix_extractor,
+                     const EnvOptions& _env_options,
+                     const InternalKeyComparator& _internal_comparator,
+                     bool _skip_filters, bool _immortal, int _level,
+                     SequenceNumber _largest_seqno)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
-        level(_level) {}
+        immortal(_immortal),
+        level(_level),
+        largest_seqno(_largest_seqno) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -44,8 +59,12 @@ struct TableReaderOptions {
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
+  // Whether the table will be valid as long as the DB is open
+  bool immortal;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
+  // largest seqno in the table
+  SequenceNumber largest_seqno;
 };
 
 struct TableBuilderOptions {

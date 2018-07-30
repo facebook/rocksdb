@@ -49,6 +49,14 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_UNPREPARED),
                       std::make_tuple(false, true, WRITE_UNPREPARED)));
 INSTANTIATE_TEST_CASE_P(
+    DBAsBaseDB, TransactionStressTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(true, true, WRITE_PREPARED),
@@ -60,16 +68,10 @@ INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(true, false, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED),
                       std::make_tuple(false, false, WRITE_UNPREPARED),
-                      std::make_tuple(false, true, WRITE_UNPREPARED),
-                      std::make_tuple(true, false, WRITE_UNPREPARED),
-                      std::make_tuple(true, true, WRITE_UNPREPARED)));
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
@@ -465,6 +467,14 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     ASSERT_EQ(dlock_buffer.size(), curr_dlock_buffer_len_);
     auto dlock_entry = dlock_buffer[0].path;
     ASSERT_EQ(dlock_entry.size(), kInitialMaxDeadlocks);
+    int64_t pre_deadlock_time = dlock_buffer[0].deadlock_time;
+    int64_t cur_deadlock_time = 0;
+    for (auto const& dl_path_rec : dlock_buffer) {
+      cur_deadlock_time = dl_path_rec.deadlock_time;
+      ASSERT_NE(cur_deadlock_time, 0);
+      ASSERT_TRUE(cur_deadlock_time <= pre_deadlock_time);
+      pre_deadlock_time = cur_deadlock_time;
+    }
 
     int64_t curr_waiting_key = 0;
 
@@ -596,7 +606,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 }
 
-TEST_P(TransactionTest, DeadlockCycle) {
+TEST_P(TransactionStressTest, DeadlockCycle) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
@@ -670,6 +680,15 @@ TEST_P(TransactionTest, DeadlockCycle) {
     ASSERT_EQ(dlock_entry.size(), check_len);
     ASSERT_EQ(dlock_buffer[0].limit_exceeded, check_limit_flag);
 
+    int64_t pre_deadlock_time = dlock_buffer[0].deadlock_time;
+    int64_t cur_deadlock_time = 0;
+    for (auto const& dl_path_rec : dlock_buffer) {
+      cur_deadlock_time = dl_path_rec.deadlock_time;
+      ASSERT_NE(cur_deadlock_time, 0);
+      ASSERT_TRUE(cur_deadlock_time <= pre_deadlock_time);
+      pre_deadlock_time = cur_deadlock_time;
+    }
+
     // Iterates backwards over path verifying decreasing txn_ids.
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
       auto dl_node = *it;
@@ -695,7 +714,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
   }
 }
 
-TEST_P(TransactionTest, DeadlockStress) {
+TEST_P(TransactionStressTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
   const uint32_t NUM_ITERS = 10000;
@@ -1077,7 +1096,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   }
 }
 
-TEST_P(TransactionTest, TwoPhaseExpirationTest) {
+TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
   Status s;
 
   WriteOptions write_options;
@@ -1396,7 +1415,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   }
 }
 
-TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
+TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   WriteOptions write_options;
   write_options.sync = true;
   write_options.disableWAL = false;
@@ -2639,7 +2658,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   string value;
   Status s;
 
@@ -3193,7 +3211,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   ASSERT_OK(s);
 
   // Create a txn and verify we can only lock up to 3 keys
-  Transaction* txn = db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   s = txn->Put("X", "x");
@@ -3226,7 +3244,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   s = txn->Get(read_options, "W", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn2);
 
   // "X" currently locked
@@ -3285,7 +3303,6 @@ TEST_P(TransactionTest, LockLimitTest) {
 TEST_P(TransactionTest, IteratorTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   std::string value;
   Status s;
 
@@ -3466,7 +3483,6 @@ TEST_P(TransactionTest, DisableIndexingTest) {
 TEST_P(TransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   std::string value;
   Status s;
 
@@ -4721,7 +4737,6 @@ TEST_P(TransactionTest, ClearSnapshotTest) {
 TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   Status s;
 
-  TransactionOptions txn_options;
   ColumnFamilyHandle *cfa, *cfb;
   ColumnFamilyOptions cf_options;
 
@@ -4777,7 +4792,7 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   }
 }
 
-TEST_P(TransactionTest, ExpiredTransactionDataRace1) {
+TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   // In this test, txn1 should succeed committing,
   // as the callback is called after txn1 starts committing.
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
@@ -4935,8 +4950,16 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   ASSERT_EQ(2, txn->GetNumPuts());
 
   s = txn->Put(Slice("b"), Slice("...."));
-  ASSERT_TRUE(s.IsMemoryLimit());
-  ASSERT_EQ(2, txn->GetNumPuts());
+  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+  // For write unprepared, write batches exceeding max_write_batch_size will
+  // just flush to DB instead of returning a memory limit error.
+  if (pdb->GetTxnDBOptions().write_policy != WRITE_UNPREPARED) {
+    ASSERT_TRUE(s.IsMemoryLimit());
+    ASSERT_EQ(2, txn->GetNumPuts());
+  } else {
+    ASSERT_OK(s);
+    ASSERT_EQ(3, txn->GetNumPuts());
+  }
 
   txn->Rollback();
   delete txn;
@@ -4946,7 +4969,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
-TEST_P(TransactionTest, SeqAdvanceTest) {
+TEST_P(TransactionStressTest, SeqAdvanceTest) {
   // TODO(myabandeh): must be test with false before new releases
   const bool short_test = true;
   WriteOptions wopts;
@@ -5269,10 +5292,6 @@ TEST_P(TransactionTest, DuplicateKeys) {
           }
           s = txn0->Commit();
           ASSERT_OK(s);
-        }
-        if (!do_prepare && !do_rollback) {
-          auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-          pdb->UnregisterTransaction(txn0);
         }
         delete txn0;
         ReadOptions ropt;

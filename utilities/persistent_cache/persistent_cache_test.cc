@@ -132,7 +132,7 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
 }
 
 PersistentCacheTierTest::PersistentCacheTierTest()
-    : path_(test::TmpDir(Env::Default()) + "/cache_test") {
+    : path_(test::PerThreadDBPath("cache_test")) {
 #ifdef OS_LINUX
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   rocksdb::SyncPoint::GetInstance()->SetCallBack("NewRandomAccessFile:O_DIRECT",

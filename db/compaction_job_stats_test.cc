@@ -98,7 +98,7 @@ class CompactionJobStatsTest : public testing::Test,
   CompactionJobStatsTest() : env_(Env::Default()) {
     env_->SetBackgroundThreads(1, Env::LOW);
     env_->SetBackgroundThreads(1, Env::HIGH);
-    dbname_ = test::TmpDir(env_) + "/compaction_job_stats_test";
+    dbname_ = test::PerThreadDBPath("compaction_job_stats_test");
     alternative_wal_dir_ = dbname_ + "/wal";
     Options options;
     options.create_if_missing = true;

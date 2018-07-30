@@ -37,9 +37,13 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   for (auto rtxn : rtxns) {
-    auto cnt = rtxn.second->batch_cnt_ ? rtxn.second->batch_cnt_ : 1;
+    // There should only one batch for WritePrepared policy.
+    assert(rtxn.second->batches_.size() == 1);
+    const auto& seq = rtxn.second->batches_.begin()->first;
+    const auto& batch_info = rtxn.second->batches_.begin()->second;
+    auto cnt = batch_info.batch_cnt_ ? batch_info.batch_cnt_ : 1;
     for (size_t i = 0; i < cnt; i++) {
-      AddPrepared(rtxn.second->seq_ + i);
+      AddPrepared(seq + i);
     }
   }
   SequenceNumber prev_max = max_evicted_seq_;
@@ -306,9 +310,10 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
-                        options.snapshot)
-                        ->min_uncommitted_;
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(
+            options.snapshot)
+            ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map

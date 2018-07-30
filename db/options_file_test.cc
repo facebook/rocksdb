@@ -15,7 +15,7 @@
 namespace rocksdb {
 class OptionsFileTest : public testing::Test {
  public:
-  OptionsFileTest() : dbname_(test::TmpDir() + "/options_file_test") {}
+  OptionsFileTest() : dbname_(test::PerThreadDBPath("options_file_test")) {}
 
   std::string dbname_;
 };

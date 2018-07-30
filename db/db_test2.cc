@@ -354,7 +354,7 @@ INSTANTIATE_TEST_CASE_P(DBTestSharedWriteBufferAcrossCFs,
                                           std::make_tuple(false, true)));
 
 TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
-  std::string dbname2 = test::TmpDir(env_) + "/db_shared_wb_db2";
+  std::string dbname2 = test::PerThreadDBPath("db_shared_wb_db2");
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
   // Avoid undeterministic value by malloc_usable_size();
@@ -2321,9 +2321,9 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
         options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW);
     // Include the explicit prefetch of the footer in direct I/O case.
     size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
-    ASSERT_GE(rate_limited_bytes,
-              static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files +
-                                  direct_io_extra));
+    ASSERT_GE(
+        rate_limited_bytes,
+        static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
     ASSERT_LT(
         rate_limited_bytes,
         static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
@@ -2422,7 +2422,7 @@ TEST_F(DBTest2, ReadCallbackTest) {
   class TestReadCallback : public ReadCallback {
    public:
     explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
-    virtual bool IsCommitted(SequenceNumber seq) override {
+    virtual bool IsVisible(SequenceNumber seq) override {
       return seq <= snapshot_;
     }
 
@@ -2505,6 +2505,8 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.allow_mmap_reads = true;
+  options.max_open_files = 100;
+  options.compression = kNoCompression;
   Reopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
@@ -2512,6 +2514,8 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
 
   PinnableSlice pinned_value;
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  // It is not safe to pin mmap files as they might disappear by compaction
+  ASSERT_FALSE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
 
   dbfull()->TEST_CompactRange(0 /* level */, nullptr /* begin */,
@@ -2519,8 +2523,110 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
                               true /* disallow_trivial_move */);
 
   // Ensure pinned_value doesn't rely on memory munmap'd by the above
-  // compaction.
+  // compaction. It crashes if it does.
   ASSERT_EQ(pinned_value.ToString(), "bar");
+
+#ifndef ROCKSDB_LITE
+  pinned_value.Reset();
+  // Unsafe to pin mmap files when they could be kicked out of table cache
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_FALSE(pinned_value.IsPinned());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+
+  pinned_value.Reset();
+  // In read-only mode with infinite capacity on table cache it should pin the
+  // value and avoid the memcpy
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
+  ASSERT_TRUE(pinned_value.IsPinned());
+  ASSERT_EQ(pinned_value.ToString(), "bar");
+#endif
+}
+
+TEST_F(DBTest2, TestBBTTailPrefetch) {
+  std::atomic<bool> called(false);
+  size_t expected_lower_bound = 512 * 1024;
+  size_t expected_higher_bound = 512 * 1024;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::TailPrefetchLen", [&](void* arg) {
+        size_t* prefetch_size = static_cast<size_t*>(arg);
+        EXPECT_LE(expected_lower_bound, *prefetch_size);
+        EXPECT_GE(expected_higher_bound, *prefetch_size);
+        called = true;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put("1", "1");
+  Put("9", "1");
+  Flush();
+
+  expected_lower_bound = 0;
+  expected_higher_bound = 8 * 1024;
+
+  Put("1", "1");
+  Put("9", "1");
+  Flush();
+
+  Put("1", "1");
+  Put("9", "1");
+  Flush();
+
+  // Full compaction to make sure there is no L0 file after the open.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_TRUE(called.load());
+  called = false;
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::atomic<bool> first_call(true);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::TailPrefetchLen", [&](void* arg) {
+        size_t* prefetch_size = static_cast<size_t*>(arg);
+        if (first_call) {
+          EXPECT_EQ(4 * 1024, *prefetch_size);
+          first_call = false;
+        } else {
+          EXPECT_GE(4 * 1024, *prefetch_size);
+        }
+        called = true;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.max_file_opening_threads = 1;  // one thread
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.max_open_files = -1;
+  Reopen(options);
+
+  Put("1", "1");
+  Put("9", "1");
+  Flush();
+
+  Put("1", "1");
+  Put("9", "1");
+  Flush();
+
+  ASSERT_TRUE(called.load());
+  called = false;
+
+  // Parallel loading SST files
+  options.max_file_opening_threads = 16;
+  Reopen(options);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_TRUE(called.load());
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace rocksdb

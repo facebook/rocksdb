@@ -64,7 +64,12 @@ class BlobReconcileWalFilter : public WalFilter {
 
 // Comparator to sort "TTL" aware Blob files based on the lower value of
 // TTL range.
-struct blobf_compare_ttl {
+struct BlobFileComparatorTTL {
+  bool operator()(const std::shared_ptr<BlobFile>& lhs,
+                  const std::shared_ptr<BlobFile>& rhs) const;
+};
+
+struct BlobFileComparator {
   bool operator()(const std::shared_ptr<BlobFile>& lhs,
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
@@ -315,9 +320,7 @@ class BlobDBImpl : public BlobDB {
   bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
   bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
 
-  void CopyBlobFiles(
-      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
-      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
+  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
 
@@ -373,7 +376,7 @@ class BlobDBImpl : public BlobDB {
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
+  std::set<std::shared_ptr<BlobFile>, BlobFileComparatorTTL> open_ttl_files_;
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;

@@ -436,7 +436,7 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
 // deleted from first db_path were deleted using DeleteScheduler and
 // files in the second path were not.
 TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
-  int bg_delete_file = 0;
+  std::atomic<int> bg_delete_file(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* /*arg*/) { bg_delete_file++; });

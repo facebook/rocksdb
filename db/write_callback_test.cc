@@ -29,7 +29,7 @@ class WriteCallbackTest : public testing::Test {
   string dbname;
 
   WriteCallbackTest() {
-    dbname = test::TmpDir() + "/write_callback_testdb";
+    dbname = test::PerThreadDBPath("write_callback_testdb");
   }
 };
 
@@ -157,8 +157,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               column_families.push_back(
                   ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
               std::vector<ColumnFamilyHandle*> handles;
-              auto open_s = DBImpl::Open(db_options, dbname, column_families,
-                                         &handles, &db, seq_per_batch);
+              auto open_s =
+                  DBImpl::Open(db_options, dbname, column_families, &handles,
+                               &db, seq_per_batch, true /* batch_per_txn */);
               ASSERT_OK(open_s);
               assert(handles.size() == 1);
               delete handles[0];

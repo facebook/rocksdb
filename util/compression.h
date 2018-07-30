@@ -121,6 +121,8 @@ class ZSTDUncompressCachedData {
   int64_t GetCacheIndex() const { return -1; }
   void CreateIfNeeded() {}
   void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
+ private:
+  void ignore_padding__() { padding = nullptr; }
 };
 }  // namespace rocksdb
 #endif

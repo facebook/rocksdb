@@ -107,18 +107,18 @@ class FaultInjectionTest
     Options options;
     switch (option_config_) {
       case kWalDir:
-        options.wal_dir = test::TmpDir(env_) + "/fault_test_wal";
+        options.wal_dir = test::PerThreadDBPath(env_, "fault_test_wal");
         break;
       case kDifferentDataDir:
-        options.db_paths.emplace_back(test::TmpDir(env_) + "/fault_test_data",
-                                      1000000U);
+        options.db_paths.emplace_back(
+            test::PerThreadDBPath(env_, "fault_test_data"), 1000000U);
         break;
       case kSyncWal:
         sync_use_wal_ = true;
         sync_use_compact_ = false;
         break;
       case kWalDirSyncWal:
-        options.wal_dir = test::TmpDir(env_) + "/fault_test_wal";
+        options.wal_dir = test::PerThreadDBPath(env_, "/fault_test_wal");
         sync_use_wal_ = true;
         sync_use_compact_ = false;
         break;
@@ -158,7 +158,7 @@ class FaultInjectionTest
     table_options.block_cache = tiny_cache_;
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    dbname_ = test::TmpDir() + "/fault_test";
+    dbname_ = test::PerThreadDBPath("fault_test");
 
     EXPECT_OK(DestroyDB(dbname_, options_));
 

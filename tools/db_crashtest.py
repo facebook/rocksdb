@@ -1,10 +1,8 @@
 #! /usr/bin/env python
 import os
-import re
 import sys
 import time
 import random
-import logging
 import tempfile
 import subprocess
 import shutil
@@ -105,9 +103,8 @@ simple_default_params = {
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
-    "prefix_size": 0,
-    "prefixpercent": 0,
-    "readpercent": 50,
+    "prefixpercent": 25,
+    "readpercent": 25,
     "target_file_size_base": 16777216,
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
@@ -291,7 +288,7 @@ def whitebox_crash_main(args, unknown_args):
             }
         else:
             # normal run
-            additional_opts = additional_opts = {
+            additional_opts = {
                 "kill_random_test": None,
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }

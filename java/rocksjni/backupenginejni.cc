@@ -58,6 +58,36 @@ void Java_org_rocksdb_BackupEngine_createNewBackup(
 
 /*
  * Class:     org_rocksdb_BackupEngine
+ * Method:    createNewBackupWithMetadata
+ * Signature: (JJLjava/lang/String;Z)V
+ */
+void Java_org_rocksdb_BackupEngine_createNewBackupWithMetadata(
+    JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jlong db_handle,
+    jstring japp_metadata, jboolean jflush_before_backup) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
+
+  jboolean has_exception = JNI_FALSE;
+  std::string app_metadata =
+      rocksdb::JniUtil::copyStdString(env, japp_metadata, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env, "Could not copy jstring to std::string");
+    return;
+  }
+
+  auto status = backup_engine->CreateNewBackupWithMetadata(
+      db, app_metadata, static_cast<bool>(jflush_before_backup));
+
+  if (status.ok()) {
+    return;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+}
+
+/*
+ * Class:     org_rocksdb_BackupEngine
  * Method:    getBackupInfo
  * Signature: (J)Ljava/util/List;
  */
