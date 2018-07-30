@@ -3061,23 +3061,6 @@ void DBImpl::WaitForIngestFile() {
   }
 }
 
-Status DBImpl::StartTrace(const TraceOptions& options,
-                          const std::string& trace_filename) {
-  EnvOptions env_options;
-  unique_ptr<WritableFile> trace_file;
-  Status s = env_->NewWritableFile(trace_filename, &trace_file, env_options);
-  if (!s.ok()) {
-    return s;
-  }
-
-  unique_ptr<WritableFileWriter> file_writer;
-  file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
-  unique_ptr<TraceWriter> trace_writer;
-  trace_writer.reset(new FileTraceWriter(std::move(file_writer)));
-
-  return StartTrace(options, std::move(trace_writer));
-}
-
 Status DBImpl::StartTrace(const TraceOptions& /* options */,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
@@ -3092,29 +3075,9 @@ Status DBImpl::EndTrace(const TraceOptions& /* options */) {
   return s;
 }
 
-Status DBImpl::StartReplay(const ReplayOptions& options,
-                           const std::string& trace_filename,
-                           std::vector<ColumnFamilyHandle*>& handles) {
-  EnvOptions env_options;
-  unique_ptr<RandomAccessFile> trace_file;
-  Status s =
-      env_->NewRandomAccessFile(trace_filename, &trace_file, env_options);
-  if (!s.ok()) {
-    return s;
-  }
-
-  unique_ptr<RandomAccessFileReader> file_reader;
-  file_reader.reset(
-      new RandomAccessFileReader(std::move(trace_file), trace_filename));
-  unique_ptr<TraceReader> trace_reader;
-  trace_reader.reset(new FileTraceReader(std::move(file_reader)));
-
-  return StartReplay(options, std::move(trace_reader), handles);
-}
-
 Status DBImpl::StartReplay(const ReplayOptions& /* options */,
                            std::unique_ptr<TraceReader>&& trace_reader,
-                           std::vector<ColumnFamilyHandle*>& handles) {
+                           const std::vector<ColumnFamilyHandle*>& handles) {
   replayer_.reset(new Replayer(this, handles, std::move(trace_reader)));
   return replayer_->Replay();
 }

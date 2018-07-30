@@ -2505,12 +2505,16 @@ TEST_F(DBTest2, TraceAndReplay) {
   options.merge_operator = MergeOperators::CreatePutOperator();
   ReadOptions ro;
   WriteOptions wo;
-  TraceOptions trace_opt;
-  ReplayOptions replay_opt;
+  TraceOptions trace_opts;
+  ReplayOptions replay_opts;
+  EnvOptions env_opts;
   CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
 
-  ASSERT_OK(db_->StartTrace(trace_opt, dbname_ + "/rocksdb.trace"));
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
 
   ASSERT_OK(Put(0, "a", "1"));
   ASSERT_OK(Merge(0, "b", "2"));
@@ -2533,7 +2537,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(Put(1, "rocksdb", "rocks"));
   ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
 
-  ASSERT_OK(db_->EndTrace(trace_opt));
+  ASSERT_OK(db_->EndTrace(trace_opts));
   // These should not get into the trace file as it is after EndTrace.
   Put("hello", "world");
   Merge("foo", "bar");
@@ -2565,8 +2569,10 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
   ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
 
-  ASSERT_OK(db2->StartReplay(replay_opt, dbname_ + "/rocksdb.trace", handles_));
-  ASSERT_OK(db2->EndReplay(replay_opt));
+  std::unique_ptr<TraceReader> trace_reader;
+  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  ASSERT_OK(db2->StartReplay(replay_opts, std::move(trace_reader), handles_));
+  ASSERT_OK(db2->EndReplay(replay_opts));
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
   ASSERT_EQ("1", value);

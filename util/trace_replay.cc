@@ -151,7 +151,7 @@ Status Tracer::WriteFooter() {
   return WriteTrace(trace);
 }
 
-Status Tracer::WriteTrace(Trace& trace) {
+Status Tracer::WriteTrace(const Trace& trace) {
   std::string encoded_trace;
   PutFixed64(&encoded_trace, trace.ts);
   encoded_trace.push_back(trace.type);
@@ -162,7 +162,7 @@ Status Tracer::WriteTrace(Trace& trace) {
 
 Status Tracer::Close() { return WriteFooter(); }
 
-Replayer::Replayer(DBImpl* db, std::vector<ColumnFamilyHandle*>& handles,
+Replayer::Replayer(DBImpl* db, const std::vector<ColumnFamilyHandle*>& handles,
                    unique_ptr<TraceReader>&& reader)
     : db_(db), trace_reader_(std::move(reader)) {
   for (ColumnFamilyHandle* cfh : handles) {
@@ -175,7 +175,7 @@ Replayer::~Replayer() { trace_reader_.reset(); }
 Status Replayer::Replay() {
   Status s;
   Trace header;
-  s = ReadHeader(header);
+  s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
@@ -188,7 +188,7 @@ Status Replayer::Replay() {
   uint64_t ops = 0;
   while (s.ok()) {
     trace.reset();
-    s = ReadTrace(trace);
+    s = ReadTrace(&trace);
     if (!s.ok()) {
       break;
     }
@@ -230,27 +230,29 @@ Status Replayer::Replay() {
   return s;
 }
 
-Status Replayer::ReadHeader(Trace& header) {
+Status Replayer::ReadHeader(Trace* header) {
+  assert(header != nullptr);
   Status s = ReadTrace(header);
   if (!s.ok()) {
     return s;
   }
-  if (header.type != kTraceBegin) {
+  if (header->type != kTraceBegin) {
     return Status::Corruption("Corrupted trace file. Incorrect header.");
   }
-  if (header.payload.substr(0, kTraceMagic.length()) != kTraceMagic) {
+  if (header->payload.substr(0, kTraceMagic.length()) != kTraceMagic) {
     return Status::Corruption("Corrupted trace file. Incorrect magic.");
   }
 
   return s;
 }
 
-Status Replayer::ReadFooter(Trace& footer) {
+Status Replayer::ReadFooter(Trace* footer) {
+  assert(footer != nullptr);
   Status s = ReadTrace(footer);
   if (!s.ok()) {
     return s;
   }
-  if (footer.type != kTraceEnd) {
+  if (footer->type != kTraceEnd) {
     return Status::Corruption("Corrupted trace file. Incorrect footer.");
   }
 
@@ -258,7 +260,8 @@ Status Replayer::ReadFooter(Trace& footer) {
   return s;
 }
 
-Status Replayer::ReadTrace(Trace& trace) {
+Status Replayer::ReadTrace(Trace* trace) {
+  assert(trace != nullptr);
   std::string encoded_trace;
   Status s = trace_reader_->Read(&encoded_trace);
   if (!s.ok()) {
@@ -266,10 +269,41 @@ Status Replayer::ReadTrace(Trace& trace) {
   }
 
   Slice enc_slice = Slice(encoded_trace);
-  GetFixed64(&enc_slice, &trace.ts);
-  trace.type = static_cast<TraceType>(enc_slice[0]);
+  GetFixed64(&enc_slice, &trace->ts);
+  trace->type = static_cast<TraceType>(enc_slice[0]);
   enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
-  trace.payload = enc_slice.ToString();
+  trace->payload = enc_slice.ToString();
+  return s;
+}
+
+Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
+                          const std::string& trace_filename,
+                          std::unique_ptr<TraceWriter>* trace_writer) {
+  unique_ptr<WritableFile> trace_file;
+  Status s = env->NewWritableFile(trace_filename, &trace_file, env_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  unique_ptr<WritableFileWriter> file_writer;
+  file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
+  trace_writer->reset(new FileTraceWriter(std::move(file_writer)));
+  return s;
+}
+
+Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
+                          const std::string& trace_filename,
+                          std::unique_ptr<TraceReader>* trace_reader) {
+  unique_ptr<RandomAccessFile> trace_file;
+  Status s = env->NewRandomAccessFile(trace_filename, &trace_file, env_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  unique_ptr<RandomAccessFileReader> file_reader;
+  file_reader.reset(
+      new RandomAccessFileReader(std::move(trace_file), trace_filename));
+  trace_reader->reset(new FileTraceReader(std::move(file_reader)));
   return s;
 }
 

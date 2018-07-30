@@ -27,4 +27,11 @@ class TraceReader {
   virtual Status Close() = 0;
 };
 
+// Factory methods to read and write traces to a file.
+Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
+                          const std::string& trace_filename,
+                          std::unique_ptr<TraceWriter>* trace_writer);
+Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
+                          const std::string& trace_filename,
+                          std::unique_ptr<TraceReader>* trace_reader);
 }  // namespace rocksdb

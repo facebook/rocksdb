@@ -54,7 +54,7 @@ class Tracer {
  private:
   Status WriteHeader();
   Status WriteFooter();
-  Status WriteTrace(Trace& trace);
+  Status WriteTrace(const Trace& trace);
 
   Env* env_;
   unique_ptr<TraceWriter> trace_writer_;
@@ -62,16 +62,16 @@ class Tracer {
 
 class Replayer {
  public:
-  Replayer(DBImpl* db, std::vector<ColumnFamilyHandle*>& handles,
+  Replayer(DBImpl* db, const std::vector<ColumnFamilyHandle*>& handles,
            std::unique_ptr<TraceReader>&& reader);
   ~Replayer();
 
   Status Replay();
 
  private:
-  Status ReadHeader(Trace& header);
-  Status ReadFooter(Trace& footer);
-  Status ReadTrace(Trace& trace);
+  Status ReadHeader(Trace* header);
+  Status ReadFooter(Trace* footer);
+  Status ReadTrace(Trace* trace);
 
   DBImpl* db_;
   std::unique_ptr<TraceReader> trace_reader_;

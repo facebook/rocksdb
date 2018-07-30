@@ -331,8 +331,6 @@ class DBImpl : public DB {
   virtual Status VerifyChecksum() override;
 
   using DB::StartTrace;
-  virtual Status StartTrace(const TraceOptions& options,
-                            const std::string& trace_filename) override;
   virtual Status StartTrace(
       const TraceOptions& options,
       std::unique_ptr<TraceWriter>&& trace_writer) override;
@@ -342,11 +340,8 @@ class DBImpl : public DB {
 
   using DB::StartReplay;
   virtual Status StartReplay(
-      const ReplayOptions& options, const std::string& trace_filename,
-      std::vector<ColumnFamilyHandle*>& handles) override;
-  virtual Status StartReplay(
       const ReplayOptions& options, std::unique_ptr<TraceReader>&& trace_reader,
-      std::vector<ColumnFamilyHandle*>& handles) override;
+      const std::vector<ColumnFamilyHandle*>& handles) override;
 
   using DB::EndReplay;
   virtual Status EndReplay(const ReplayOptions& options) override;

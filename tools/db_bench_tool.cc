@@ -2688,8 +2688,20 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
-        if (name != "replay" && FLAGS_trace_file != "") {
-          Status s = db_.db->StartTrace(trace_options_, FLAGS_trace_file);
+        // A trace_file option can be provided both for trace and replay
+        // operations. But db_bench does not support tracing and replaying at
+        // the same time, for now. So, start tracing only when it is not a
+        // replay.
+        if (FLAGS_trace_file != "" && name != "replay") {
+          std::unique_ptr<TraceWriter> trace_writer;
+          Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
+                                        FLAGS_trace_file, &trace_writer);
+          if (!s.ok()) {
+            fprintf(stderr, "Encountered an error starting a trace, %s\n",
+                    s.ToString().c_str());
+            exit(1);
+          }
+          s = db_.db->StartTrace(trace_options_, std::move(trace_writer));
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
@@ -5535,20 +5547,33 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   }
 
   void Replay(ThreadState* /*thread*/, DBWithColumnFamilies* db_with_cfh) {
-    Status s = db_with_cfh->db->StartReplay(replay_options_, FLAGS_trace_file,
-                                            db_with_cfh->cfh);
+    Status s;
+    unique_ptr<TraceReader> trace_reader;
+    s = NewFileTraceReader(FLAGS_env, EnvOptions(), FLAGS_trace_file,
+                           &trace_reader);
+    if (!s.ok()) {
+      fprintf(
+          stderr,
+          "Encountered an error creating a TraceReader from the trace file. "
+          "Error: %s\n",
+          s.ToString().c_str());
+      exit(1);
+    }
+    s = db_with_cfh->db->StartReplay(replay_options_, std::move(trace_reader),
+                                     db_with_cfh->cfh);
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());
     } else {
-      fprintf(stderr, "Starting replay failed, %s\n", s.ToString().c_str());
+      fprintf(stderr, "Starting replay failed. Error: %s\n",
+              s.ToString().c_str());
     }
 
     s = db_with_cfh->db->EndReplay(replay_options_);
     if (s.ok()) {
       fprintf(stdout, "Replay successfully completed.\n");
     } else {
-      fprintf(stderr, "Encountered an error while ending replay, %s\n",
+      fprintf(stderr, "Encountered an error while ending replay. Error: %s\n",
               s.ToString().c_str());
     }
   }

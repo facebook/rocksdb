@@ -1175,10 +1175,6 @@ class DB {
 
   // Trace DB operations. Use EndTrace() to stop tracing.
   virtual Status StartTrace(const TraceOptions& /*options*/,
-                            const std::string& /*trace_filename*/) {
-    return Status::NotSupported("StartTrace() is not implemented.");
-  }
-  virtual Status StartTrace(const TraceOptions& /*options*/,
                             std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartTrace() is not implemented.");
   }
@@ -1188,14 +1184,10 @@ class DB {
   }
 
   // Replay operations. Use EndReplay() to stop replaying.
-  virtual Status StartReplay(const ReplayOptions& /*options*/,
-                             const std::string& /*trace_filename*/,
-                             std::vector<ColumnFamilyHandle*>& /*handles*/) {
-    return Status::NotSupported("StartReplay() is not implmented.");
-  }
-  virtual Status StartReplay(const ReplayOptions& /*options*/,
-                             std::unique_ptr<TraceReader>&& /*trace_reader*/,
-                             std::vector<ColumnFamilyHandle*>& /*handles*/) {
+  virtual Status StartReplay(
+      const ReplayOptions& /*options*/,
+      std::unique_ptr<TraceReader>&& /*trace_reader*/,
+      const std::vector<ColumnFamilyHandle*>& /*handles*/) {
     return Status::NotSupported("StartReplay() is not implmented.");
   }
 
