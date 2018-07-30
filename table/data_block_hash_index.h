@@ -76,9 +76,9 @@ namespace rocksdb {
 //
 
 struct HashTableEntry {
-  uint16_t tag;
-  uint16_t restart_index;
-  HashTableEntry(uint16_t t, uint16_t ri): tag(t), restart_index(ri) {}
+  uint8_t tag;
+  uint8_t restart_index;
+  HashTableEntry(uint8_t t, uint8_t ri): tag(t), restart_index(ri) {}
 };
 
 class DataBlockHashIndexBuilder {
@@ -88,7 +88,7 @@ class DataBlockHashIndexBuilder {
         buckets_(n),
         estimate_((n + 2) *
                   sizeof(uint16_t) /* n buckets, 2 num at the end */) {}
-  void Add(const Slice& key, const uint16_t& restart_index);
+  void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
   void Reset();
   inline size_t EstimateSize() { return estimate_; }
@@ -129,14 +129,14 @@ class DataBlockHashIndex {
 
 class DataBlockHashIndexIterator {
  public:
-  void Initialize(const char* start, const char* end, const uint16_t tag);
+  void Initialize(const char* start, const char* end, const uint8_t tag);
   bool Valid();
   void Next();
-  uint16_t Value();
+  uint8_t Value();
 
  private:
   const char* end_; // the end of the bucket
-  uint16_t tag_;    // the fingerprint (2nd hash value) of the searching key
+  uint8_t tag_;    // the fingerprint (2nd hash value) of the searching key
   const char* current_;
 };
 

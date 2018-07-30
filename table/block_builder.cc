@@ -154,9 +154,9 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   buffer_.append(value.data(), value.size());
 
   if (data_block_hash_index_builder_) {
-    assert(restarts_.size() < (1 << 16));
+    assert(restarts_.size() < (1 << 8));
     data_block_hash_index_builder_->Add(
-        ExtractUserKey(key), static_cast<uint16_t>(restarts_.size()) - 1);
+        ExtractUserKey(key), static_cast<uint8_t>(restarts_.size()) - 1);
   }
 
   counter_++;
