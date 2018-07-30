@@ -162,9 +162,11 @@ Status Tracer::WriteTrace(const Trace& trace) {
 
 Status Tracer::Close() { return WriteFooter(); }
 
-Replayer::Replayer(DBImpl* db, const std::vector<ColumnFamilyHandle*>& handles,
+Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
                    unique_ptr<TraceReader>&& reader)
-    : db_(db), trace_reader_(std::move(reader)) {
+    : trace_reader_(std::move(reader)) {
+  assert(db != nullptr);
+  db_ = static_cast<DBImpl*>(db->GetRootDB());
   for (ColumnFamilyHandle* cfh : handles) {
     cf_map_[cfh->GetID()] = cfh;
   }

@@ -15,6 +15,7 @@
 namespace rocksdb {
 
 class ColumnFamilyHandle;
+class DB;
 class DBImpl;
 class RandomAccessFileReader;
 class Slice;
@@ -62,7 +63,7 @@ class Tracer {
 
 class Replayer {
  public:
-  Replayer(DBImpl* db, const std::vector<ColumnFamilyHandle*>& handles,
+  Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
            std::unique_ptr<TraceReader>&& reader);
   ~Replayer();
 

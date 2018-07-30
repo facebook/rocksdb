@@ -1969,7 +1969,6 @@ class Benchmark {
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
   TraceOptions trace_options_;
-  ReplayOptions replay_options_;
   int64_t reads_;
   int64_t deletes_;
   double read_random_exp_range_;
@@ -5559,21 +5558,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           s.ToString().c_str());
       exit(1);
     }
-    s = db_with_cfh->db->StartReplay(replay_options_, std::move(trace_reader),
-                                     db_with_cfh->cfh);
+    Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
+                      std::move(trace_reader));
+    s = replayer.Replay();
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());
     } else {
       fprintf(stderr, "Starting replay failed. Error: %s\n",
-              s.ToString().c_str());
-    }
-
-    s = db_with_cfh->db->EndReplay(replay_options_);
-    if (s.ok()) {
-      fprintf(stdout, "Replay successfully completed.\n");
-    } else {
-      fprintf(stderr, "Encountered an error while ending replay. Error: %s\n",
               s.ToString().c_str());
     }
   }

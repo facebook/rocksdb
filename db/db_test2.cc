@@ -2506,7 +2506,6 @@ TEST_F(DBTest2, TraceAndReplay) {
   ReadOptions ro;
   WriteOptions wo;
   TraceOptions trace_opts;
-  ReplayOptions replay_opts;
   EnvOptions env_opts;
   CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
@@ -2571,8 +2570,8 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  ASSERT_OK(db2->StartReplay(replay_opts, std::move(trace_reader), handles_));
-  ASSERT_OK(db2->EndReplay(replay_opts));
+  Replayer replayer(db2, handles_, std::move(trace_reader));
+  ASSERT_OK(replayer.Replay());
 
   ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
   ASSERT_EQ("1", value);

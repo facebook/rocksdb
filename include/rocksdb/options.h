@@ -1266,7 +1266,6 @@ struct IngestExternalFileOptions {
 };
 
 struct TraceOptions {};
-struct ReplayOptions {};
 
 }  // namespace rocksdb
 

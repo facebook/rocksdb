@@ -3075,17 +3075,5 @@ Status DBImpl::EndTrace(const TraceOptions& /* options */) {
   return s;
 }
 
-Status DBImpl::StartReplay(const ReplayOptions& /* options */,
-                           std::unique_ptr<TraceReader>&& trace_reader,
-                           const std::vector<ColumnFamilyHandle*>& handles) {
-  replayer_.reset(new Replayer(this, handles, std::move(trace_reader)));
-  return replayer_->Replay();
-}
-
-Status DBImpl::EndReplay(const ReplayOptions& /* options */) {
-  replayer_.reset();
-  return Status::OK();
-}
-
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb

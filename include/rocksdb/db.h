@@ -1182,19 +1182,6 @@ class DB {
   virtual Status EndTrace(const TraceOptions& /*options*/) {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
-
-  // Replay operations. Use EndReplay() to stop replaying.
-  virtual Status StartReplay(
-      const ReplayOptions& /*options*/,
-      std::unique_ptr<TraceReader>&& /*trace_reader*/,
-      const std::vector<ColumnFamilyHandle*>& /*handles*/) {
-    return Status::NotSupported("StartReplay() is not implmented.");
-  }
-
-  virtual Status EndReplay(const ReplayOptions& /*options*/) {
-    return Status::NotSupported("EndReplay() is not implemented.");
-  }
-
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

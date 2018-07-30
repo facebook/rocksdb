@@ -338,14 +338,6 @@ class DBImpl : public DB {
   using DB::EndTrace;
   virtual Status EndTrace(const TraceOptions& options) override;
 
-  using DB::StartReplay;
-  virtual Status StartReplay(
-      const ReplayOptions& options, std::unique_ptr<TraceReader>&& trace_reader,
-      const std::vector<ColumnFamilyHandle*>& handles) override;
-
-  using DB::EndReplay;
-  virtual Status EndReplay(const ReplayOptions& options) override;
-
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -673,7 +665,6 @@ class DBImpl : public DB {
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
-  std::unique_ptr<Replayer> replayer_;
   InstrumentedMutex trace_mutex_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
