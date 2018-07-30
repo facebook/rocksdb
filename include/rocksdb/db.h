@@ -1178,7 +1178,7 @@ class DB {
     return Status::NotSupported("StartTrace() is not implemented.");
   }
 
-  virtual Status EndTrace(const TraceOptions& /*options*/) {
+  virtual Status EndTrace() {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
 #endif  // ROCKSDB_LITE

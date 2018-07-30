@@ -2536,7 +2536,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(Put(1, "rocksdb", "rocks"));
   ASSERT_EQ("NOT_FOUND", Get(1, "leveldb"));
 
-  ASSERT_OK(db_->EndTrace(trace_opts));
+  ASSERT_OK(db_->EndTrace());
   // These should not get into the trace file as it is after EndTrace.
   Put("hello", "world");
   Merge("foo", "bar");

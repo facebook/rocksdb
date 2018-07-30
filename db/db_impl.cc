@@ -3070,7 +3070,7 @@ Status DBImpl::StartTrace(const TraceOptions& /* options */,
   return Status::OK();
 }
 
-Status DBImpl::EndTrace(const TraceOptions& /* options */) {
+Status DBImpl::EndTrace() {
   InstrumentedMutexLock lock(&trace_mutex_);
   Status s = tracer_->Close();
   tracer_.reset();

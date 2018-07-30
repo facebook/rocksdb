@@ -336,7 +336,7 @@ class DBImpl : public DB {
       std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndTrace;
-  virtual Status EndTrace(const TraceOptions& options) override;
+  virtual Status EndTrace() override;
 
 #endif  // ROCKSDB_LITE
 

@@ -2737,7 +2737,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
     if (name != "replay" && FLAGS_trace_file != "") {
-      Status s = db_.db->EndTrace(trace_options_);
+      Status s = db_.db->EndTrace();
       if (!s.ok()) {
         fprintf(stderr, "Encountered an error ending the trace, %s\n",
                 s.ToString().c_str());
