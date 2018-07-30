@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.14.3 (7/30/2018)
+### New Features
+* reduce file tail prefetch when not reading index/filter blocks.
+
 ## 5.14.2 (7/3/2018)
 ### Bug Fixes
 * Change default value of `bytes_max_delete_chunk` to 0 in NewSstFileManager() as it doesn't work well with checkpoints.
