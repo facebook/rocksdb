@@ -13,7 +13,6 @@
 namespace rocksdb {
 
 const uint32_t kSeed = 2018;
-const uint32_t kSeed_tag = 214; /* second hash seed */
 
 inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
   return static_cast<uint16_t>(
@@ -23,12 +22,8 @@ inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
 void DataBlockHashIndexBuilder::Add(const Slice& key,
                                     const uint8_t& restart_index) {
   uint16_t idx = HashToBucket(key, num_buckets_);
-  /* push a TAG to avoid false postive */
-  /* the TAG is the hash function value of another seed */
-  uint8_t tag = static_cast<uint8_t>(
-      rocksdb::Hash(key.data(), key.size(), kSeed_tag));
-  buckets_[idx].push_back(HashTableEntry(tag, restart_index));
-  estimate_ += sizeof(HashTableEntry);
+  buckets_[idx].push_back(restart_index);
+  estimate_ += sizeof(restart_index);
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
@@ -41,13 +36,10 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
   for (uint16_t i = 0; i < num_buckets_; i++) {
     // remember the start offset of the buckets in bucket_offsets
     bucket_offsets[i] = static_cast<uint16_t>(buffer.size());
-    for (HashTableEntry& entry : buckets_[i]) {
+    for (auto restart_index : buckets_[i]) {
       buffer.append(const_cast<const char*>(
-                        reinterpret_cast<char*>(&(entry.tag))),
-                    sizeof(entry.tag));
-      buffer.append(const_cast<const char*>(
-                        reinterpret_cast<char*>(&(entry.restart_index))),
-                    sizeof(entry.restart_index));
+                        reinterpret_cast<char*>(&restart_index)),
+                    sizeof(restart_index));
     }
   }
 
@@ -67,7 +59,7 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 }
 
 void DataBlockHashIndexBuilder::Reset() {
-  std::fill(buckets_.begin(), buckets_.end(), std::vector<HashTableEntry>());
+  std::fill(buckets_.begin(), buckets_.end(), std::vector<uint8_t>());
   estimate_ = (num_buckets_ + 2) * sizeof(uint16_t);
 }
 
@@ -104,15 +96,12 @@ void DataBlockHashIndex::NewIterator(
     limit = data_ + (size_ - 2 * sizeof(uint16_t) -
                      num_buckets_ * sizeof(int16_t));
   }
-  uint8_t tag = (uint8_t)rocksdb::Hash(key.data(), key.size(), kSeed_tag);
-  data_block_hash_iter->Initialize(data_ + bucket_off, limit, tag);
+  data_block_hash_iter->Initialize(data_ + bucket_off, limit);
 }
 
-void DataBlockHashIndexIterator::Initialize(const char* start, const char* end,
-                                            const uint8_t tag) {
+void DataBlockHashIndexIterator::Initialize(const char* start, const char* end) {
   end_ = end;
-  tag_ = tag;
-  current_ = start - sizeof(HashTableEntry);
+  current_ = start - sizeof(uint8_t);
   Next();
 }
 
@@ -121,18 +110,11 @@ bool DataBlockHashIndexIterator::Valid() {
 }
 
 void DataBlockHashIndexIterator::Next() {
-  for (current_ += sizeof(HashTableEntry); current_ < end_;
-       current_ += sizeof(HashTableEntry)) {
-    // stop at a offset that match the tag, i.e. a possible match
-    uint8_t tag_found = static_cast<uint8_t>(*(current_));
-    if (tag_found == tag_) {
-      break;
-    }
-  }
+  current_ += sizeof(uint8_t);
 }
 
 uint8_t DataBlockHashIndexIterator::Value() {
-  return static_cast<uint8_t>(*(current_ + sizeof(HashTableEntry::tag)));
+  return static_cast<uint8_t>(*current_);
 }
 
 }  // namespace rocksdb

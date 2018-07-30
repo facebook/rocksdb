@@ -75,12 +75,6 @@ namespace rocksdb {
 // 6) linearly search the restart interval for the key.
 //
 
-struct HashTableEntry {
-  uint8_t tag;
-  uint8_t restart_index;
-  HashTableEntry(uint8_t t, uint8_t ri): tag(t), restart_index(ri) {}
-};
-
 class DataBlockHashIndexBuilder {
  public:
   explicit DataBlockHashIndexBuilder(uint16_t n)
@@ -95,7 +89,7 @@ class DataBlockHashIndexBuilder {
 
  private:
   uint16_t num_buckets_;
-  std::vector<std::vector<struct HashTableEntry>> buckets_;
+  std::vector<std::vector<uint8_t>> buckets_;
   size_t estimate_;
 };
 
@@ -129,14 +123,13 @@ class DataBlockHashIndex {
 
 class DataBlockHashIndexIterator {
  public:
-  void Initialize(const char* start, const char* end, const uint8_t tag);
+  void Initialize(const char* start, const char* end);
   bool Valid();
   void Next();
   uint8_t Value();
 
  private:
   const char* end_; // the end of the bucket
-  uint8_t tag_;    // the fingerprint (2nd hash value) of the searching key
   const char* current_;
 };
 
