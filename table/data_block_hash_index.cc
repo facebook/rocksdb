@@ -98,8 +98,9 @@ void DataBlockHashIndex::NewIterator(
     // limited by the start offset of the next bucket
     limit = data_ + DecodeFixed16(bucket_table_ + (idx + 1) * sizeof(uint16_t));
   } else {
-    // limited by the location of the NUM_BUCK
-    limit = data_ + (size_ - 2 * sizeof(uint16_t));
+    // limited by the location of the beginning of the bucket index table.
+    limit = data_ + (size_ - 2 * sizeof(uint16_t) -
+                     num_buckets_ * sizeof(int16_t));
   }
   uint16_t tag = (uint16_t)rocksdb::Hash(key.data(), key.size(), kSeed_tag);
   data_block_hash_iter->Initialize(data_ + bucket_off, limit, tag);
