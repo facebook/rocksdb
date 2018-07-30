@@ -9,6 +9,13 @@
 
 namespace rocksdb {
 
+// Allow custom implementations of TraceWriter and TraceReader.
+// By default, RocksDB provides a way to capture the traces to a file using the
+// factory NewFileTraceWriter(). But users could also choose to export traces to
+// any other system by providing custom implementations of TraceWriter and Reader.
+
+// TraceWriter allows exporting RocksDB traces to any system, one operation at
+// a time.
 class TraceWriter {
  public:
   TraceWriter() {}
@@ -18,6 +25,8 @@ class TraceWriter {
   virtual Status Close() = 0;
 };
 
+// TraceReader allows reading RocksDB traces from any system, one operation at
+// a time. A RocksDB Replayer could depend on this to replay opertions.
 class TraceReader {
  public:
   TraceReader() {}
@@ -27,7 +36,7 @@ class TraceReader {
   virtual Status Close() = 0;
 };
 
-// Factory methods to read and write traces to a file.
+// Factory methods to read/write traces from/to a file.
 Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceWriter>* trace_writer);

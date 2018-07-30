@@ -30,6 +30,8 @@ enum TraceType : char {
   kTraceMax,
 };
 
+// TODO: This should also be made part of public interface to help users build
+// custom TracerReaders and TraceWriters.
 struct Trace {
   uint64_t ts;
   TraceType type;
