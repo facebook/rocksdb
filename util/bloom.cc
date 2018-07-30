@@ -161,6 +161,7 @@ class FullFilterBitsReader : public FilterBitsReader {
           // and indicates a corruption so disable using this filter.
           assert(false);
           num_lines_ = 0;
+          num_probes_ = 0;
           break;
         }
         if (num_lines_at_curr_cache_size == num_lines_) {
