@@ -82,10 +82,9 @@ class DataBlockHashIndexBuilder {
  public:
   explicit DataBlockHashIndexBuilder(uint16_t n)
       : num_buckets_(n),
-        buckets_(n),
-        estimate_((n + 2) *
-                  sizeof(uint16_t) /* n buckets, 2 num at the end */ +
-                  n * sizeof(uint8_t) /* each bucket, one entry */) {}
+        buckets_(n, kNoEntry),
+        estimate_(2 * sizeof(uint16_t) /*num_buck and maps_start*/ +
+                  n * sizeof(uint8_t) /*n buckets*/) {}
   void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
   void Reset();
@@ -93,7 +92,7 @@ class DataBlockHashIndexBuilder {
 
  private:
   uint16_t num_buckets_;
-  std::vector<std::vector<uint8_t>> buckets_;
+  std::vector<uint8_t> buckets_;
   size_t estimate_;
 };
 

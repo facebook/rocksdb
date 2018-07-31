@@ -22,35 +22,23 @@ inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
 void DataBlockHashIndexBuilder::Add(const Slice& key,
                                     const uint8_t& restart_index) {
   uint16_t idx = HashToBucket(key, num_buckets_);
-  buckets_[idx].push_back(restart_index);
-
+  if (buckets_[idx] == kNoEntry) {
+    buckets_[idx] = restart_index;
+  } else if (buckets_[idx] != kCollision) {
+    buckets_[idx] = kCollision;
+  } // if buckets_[idx] is already kCollision, we do not have to do anything.
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
   // offset is the byte offset within the buffer
-  std::vector<uint16_t> bucket_offsets(num_buckets_, 0);
-
   uint16_t map_start = static_cast<uint16_t>(buffer.size());
 
-  // write each bucket to the string
-  for (uint16_t i = 0; i < num_buckets_; i++) {
-    // remember the start offset of the buckets in bucket_offsets
-    bucket_offsets[i] = static_cast<uint16_t>(buffer.size());
-    uint8_t entry;
-    if (buckets_[i].size() == 0) {
-      entry = kNoEntry;
-    } else if (buckets_[i].size() == 1) {
-      entry = buckets_[i][0];
-    } else {  // buckets_[i].size() > 1, collision
-      entry = kCollision;
-    }
-    buffer.append(const_cast<const char*>(reinterpret_cast<char*>(&entry)),
-                  sizeof(entry));
-  }
-
-  // write the bucket_offsets
-  for (uint16_t i = 0; i < num_buckets_; i++) {
-    PutFixed16(&buffer, bucket_offsets[i]);
+  // write the restart_index array
+//  for (uint16_t i = 0; i < num_buckets_; i++) {
+  for (uint8_t restart_index: buckets_) {
+    buffer.append(const_cast<const char*>(
+                      reinterpret_cast<char*>(&restart_index)),
+                  sizeof(restart_index));
   }
 
   // write NUM_BUCK
@@ -64,9 +52,9 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 }
 
 void DataBlockHashIndexBuilder::Reset() {
-  std::fill(buckets_.begin(), buckets_.end(), std::vector<uint8_t>());
-  estimate_ = (num_buckets_ + 2) * sizeof(uint16_t) +
-    num_buckets_ * sizeof(uint8_t);
+  std::fill(buckets_.begin(), buckets_.end(), kNoEntry);
+  estimate_ = 2 * sizeof(uint16_t) /*num_buck and maps_start*/+
+    num_buckets_ * sizeof(uint8_t) /*n buckets*/;
 }
 
 void DataBlockHashIndex::Initialize(Slice block_content) {
@@ -82,16 +70,16 @@ void DataBlockHashIndex::Initialize(Slice block_content) {
   num_buckets_ = DecodeFixed16(data_ + size_ - 2 * sizeof(uint16_t));
   assert(num_buckets_ > 0);
 
-  assert(size_ >= sizeof(uint16_t) * (2 + num_buckets_));
-  bucket_table_ = data_ + size_ - sizeof(uint16_t) * (2 + num_buckets_);
+  assert(size_ >= 2 * sizeof(uint16_t) + num_buckets_ * sizeof(uint8_t));
+  bucket_table_ = data_ + size_ - 2 * sizeof(uint16_t)
+    - num_buckets_ * sizeof(uint8_t);
 
-  assert(map_start_ <  bucket_table_);
+  assert(map_start_ <=  bucket_table_);
 }
 
 uint8_t DataBlockHashIndex::Seek(const Slice& key) const {
   uint16_t idx = HashToBucket(key, num_buckets_);
-  uint16_t bucket_off = DecodeFixed16(bucket_table_ + idx * sizeof(uint16_t));
-  return static_cast<uint8_t>(*(data_ + bucket_off));
+  return static_cast<uint8_t>(*(bucket_table_ + idx * sizeof(uint8_t)));
 }
 
 }  // namespace rocksdb
