@@ -311,7 +311,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
-            0 /*recovery_log_number*/, this, parallel, seq_per_batch_);
+            0 /*recovery_log_number*/, this, parallel, seq_per_batch_,
+            batch_per_txn_);
       } else {
         SequenceNumber next_sequence = current_sequence;
         // Note: the logic for advancing seq here must be consistent with the
@@ -346,7 +347,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               &w, w.sequence, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/, seq_per_batch_,
-              w.batch_cnt);
+              w.batch_cnt, batch_per_txn_);
         }
       }
       if (seq_used != nullptr) {
@@ -508,7 +509,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       memtable_write_group.status = WriteBatchInternal::InsertInto(
           memtable_write_group, w.sequence, column_family_memtables_.get(),
           &flush_scheduler_, write_options.ignore_missing_column_families,
-          0 /*log_number*/, this, seq_per_batch_);
+          0 /*log_number*/, this, false /*concurrent_memtable_writes*/,
+          seq_per_batch_, batch_per_txn_);
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }

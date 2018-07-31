@@ -579,6 +579,23 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
+
+bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
+  std::string ret = src.ToString();
+  for (int i = static_cast<int>(ret.size()) - 1; i >= 0; i--) {
+    if (ret[i] != static_cast<char>(255)) {
+      ret[i] = ret[i] + 1;
+      break;
+    } else if (i != 0) {
+      ret[i] = 0;
+    } else {
+      // all FF. No next prefix
+      return false;
+    }
+  }
+  *v = ret;
+  return true;
+}
 }  // namespace
 
 static enum RepFactory FLAGS_rep_factory;
@@ -1610,11 +1627,15 @@ class StressTest {
     if (!FLAGS_verbose) {
       return;
     }
-    fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") ", cf, key, sz);
+    std::string tmp;
+    tmp.reserve(sz * 2 + 16);
+    char buf[4];
     for (size_t i = 0; i < sz; i++) {
-      fprintf(stdout, "%X", value[i]);
+      snprintf(buf, 4, "%X", value[i]);
+      tmp.append(buf);
     }
-    fprintf(stdout, "\n");
+    fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") %s\n", cf,
+            key, sz, tmp.c_str());
   }
 
   static int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration) {
@@ -1905,9 +1926,13 @@ class StressTest {
         }
       }
 
+      std::vector<int> rand_column_families =
+          GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
+      std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
+
       if (FLAGS_ingest_external_file_one_in > 0 &&
           thread->rand.Uniform(FLAGS_ingest_external_file_one_in) == 0) {
-        TestIngestExternalFile(thread, {rand_column_family}, {rand_key}, lock);
+        TestIngestExternalFile(thread, rand_column_families, rand_keys, lock);
       }
 
       if (FLAGS_acquire_snapshot_one_in > 0 &&
@@ -1946,28 +1971,28 @@ class StressTest {
       int prob_op = thread->rand.Uniform(100);
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
-        TestGet(thread, read_opts, {rand_column_family}, {rand_key});
+        TestGet(thread, read_opts, rand_column_families, rand_keys);
       } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
         // prefix
-        TestPrefixScan(thread, read_opts, {rand_column_family}, {rand_key});
+        TestPrefixScan(thread, read_opts, rand_column_families, rand_keys);
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
-        TestPut(thread, write_opts, read_opts, {rand_column_family}, {rand_key},
+        TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
             value, lock);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
-        TestDelete(thread, write_opts, {rand_column_family}, {rand_key}, lock);
+        TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
       } else if (delBound <= prob_op && prob_op < delRangeBound) {
         // OPERATION delete range
-        TestDeleteRange(thread, write_opts, {rand_column_family}, {rand_key},
+        TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
             lock);
       } else {
         // OPERATION iterate
-        TestIterate(thread, read_opts, {rand_column_family}, {rand_key});
+        TestIterate(thread, read_opts, rand_column_families, rand_keys);
       }
       thread->stats.FinishedSingleOp();
     }
@@ -1980,6 +2005,16 @@ class StressTest {
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
+
+  virtual std::vector<int> GenerateColumnFamilies(
+      const int /* num_column_families */,
+      int rand_column_family) const {
+    return {rand_column_family};
+  }
+
+  virtual std::vector<int64_t> GenerateKeys(int64_t rand_key) const {
+    return {rand_key};
+  }
 
   virtual Status TestGet(ThreadState* thread,
       const ReadOptions& read_opts,
@@ -2022,6 +2057,30 @@ class StressTest {
     const Snapshot* snapshot = db_->GetSnapshot();
     ReadOptions readoptionscopy = read_opts;
     readoptionscopy.snapshot = snapshot;
+
+    std::string upper_bound_str;
+    Slice upper_bound;
+    if (thread->rand.OneIn(16)) {
+      // in 1/16 chance, set a iterator upper bound
+      int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      upper_bound_str = Key(rand_upper_key);
+      upper_bound = Slice(upper_bound_str);
+      // uppder_bound can be smaller than seek key, but the query itself
+      // should not crash either.
+      readoptionscopy.iterate_upper_bound = &upper_bound;
+    }
+    std::string lower_bound_str;
+    Slice lower_bound;
+    if (thread->rand.OneIn(16)) {
+      // in 1/16 chance, set a iterator lower bound
+      int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      lower_bound_str = Key(rand_lower_key);
+      lower_bound = Slice(lower_bound_str);
+      // uppder_bound can be smaller than seek key, but the query itself
+      // should not crash either.
+      readoptionscopy.iterate_lower_bound = &lower_bound;
+    }
+
     auto cfh = column_families_[rand_column_families[0]];
     std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
 
@@ -2564,7 +2623,17 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     Slice prefix = Slice(key.data(), FLAGS_prefix_size);
-    Iterator* iter = db_->NewIterator(read_opts, cfh);
+
+    std::string upper_bound;
+    Slice ub_slice;
+    ReadOptions ro_copy = read_opts;
+    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+      // For half of the time, set the upper bound to the next prefix
+      ub_slice = Slice(upper_bound);
+      ro_copy.iterate_upper_bound = &ub_slice;
+    }
+
+    Iterator* iter = db_->NewIterator(ro_copy, cfh);
     int64_t count = 0;
     for (iter->Seek(prefix);
         iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
@@ -3085,6 +3154,8 @@ class BatchedOpsStressTest : public StressTest {
     ReadOptions readoptionscopy[10];
     const Snapshot* snapshot = db_->GetSnapshot();
     Iterator* iters[10];
+    std::string upper_bounds[10];
+    Slice ub_slices[10];
     Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
       prefixes[i] += key.ToString();
@@ -3092,6 +3163,12 @@ class BatchedOpsStressTest : public StressTest {
       prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
       readoptionscopy[i].snapshot = snapshot;
+      if (thread->rand.OneIn(2) &&
+          GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
+        // For half of the time, set the upper bound to the next prefix
+        ub_slices[i] = Slice(upper_bounds[i]);
+        readoptionscopy[i].iterate_upper_bound = &(ub_slices[i]);
+      }
       iters[i] = db_->NewIterator(readoptionscopy[i], cfh);
       iters[i]->Seek(prefix_slices[i]);
     }

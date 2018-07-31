@@ -35,11 +35,11 @@
 namespace rocksdb {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->largest_seqno != b->largest_seqno) {
-    return a->largest_seqno > b->largest_seqno;
+  if (a->fd.largest_seqno != b->fd.largest_seqno) {
+    return a->fd.largest_seqno > b->fd.largest_seqno;
   }
-  if (a->smallest_seqno != b->smallest_seqno) {
-    return a->smallest_seqno > b->smallest_seqno;
+  if (a->fd.smallest_seqno != b->fd.smallest_seqno) {
+    return a->fd.smallest_seqno > b->fd.smallest_seqno;
   }
   // Break ties by file number
   return a->fd.GetNumber() > b->fd.GetNumber();
@@ -162,22 +162,24 @@ class VersionBuilder::Rep {
             abort();
           }
 
-          if (f2->smallest_seqno == f2->largest_seqno) {
+          if (f2->fd.smallest_seqno == f2->fd.largest_seqno) {
             // This is an external file that we ingested
-            SequenceNumber external_file_seqno = f2->smallest_seqno;
-            if (!(external_file_seqno < f1->largest_seqno ||
+            SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
+            if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
-              fprintf(stderr, "L0 file with seqno %" PRIu64 " %" PRIu64
-                              " vs. file with global_seqno %" PRIu64 "\n",
-                      f1->smallest_seqno, f1->largest_seqno,
+              fprintf(stderr,
+                      "L0 file with seqno %" PRIu64 " %" PRIu64
+                      " vs. file with global_seqno %" PRIu64 "\n",
+                      f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
               abort();
             }
-          } else if (f1->smallest_seqno <= f2->smallest_seqno) {
-            fprintf(stderr, "L0 files seqno %" PRIu64 " %" PRIu64
-                            " vs. %" PRIu64 " %" PRIu64 "\n",
-                    f1->smallest_seqno, f1->largest_seqno, f2->smallest_seqno,
-                    f2->largest_seqno);
+          } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
+            fprintf(stderr,
+                    "L0 files seqno %" PRIu64 " %" PRIu64 " vs. %" PRIu64
+                    " %" PRIu64 "\n",
+                    f1->fd.smallest_seqno, f1->fd.largest_seqno,
+                    f2->fd.smallest_seqno, f2->fd.largest_seqno);
             abort();
           }
         } else {
