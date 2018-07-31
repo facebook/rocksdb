@@ -607,15 +607,15 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
             break;
           }
 
-          data_block_hash_index_.reset(new DataBlockHashIndex(
+          data_block_hash_index_.Initialize(
               Slice(contents.data.data(), /* chop off NUM_RESTARTS */
-                    contents.data.size() - sizeof(uint32_t))));
+                    contents.data.size() - sizeof(uint32_t)));
 
-          restart_offset_ = data_block_hash_index_->DataBlockHashMapStart() -
+          restart_offset_ = data_block_hash_index_.DataBlockHashMapStart() -
                             num_restarts_ * sizeof(uint32_t);
 
           if (restart_offset_ >
-              data_block_hash_index_->DataBlockHashMapStart()) {
+              data_block_hash_index_.DataBlockHashMapStart()) {
             // DataBlockHashMapStart() is too small for NumRestarts() and
             // therefore restart_offset_ wrapped around.
             size_ = 0;
@@ -659,7 +659,7 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
                          global_seqno_, read_amp_bitmap_.get(), cachable(),
                          // we can only use HashIndex for point lookup
                          is_data_block_point_lookup ?
-                         data_block_hash_index_.get() :
+                         &data_block_hash_index_ :
                          nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {

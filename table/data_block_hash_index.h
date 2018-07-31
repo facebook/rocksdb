@@ -97,8 +97,9 @@ class DataBlockHashIndexIterator;
 
 class DataBlockHashIndex {
  public:
-  explicit DataBlockHashIndex(Slice block_content);
+  DataBlockHashIndex():size_(0), num_buckets_(0) {}
 
+  void Initialize(Slice block_content);
   inline uint16_t DataBlockHashMapStart() const {
     return static_cast<uint16_t>(map_start_ - data_);
   }

@@ -203,7 +203,7 @@ class Block {
   // the encoded value (kDisableGlobalSequenceNumber means disabled)
   const SequenceNumber global_seqno_;
 
-  std::unique_ptr<DataBlockHashIndex> data_block_hash_index_;
+  DataBlockHashIndex data_block_hash_index_;
 
   // No copying allowed
   Block(const Block&) = delete;

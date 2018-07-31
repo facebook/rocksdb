@@ -69,7 +69,7 @@ std::fill(buckets_.begin(), buckets_.end(), std::vector<uint16_t>());
 estimate_ = (num_buckets_ + 2) * sizeof(uint16_t);
 }
 
-DataBlockHashIndex::DataBlockHashIndex(Slice block_content) {
+void DataBlockHashIndex::Initialize(Slice block_content) {
   assert(block_content.size() >=
          2 * sizeof(uint16_t));  // NUM_BUCK and MAP_START
 
