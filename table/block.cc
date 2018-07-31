@@ -545,12 +545,12 @@ bool DataBlockIter::HashSeek(const Slice& target) {
   }
 
   uint32_t restart_index = 0;
-  if (entry != kCollision) {
+  bool using_hash = entry != kCollision;
+  if (using_hash) {
     restart_index = entry;
   } else { // HashSeek not effective, fall back to binary seek
     bool ok = BinarySeek(target, 0, num_restarts_ - 1, &restart_index,
                          comparator_);
-
     if (!ok) {
       return true;
     }
@@ -568,7 +568,9 @@ bool DataBlockIter::HashSeek(const Slice& target) {
     //
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
-    if (!ParseNextDataKey(true /*within_restart_interval*/) ||
+
+    // If using hash, we only linear search within the restart inteval.
+    if (!ParseNextDataKey(using_hash /*within_restart_interval*/) ||
         Compare(key_, target) >= 0) {
       break;
     }
