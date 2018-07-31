@@ -93,6 +93,10 @@ class MergingIterator : public InternalIterator {
     return current_ != nullptr && status_.ok();
   }
 
+  virtual IteratorSource source() const override {
+    return current_->source();
+  }
+
   virtual Status status() const override { return status_; }
 
   virtual void SeekToFirst() override {

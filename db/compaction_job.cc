@@ -1200,10 +1200,52 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
 
 void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
-  //ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  //std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-  //    sub_compact->compaction, nullptr, env_optiosn_for_read_));
+  ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+  std::unique_ptr<RangeDelAggregator> range_del_agg(
+      new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
+  std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
+      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
+  auto status = OpenCompactionOutputFile(sub_compact);
+  if (!status.ok()) {
+    sub_compact->status = status;
+    return;
+  }
+
+  InternalKey last_key;
+  IteratorSource last_source;
+  std::string buffer;
+
+  input->SeekToFirst();
+  assert(input->Valid());
+  last_key.DecodeFrom(input->key());
+  last_source = input->source();
+
+  for (input->Next(); input->Valid(); input->Next()) {
+    assert(input->source().type == IteratorSource::kSST);
+    if (input->source() != last_source) {
+
+      SSTLinkElement link;
+      link.largest_key_ = last_key.Encode();
+      const FileMetaData* meta = (const FileMetaData*)last_source.data;
+      link.sst_id = meta->fd.GetNumber();
+
+      sub_compact->builder->Add(link.Key(), link.Value(&buffer));
+      sub_compact->current_output_file_size = sub_compact->builder->FileSize();
+      sub_compact->current_output()->meta.UpdateBoundaries(
+          last_key.Encode(), GetInternalKeySeqno(last_key.Encode()));
+      sub_compact->num_output_records++;
+    }
+    last_key.DecodeFrom(input->key());
+    last_source = input->source();
+  }
+  CompactionIterationStats range_del_out_stats;
+  status = FinishCompactionOutputFile(
+      status, sub_compact, range_del_agg.get(), &range_del_out_stats);
+  if (!status.ok()) {
+    sub_compact->status = status;
+  }
+  // TODO(zouzhizhang): control other sst
 }
 
 
