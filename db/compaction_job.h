@@ -101,6 +101,9 @@ class CompactionJob {
   // Call compaction filter. Then iterate through input and compact the
   // kv-pairs
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
+  void ProcessGeneralCompaction(SubcompactionState* sub_compact);
+  void ProcessLinkCompaction(SubcompactionState* sub_compact);
+  void ProcessMapCompaction(SubcompactionState* sub_compact);
 
   Status FinishCompactionOutputFile(
       const Status& input_status, SubcompactionState* sub_compact,

@@ -190,6 +190,10 @@ struct CompactionJob::SubcompactionState {
     compaction = std::move(o.compaction);
     start = std::move(o.start);
     end = std::move(o.end);
+    include_start = std::move(o.include_start);
+    include_end = std::move(o.include_end);
+    actual_start = std::move(actual_start);
+    actual_end = std::move(actual_end);
     status = std::move(o.status);
     outputs = std::move(o.outputs);
     outfile = std::move(o.outfile);
@@ -820,6 +824,20 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
+  switch (sub_compact->compaction->compaction_varieties()) {
+  case kGeneralCompaction:
+    ProcessGeneralCompaction(sub_compact);
+    break;
+  case kLinkCompaction:
+    ProcessLinkCompaction(sub_compact);
+    break;
+  case kMapCompaction:
+    ProcessMapCompaction(sub_compact);
+    break;
+  }
+}
+
+void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   std::unique_ptr<RangeDelAggregator> range_del_agg(
@@ -1067,7 +1085,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                 sub_compact->outputs.back().meta.largest.user_key()) {
           sub_compact->actual_end.SetMinPossibleForUserKey(
               ExtractUserKey(*next_key));
-          // TODO lazy merge : check is cover any sst
+          // TODO(zouzhizhang): check is cover any sst
           break;
         } else {
           output_file_ended = false;
@@ -1178,6 +1196,20 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   sub_compact->c_iter.reset();
   input.reset();
   sub_compact->status = status;
+}
+
+void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
+
+  //ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+  //std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
+  //    sub_compact->compaction, nullptr, env_optiosn_for_read_));
+
+}
+
+
+void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
+  ProcessLinkCompaction(sub_compact);
+  // TODO(zouzhizhang):
 }
 
 void CompactionJob::RecordDroppedKeys(

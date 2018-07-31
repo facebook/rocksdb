@@ -634,6 +634,70 @@ struct RangeTombstone {
   }
 };
 
+struct SSTMapElement {
+  Slice smallest_key_;
+  Slice largest_key_;
+  struct LinkTarget {
+    size_t sst_id;
+    size_t size;
+  };
+  std::vector<LinkTarget> link_;
+
+  bool Decode(Slice ikey, Slice value) {
+    largest_key_ = ikey;
+    uint64_t link_count;
+    if (!GetLengthPrefixedSlice(&value, &smallest_key_) ||
+        !GetVarint64(&value, &link_count)) {
+      return false;
+    }
+    link_.reserve(link_count);
+
+    for (size_t i = 0; i < link_count; ++i) {
+      LinkTarget l;
+      if (!GetFixed64(&value, &l.sst_id) ||
+          !GetFixed64(&value, &l.size)) {
+        return false;
+      }
+      link_.emplace_back(l);
+    }
+    return true;
+  }
+
+  Slice Key() const { return largest_key_; }
+
+  Slice Value(std::string* buffer) {
+    buffer->clear();
+    PutLengthPrefixedSlice(buffer, smallest_key_);
+    PutVarint64(buffer, link_.size());
+    buffer->reserve(buffer->size() + sizeof(LinkTarget) * link_.size());
+    for (auto& l : link_) {
+      PutFixed64(buffer, l.sst_id);
+      PutFixed64(buffer, l.size);
+    }
+    return Slice(*buffer);
+  }
+};
+
+struct SSTLinkElement {
+  Slice largest_key_;
+  size_t sst_id;
+
+  SSTLinkElement() : sst_id(size_t(-1)) { }
+
+  bool Decode(Slice ikey, Slice value) {
+    largest_key_ = ikey;
+    return GetFixed64(&value, &sst_id);
+  }
+
+  Slice Key() const { return largest_key_; }
+
+  Slice Value(std::string* buffer) {
+    buffer->clear();
+    PutFixed64(buffer, sst_id);
+    return Slice(*buffer);
+  }
+};
+
 inline
 int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   // Order by:

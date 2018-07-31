@@ -242,6 +242,7 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
                                          skip_filters, for_compaction);
+      // TODO(zouzhizhang): handle map or link
       result->SetSource(
           IteratorSource(IteratorSource::kSST, (uintptr_t)&file_meta));
     }
@@ -293,6 +294,7 @@ Status TableCache::Get(const ReadOptions& options,
                        const SliceTransform* prefix_extractor,
                        HistogramImpl* file_read_hist, bool skip_filters,
                        int level) {
+  // TODO(zouzhizhang): handle map or link
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
