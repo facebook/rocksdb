@@ -36,18 +36,28 @@ struct FileDescriptor {
   TableReader* table_reader;
   uint64_t packed_number_and_path_id;
   uint64_t file_size;  // File size in bytes
+  SequenceNumber smallest_seqno;  // The smallest seqno in this file
+  SequenceNumber largest_seqno;   // The largest seqno in this file
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
+      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
+
+  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
+                 SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
       : table_reader(nullptr),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
-        file_size(_file_size) {}
+        file_size(_file_size),
+        smallest_seqno(_smallest_seqno),
+        largest_seqno(_largest_seqno) {}
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
     file_size = fd.file_size;
+    smallest_seqno = fd.smallest_seqno;
+    largest_seqno = fd.largest_seqno;
     return *this;
   }
 
@@ -83,8 +93,6 @@ struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
   InternalKey largest;             // Largest internal key served by table
-  SequenceNumber smallest_seqno;   // The smallest seqno in this file
-  SequenceNumber largest_seqno;    // The largest seqno in this file
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
@@ -116,9 +124,7 @@ struct FileMetaData {
   uint8_t file_gene;           // Zero for plain sst
 
   FileMetaData()
-      : smallest_seqno(kMaxSequenceNumber),
-        largest_seqno(0),
-        table_reader_handle(nullptr),
+      : table_reader_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
@@ -137,8 +143,8 @@ struct FileMetaData {
       smallest.DecodeFrom(key);
     }
     largest.DecodeFrom(key);
-    smallest_seqno = std::min(smallest_seqno, seqno);
-    largest_seqno = std::max(largest_seqno, seqno);
+    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
 
   // Unlike UpdateBoundaries, ranges do not need to be presented in any
@@ -152,8 +158,8 @@ struct FileMetaData {
     if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
       largest = end;
     }
-    smallest_seqno = std::min(smallest_seqno, seqno);
-    largest_seqno = std::max(largest_seqno, seqno);
+    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
 };
 
@@ -242,18 +248,19 @@ class VersionEdit {
                bool marked_for_compaction, uint8_t file_gene) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
-    f.fd = FileDescriptor(file, file_path_id, file_size);
+    f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
+                          largest_seqno);
     f.smallest = smallest;
     f.largest = largest;
-    f.smallest_seqno = smallest_seqno;
-    f.largest_seqno = largest_seqno;
+    f.fd.smallest_seqno = smallest_seqno;
+    f.fd.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
     f.file_gene = file_gene;
     new_files_.emplace_back(level, std::move(f));
   }
 
   void AddFile(int level, const FileMetaData& f) {
-    assert(f.smallest_seqno <= f.largest_seqno);
+    assert(f.fd.smallest_seqno <= f.fd.largest_seqno);
     new_files_.emplace_back(level, f);
   }
 
