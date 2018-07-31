@@ -23,7 +23,7 @@ void DataBlockHashIndexBuilder::Add(const Slice& key,
                                     const uint8_t& restart_index) {
   uint16_t idx = HashToBucket(key, num_buckets_);
   buckets_[idx].push_back(restart_index);
-  estimate_ += sizeof(restart_index);
+
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
@@ -36,11 +36,16 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
   for (uint16_t i = 0; i < num_buckets_; i++) {
     // remember the start offset of the buckets in bucket_offsets
     bucket_offsets[i] = static_cast<uint16_t>(buffer.size());
-    for (auto restart_index : buckets_[i]) {
-      buffer.append(const_cast<const char*>(
-                        reinterpret_cast<char*>(&restart_index)),
-                    sizeof(restart_index));
+    uint8_t entry;
+    if (buckets_[i].size() == 0) {
+      entry = kNoEntry;
+    } else if (buckets_[i].size() == 1) {
+      entry = buckets_[i][0];
+    } else {  // buckets_[i].size() > 1, collision
+      entry = kCollision;
     }
+    buffer.append(const_cast<const char*>(reinterpret_cast<char*>(&entry)),
+                  sizeof(entry));
   }
 
   // write the bucket_offsets
@@ -60,7 +65,8 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 
 void DataBlockHashIndexBuilder::Reset() {
   std::fill(buckets_.begin(), buckets_.end(), std::vector<uint8_t>());
-  estimate_ = (num_buckets_ + 2) * sizeof(uint16_t);
+  estimate_ = (num_buckets_ + 2) * sizeof(uint16_t) +
+    num_buckets_ * sizeof(uint8_t);
 }
 
 void DataBlockHashIndex::Initialize(Slice block_content) {
@@ -82,39 +88,10 @@ void DataBlockHashIndex::Initialize(Slice block_content) {
   assert(map_start_ <  bucket_table_);
 }
 
-void DataBlockHashIndex::NewIterator(
-    DataBlockHashIndexIterator* data_block_hash_iter, const Slice& key) const {
-  assert(data_block_hash_iter);
+uint8_t DataBlockHashIndex::Seek(const Slice& key) const {
   uint16_t idx = HashToBucket(key, num_buckets_);
   uint16_t bucket_off = DecodeFixed16(bucket_table_ + idx * sizeof(uint16_t));
-  const char* limit;
-  if (idx < num_buckets_ - 1) {
-    // limited by the start offset of the next bucket
-    limit = data_ + DecodeFixed16(bucket_table_ + (idx + 1) * sizeof(uint16_t));
-  } else {
-    // limited by the location of the beginning of the bucket index table.
-    limit = data_ + (size_ - 2 * sizeof(uint16_t) -
-                     num_buckets_ * sizeof(int16_t));
-  }
-  data_block_hash_iter->Initialize(data_ + bucket_off, limit);
-}
-
-void DataBlockHashIndexIterator::Initialize(const char* start, const char* end) {
-  end_ = end;
-  current_ = start - sizeof(uint8_t);
-  Next();
-}
-
-bool DataBlockHashIndexIterator::Valid() {
-  return current_ < end_;
-}
-
-void DataBlockHashIndexIterator::Next() {
-  current_ += sizeof(uint8_t);
-}
-
-uint8_t DataBlockHashIndexIterator::Value() {
-  return static_cast<uint8_t>(*current_);
+  return static_cast<uint8_t>(*(data_ + bucket_off));
 }
 
 }  // namespace rocksdb

@@ -75,13 +75,17 @@ namespace rocksdb {
 // 6) linearly search the restart interval for the key.
 //
 
+const uint8_t kNoEntry = 255;
+const uint8_t kCollision = 254;
+
 class DataBlockHashIndexBuilder {
  public:
   explicit DataBlockHashIndexBuilder(uint16_t n)
       : num_buckets_(n),
         buckets_(n),
         estimate_((n + 2) *
-                  sizeof(uint16_t) /* n buckets, 2 num at the end */) {}
+                  sizeof(uint16_t) /* n buckets, 2 num at the end */ +
+                  n * sizeof(uint8_t) /* each bucket, one entry */) {}
   void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
   void Reset();
@@ -93,8 +97,6 @@ class DataBlockHashIndexBuilder {
   size_t estimate_;
 };
 
-class DataBlockHashIndexIterator;
-
 class DataBlockHashIndex {
  public:
   DataBlockHashIndex():size_(0), num_buckets_(0) {}
@@ -104,8 +106,7 @@ class DataBlockHashIndex {
     return static_cast<uint16_t>(map_start_ - data_);
   }
   bool Valid() const {return size_ != 0;}
-  void NewIterator(DataBlockHashIndexIterator* data_block_hash_iter,
-                   const Slice& key) const;
+  uint8_t Seek(const Slice& key) const;
 
  private:
   const char *data_;
@@ -119,18 +120,6 @@ class DataBlockHashIndex {
   uint16_t num_buckets_;
   const char *map_start_;    // start of the map
   const char *bucket_table_; // start offset of the bucket index table
-};
-
-class DataBlockHashIndexIterator {
- public:
-  void Initialize(const char* start, const char* end);
-  bool Valid();
-  void Next();
-  uint8_t Value();
-
- private:
-  const char* end_; // the end of the bucket
-  const char* current_;
 };
 
 }  // namespace rocksdb

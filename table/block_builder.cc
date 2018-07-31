@@ -154,7 +154,11 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   buffer_.append(value.data(), value.size());
 
   if (data_block_hash_index_builder_) {
-    assert(restarts_.size() < (1 << 8));
+    // two largest numbers for uint8_t is used as speical flags
+    // const uint8_t kNoEntry = 255;
+    // const uint8_t kCollision = 254;
+    // so normal restart index cannot be these values.
+    assert(restarts_.size() < kCollision);
     data_block_hash_index_builder_->Add(
         ExtractUserKey(key), static_cast<uint8_t>(restarts_.size()) - 1);
   }

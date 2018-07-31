@@ -16,48 +16,51 @@ namespace rocksdb {
 
 bool SearchForOffset(DataBlockHashIndex& index, const Slice& key,
                      uint8_t& restart_point) {
-  DataBlockHashIndexIterator data_block_hash_index_iter;
-  DataBlockHashIndexIterator* iter = &data_block_hash_index_iter;
-  index.NewIterator(iter, key);
-  for (; iter->Valid(); iter->Next()) {
-    if (iter->Value() == restart_point) {
-      return true;
-    }
+  uint8_t entry = index.Seek(key);
+  if (entry == kCollision) {
+    return true;
   }
-  return false;
+
+  if (entry == kNoEntry) {
+    return false;
+  }
+
+  return entry == restart_point;
 }
 
 TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
-  // bucket_num = 5, #keys = 2. 40% utilization
   DataBlockHashIndexBuilder builder(5);
+  for (int j = 0; j < 5; j++) {
+    for (uint16_t i = 0; i < 2 + j; i++) {
+      std::string key("key" + std::to_string(i));
+      uint8_t restart_point = i;
+      builder.Add(key, restart_point);
+    }
 
-  for (uint16_t i = 0; i < 2; i++) {
-    std::string key("key" + std::to_string(i));
-    uint8_t restart_point = i;
-    builder.Add(key, restart_point);
-  }
+    size_t estimated_size = builder.EstimateSize();
 
-  size_t estimated_size = builder.EstimateSize();
+    std::string buffer("fake"), buffer2;
+    size_t original_size = buffer.size();
+    estimated_size += original_size;
+    builder.Finish(buffer);
 
-  std::string buffer("fake"), buffer2;
-  size_t original_size = buffer.size();
-  estimated_size += original_size;
-  builder.Finish(buffer);
+    ASSERT_EQ(buffer.size(), estimated_size);
 
-  ASSERT_EQ(buffer.size(), estimated_size);
+    buffer2 = buffer; // test for the correctness of relative offset
 
-  buffer2 = buffer; // test for the correctness of relative offset
 
-  Slice s(buffer2);
-  DataBlockHashIndex index;
-  index.Initialize(s);
+    Slice s(buffer2);
+    DataBlockHashIndex index;
+    index.Initialize(s);
 
-  // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, index.DataBlockHashMapStart());
-  for (uint16_t i = 0; i < 2; i++) {
-    std::string key("key" + std::to_string(i));
-    uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+    // the additional hash map should start at the end of the buffer
+    ASSERT_EQ(original_size, index.DataBlockHashMapStart());
+    for (uint16_t i = 0; i < 2; i++) {
+      std::string key("key" + std::to_string(i));
+      uint8_t restart_point = i;
+      ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+    }
+    builder.Reset();
   }
 }
 

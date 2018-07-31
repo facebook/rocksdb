@@ -177,10 +177,11 @@ void DataBlockIter::Seek(const Slice& target) {
   // and 2) data_block_hash_index is valid
   //   i.e. the block content contains hash map
   if (data_block_hash_index_ && data_block_hash_index_->Valid()) {
-    // suffix seek will set the current_ and restart_index_,
+    // hash seek will set the current_ and restart_index_,
     // no need to pass back `index`, or linear search.
-    HashSeek(target);
-    return;
+    if(HashSeek(target)) {
+      return;
+    }
   }
 
   bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
@@ -531,42 +532,58 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 // NOTE: in hash seek, if the key is not found in the restart intervals,
 // the iterator will simply be set as "invalid", rather than returning
 // the key that is just pass the target key.
-// return value: found
+// return: effective
+// TODO(fwu): set to ineffective when not supported.
 bool DataBlockIter::HashSeek(const Slice& target) {
   assert(data_block_hash_index_);
   Slice user_key = ExtractUserKey(target);
-  DataBlockHashIndexIterator data_block_hash_iter;
-  data_block_hash_index_->NewIterator(&data_block_hash_iter, user_key);
+  uint8_t entry = data_block_hash_index_->Seek(user_key);
 
-  for (; data_block_hash_iter.Valid(); data_block_hash_iter.Next()) {
-    uint32_t restart_index = data_block_hash_iter.Value();
-    SeekToRestartPoint(restart_index);
-    while (true) {
-      // Here we only linear seek the target key inside the restart interval.
-      // When we check each [TAG restart_index] pair in the DataBlockHashIndex
-      // bucket, if a key does not exist inside a restart interval, we avoid
-      // further searching the block content accross restart interval boundary.
-      // Rather, we check the next restart_index in the hash bucket that has
-      // a matching TAG.
-      //
-      // TODO(fwu): check the left and write boundary of the restart interval
-      // to avoid linear seek a target key that is out of range.
-      if (!ParseNextDataKey(true /*within_restart_interval*/) ||
-          Compare(key_, target) >= 0) {
-        break;
-      }
-    }
-    if ((current_ != restarts_) /* valid */ &&
-        // If the user key portion match do we consider key_ matches
-        // Currently we ignore the seq_num, so not supporting snapshot Get().
-        // TODO(fwu) support snapshot Get().
-        user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
-      return true;  // found
+  if (entry == kNoEntry) {
+    current_ = restarts_;  // not found, Invalidate the iterator
+    return true;
+  }
+
+  uint32_t restart_index = 0;
+  if (entry != kCollision) {
+    restart_index = entry;
+  } else { // HashSeek not effective, fall back to binary seek
+    bool ok = BinarySeek(target, 0, num_restarts_ - 1, &restart_index,
+                         comparator_);
+
+    if (!ok) {
+      return true;
     }
   }
 
+  // check if the key is in the restart_interval
+  SeekToRestartPoint(restart_index);
+  while (true) {
+    // Here we only linear seek the target key inside the restart interval.
+    // When we check each [TAG restart_index] pair in the DataBlockHashIndex
+    // bucket, if a key does not exist inside a restart interval, we avoid
+    // further searching the block content accross restart interval boundary.
+    // Rather, we check the next restart_index in the hash bucket that has
+    // a matching TAG.
+    //
+    // TODO(fwu): check the left and write boundary of the restart interval
+    // to avoid linear seek a target key that is out of range.
+    if (!ParseNextDataKey(true /*within_restart_interval*/) ||
+        Compare(key_, target) >= 0) {
+      break;
+    }
+  }
+
+  if ((current_ != restarts_) /* valid */ &&
+      // If the user key portion match do we consider key_ matches
+      // Currently we ignore the seq_num, so not supporting snapshot Get().
+      // TODO(fwu) support snapshot Get().
+      user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+    return true;  // found
+  }
+
   current_ = restarts_;  // not found, Invalidate the iterator
-  return false;
+  return true;           // HashSeek effective
 }
 
 uint32_t Block::NumRestarts() const {
