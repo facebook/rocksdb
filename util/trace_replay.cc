@@ -12,18 +12,9 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
-
-const std::string kTraceMagic = "feedcafedeadbeef";
-const unsigned int kTraceTimestampSize = 8;
-const unsigned int kTraceTypeSize = 1;
-const unsigned int kTracePayloadLengthSize = 4;
-const unsigned int kTraceMetadataSize =
-    kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
-const unsigned int FileTraceReader::kBufferSize = 1024;  // 1KB
 
 namespace {
 void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
@@ -37,73 +28,6 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
   GetLengthPrefixedSlice(&buf, key);
 }
 }  // namespace
-
-FileTraceWriter::~FileTraceWriter() { Close(); }
-
-Status FileTraceWriter::Close() {
-  file_writer_.reset();
-  return Status::OK();
-}
-
-Status FileTraceWriter::Write(const Slice& data) {
-  return file_writer_->Append(data);
-}
-
-FileTraceReader::FileTraceReader(
-    std::unique_ptr<RandomAccessFileReader>&& reader)
-    : file_reader_(std::move(reader)),
-      offset_(0),
-      buffer_(new char[kBufferSize]) {}
-
-FileTraceReader::~FileTraceReader() { Close(); }
-
-Status FileTraceReader::Close() {
-  file_reader_.reset();
-  return Status::OK();
-}
-
-Status FileTraceReader::Read(std::string* data) {
-  assert(file_reader_ != nullptr);
-  Status s = file_reader_->Read(offset_, kTraceMetadataSize, &result_, buffer_);
-  if (!s.ok()) {
-    return s;
-  }
-  if (result_.size() == 0) {
-    // No more data to read
-    // Todo: Come up with a better way to indicate end of data. May be this
-    // could be avoided once footer is introduced.
-    return Status::Incomplete();
-  }
-  if (result_.size() < kTraceMetadataSize) {
-    return Status::Corruption("Corrupted trace file.");
-  }
-  *data = result_.ToString();
-  offset_ += kTraceMetadataSize;
-
-  uint32_t payload_len =
-      DecodeFixed32(&buffer_[kTraceTimestampSize + kTraceTypeSize]);
-
-  // Read Payload
-  unsigned int bytes_to_read = payload_len;
-  unsigned int to_read =
-      bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
-  while (to_read > 0) {
-    s = file_reader_->Read(offset_, to_read, &result_, buffer_);
-    if (!s.ok()) {
-      return s;
-    }
-    if (result_.size() < to_read) {
-      return Status::Corruption("Corrupted trace file.");
-    }
-    data->append(result_.data(), result_.size());
-
-    offset_ += to_read;
-    bytes_to_read -= to_read;
-    to_read = bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
-  }
-
-  return s;
-}
 
 Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env), trace_writer_(std::move(trace_writer)) {
@@ -225,7 +149,7 @@ Status Replayer::Replay() {
 
   if (s.IsIncomplete()) {
     // Reaching eof returns Incomplete status at the moment.
-    // Could happen when killing a process with calling EndTrace() API.
+    // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
     return Status::OK();
   }
@@ -275,37 +199,6 @@ Status Replayer::ReadTrace(Trace* trace) {
   trace->type = static_cast<TraceType>(enc_slice[0]);
   enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
   trace->payload = enc_slice.ToString();
-  return s;
-}
-
-Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
-                          const std::string& trace_filename,
-                          std::unique_ptr<TraceWriter>* trace_writer) {
-  unique_ptr<WritableFile> trace_file;
-  Status s = env->NewWritableFile(trace_filename, &trace_file, env_options);
-  if (!s.ok()) {
-    return s;
-  }
-
-  unique_ptr<WritableFileWriter> file_writer;
-  file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
-  trace_writer->reset(new FileTraceWriter(std::move(file_writer)));
-  return s;
-}
-
-Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
-                          const std::string& trace_filename,
-                          std::unique_ptr<TraceReader>* trace_reader) {
-  unique_ptr<RandomAccessFile> trace_file;
-  Status s = env->NewRandomAccessFile(trace_filename, &trace_file, env_options);
-  if (!s.ok()) {
-    return s;
-  }
-
-  unique_ptr<RandomAccessFileReader> file_reader;
-  file_reader.reset(
-      new RandomAccessFileReader(std::move(trace_file), trace_filename));
-  trace_reader->reset(new FileTraceReader(std::move(file_reader)));
   return s;
 }
 
