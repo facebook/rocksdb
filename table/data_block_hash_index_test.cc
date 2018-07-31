@@ -49,7 +49,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index(s);
+  DataBlockHashIndex index;
+  index.Initialize(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
@@ -82,7 +83,8 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index(s);
+  DataBlockHashIndex index;
+  index.Initialize(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
@@ -115,7 +117,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index(s);
+  DataBlockHashIndex index;
+  index.Initialize(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
@@ -152,7 +155,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   buffer2 = buffer; // test for the correctness of relative offset
 
   Slice s(buffer2);
-  DataBlockHashIndex index(s);
+  DataBlockHashIndex index;
+  index.Initialize(s);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, index.DataBlockHashMapStart());
