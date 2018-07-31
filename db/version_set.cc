@@ -632,11 +632,11 @@ void LevelIterator::SkipEmptyFileForward() {
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {
       // Already at the last file
-      SetFileIterator(nullptr);
+      file_iter_.SetValid(false);
       return;
     }
     if (KeyReachedUpperBound(file_smallest_key(file_index_ + 1))) {
-      SetFileIterator(nullptr);
+      file_iter_.SetValid(false);
       return;
     }
     InitFileIterator(file_index_ + 1);
@@ -652,7 +652,7 @@ void LevelIterator::SkipEmptyFileBackward() {
     // Move to previous file
     if (file_index_ == 0) {
       // Already the first file
-      SetFileIterator(nullptr);
+      file_iter_.SetValid(false);
       return;
     }
     InitFileIterator(file_index_ - 1);

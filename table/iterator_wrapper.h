@@ -42,6 +42,8 @@ class IteratorWrapper {
     return old_iter;
   }
 
+  void SetValid(bool valid) { valid_ = valid; }
+
   void DeleteIter(bool is_arena_mode) {
     if (iter_) {
       if (!is_arena_mode) {

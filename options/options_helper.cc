@@ -1661,7 +1661,7 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::disable_auto_compactions),
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, disable_auto_compactions)}},
-        {"enable_lazy_compactions",
+        {"enable_lazy_compaction",
          {offset_of(&ColumnFamilyOptions::enable_lazy_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, enable_lazy_compaction)}},

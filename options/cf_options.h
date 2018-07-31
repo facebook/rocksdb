@@ -134,6 +134,7 @@ struct MutableCFOptions {
         inplace_update_num_locks(options.inplace_update_num_locks),
         prefix_extractor(options.prefix_extractor),
         disable_auto_compactions(options.disable_auto_compactions),
+        enable_lazy_compaction(options.enable_lazy_compaction),
         soft_pending_compaction_bytes_limit(
             options.soft_pending_compaction_bytes_limit),
         hard_pending_compaction_bytes_limit(
@@ -170,6 +171,7 @@ struct MutableCFOptions {
         inplace_update_num_locks(0),
         prefix_extractor(nullptr),
         disable_auto_compactions(false),
+        enable_lazy_compaction(false),
         soft_pending_compaction_bytes_limit(0),
         hard_pending_compaction_bytes_limit(0),
         level0_file_num_compaction_trigger(0),
