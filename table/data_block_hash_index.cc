@@ -8,7 +8,7 @@
 #include "rocksdb/slice.h"
 #include "table/data_block_hash_index.h"
 #include "util/coding.h"
-#include "util/hash.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -16,7 +16,7 @@ const uint32_t kSeed = 2018;
 
 inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
   return static_cast<uint16_t>(
-      rocksdb::Hash(s.data(), s.size(), kSeed) % num_buckets);
+      rocksdb::XXH32(s.data(), s.size(), kSeed) % num_buckets);
 }
 
 void DataBlockHashIndexBuilder::Add(const Slice& key,
