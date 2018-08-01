@@ -13,37 +13,72 @@
 #include <unistd.h>
 #include <sstream>
 
+#include <rocksdb/trace_analyzer_tool.h>
 #include "db/db_test_util.h"
-#include "util/trace_replay.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
-#include "utilities/trace_analyzer_tool_imp.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-
-
+#include "rocksdb/trace_reader_writer.h"
+#include "util/testharness.h"
+#include "util/testutil.h"
+#include "util/trace_replay.h"
+#include "utilities/trace_analyzer_tool_imp.h"
 
 namespace rocksdb {
 namespace {
-  static const int kMaxArgCount = 100;
-  static const size_t kArgBufferSize = 100000;
-}  // namespace
+static const int kMaxArgCount = 100;
+static const size_t kArgBufferSize = 100000;
 
+bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
+                 std::string* output, bool* has_data, Status* result) {
+  const int kBufferSize = 128;
+  char buffer[kBufferSize + 1];
+  Slice input_slice;
+
+  std::string line;
+  bool has_complete_line = false;
+  while (!has_complete_line) {
+    if (std::getline(*iss, line)) {
+      has_complete_line = !iss->eof();
+    } else {
+      has_complete_line = false;
+    }
+    if (!has_complete_line) {
+      // if we're not sure whether we have a complete line,
+      // further read from the file.
+      if (*has_data) {
+        *result = seq_file->Read(kBufferSize, &input_slice, buffer);
+      }
+      if (input_slice.size() == 0) {
+        // meaning we have read all the data
+        *has_data = false;
+        break;
+      } else {
+        iss->str(line + input_slice.ToString());
+        // reset the internal state of iss so that we can keep reading it.
+        iss->clear();
+        *has_data = (input_slice.size() == kBufferSize);
+        continue;
+      }
+    }
+  }
+  *output = line;
+  return *has_data || has_complete_line;
+}
+}  // namespace
 
 // The helper functions for the test
 class TraceAnalyzerTest : public testing::Test {
  public:
   TraceAnalyzerTest() : rnd_(0xFB) {
-    test_path_ = test::TmpDir() + "trace_analyzer_test";
+    // test_path_ = test::TmpDir() + "trace_analyzer_test";
+    test_path_ = test::PerThreadDBPath("trace_analyzer_test");
     env_ = rocksdb::Env::Default();
     env_->CreateDir(test_path_);
     dbname_ = test_path_ + "/db";
   }
 
-  ~TraceAnalyzerTest() {
-
-  }
+  ~TraceAnalyzerTest() {}
 
   void GenerateTrace(std::string trace_path) {
     Options options;
@@ -56,9 +91,12 @@ class TraceAnalyzerTest : public testing::Test {
     TraceOptions trace_opt;
     DB* db_ = nullptr;
     std::string value;
+    std::unique_ptr<TraceWriter> trace_writer;
 
+    ASSERT_OK(
+        NewFileTraceWriter(env_, env_options_, trace_path, &trace_writer));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
-    ASSERT_OK(db_->StartTrace(trace_opt, trace_path));
+    ASSERT_OK(db_->StartTrace(trace_opt, std::move(trace_writer)));
 
     WriteBatch batch;
     ASSERT_OK(batch.Put("a", "aaaaaaaaa"));
@@ -72,7 +110,7 @@ class TraceAnalyzerTest : public testing::Test {
     sleep(1);
     db_->Get(ro, "g", &value);
 
-    ASSERT_OK(db_->EndTrace(trace_opt));
+    ASSERT_OK(db_->EndTrace());
 
     ASSERT_OK(env_->FileExists(trace_path));
 
@@ -88,6 +126,8 @@ class TraceAnalyzerTest : public testing::Test {
           << "0x66\n";
     std::string whole_str(whole.str());
     ASSERT_OK(whole_f->Append(whole_str));
+    delete db_;
+    ASSERT_OK(DestroyDB(dbname_, options));
   }
 
   void RunTraceAnalyzer(const std::vector<std::string>& args) {
@@ -105,8 +145,7 @@ class TraceAnalyzerTest : public testing::Test {
       cursor += arg.size() + 1;
     }
 
-    rocksdb::TraceAnalyzerTool tool;
-    ASSERT_EQ(0, tool.Run(argc, argv));
+    ASSERT_EQ(0, rocksdb::trace_analyzer_tool(argc, argv));
   }
 
   void CheckFileContent(const std::vector<std::string>& cnt,
@@ -139,22 +178,19 @@ class TraceAnalyzerTest : public testing::Test {
     return;
   }
 
-
   rocksdb::Env* env_;
   EnvOptions env_options_;
   std::string test_path_;
   std::string dbname_;
   Random rnd_;
-
 };
-
 
 TEST_F(TraceAnalyzerTest, Get) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/get";
   std::string file_path;
   std::vector<std::string> paras = {"./trace_analyzer",
-                                    "-use_get",
+                                    "-analyze_get",
                                     "-output_trace_sequence",
                                     "-output_key_stats",
                                     "-output_access_count_stats",
@@ -169,14 +205,14 @@ TEST_F(TraceAnalyzerTest, Get) {
     GenerateTrace(trace_path);
   }
   paras.push_back("-output_dir=" + output_path);
-  paras.push_back("-trace_file=" + trace_path);
+  paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
 
   env_->CreateDir(output_path);
   RunTraceAnalyzer(paras);
 
-  //check the key_stats file
-  std::vector<std::string> k_stats = {"0 10 0 1 1.000000", "0 0 1 1 0.000000"};
+  // check the key_stats file
+  std::vector<std::string> k_stats = {"0 10 0 1 1.000000", "0 10 1 1 1.000000"};
   file_path = output_path + "/test-get-0-accessed_key_stats.txt";
   CheckFileContent(k_stats, file_path, true);
 
@@ -234,24 +270,19 @@ TEST_F(TraceAnalyzerTest, Put) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/put";
   std::string file_path;
-  std::vector<std::string> paras = {"./trace_analyzer",
-                                    "-use_get",
-                                    "-use_put",
-                                    "-output_trace_sequence",
-                                    "-output_key_stats",
-                                    "-output_access_count_stats",
-                                    "-output_prefix=test",
-                                    "-output_prefix_cut=1",
-                                    "-output_time_series=10",
-                                    "-output_value_distribution",
-                                    "-output_qps_stats",
-                                    "-no_print"};
+  std::vector<std::string> paras = {
+      "./trace_analyzer",       "-analyze_get",
+      "-analyze_put",           "-output_trace_sequence",
+      "-output_key_stats",      "-output_access_count_stats",
+      "-output_prefix=test",    "-output_prefix_cut=1",
+      "-output_time_series=10", "-output_value_distribution",
+      "-output_qps_stats",      "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
     GenerateTrace(trace_path);
   }
   paras.push_back("-output_dir=" + output_path);
-  paras.push_back("-trace_file=" + trace_path);
+  paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
 
   env_->CreateDir(output_path);
@@ -322,9 +353,9 @@ TEST_F(TraceAnalyzerTest, Delete) {
   std::string output_path = test_path_ + "/delete";
   std::string file_path;
   std::vector<std::string> paras = {"./trace_analyzer",
-                                    "-use_get",
-                                    "-use_put",
-                                    "-use_delete",
+                                    "-analyze_get",
+                                    "-analyze_put",
+                                    "-analyze_delete",
                                     "-output_trace_sequence",
                                     "-output_key_stats",
                                     "-output_access_count_stats",
@@ -339,7 +370,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
     GenerateTrace(trace_path);
   }
   paras.push_back("-output_dir=" + output_path);
-  paras.push_back("-trace_file=" + trace_path);
+  paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
 
   env_->CreateDir(output_path);
@@ -404,26 +435,20 @@ TEST_F(TraceAnalyzerTest, Merge) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/merge";
   std::string file_path;
-  std::vector<std::string> paras = {"./trace_analyzer",
-                                    "-use_get",
-                                    "-use_put",
-                                    "-use_delete",
-                                    "-use_merge",
-                                    "-output_trace_sequence",
-                                    "-output_key_stats",
-                                    "-output_access_count_stats",
-                                    "-output_prefix=test",
-                                    "-output_prefix_cut=1",
-                                    "-output_time_series=10",
-                                    "-output_value_distribution",
-                                    "-output_qps_stats",
-                                    "-no_print"};
+  std::vector<std::string> paras = {
+      "./trace_analyzer",       "-analyze_get",
+      "-analyze_put",           "-analyze_delete",
+      "-analyze_merge",         "-output_trace_sequence",
+      "-output_key_stats",      "-output_access_count_stats",
+      "-output_prefix=test",    "-output_prefix_cut=1",
+      "-output_time_series=10", "-output_value_distribution",
+      "-output_qps_stats",      "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
     GenerateTrace(trace_path);
   }
   paras.push_back("-output_dir=" + output_path);
-  paras.push_back("-trace_file=" + trace_path);
+  paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
 
   env_->CreateDir(output_path);
@@ -495,11 +520,11 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
   std::string output_path = test_path_ + "/single_delete";
   std::string file_path;
   std::vector<std::string> paras = {"./trace_analyzer",
-                                    "-use_get",
-                                    "-use_put",
-                                    "-use_delete",
-                                    "-use_merge",
-                                    "-use_single_delete",
+                                    "-analyze_get",
+                                    "-analyze_put",
+                                    "-analyze_delete",
+                                    "-analyze_merge",
+                                    "-analyze_single_delete",
                                     "-output_trace_sequence",
                                     "-output_key_stats",
                                     "-output_access_count_stats",
@@ -514,7 +539,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
     GenerateTrace(trace_path);
   }
   paras.push_back("-output_dir=" + output_path);
-  paras.push_back("-trace_file=" + trace_path);
+  paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
 
   env_->CreateDir(output_path);
@@ -580,28 +605,21 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/range_delete";
   std::string file_path;
-  std::vector<std::string> paras = {"./trace_analyzer",
-                                    "-use_get",
-                                    "-use_put",
-                                    "-use_delete",
-                                    "-use_merge",
-                                    "-use_single_delete",
-                                    "-use_range_delete",
-                                    "-output_trace_sequence",
-                                    "-output_key_stats",
-                                    "-output_access_count_stats",
-                                    "-output_prefix=test",
-                                    "-output_prefix_cut=1",
-                                    "-output_time_series=10",
-                                    "-output_value_distribution",
-                                    "-output_qps_stats",
-                                    "-no_print"};
+  std::vector<std::string> paras = {
+      "./trace_analyzer",       "-analyze_get",
+      "-analyze_put",           "-analyze_delete",
+      "-analyze_merge",         "-analyze_single_delete",
+      "-analyze_range_delete",  "-output_trace_sequence",
+      "-output_key_stats",      "-output_access_count_stats",
+      "-output_prefix=test",    "-output_prefix_cut=1",
+      "-output_time_series=10", "-output_value_distribution",
+      "-output_qps_stats",      "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
     GenerateTrace(trace_path);
   }
   paras.push_back("-output_dir=" + output_path);
-  paras.push_back("-trace_file=" + trace_path);
+  paras.push_back("-trace_path=" + trace_path);
   paras.push_back("-key_space_dir=" + test_path_);
 
   env_->CreateDir(output_path);

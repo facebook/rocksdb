@@ -5,12 +5,9 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/trace_analyzer_tool.h"
-
+#include <rocksdb/trace_analyzer_tool.h>
 int main(int argc, char** argv) {
-  rocksdb::TraceAnalyzerTool tool;
-  tool.Run(argc, argv);
-  return 0;
+  return rocksdb::trace_analyzer_tool(argc, argv);
 }
 #else
 #include <stdio.h>

@@ -231,6 +231,7 @@ TOOL_LIB_SOURCES = \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
   utilities/blob_db/blob_dump_tool.cc                           \
+  utilities/trace_analyzer_tool.cc				\
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
@@ -398,6 +399,7 @@ MAIN_SOURCES =                                                          \
   utilities/simulator_cache/sim_cache_test.cc                           \
   utilities/spatialdb/spatial_db_test.cc                                \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
+  utilities/trace_analyzer_test.cc					\
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/write_prepared_transaction_test.cc             \

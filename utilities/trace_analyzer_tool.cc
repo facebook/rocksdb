@@ -5,8 +5,6 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "utilities/trace_analyzer_tool_imp.h"
-
 #include <inttypes.h>
 #include <math.h>
 #include <sys/stat.h>
@@ -42,10 +40,11 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/trace_replay.h"
+#include "utilities/trace_analyzer_tool_imp.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
-DEFINE_string(trace_file, "", "The trace path.");
+DEFINE_string(trace_path, "", "The trace file path.");
 DEFINE_string(output_dir, "", "The directory to store the output files.");
 DEFINE_string(output_prefix, "", "The prefix used for all the output files.");
 DEFINE_bool(output_key_stats, false,
@@ -92,13 +91,13 @@ DEFINE_string(
 DEFINE_string(key_space_dir, "",
               "<the directory stores full key space files>"
               "The key space files should be: <column family id>.txt");
-DEFINE_bool(use_get, false, "Analyze the Get query.");
-DEFINE_bool(use_put, false, "Analyze the Put query.");
-DEFINE_bool(use_delete, false, "Analyze the Delete query.");
-DEFINE_bool(use_single_delete, false, "Analyze the SingleDelete query.");
-DEFINE_bool(use_range_delete, false, "Analyze the DeleteRange query.");
-DEFINE_bool(use_merge, false, "Analyze the Merge query.");
-DEFINE_bool(use_iterator, false,
+DEFINE_bool(analyze_get, false, "Analyze the Get query.");
+DEFINE_bool(analyze_put, false, "Analyze the Put query.");
+DEFINE_bool(analyze_delete, false, "Analyze the Delete query.");
+DEFINE_bool(analyze_single_delete, false, "Analyze the SingleDelete query.");
+DEFINE_bool(analyze_range_delete, false, "Analyze the DeleteRange query.");
+DEFINE_bool(analyze_merge, false, "Analyze the Merge query.");
+DEFINE_bool(analyze_iterator, false,
             "Analyze the iterate query like seek() and seekForPre().");
 DEFINE_bool(no_key, true,
             " Does not output the key to the result files to make smaller.");
@@ -139,6 +138,8 @@ std::string TraceAnalyzer::MicrosdToDate(uint64_t time_in) {
   date_time += " +: " + std::to_string(rest);
   return date_time;
 }
+
+namespace {
 
 bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result) {
@@ -186,6 +187,14 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
   }
   return (op1 * op2);
 }
+
+void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
+  Slice buf(buffer);
+  GetFixed32(&buf, cf_id);
+  GetLengthPrefixedSlice(&buf, key);
+}
+
+}  // namespace
 
 // The default constructor of AnalyzerOptions
 AnalyzerOptions::AnalyzerOptions()
@@ -266,7 +275,6 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   rocksdb::EnvOptions env_options;
   env_ = rocksdb::Env::Default();
   offset_ = 0;
-  buffer_ = new char[1024];
   c_time_ = 0;
   total_requests_ = 0;
   total_access_keys_ = 0;
@@ -276,65 +284,60 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   end_time_ = 0;
   ta_.resize(kTaTypeNum);
   ta_[0].type_name = "get";
-  if (FLAGS_use_get) {
+  if (FLAGS_analyze_get) {
     ta_[0].enabled = true;
   } else {
     ta_[0].enabled = false;
   }
   ta_[1].type_name = "put";
-  if (FLAGS_use_put) {
+  if (FLAGS_analyze_put) {
     ta_[1].enabled = true;
   } else {
     ta_[1].enabled = false;
   }
   ta_[2].type_name = "delete";
-  if (FLAGS_use_delete) {
+  if (FLAGS_analyze_delete) {
     ta_[2].enabled = true;
   } else {
     ta_[2].enabled = false;
   }
   ta_[3].type_name = "single_delete";
-  if (FLAGS_use_single_delete) {
+  if (FLAGS_analyze_single_delete) {
     ta_[3].enabled = true;
   } else {
     ta_[3].enabled = false;
   }
   ta_[4].type_name = "range_delete";
-  if (FLAGS_use_range_delete) {
+  if (FLAGS_analyze_range_delete) {
     ta_[4].enabled = true;
   } else {
     ta_[4].enabled = false;
   }
   ta_[5].type_name = "merge";
-  if (FLAGS_use_merge) {
+  if (FLAGS_analyze_merge) {
     ta_[5].enabled = true;
   } else {
     ta_[5].enabled = false;
   }
   ta_[6].type_name = "iterator";
-  if (FLAGS_use_iterator) {
+  if (FLAGS_analyze_iterator) {
     ta_[6].enabled = true;
   } else {
     ta_[6].enabled = false;
   }
 }
 
-TraceAnalyzer::~TraceAnalyzer() { delete buffer_; }
+TraceAnalyzer::~TraceAnalyzer() {}
 
 // Prepare the processing
 // Initiate the global trace reader and writer here
 Status TraceAnalyzer::PrepareProcessing() {
   Status s;
   // Prepare the trace reader
-  unique_ptr<rocksdb::RandomAccessFile> trace_file;
-  s = env_->NewRandomAccessFile(trace_name_, &trace_file, env_options_);
+  s = NewFileTraceReader(env_, env_options_, trace_name_, &trace_reader_);
   if (!s.ok()) {
     return s;
   }
-  unique_ptr<rocksdb::RandomAccessFileReader> trace_file_reader;
-  trace_file_reader.reset(
-      new rocksdb::RandomAccessFileReader(std::move(trace_file), trace_name_));
-  trace_reader_.reset(new rocksdb::TraceReader(std::move(trace_file_reader)));
 
   // Prepare and open the trace sequence file writer if needed
   if (FLAGS_output_trace_sequence) {
@@ -361,27 +364,69 @@ Status TraceAnalyzer::PrepareProcessing() {
   return Status::OK();
 }
 
+Status TraceAnalyzer::ReadTraceHeader(Trace* header) {
+  assert(header != nullptr);
+  Status s = ReadTraceRecord(header);
+  if (!s.ok()) {
+    return s;
+  }
+  if (header->type != kTraceBegin) {
+    return Status::Corruption("Corrupted trace file. Incorrect header.");
+  }
+  if (header->payload.substr(0, kTraceMagic.length()) != kTraceMagic) {
+    return Status::Corruption("Corrupted trace file. Incorrect magic.");
+  }
+
+  return s;
+}
+
+Status TraceAnalyzer::ReadTraceFooter(Trace* footer) {
+  assert(footer != nullptr);
+  Status s = ReadTraceRecord(footer);
+  if (!s.ok()) {
+    return s;
+  }
+  if (footer->type != kTraceEnd) {
+    return Status::Corruption("Corrupted trace file. Incorrect footer.");
+  }
+  return s;
+}
+
+Status TraceAnalyzer::ReadTraceRecord(Trace* trace) {
+  assert(trace != nullptr);
+  std::string encoded_trace;
+  Status s = trace_reader_->Read(&encoded_trace);
+  if (!s.ok()) {
+    return s;
+  }
+
+  Slice enc_slice = Slice(encoded_trace);
+  GetFixed64(&enc_slice, &trace->ts);
+  trace->type = static_cast<TraceType>(enc_slice[0]);
+  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
+  trace->payload = enc_slice.ToString();
+  return s;
+}
+
 // process the trace itself and redirect the trace content
 // to different operation type handler. With different race
 // format, this function can be changed
 Status TraceAnalyzer::StartProcessing() {
   Status s;
   Trace header;
-  s = trace_reader_->ReadHeader(header);
+  s = ReadTraceHeader(&header);
   if (!s.ok()) {
+    fprintf(stderr, "Cannot read the header\n");
     return s;
   }
-
-  Trace footer;
-  s = trace_reader_->ReadFooter(footer);
-  if (!s.ok()) {
-    return s;
+  if (FLAGS_output_time_series == 0) {
+    FLAGS_output_time_series = header.ts;
   }
 
   Trace trace;
   while (s.ok()) {
     trace.reset();
-    s = trace_reader_->ReadRecord(trace);
+    s = ReadTraceRecord(&trace);
     if (!s.ok()) {
       break;
     }
@@ -402,18 +447,29 @@ Status TraceAnalyzer::StartProcessing() {
         exit(1);
       }
     } else if (trace.type == kTraceGet) {
+      uint32_t cf_id = 0;
+      Slice key;
+      DecodeCFAndKey(trace.payload, &cf_id, &key);
       total_gets_++;
-      s = HandleGetCF(trace.cf_id, trace.payload, trace.ts, trace.get_ret);
+
+      s = HandleGetCF(cf_id, key.ToString(), trace.ts, 1);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the get in the trace\n");
         exit(1);
       }
     } else if (trace.type == kTraceIter) {
-      s = HandleIterCF(trace.cf_id, trace.payload, trace.ts);
+      // Not supported in the current trace_replay to collect iterator
+      // Need to be refactored if trace_replay implemented tracing iteator
+      uint32_t cf_id = 0;
+      Slice key;
+      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      s = HandleIterCF(cf_id, key.ToString(), trace.ts);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
         exit(1);
       }
+    } else if (trace.type == kTraceEnd) {
+      break;
     }
   }
   if (s.IsIncomplete()) {
@@ -444,6 +500,7 @@ Status TraceAnalyzer::MakeStatistics() {
           continue;
         }
 
+        // Generate the key access count distribution data
         if (FLAGS_output_access_count_stats) {
           if (i.second.a_count_stats.find(it.second.access_count) ==
               i.second.a_count_stats.end()) {
@@ -453,6 +510,7 @@ Status TraceAnalyzer::MakeStatistics() {
           }
         }
 
+        // Generate the key size distribution data
         if (FLAGS_print_key_distribution) {
           if (i.second.a_key_size_stats.find(it.first.size()) ==
               i.second.a_key_size_stats.end()) {
@@ -532,6 +590,7 @@ Status TraceAnalyzer::MakeStatistics() {
     }
   }
 
+  // Make the QPS statistics
   if (FLAGS_output_qps_stats) {
     s = MakeStatisticQPS();
     if (!s.ok()) {
@@ -805,7 +864,6 @@ Status TraceAnalyzer::MakeStatisticQPS() {
 // we can output the access count of all keys in a cf
 // we can make some statistics of the whole key space
 // also, we output the top k accessed keys here
-//
 Status TraceAnalyzer::ReProcessing() {
   int ret;
   Status s;
@@ -989,7 +1047,8 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     unit.succ_count = 0;
   }
   unit.v_corre.resize(analyzer_opts_.corre_list.size());
-  for (int i = 0; i < (static_cast<int>(analyzer_opts_.corre_list.size())); i++) {
+  for (int i = 0; i < (static_cast<int>(analyzer_opts_.corre_list.size()));
+       i++) {
     unit.v_corre[i].count = 0;
     unit.v_corre[i].total_ts = 0;
   }
@@ -1120,19 +1179,19 @@ Status TraceAnalyzer::StatsUnitCorreUpdate(StatsUnit& unit,
 
   for (int i = 0; i < kTaTypeNum; i++) {
     if (analyzer_opts_.corre_map[i][type] < 0 ||
-        ta_[i].stats.find(unit.cf_id) == ta_[i].stats.end()||
+        ta_[i].stats.find(unit.cf_id) == ta_[i].stats.end() ||
         ta_[i].stats[unit.cf_id].a_key_stats.find(key) ==
-        ta_[i].stats[unit.cf_id].a_key_stats.end() ||
+            ta_[i].stats[unit.cf_id].a_key_stats.end() ||
         ta_[i].stats[unit.cf_id].a_key_stats[key].latest_ts == ts) {
       continue;
     }
 
     int corre_id = analyzer_opts_.corre_map[i][type];
 
-    //after get the x-y operation time or x, update;
+    // after get the x-y operation time or x, update;
     unit.v_corre[corre_id].count++;
-    unit.v_corre[corre_id].total_ts += (ts -
-        ta_[i].stats[unit.cf_id].a_key_stats[key].latest_ts);
+    unit.v_corre[corre_id].total_ts +=
+        (ts - ta_[i].stats[unit.cf_id].a_key_stats[key].latest_ts);
   }
 
   unit.latest_ts = ts;
@@ -1447,7 +1506,7 @@ void TraceAnalyzer::PrintGetStatistics() {
     ta_[type].total_succ_access = 0;
     printf("\n################# Operation Type: %s #####################\n",
            ta_[type].type_name.c_str());
-    if (qps_ave_.size() ==  kTaTypeNum + 1) {
+    if (qps_ave_.size() == kTaTypeNum + 1) {
       printf("Peak IO is: %u Average IO is: %f\n", qps_peak_[type],
              qps_ave_[type]);
     }
@@ -1475,21 +1534,17 @@ void TraceAnalyzer::PrintGetStatistics() {
       ta_[type].total_keys += total_a_keys;
       ta_[type].total_access += stats.a_count;
       ta_[type].total_succ_access += stats.a_succ_count;
-      double cf_succ_ratio =
-          (static_cast<double>(stats.a_succ_count)) / stats.a_count;
       printf("*********************************************************\n");
       printf("colume family id: %u\n", stats.cf_id);
       printf("Total unique keys in this cf: %" PRIu64 "\n", total_a_keys);
-      printf("Total '%s' requests on cf '%u': %" PRIu64 " Keys found: %" PRIu64
-             " ratio: %f\n",
-             ta_[type].type_name.c_str(), stats.cf_id, stats.a_count,
-             stats.a_succ_count, cf_succ_ratio);
       printf("Average key size: %f key size medium: %" PRIu64
              " Key size Variation: %f\n",
              key_size_ave, stats.a_key_mid, key_size_vari);
-      printf("Average value size: %f Value size medium: %" PRIu64
-             " Value size variation: %f\n",
-             value_size_ave, stats.a_value_mid, value_size_vari);
+      if (type == kPut || type == kMerge) {
+        printf("Average value size: %f Value size medium: %" PRIu64
+               " Value size variation: %f\n",
+               value_size_ave, stats.a_value_mid, value_size_vari);
+      }
       printf("Peak QPS is: %u Average QPS is: %f\n", stats.a_peak_qps,
              stats.a_ave_qps);
 
@@ -1500,15 +1555,8 @@ void TraceAnalyzer::PrintGetStatistics() {
         while (!stats.top_k_queue.empty()) {
           std::string hex_key =
               rocksdb::LDBCommand::StringToHex(stats.top_k_queue.top().second);
-          double succ_ratio =
-              (static_cast<double>(
-                  stats.a_key_stats[stats.top_k_queue.top().second]
-                      .succ_count)) /
-              stats.a_key_stats[stats.top_k_queue.top().second].access_count;
-          printf("Access_count: %" PRIu64 " Found: %" PRIu64 " Ratio: %f %s\n",
-                 stats.top_k_queue.top().first,
-                 stats.a_key_stats[stats.top_k_queue.top().second].succ_count,
-                 succ_ratio, hex_key.c_str());
+          printf("Access_count: %" PRIu64 " %s\n",
+                 stats.top_k_queue.top().first, hex_key.c_str());
           stats.top_k_queue.pop();
         }
       }
@@ -1562,12 +1610,7 @@ void TraceAnalyzer::PrintGetStatistics() {
     printf("*********************************************************\n");
     printf("Total keys of '%s' is: %" PRIu64 "\n", ta_[type].type_name.c_str(),
            ta_[type].total_keys);
-    double type_succ_ratio =
-        (static_cast<double>(ta_[type].total_succ_access)) /
-        ta_[type].total_access;
-    printf("Total access is: %" PRIu64 " Successed: %" PRIu64 " Ratio: %f\n",
-           ta_[type].total_access, ta_[type].total_succ_access,
-           type_succ_ratio);
+    printf("Total access is: %" PRIu64 "\n", ta_[type].total_access);
     total_access_keys_ += ta_[type].total_keys;
   }
 
@@ -1623,7 +1666,7 @@ Status TraceAnalyzer::WriteTraceSequence(const uint32_t& type,
 }
 
 // The entrance function of Trace_Analyzer
-int TraceAnalyzerTool::Run(int argc, char** argv) {
+int trace_analyzer_tool(int argc, char** argv) {
   std::string trace_path;
   std::string output_path;
 
@@ -1636,7 +1679,7 @@ int TraceAnalyzerTool::Run(int argc, char** argv) {
   }
 
   TraceAnalyzer* analyzer =
-      new TraceAnalyzer(FLAGS_trace_file, FLAGS_output_dir, analyzer_opts);
+      new TraceAnalyzer(FLAGS_trace_path, FLAGS_output_dir, analyzer_opts);
 
   if (analyzer == nullptr) {
     fprintf(stderr, "Cannot initiate the trace analyzer\n");

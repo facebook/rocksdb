@@ -6,8 +6,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/trace_analyzer_tool.h"
-
 #include <stdio.h>
 #include <fstream>
 #include <list>
@@ -18,6 +16,7 @@
 #include <vector>
 
 #include "rocksdb/env.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/write_batch.h"
 #include "util/trace_replay.h"
 
@@ -26,10 +25,6 @@ namespace rocksdb {
 class DBImpl;
 class WriteBatch;
 class AnalyzerOptions;
-class TraceWriteHandler;
-
-bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
-                     std::string* output, bool* has_data, Status* result);
 
 enum TraceOperationType : int {
   kGet = 0,
@@ -149,7 +144,7 @@ struct CfUnit {
 
 class TraceAnalyzer {
  public:
-  TraceAnalyzer(std::string &trace_path, std::string &output_path,
+  TraceAnalyzer(std::string& trace_path, std::string& output_path,
                 AnalyzerOptions _analyzer_opts);
   ~TraceAnalyzer();
 
@@ -163,7 +158,7 @@ class TraceAnalyzer {
 
   Status EndProcessing();
 
-  Status WriteTraceUnit(TraceUnit &unit);
+  Status WriteTraceUnit(TraceUnit& unit);
 
   // The trace  processing functions for different type
   Status HandleGetCF(uint32_t column_family_id, const std::string& key,
@@ -183,9 +178,9 @@ class TraceAnalyzer {
  private:
   rocksdb::Env* env_;
   EnvOptions env_options_;
-  unique_ptr<rocksdb::TraceReader> trace_reader_;
+  std::unique_ptr<TraceReader> trace_reader_;
   size_t offset_;
-  char *buffer_;
+  char buffer_[1024];
   uint64_t c_time_;
   std::string trace_name_;
   std::string output_path_;
@@ -204,6 +199,9 @@ class TraceAnalyzer {
   std::vector<uint32_t> qps_peak_;
   std::vector<double> qps_ave_;
 
+  Status ReadTraceHeader(Trace* header);
+  Status ReadTraceFooter(Trace* footer);
+  Status ReadTraceRecord(Trace* trace);
   Status KeyStatsInsertion(const uint32_t& type, const uint32_t& cf_id,
                            const std::string& key, const size_t value_size,
                            const uint64_t ts);
