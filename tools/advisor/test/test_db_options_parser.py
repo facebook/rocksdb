@@ -1,3 +1,8 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from advisor.db_log_parser import NO_COL_FAMILY
 from advisor.db_options_parser import DatabaseOptions
 from advisor.rule_parser import Condition, OptionCondition
@@ -66,7 +71,7 @@ class TestDatabaseOptions(unittest.TestCase):
 
     def test_set_up(self):
         options = self.db_options.get_all_options()
-        self.assertEqual(21, len(options.keys()))
+        self.assertEqual(22, len(options.keys()))
         expected_misc_options = {
             'bloom_bits': '4', 'rate_limiter_bytes_per_sec': '1024000'
         }
