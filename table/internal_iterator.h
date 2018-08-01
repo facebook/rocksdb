@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
@@ -61,6 +62,15 @@ class InternalIterator : public Cleanable {
   // the iterator.
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
+
+  // Return the key in the parsed form for the current entry.
+  // The same precondition as key().
+  // REQUIRES: Valid()
+  virtual ParsedInternalKey parsed_internal_key() const {
+    ParsedInternalKey pik;
+    ParseInternalKey(key(), &pik);
+    return pik;
+  }
 
   // Return the value for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of

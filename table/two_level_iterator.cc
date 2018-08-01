@@ -25,8 +25,8 @@ class TwoLevelIterator : public InternalIterator {
                             InternalIterator* first_level_iter);
 
   virtual ~TwoLevelIterator() {
-    first_level_iter_.DeleteIter(false /* is_arena_mode */);
-    second_level_iter_.DeleteIter(false /* is_arena_mode */);
+    delete first_level_iter_;
+    delete second_level_iter_;
     delete state_;
   }
 
@@ -37,22 +37,28 @@ class TwoLevelIterator : public InternalIterator {
   virtual void Next() override;
   virtual void Prev() override;
 
-  virtual bool Valid() const override { return second_level_iter_.Valid(); }
+  virtual bool Valid() const override { return second_level_iter_->Valid(); }
   virtual Slice key() const override {
     assert(Valid());
-    return second_level_iter_.key();
+    return second_level_iter_->key();
   }
+
+  ParsedInternalKey parsed_internal_key() const override {
+    assert(Valid());
+    return second_level_iter_->parsed_internal_key();
+  }
+
   virtual Slice value() const override {
     assert(Valid());
-    return second_level_iter_.value();
+    return second_level_iter_->value();
   }
   virtual Status status() const override {
-    if (!first_level_iter_.status().ok()) {
-      assert(second_level_iter_.iter() == nullptr);
-      return first_level_iter_.status();
-    } else if (second_level_iter_.iter() != nullptr &&
-               !second_level_iter_.status().ok()) {
-      return second_level_iter_.status();
+    if (!first_level_iter_->status().ok()) {
+      assert(second_level_iter_ == nullptr);
+      return first_level_iter_->status();
+    } else if (second_level_iter_ != nullptr &&
+               !second_level_iter_->status().ok()) {
+      return second_level_iter_->status();
     } else {
       return status_;
     }
@@ -72,8 +78,8 @@ class TwoLevelIterator : public InternalIterator {
   void InitDataBlock();
 
   TwoLevelIteratorState* state_;
-  IteratorWrapper first_level_iter_;
-  IteratorWrapper second_level_iter_;  // May be nullptr
+  InternalIterator* first_level_iter_;
+  InternalIterator* second_level_iter_ = nullptr;
   Status status_;
   // If second_level_iter is non-nullptr, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the second_level_iter.
@@ -85,27 +91,27 @@ TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,
     : state_(state), first_level_iter_(first_level_iter) {}
 
 void TwoLevelIterator::Seek(const Slice& target) {
-  first_level_iter_.Seek(target);
+  first_level_iter_->Seek(target);
 
   InitDataBlock();
-  if (second_level_iter_.iter() != nullptr) {
-    second_level_iter_.Seek(target);
+  if (second_level_iter_ != nullptr) {
+    second_level_iter_->Seek(target);
   }
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekForPrev(const Slice& target) {
-  first_level_iter_.Seek(target);
+  first_level_iter_->Seek(target);
   InitDataBlock();
-  if (second_level_iter_.iter() != nullptr) {
-    second_level_iter_.SeekForPrev(target);
+  if (second_level_iter_ != nullptr) {
+    second_level_iter_->SeekForPrev(target);
   }
   if (!Valid()) {
-    if (!first_level_iter_.Valid() && first_level_iter_.status().ok()) {
-      first_level_iter_.SeekToLast();
+    if (!first_level_iter_->Valid() && first_level_iter_->status().ok()) {
+      first_level_iter_->SeekToLast();
       InitDataBlock();
-      if (second_level_iter_.iter() != nullptr) {
-        second_level_iter_.SeekForPrev(target);
+      if (second_level_iter_ != nullptr) {
+        second_level_iter_->SeekForPrev(target);
       }
     }
     SkipEmptyDataBlocksBackward();
@@ -113,79 +119,79 @@ void TwoLevelIterator::SeekForPrev(const Slice& target) {
 }
 
 void TwoLevelIterator::SeekToFirst() {
-  first_level_iter_.SeekToFirst();
+  first_level_iter_->SeekToFirst();
   InitDataBlock();
-  if (second_level_iter_.iter() != nullptr) {
-    second_level_iter_.SeekToFirst();
+  if (second_level_iter_ != nullptr) {
+    second_level_iter_->SeekToFirst();
   }
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToLast() {
-  first_level_iter_.SeekToLast();
+  first_level_iter_->SeekToLast();
   InitDataBlock();
-  if (second_level_iter_.iter() != nullptr) {
-    second_level_iter_.SeekToLast();
+  if (second_level_iter_ != nullptr) {
+    second_level_iter_->SeekToLast();
   }
   SkipEmptyDataBlocksBackward();
 }
 
 void TwoLevelIterator::Next() {
   assert(Valid());
-  second_level_iter_.Next();
+  second_level_iter_->Next();
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::Prev() {
   assert(Valid());
-  second_level_iter_.Prev();
+  second_level_iter_->Prev();
   SkipEmptyDataBlocksBackward();
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
-  while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() && second_level_iter_.status().ok())) {
+  while (second_level_iter_ == nullptr ||
+         (!second_level_iter_->Valid() && second_level_iter_->status().ok())) {
     // Move to next block
-    if (!first_level_iter_.Valid()) {
+    if (!first_level_iter_->Valid()) {
       SetSecondLevelIterator(nullptr);
       return;
     }
-    first_level_iter_.Next();
+    first_level_iter_->Next();
     InitDataBlock();
-    if (second_level_iter_.iter() != nullptr) {
-      second_level_iter_.SeekToFirst();
+    if (second_level_iter_ != nullptr) {
+      second_level_iter_->SeekToFirst();
     }
   }
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
-  while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() && second_level_iter_.status().ok())) {
+  while (second_level_iter_ == nullptr ||
+         (!second_level_iter_->Valid() && second_level_iter_->status().ok())) {
     // Move to next block
-    if (!first_level_iter_.Valid()) {
+    if (!first_level_iter_->Valid()) {
       SetSecondLevelIterator(nullptr);
       return;
     }
-    first_level_iter_.Prev();
+    first_level_iter_->Prev();
     InitDataBlock();
-    if (second_level_iter_.iter() != nullptr) {
-      second_level_iter_.SeekToLast();
+    if (second_level_iter_ != nullptr) {
+      second_level_iter_->SeekToLast();
     }
   }
 }
 
 void TwoLevelIterator::SetSecondLevelIterator(InternalIterator* iter) {
-  InternalIterator* old_iter = second_level_iter_.Set(iter);
-  delete old_iter;
+  delete second_level_iter_;
+  second_level_iter_ = iter;
 }
 
 void TwoLevelIterator::InitDataBlock() {
-  if (!first_level_iter_.Valid()) {
+  if (!first_level_iter_->Valid()) {
     SetSecondLevelIterator(nullptr);
   } else {
-    Slice handle = first_level_iter_.value();
-    if (second_level_iter_.iter() != nullptr &&
-        !second_level_iter_.status().IsIncomplete() &&
+    Slice handle = first_level_iter_->value();
+    if (second_level_iter_ != nullptr &&
+        !second_level_iter_->status().IsIncomplete() &&
         handle.compare(data_block_handle_) == 0) {
       // second_level_iter is already constructed with this iterator, so
       // no need to change anything

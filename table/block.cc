@@ -186,6 +186,7 @@ void DataBlockIter::Seek(const Slice& target) {
 }
 
 void IndexBlockIter::Seek(const Slice& target) {
+  TEST_SYNC_POINT("IndexBlockIter::Seek:0");
   Slice seek_key = target;
   if (!key_includes_seq_) {
     seek_key = ExtractUserKey(target);

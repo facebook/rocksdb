@@ -1417,7 +1417,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
   // BlockBasedTable.
   Options opt;
   unique_ptr<InternalKeyComparator> ikc;
-  ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
+  ikc.reset(new InternalKeyComparator(opt.comparator));
   opt.compression = kNoCompression;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.block_size = 1024;

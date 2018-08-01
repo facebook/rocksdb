@@ -561,6 +561,10 @@ class BlockBasedTableIterator : public InternalIterator {
     assert(Valid());
     return block_iter_.key();
   }
+  ParsedInternalKey parsed_internal_key() const override {
+    assert(Valid());
+    return block_iter_.parsed_internal_key();
+  }
   Slice value() const override {
     assert(Valid());
     return block_iter_.value();
@@ -626,6 +630,7 @@ class BlockBasedTableIterator : public InternalIterator {
   void InitDataBlock();
   void FindKeyForward();
   void FindKeyBackward();
+  bool IsReseekToSameBlock(const Slice& target);
 
  private:
   BlockBasedTable* table_;

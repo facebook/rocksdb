@@ -417,9 +417,27 @@ class IndexBlockIter final : public BlockIter {
   IndexBlockIter() : BlockIter(), prefix_index_(nullptr) {}
 
   virtual Slice key() const override {
-    assert(Valid());
-    return key_.GetKey();
+    // This should not be called. Use parsed_internal_key() instead.
+    assert(false);
+    return Slice();
   }
+  ParsedInternalKey parsed_internal_key() const override {
+    if (key_.IsUserKey()) {
+      // When users seek a key with the user key the same as the index key,
+      // we are at this position, so the internal key equivalent should be
+      // the largest possible internal key of the user key in internal
+      // comparator order.
+      return ParsedInternalKey(key_.GetKey(), 0 /* sequence_number */,
+                               kValueTypeForSeekForPrev);
+    } else {
+      ParsedInternalKey pik;
+      bool success __attribute__((__unused__));
+      success = ParseInternalKey(key_.GetKey(), &pik);
+      assert(success);
+      return pik;
+    }
+  }
+
   IndexBlockIter(const Comparator* comparator,
                  const Comparator* user_comparator, const char* data,
                  uint32_t restarts, uint32_t num_restarts,

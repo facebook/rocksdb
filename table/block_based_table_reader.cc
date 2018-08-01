@@ -1966,11 +1966,9 @@ bool BlockBasedTable::PrefixMayMatch(
         // and we're not really sure that we're past the end
         // of the file
         may_match = iiter->status().IsIncomplete();
-      } else if ((rep_->table_properties &&
-                          rep_->table_properties->index_key_is_user_key
-                      ? iiter->key()
-                      : ExtractUserKey(iiter->key()))
-                     .starts_with(ExtractUserKey(internal_prefix))) {
+      } else if (rep_->table_properties &&
+                 iiter->parsed_internal_key().user_key.starts_with(
+                     ExtractUserKey(internal_prefix))) {
         // we need to check for this subtle case because our only
         // guarantee is that "the key is a string >= last key in that data
         // block" according to the doc/table_format.txt spec.
@@ -2016,6 +2014,38 @@ bool BlockBasedTable::PrefixMayMatch(
 }
 
 template <class TBlockIter>
+bool BlockBasedTableIterator<TBlockIter>::IsReseekToSameBlock(
+    const Slice& target) {
+  assert(block_iter_points_to_real_block_);
+  if (!status().ok()) {
+    return false;
+  }
+  // It's not sure whether index_iter_->Valid() can ever be false. Handle it
+  // anyway to be safe.
+  if (!index_iter_->Valid() ||
+      icomp_.user_comparator()->Compare(
+          ExtractUserKey(target),
+          index_iter_->parsed_internal_key().user_key) >= 0) {
+    // We reseek anyway if the seek key's user key is the same as boundary key
+    // to keep the logic simple.
+    return false;
+  }
+  block_iter_.SeekToFirst();
+  if (!block_iter_.Valid() ||
+      icomp_.user_comparator()->Compare(
+          ExtractUserKey(target), block_iter_.parsed_internal_key().user_key) <=
+          0) {
+    // We reseek anyway if the seek key's user key is the same as boundary key
+    // to keep the code simple.
+    // It's not clear whether block_iter_.Valid() can be false after
+    // SeekToFirst(). Handle it anyway to be safe.
+    return false;
+  }
+  assert(block_iter_.status().ok());
+  return true;
+}
+
+template <class TBlockIter>
 void BlockBasedTableIterator<TBlockIter>::Seek(const Slice& target) {
   is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
@@ -2023,26 +2053,29 @@ void BlockBasedTableIterator<TBlockIter>::Seek(const Slice& target) {
     return;
   }
 
-  SavePrevIndexValue();
-
-  index_iter_->Seek(target);
-
-  if (!index_iter_->Valid()) {
-    ResetDataIter();
-    return;
+  // Avoid to reseek the index block if the current data block contains
+  // the target key.
+  if (!block_iter_points_to_real_block_ || !IsReseekToSameBlock(target)) {
+    SavePrevIndexValue();
+    index_iter_->Seek(target);
+    if (!index_iter_->Valid()) {
+      ResetDataIter();
+      return;
+    }
+    InitDataBlock();
   }
-
-  InitDataBlock();
 
   block_iter_.Seek(target);
 
   FindKeyForward();
-  assert(
-      !block_iter_.Valid() ||
-      (key_includes_seq_ && icomp_.Compare(target, block_iter_.key()) <= 0) ||
-      (!key_includes_seq_ &&
-       icomp_.user_comparator()->Compare(ExtractUserKey(target),
-                                         block_iter_.key()) <= 0));
+
+#ifndef NDEBUG
+  if (block_iter_.Valid()) {
+    std::string cur_ikey;
+    AppendInternalKey(&cur_ikey, block_iter_.parsed_internal_key());
+    assert(icomp_.Compare(target, Slice(cur_ikey)) <= 0);
+  }
+#endif  // NDEBUG
 }
 
 template <class TBlockIter>
@@ -2447,7 +2480,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 Status BlockBasedTable::Prefetch(const Slice* const begin,
                                  const Slice* const end) {
   auto& comparator = rep_->internal_comparator;
-  auto user_comparator = comparator.user_comparator();
   // pre-condition
   if (begin && end && comparator.Compare(*begin, *end) > 0) {
     return Status::InvalidArgument(*begin, *end);
@@ -2471,12 +2503,9 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   for (begin ? iiter->Seek(*begin) : iiter->SeekToFirst(); iiter->Valid();
        iiter->Next()) {
     Slice block_handle = iiter->value();
-    const bool is_user_key = rep_->table_properties &&
-                             rep_->table_properties->index_key_is_user_key > 0;
-    if (end &&
-        ((!is_user_key && comparator.Compare(iiter->key(), *end) >= 0) ||
-         (is_user_key &&
-          user_comparator->Compare(iiter->key(), ExtractUserKey(*end)) >= 0))) {
+    std::string ikey;
+    AppendInternalKey(&ikey, iiter->parsed_internal_key());
+    if (end && comparator.Compare(Slice(ikey), *end) >= 0) {
       if (prefetching_boundary_page) {
         break;
       }
@@ -2960,24 +2989,19 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
     if (!s.ok()) {
       break;
     }
-    Slice key = blockhandles_iter->key();
-    Slice user_key;
-    InternalKey ikey;
+    out_file->Append("  HEX    ");
+    ParsedInternalKey pid = blockhandles_iter->parsed_internal_key();
     if (rep_->table_properties &&
         rep_->table_properties->index_key_is_user_key != 0) {
-      user_key = key;
+      out_file->Append(pid.user_key.ToString(true).c_str());
     } else {
-      ikey.DecodeFrom(key);
-      user_key = ikey.user_key();
+      out_file->Append(pid.DebugString(true).c_str());
     }
-
-    out_file->Append("  HEX    ");
-    out_file->Append(user_key.ToString(true).c_str());
     out_file->Append(": ");
     out_file->Append(blockhandles_iter->value().ToString(true).c_str());
     out_file->Append("\n");
 
-    std::string str_key = user_key.ToString();
+    std::string str_key = pid.user_key.ToString();
     std::string res_key("");
     char cspace = ' ';
     for (size_t i = 0; i < str_key.size(); i++) {
