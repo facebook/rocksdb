@@ -52,7 +52,10 @@ class TestAllRulesTriggered(unittest.TestCase):
         db_options_parser = DatabaseOptions(options_path)
         self.column_families = db_options_parser.get_column_families()
         db_logs_parser = DatabaseLogs(log_path, self.column_families)
-        self.data_sources = [db_options_parser, db_logs_parser]
+        self.data_sources = {
+            DataSource.Type.DB_OPTIONS: [db_options_parser],
+            DataSource.Type.LOG: [db_logs_parser]
+        }
 
     def test_triggered_conditions(self):
         conditions_dict = self.db_rules.get_conditions_dict()
@@ -106,7 +109,10 @@ class TestConditionsConjunctions(unittest.TestCase):
         db_options_parser = DatabaseOptions(options_path)
         self.column_families = db_options_parser.get_column_families()
         db_logs_parser = DatabaseLogs(log_path, self.column_families)
-        self.data_sources = [db_options_parser, db_logs_parser]
+        self.data_sources = {
+            DataSource.Type.DB_OPTIONS: [db_options_parser],
+            DataSource.Type.LOG: [db_logs_parser]
+        }
 
     def test_condition_conjunctions(self):
         conditions_dict = self.db_rules.get_conditions_dict()
