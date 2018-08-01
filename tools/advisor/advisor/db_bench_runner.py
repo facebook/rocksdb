@@ -1,11 +1,8 @@
 from advisor.bench_runner import BenchmarkRunner
 from advisor.db_log_parser import DataSource, DatabaseLogs, NO_COL_FAMILY
-from advisor.db_options_parser import DatabaseOptions
 from advisor.db_stats_fetcher import (
     LogStatsParser, OdsStatsFetcher, DatabasePerfContext
 )
-import os
-import re
 import shutil
 import subprocess
 import time
@@ -30,6 +27,8 @@ class DBBenchRunner(BenchmarkRunner):
 
     @staticmethod
     def get_opt_args_str(misc_options_dict):
+        # given a dictionary of options and their values, return a string
+        # that can be appended as command-line arguments
         optional_args_str = ""
         for option_name, option_value in misc_options_dict.items():
             if option_value:
@@ -43,12 +42,10 @@ class DBBenchRunner(BenchmarkRunner):
         self.db_bench_binary = positional_args[0]
         self.benchmark = positional_args[1]
         self.db_bench_args = None
-        # TODO(poojam23): move to unittest with method get_available_workloads
-        self.supported_benchmarks = None
         if len(positional_args) > 2:
             # options list with each option given as "<option>=<value>"
             self.db_bench_args = positional_args[2:]
-        # save ods_args if provided
+        # save ods_args, if provided
         self.ods_args = ods_args
 
     def _parse_output(self, get_perf_context=False):
@@ -67,21 +64,29 @@ class DBBenchRunner(BenchmarkRunner):
         with open(self.OUTPUT_FILE, 'r') as fp:
             for line in fp:
                 if line.startswith(self.benchmark):
-                    print(line)  # print output of db_bench run
+                    # line from sample output:
+                    # readwhilewriting : 16.582 micros/op 60305 ops/sec; \
+                    # 4.2 MB/s (3433828 of 5427999 found)\n
+                    print(line)  # print output of the benchmark run
                     token_list = line.strip().split()
                     for ix, token in enumerate(token_list):
                         if token.startswith(self.THROUGHPUT):
+                            # in above example, throughput = 60305 ops/sec
                             output[self.THROUGHPUT] = (
                                 float(token_list[ix - 1])
                             )
                             break
-                elif line.startswith(self.PERF_CON):
+                elif get_perf_context and line.startswith(self.PERF_CON):
+                    # the following lines in the output contain perf context
+                    # statistics (refer example above)
                     perf_context_begins = True
                 elif get_perf_context and perf_context_begins:
                     # Sample perf_context output:
                     # user_key_comparison_count = 500, block_cache_hit_count =\
                     # 468, block_read_count = 580, block_read_byte = 445, ...
                     token_list = line.strip().split(',')
+                    # token_list = ['user_key_comparison_count = 500',
+                    # 'block_cache_hit_count = 468','block_read_count = 580'...
                     perf_context = {
                         tk.split('=')[0].strip(): tk.split('=')[1].strip()
                         for tk in token_list
@@ -99,6 +104,8 @@ class DBBenchRunner(BenchmarkRunner):
                     output[self.PERF_CON] = perf_context_ts
                     perf_context_begins = False
                 elif line.startswith(self.DB_PATH):
+                    # line from sample output:
+                    # DB path: [/tmp/rocksdbtest-155919/dbbench]\n
                     output[self.DB_PATH] = (
                         line.split('[')[1].split(']')[0]
                     )
@@ -111,8 +118,10 @@ class DBBenchRunner(BenchmarkRunner):
         stats_freq_sec = None
         logs_file_prefix = None
 
-        # fetch the options
+        # fetch frequency at which the stats are dumped in the Rocksdb logs
         dump_period = 'DBOptions.stats_dump_period_sec'
+        # fetch the directory, if specified, in which the Rocksdb logs are
+        # dumped, by default logs are dumped in same location as database
         log_dir = 'DBOptions.db_log_dir'
         log_options = db_options.get_options([dump_period, log_dir])
         if dump_period in log_options:
@@ -153,6 +162,7 @@ class DBBenchRunner(BenchmarkRunner):
             shutil.rmtree(db_path, ignore_errors=True)
         except OSError as e:
             print('Error: rmdir ' + e.filename + ' ' + e.strerror)
+        # setup database with a million keys using the fillrandom benchmark
         command = "%s --benchmarks=fillrandom --db=%s --num=1000000" % (
             self.db_bench_binary, db_path
         )
@@ -164,15 +174,16 @@ class DBBenchRunner(BenchmarkRunner):
         command = "%s --benchmarks=%s --statistics --perf_level=3 --db=%s" % (
             self.db_bench_binary, self.benchmark, db_path
         )
+        # fetch the command-line arguments string for providing Rocksdb options
         args_str = self._get_options_command_line_args_str(curr_options)
-        # handle the command-line args passed in the constructor
+        # handle the command-line args passed in the constructor, these
+        # arguments are specific to db_bench
         for cmd_line_arg in self.db_bench_args:
             args_str += (" --" + cmd_line_arg)
         command += args_str
         return command
 
     def _run_command(self, command):
-        # run db_bench and return the
         out_file = open(self.OUTPUT_FILE, "w+")
         err_file = open(self.ERROR_FILE, "w+")
         print('executing... - ' + command)
@@ -181,18 +192,21 @@ class DBBenchRunner(BenchmarkRunner):
         err_file.close()
 
     def run_experiment(self, db_options, db_path):
-        # type: (List[str], str) -> str
+        # setup the Rocksdb database before running experiment
         self._setup_db_before_experiment(db_options, db_path)
+        # get the command to run the experiment
         command = self._build_experiment_command(db_options, db_path)
+        # run experiment
         self._run_command(command)
-
+        # parse the db_bench experiment output
         parsed_output = self._parse_output(get_perf_context=True)
 
-        # Create the LOGS object
-        # get the log options from the OPTIONS file
+        # get the log files path prefix and frequency at which Rocksdb stats
+        # are dumped in the logs
         logs_file_prefix, stats_freq_sec = self.get_log_options(
             db_options, parsed_output[self.DB_PATH]
         )
+        # create the Rocksbd LOGS object
         db_logs = DatabaseLogs(
             logs_file_prefix, db_options.get_column_families()
         )
@@ -202,6 +216,7 @@ class DBBenchRunner(BenchmarkRunner):
         db_perf_context = DatabasePerfContext(
             parsed_output[self.PERF_CON], 0, False
         )
+        # create the data-sources dictionary
         data_sources = {
             DataSource.Type.DB_OPTIONS: [db_options],
             DataSource.Type.LOG: [db_logs],
@@ -214,99 +229,5 @@ class DBBenchRunner(BenchmarkRunner):
                 self.ods_args['entity'],
                 self.ods_args['key_prefix']
             ))
+        # return the experiment's data-sources and throughput
         return data_sources, parsed_output[self.THROUGHPUT]
-
-    # TODO: this method is for testing, shift it out to unit-tests when ready
-    def get_available_workloads(self):
-        if not self.supported_benchmarks:
-            self.supported_benchmarks = []
-            command = '%s --help' % self.db_bench_binary
-            self._run_command(command)
-            with open(self.OUTPUT_FILE, 'r') as fp:
-                start = False
-                for line in fp:
-                    if re.search('available benchmarks', line, re.IGNORECASE):
-                        start = True
-                        continue
-                    elif start:
-                        if re.search('meta operations', line, re.IGNORECASE):
-                            break
-                        benchmark_info = line.strip()
-                        if benchmark_info:
-                            token_list = benchmark_info.split()
-                            if len(token_list) > 2 and token_list[1] == '--':
-                                self.supported_benchmarks.append(token_list[0])
-                    else:
-                        continue
-            self.supported_benchmarks = sorted(self.supported_benchmarks)
-        return self.supported_benchmarks
-
-
-# TODO: remove this method, used only for testing
-def main():
-    pos_args = [
-        '/home/poojamalik/workspace/rocksdb/db_bench',
-        'readwhilewriting',
-        'use_existing_db=true',
-        'duration=10'
-    ]
-    db_bench_helper = DBBenchRunner(pos_args)
-    # populate benchmarks with the available ones in the db_bench tool
-    benchmarks = db_bench_helper.get_available_workloads()
-    print(benchmarks)
-    print()
-    options_file = (
-        '/home/poojamalik/workspace/rocksdb/tools/advisor/temp/' +
-        'OPTIONS_temp.tmp'
-    )
-    misc_options = ["rate_limiter_bytes_per_sec=1024000", "bloom_bits=2"]
-    db_options = DatabaseOptions(options_file, misc_options)
-    data_sources, _ = db_bench_helper.run_experiment(db_options)
-    print(data_sources[DataSource.Type.DB_OPTIONS][0].options_dict)
-    print()
-    print(data_sources[DataSource.Type.LOG][0].logs_path_prefix)
-    if os.path.isfile(data_sources[DataSource.Type.LOG][0].logs_path_prefix):
-        print('log file exists!')
-    else:
-        print('error: log file does not exist!')
-    print(data_sources[DataSource.Type.LOG][0].column_families)
-    print()
-    print(data_sources[DataSource.Type.TIME_SERIES][0].logs_file_prefix)
-    if (
-        os.path.isfile(
-            data_sources[DataSource.Type.TIME_SERIES][0].logs_file_prefix
-        )
-    ):
-        print('log file exists!')
-    else:
-        print('error: log file does not exist!')
-    print(data_sources[DataSource.Type.TIME_SERIES][0].stats_freq_sec)
-    print(data_sources[DataSource.Type.TIME_SERIES][1].keys_ts)
-
-    db_options = DatabaseOptions(options_file, None)
-    data_sources, _ = db_bench_helper.run_experiment(db_options)
-    print(data_sources[DataSource.Type.DB_OPTIONS][0].options_dict)
-    print()
-    print(data_sources[DataSource.Type.LOG][0].logs_path_prefix)
-    if os.path.isfile(data_sources[DataSource.Type.LOG][0].logs_path_prefix):
-        print('log file exists!')
-    else:
-        print('error: log file does not exist!')
-    print(data_sources[DataSource.Type.LOG][0].column_families)
-    print()
-    print(data_sources[DataSource.Type.TIME_SERIES][0].logs_file_prefix)
-    if (
-        os.path.isfile(
-            data_sources[DataSource.Type.TIME_SERIES][0].logs_file_prefix
-        )
-    ):
-        print('log file exists!')
-    else:
-        print('error: log file does not exist!')
-    print(data_sources[DataSource.Type.TIME_SERIES][0].stats_freq_sec)
-    print(data_sources[DataSource.Type.TIME_SERIES][1].keys_ts)
-    print(data_sources[DataSource.Type.TIME_SERIES][1].stats_freq_sec)
-
-
-if __name__ == "__main__":
-    main()
