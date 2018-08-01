@@ -2993,18 +2993,18 @@ void WriteExternalSstFilesCommand::DoCommand() {
     std::string key;
     std::string value;
     if (ParseKeyValue(line, &key, &value, is_key_hex_, is_value_hex_)) {
+      status = sst_file_writer.Put(key, value);
+      if (!status.ok()) {
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "failed to write record to file: " + status.ToString());
+        return;
+      }
     } else if (0 == line.find("Keys in range:")) {
       // ignore this line
     } else if (0 == line.find("Created bg thread 0x")) {
       // ignore this line
     } else {
       bad_lines++;
-    }
-    status = sst_file_writer.Put(key, value);
-    if (!status.ok()) {
-      exec_state_ = LDBCommandExecuteResult::Failed(
-          "failed to write record to file: " + status.ToString());
-      return;
     }
   }
 
@@ -3018,7 +3018,8 @@ void WriteExternalSstFilesCommand::DoCommand() {
   if (bad_lines > 0) {
     fprintf(stderr, "Warning: %d bad lines ignored.\n", bad_lines);
   }
-  exec_state_ = LDBCommandExecuteResult::Succeed("");
+  exec_state_ = LDBCommandExecuteResult::Succeed(
+      "external SST file written to " + output_sst_path_);
 }
 
 Options WriteExternalSstFilesCommand::PrepareOptionsForOpenDB() {

@@ -46,6 +46,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
@@ -54,6 +55,7 @@
 #include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/trace_replay.h"
 
 namespace rocksdb {
 
@@ -332,6 +334,14 @@ class DBImpl : public DB {
       const IngestExternalFileOptions& ingestion_options) override;
 
   virtual Status VerifyChecksum() override;
+
+  using DB::StartTrace;
+  virtual Status StartTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  using DB::EndTrace;
+  virtual Status EndTrace() override;
 
 #endif  // ROCKSDB_LITE
 
@@ -697,6 +707,8 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
+  std::unique_ptr<Tracer> tracer_;
+  InstrumentedMutex trace_mutex_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.

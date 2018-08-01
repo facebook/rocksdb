@@ -146,6 +146,13 @@ class LDBTestCase(unittest.TestCase):
     def loadDb(self, params, dumpFile):
         return 0 == run_err_null("cat %s | ./ldb load %s" % (dumpFile, params))
 
+    def writeExternSst(self, params, inputDumpFile, outputSst):
+        return 0 == run_err_null("cat %s | ./ldb write_extern_sst %s %s"
+                % (inputDumpFile, outputSst, params))
+
+    def ingestExternSst(self, params, inputSst):
+        return 0 == run_err_null("./ldb ingest_extern_sst %s %s" % (inputSst, params))
+
     def testStringBatchPut(self):
         print "Running testStringBatchPut..."
         self.assertRunOK("batchput x1 y1 --create_if_missing", "OK")
@@ -546,6 +553,26 @@ class LDBTestCase(unittest.TestCase):
                          "3")
         # non-existing column family.
         self.assertRunFAIL("get cf3_1 --column_family=four")
+
+    def testIngestExternalSst(self):
+        print "Running testIngestExternalSst..."
+
+        # Dump, load, write external sst and ingest it in another db
+        dbPath = os.path.join(self.TMP_DIR, "db1")
+        self.assertRunOK("batchput --db=%s --create_if_missing x1 y1 x2 y2 x3 y3 x4 y4" % dbPath, "OK")
+        self.assertRunOK("scan --db=%s" % dbPath, "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
+        dumpFilePath = os.path.join(self.TMP_DIR, "dump1")
+        with open(dumpFilePath, 'w') as f:
+            f.write("x1 ==> y10\nx2 ==> y20\nx3 ==> y30\nx4 ==> y40")
+        externSstPath = os.path.join(self.TMP_DIR, "extern_data1.sst")
+        self.assertTrue(self.writeExternSst("--create_if_missing --db=%s"
+            % dbPath, dumpFilePath, externSstPath))
+        # cannot ingest if allow_global_seqno is false
+        self.assertFalse(self.ingestExternSst("--create_if_missing --db=%s"
+            % dbPath, externSstPath))
+        self.assertTrue(self.ingestExternSst("--create_if_missing --allow_global_seqno --db=%s"
+            % dbPath, externSstPath))
+        self.assertRunOKFull("scan --db=%s" % dbPath, "x1 : y10\nx2 : y20\nx3 : y30\nx4 : y40")
 
 if __name__ == "__main__":
     unittest.main()

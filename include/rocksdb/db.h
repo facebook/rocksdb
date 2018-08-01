@@ -53,6 +53,7 @@ struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
+class TraceWriter;
 
 using std::unique_ptr;
 
@@ -1168,6 +1169,15 @@ class DB {
     return Status::NotSupported("PromoteL0() is not implemented.");
   }
 
+  // Trace DB operations. Use EndTrace() to stop tracing.
+  virtual Status StartTrace(const TraceOptions& /*options*/,
+                            std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartTrace() is not implemented.");
+  }
+
+  virtual Status EndTrace() {
+    return Status::NotSupported("EndTrace() is not implemented.");
+  }
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB
