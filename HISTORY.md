@@ -1,8 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
-### Public API Change
-### New Features
+## 5.15.1 (8/1/2018)
 ### Bug Fixes
+* Prevent dereferencing invalid STL iterators when there are range tombstones in ingested files.
 
 ## 5.15.0 (7/17/2018)
 ### Public API Change
