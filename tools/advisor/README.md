@@ -1,10 +1,10 @@
-# Rocksdb Advisor
+# Rocksdb Tuning Advisor
 
 ## Motivation
 
-The performance of Rocksdb is highly contingent on its tuning. However,
+The performance of Rocksdb is contingent on its tuning. However,
 because of the complexity of its underlying technology and a large number of
-configurable parameters, a good configuration is hard to obtain. The aim of
+configurable parameters, a good configuration is sometimes hard to obtain. The aim of
 the python command-line tool, Rocksdb Advisor, is to automate the process of
 suggesting improvements in the configuration based on advice from Rocksdb
 experts.
