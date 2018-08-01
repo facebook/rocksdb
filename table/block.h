@@ -192,7 +192,7 @@ class Block {
 
   SequenceNumber global_seqno() const { return global_seqno_; }
 
-  bool UseDataBlockHashIndex() const { return data_block_hash_index_ != nullptr;}
+  bool UseDataBlockHashIndex() const { return data_block_hash_index_.InUse();}
 
  private:
   BlockContents contents_;
