@@ -5,11 +5,9 @@ author: poojam23
 category: blog
 ---
 
-### Motivation
-
-The performance of Rocksdb is highly contingent on its tuning. However, because
+The performance of Rocksdb is contingent on its tuning. However, because
 of the complexity of its underlying technology and a large number of
-configurable parameters, a good configuration is hard to obtain. The aim of
+configurable parameters, a good configuration is sometimes hard to obtain. The aim of
 the python command-line tool, Rocksdb Advisor, is to automate the process of
 suggesting improvements in the configuration based on advice from Rocksdb
 experts.
@@ -43,3 +41,18 @@ An example command to run the tool:
 cd rocksdb/tools/advisor
 python3 -m advisor.rule_parser_example --rules_spec=advisor/rules.ini --rocksdb_options=temp/OPTIONS_boot.tmp --log_files_path_prefix=/dev/shm/LOG --stats_dump_period_sec=20
 ```
+
+Sample output where a Rocksdb logs based rule has been triggered :
+
+```shell
+Rule: stall-too-many-memtables
+LogCondition: stall-too-many-memtables regex: Stopping writes because we have \d+ immutable memtables \(waiting for flush\), max_write_buffer_number is set to \d+
+Suggestion: inc-bg-flush option : DBOptions.max_background_flushes action : increase suggested_values : ['2']
+Suggestion: inc-write-buffer option : CFOptions.max_write_buffer_number action : increase
+scope: col_fam:
+{'default'}
+```
+
+### Read more
+
+For more information, refer [advisor](https://github.com/facebook/rocksdb/tree/master/tools/advisor/README.md).

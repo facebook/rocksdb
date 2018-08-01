@@ -71,6 +71,19 @@ cd rocksdb/tools/advisor
 python3 -m advisor.rule_parser_example --help
 ```
 
+### Sample output
+
+Here, a Rocksdb logs based rule has been triggered:
+
+```shell
+Rule: stall-too-many-memtables
+LogCondition: stall-too-many-memtables regex: Stopping writes because we have \d+ immutable memtables \(waiting for flush\), max_write_buffer_number is set to \d+
+Suggestion: inc-bg-flush option : DBOptions.max_background_flushes action : increase suggested_values : ['2']
+Suggestion: inc-write-buffer option : CFOptions.max_write_buffer_number action : increase
+scope: col_fam:
+{'default'}
+```
+
 ## Running the tests
 
 Tests for the code have been added to the
