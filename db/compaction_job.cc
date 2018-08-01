@@ -982,7 +982,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
 
     // Open output file if necessary
     if (sub_compact->builder == nullptr) {
-      status = OpenCompactionOutputFile(sub_compact);
+      status = OpenCompactionOutputFile(sub_compact, nullptr);
       if (!status.ok()) {
         break;
       }
@@ -1148,7 +1148,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   if (status.ok() && sub_compact->builder == nullptr &&
       sub_compact->outputs.size() == 0) {
     // handle subcompaction containing only range deletions
-    status = OpenCompactionOutputFile(sub_compact);
+    status = OpenCompactionOutputFile(sub_compact, nullptr);
   }
 
   // Call FinishCompactionOutputFile() even if status is not ok: it needs to
@@ -1206,7 +1206,11 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
       sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
-  auto status = OpenCompactionOutputFile(sub_compact);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
+  collectors.emplace_back(
+      new SSTLinkPropertiesCollectorFactory((uint8_t)SstFileGene::kLink));
+
+  auto status = OpenCompactionOutputFile(sub_compact, &collectors);
   if (!status.ok()) {
     sub_compact->status = status;
     return;
@@ -1225,7 +1229,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     assert(input->source().type == IteratorSource::kSST);
     if (input->source() != last_source) {
 
-      SSTLinkElement link;
+      SstLinkElement link;
       link.largest_key_ = last_key.Encode();
       const FileMetaData* meta = (const FileMetaData*)last_source.data;
       link.sst_id = meta->fd.GetNumber();
@@ -1557,7 +1561,9 @@ void CompactionJob::RecordCompactionIOStats() {
 }
 
 Status CompactionJob::OpenCompactionOutputFile(
-    SubcompactionState* sub_compact) {
+    SubcompactionState* sub_compact,
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        replace_collector_factorys) {
   assert(sub_compact != nullptr);
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
@@ -1630,9 +1636,13 @@ Status CompactionJob::OpenCompactionOutputFile(
     output_file_creation_time = static_cast<uint64_t>(_current_time);
   }
 
+  auto collectors = cfd->int_tbl_prop_collector_factories();
+  if (replace_collector_factorys != nullptr) {
+    collectors = replace_collector_factorys;
+  }
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
-      cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+      cfd->internal_comparator(), collectors,
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(),

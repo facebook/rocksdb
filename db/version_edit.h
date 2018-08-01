@@ -83,7 +83,7 @@ struct FileSampledStats {
   mutable std::atomic<uint64_t> num_reads_sampled;
 };
 
-enum class FileGene {
+enum class SstFileGene {
   kSST,
   kLink,
   kMap

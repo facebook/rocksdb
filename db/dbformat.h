@@ -634,7 +634,27 @@ struct RangeTombstone {
   }
 };
 
-struct SSTMapElement {
+struct SstLinkElement {
+  Slice largest_key_;
+  size_t sst_id;
+
+  SstLinkElement() : sst_id(size_t(-1)) { }
+
+  bool Decode(Slice ikey, Slice value) {
+    largest_key_ = ikey;
+    return GetFixed64(&value, &sst_id);
+  }
+
+  Slice Key() const { return largest_key_; }
+
+  Slice Value(std::string* buffer) {
+    buffer->clear();
+    PutFixed64(buffer, sst_id);
+    return Slice(*buffer);
+  }
+};
+
+struct SstMapElement {
   Slice smallest_key_;
   Slice largest_key_;
   struct LinkTarget {
@@ -674,26 +694,6 @@ struct SSTMapElement {
       PutFixed64(buffer, l.sst_id);
       PutFixed64(buffer, l.size);
     }
-    return Slice(*buffer);
-  }
-};
-
-struct SSTLinkElement {
-  Slice largest_key_;
-  size_t sst_id;
-
-  SSTLinkElement() : sst_id(size_t(-1)) { }
-
-  bool Decode(Slice ikey, Slice value) {
-    largest_key_ = ikey;
-    return GetFixed64(&value, &sst_id);
-  }
-
-  Slice Key() const { return largest_key_; }
-
-  Slice Value(std::string* buffer) {
-    buffer->clear();
-    PutFixed64(buffer, sst_id);
     return Slice(*buffer);
   }
 };

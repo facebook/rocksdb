@@ -112,7 +112,10 @@ class CompactionJob {
       const Slice* next_table_min_key = nullptr);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
   void RecordCompactionIOStats();
-  Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
+  Status OpenCompactionOutputFile(
+      SubcompactionState* sub_compact,
+      std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+          replace_collector_factorys);
   void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;

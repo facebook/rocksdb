@@ -1642,7 +1642,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
-        if (f->file_gene != (int)FileGene::kSST) {
+        if (f->file_gene != (int)SstFileGene::kSST) {
           has_space_amplification_.emplace(level);
         }
       }

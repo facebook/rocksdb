@@ -6,6 +6,7 @@
 #include "db/table_properties_collector.h"
 
 #include "db/dbformat.h"
+#include "db/version_edit.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -57,6 +58,85 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
           {"kMergeOperands", ToString(merge_operands_)}};
 }
 
+Status SstGenePropertiesCollector::InternalAdd(const Slice& /*key*/,
+                                               const Slice& value,
+                                               uint64_t /*file_size*/) {
+  switch ((SstFileGene)file_gene_) {
+  case SstFileGene::kLink: {
+    // Manual inline for SstLinkElement::Decode
+    Slice value_cpy = value;
+    uint64_t sst_id;
+
+    if (GetFixed64(&value_cpy, &sst_id)) {
+      return Status::InvalidArgument("SstLinkElement decode fial");
+    }
+    sst_id_set_.emplace(sst_id);
+    return Status::OK();
+  }
+  case SstFileGene::kMap: {
+    // Manual inline for SstMapElement::Decode
+    const char* error_msg = "Invalid SstMapElement";
+    Slice value_cpy = value, ignore_slice;
+    uint64_t sst_id, link_count, ignore_u64;
+
+    if (!GetLengthPrefixedSlice(&value_cpy, &ignore_slice) ||
+        !GetVarint64(&value_cpy, &link_count)) {
+      return Status::InvalidArgument(error_msg);
+    }
+    for (size_t i = 0; i < link_count; ++i) {
+      if (!GetFixed64(&value_cpy, &sst_id) ||
+          !GetFixed64(&value_cpy, &ignore_u64)) {
+        return Status::InvalidArgument(error_msg);
+      }
+      sst_id_set_.emplace(sst_id);
+    }
+    return Status::OK();
+  }
+  default:
+    return Status::Corruption("SstGenePropertiesCollector bad file_gene");
+  }
+}
+
+Status SstGenePropertiesCollector::Finish(
+    UserCollectedProperties* properties) {
+  assert(properties);
+  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstGene) ==
+         properties->end());
+  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstTakeover) ==
+         properties->end());
+
+  auto file_gene_value = std::string((const char*)&file_gene_, 1);
+  properties->insert(
+      {SSTVarietiesTablePropertiesNames::kSstGene, file_gene_value});
+
+  std::string sst_takeover_value;
+  PutVarint64(&sst_takeover_value, sst_id_set_.size());
+  for (auto sst_id : sst_id_set_) {
+    PutVarint64(&sst_takeover_value, sst_id);
+  }
+  properties->insert(
+      {SSTVarietiesTablePropertiesNames::kSstTakeover, sst_takeover_value});
+
+  return Status::OK();
+}
+
+UserCollectedProperties
+SstGenePropertiesCollector::GetReadableProperties() const {
+  std::string sst_takeover_value;
+  if (sst_id_set_.empty()) {
+    sst_takeover_value += "[]";
+  } else {
+    sst_takeover_value += '[';
+    for (auto sst_id : sst_id_set_) {
+      sst_takeover_value += ToString(sst_id);
+      sst_takeover_value += ',';
+    }
+    sst_takeover_value.back() = ']';
+  }
+  return {{"kSstGene", ToString((int)file_gene_)},
+          {"kSstTakeover", sst_takeover_value}};
+}
+
 namespace {
 
 uint64_t GetUint64Property(const UserCollectedProperties& props,
@@ -98,10 +178,14 @@ UserKeyTablePropertiesCollector::GetReadableProperties() const {
 }
 
 
-const std::string InternalKeyTablePropertiesNames::kDeletedKeys
-  = "rocksdb.deleted.keys";
+const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
+    "rocksdb.deleted.keys";
 const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
+const std::string SSTVarietiesTablePropertiesNames::kSstGene =
+    "rocksdb.sst.gene";
+const std::string SSTVarietiesTablePropertiesNames::kSstTakeover =
+    "rocksdb.sst.takeover";
 
 uint64_t GetDeletedKeys(
     const UserCollectedProperties& props) {
@@ -114,6 +198,39 @@ uint64_t GetMergeOperands(const UserCollectedProperties& props,
                           bool* property_present) {
   return GetUint64Property(
       props, InternalKeyTablePropertiesNames::kMergeOperands, property_present);
+}
+
+uint8_t GetSstGene(
+    const UserCollectedProperties& props) {
+  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstGene);
+  if (pos == props.end()) {
+    return 0;
+  }
+  Slice raw = pos->second;
+  return raw[0];
+}
+
+std::vector<uint64_t> GetSstTakeOver(
+    const UserCollectedProperties& props) {
+  std::vector<uint64_t> result;
+  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstTakeover);
+  if (pos == props.end()) {
+    return result;
+  }
+  Slice raw = pos->second;
+  uint64_t size;
+  if (!GetVarint64(&raw, &size)) {
+    return result;
+  }
+  result.reserve(size);
+  for (size_t i = 0; i < size; ++i) {
+    uint64_t sst_id;
+    if (!GetVarint64(&raw, &sst_id)) {
+      return result;
+    }
+    result.emplace_back(sst_id);
+  }
+  return result;
 }
 
 }  // namespace rocksdb
