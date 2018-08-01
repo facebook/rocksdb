@@ -39,7 +39,7 @@ An example command to run the tool:
 
 ```shell
 cd rocksdb/tools/advisor
-python3 -m advisor.rule_parser_example --rules_spec=advisor/rules.ini --rocksdb_options=temp/OPTIONS_boot.tmp --log_files_path_prefix=/dev/shm/LOG --stats_dump_period_sec=20
+python3 -m advisor.rule_parser_example --rules_spec=advisor/rules.ini --rocksdb_options=test/input_files/OPTIONS-000005 --log_files_path_prefix=test/input_files/LOG-0 --stats_dump_period_sec=20
 ```
 
 Sample output where a Rocksdb log-based rule has been triggered :
