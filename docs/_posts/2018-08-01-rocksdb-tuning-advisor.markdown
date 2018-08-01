@@ -42,7 +42,7 @@ cd rocksdb/tools/advisor
 python3 -m advisor.rule_parser_example --rules_spec=advisor/rules.ini --rocksdb_options=temp/OPTIONS_boot.tmp --log_files_path_prefix=/dev/shm/LOG --stats_dump_period_sec=20
 ```
 
-Sample output where a Rocksdb logs based rule has been triggered :
+Sample output where a Rocksdb log-based rule has been triggered :
 
 ```shell
 Rule: stall-too-many-memtables
@@ -55,4 +55,4 @@ scope: col_fam:
 
 ### Read more
 
-For more information, refer [advisor](https://github.com/facebook/rocksdb/tree/master/tools/advisor/README.md).
+For more information, refer to [advisor](https://github.com/facebook/rocksdb/tree/master/tools/advisor/README.md).

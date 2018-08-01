@@ -73,7 +73,7 @@ python3 -m advisor.rule_parser_example --help
 
 ### Sample output
 
-Here, a Rocksdb logs based rule has been triggered:
+Here, a Rocksdb log-based rule has been triggered:
 
 ```shell
 Rule: stall-too-many-memtables
