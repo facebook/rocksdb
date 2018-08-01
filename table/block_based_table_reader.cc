@@ -1966,8 +1966,7 @@ bool BlockBasedTable::PrefixMayMatch(
         // and we're not really sure that we're past the end
         // of the file
         may_match = iiter->status().IsIncomplete();
-      } else if (rep_->table_properties &&
-                 iiter->parsed_internal_key().user_key.starts_with(
+      } else if (iiter->parsed_internal_key().user_key.starts_with(
                      ExtractUserKey(internal_prefix))) {
         // we need to check for this subtle case because our only
         // guarantee is that "the key is a string >= last key in that data
