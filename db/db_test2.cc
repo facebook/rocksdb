@@ -2546,14 +2546,18 @@ TEST_F(DBTest2, TraceAndReplay) {
   std::string dbname2 = test::TmpDir(env_) + "/db_replay";
   ASSERT_OK(DestroyDB(dbname2, options));
 
-  DB* db2 = nullptr;
+  // Using a different name than db2, to pacify infer's use-after-lifetime
+  // warnings (http://fbinfer.com).
+  DB* db2_init = nullptr;
   options.create_if_missing = true;
-  ASSERT_OK(DB::Open(options, dbname2, &db2));
+  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
   ColumnFamilyHandle* cf;
-  ASSERT_OK(db2->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
+  ASSERT_OK(
+      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
   delete cf;
-  delete db2;
+  delete db2_init;
 
+  DB* db2 = nullptr;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
