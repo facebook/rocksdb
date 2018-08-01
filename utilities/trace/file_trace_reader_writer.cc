@@ -19,7 +19,10 @@ FileTraceReader::FileTraceReader(
       offset_(0),
       buffer_(new char[kBufferSize]) {}
 
-FileTraceReader::~FileTraceReader() { Close(); }
+FileTraceReader::~FileTraceReader() {
+  Close();
+  delete[] buffer_;
+}
 
 Status FileTraceReader::Close() {
   file_reader_.reset();
