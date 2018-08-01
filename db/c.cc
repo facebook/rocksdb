@@ -2433,6 +2433,10 @@ void rocksdb_options_set_max_write_buffer_number_to_maintain(
   opt->rep.max_write_buffer_number_to_maintain = n;
 }
 
+void rocksdb_options_set_max_background_jobs(rocksdb_options_t* opt, int n) {
+  opt->rep.max_background_jobs = n;
+}
+
 void rocksdb_options_set_max_background_compactions(rocksdb_options_t* opt, int n) {
   opt->rep.max_background_compactions = n;
 }
