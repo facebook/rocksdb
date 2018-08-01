@@ -2980,7 +2980,8 @@ void WriteExternalSstFilesCommand::DoCommand() {
   SstFileWriter sst_file_writer(EnvOptions(), db_->GetOptions(), cfh);
   Status status = sst_file_writer.Open(output_sst_path_);
   if (!status.ok()) {
-    fprintf(stderr, "Failed to open SST file: %s\n", status.ToString().c_str());
+    exec_state_ = LDBCommandExecuteResult::Failed("failed to open SST file: " +
+                                                  status.ToString());
     return;
   }
 
@@ -3001,20 +3002,23 @@ void WriteExternalSstFilesCommand::DoCommand() {
     }
     status = sst_file_writer.Put(key, value);
     if (!status.ok()) {
-      fprintf(stderr, "Failed to write record to file: %s\n",
-              status.ToString().c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "failed to write record to file: " + status.ToString());
       return;
     }
   }
 
   status = sst_file_writer.Finish();
   if (!status.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "Failed to finish writing to file: " + status.ToString());
     return;
   }
 
   if (bad_lines > 0) {
     fprintf(stderr, "Warning: %d bad lines ignored.\n", bad_lines);
   }
+  exec_state_ = LDBCommandExecuteResult::Succeed("");
 }
 
 Options WriteExternalSstFilesCommand::PrepareOptionsForOpenDB() {
@@ -3095,10 +3099,11 @@ void IngestExternalSstFilesCommand::DoCommand() {
   ifo.write_global_seqno = write_global_seqno_;
   Status status = db_->IngestExternalFile(cfh, {input_sst_path_}, ifo);
   if (!status.ok()) {
-    fprintf(stderr, "Failed to ingest external SSTs: %s\n",
-            status.ToString().c_str());
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "failed to ingest external SST: " + status.ToString());
   } else {
-    fprintf(stdout, "External SST files ingested.\n");
+    exec_state_ =
+        LDBCommandExecuteResult::Succeed("external SST files ingested");
   }
 }
 
