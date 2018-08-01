@@ -103,7 +103,7 @@ class DataBlockHashIndex {
   inline uint16_t DataBlockHashMapStart() const {
     return static_cast<uint16_t>(map_start_ - data_);
   }
-  bool InUse() const {return size_ != 0;}
+  bool Valid() const {return size_ != 0;}
   void NewIterator(DataBlockHashIndexIterator* data_block_hash_iter,
                    const Slice& key) const;
 

@@ -171,7 +171,12 @@ void DataBlockIter::Seek(const Slice& target) {
   }
   uint32_t index = 0;
 
-  if (data_block_hash_index_) {
+  // we use the hash index
+  // if 1) the caller is doing point lookup
+  //   i.e. data_block_hash_index is not nullptr
+  // and 2) data_block_hash_index is valid
+  //   i.e. the block content contains hash map
+  if (data_block_hash_index_ && data_block_hash_index_->Valid()) {
     // suffix seek will set the current_ and restart_index_,
     // no need to pass back `index`, or linear search.
     HashSeek(target);
@@ -655,16 +660,11 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    // We can use HashIndex only if both conditions are satisfied:
-    // 1) the caller is doing point lookup
-    //      i.e. is_data_block_point_lookup == true;
-    // 2) the embedded HashIndex instance should have been initialized
-    //      i.e. InUse() = true.
-    bool using_hash_index = is_data_block_point_lookup &&
-      data_block_hash_index_.InUse();
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          global_seqno_, read_amp_bitmap_.get(), cachable(),
-                         using_hash_index ? &data_block_hash_index_ : nullptr);
+                         // We can use HashIndex only if doing point lookup
+                         is_data_block_point_lookup ? &data_block_hash_index_
+                         : nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
