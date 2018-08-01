@@ -12,7 +12,8 @@ namespace rocksdb {
 // Allow custom implementations of TraceWriter and TraceReader.
 // By default, RocksDB provides a way to capture the traces to a file using the
 // factory NewFileTraceWriter(). But users could also choose to export traces to
-// any other system by providing custom implementations of TraceWriter and Reader.
+// any other system by providing custom implementations of TraceWriter and
+// TraceReader.
 
 // TraceWriter allows exporting RocksDB traces to any system, one operation at
 // a time.
