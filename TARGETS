@@ -271,6 +271,7 @@ cpp_library(
         "utilities/spatialdb/spatial_db.cc",
         "utilities/trace/file_trace_reader_writer.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
+        "utilities/trace_analyzer_tool.cc",
         "utilities/transactions/optimistic_transaction.cc",
         "utilities/transactions/optimistic_transaction_db_impl.cc",
         "utilities/transactions/pessimistic_transaction.cc",
@@ -952,6 +953,11 @@ ROCKS_TESTS = [
     [
         "sst_dump_test",
         "tools/sst_dump_test.cc",
+        "serial",
+    ],
+    [
+        "trace_analyzer_test",
+        "utilities/trace_analyzer_test.cc",
         "serial",
     ],
     [
