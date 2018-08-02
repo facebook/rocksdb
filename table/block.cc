@@ -178,14 +178,13 @@ void DataBlockIter::Seek(const Slice& target) {
   //   i.e. the block content contains hash map
   if (data_block_hash_index_) {
     if (data_block_hash_index_->Valid()) {
-      // suffix seek will set the current_ and restart_index_,
+      // hash seek will set the current_ and restart_index_,
       // no need to pass back `index`, or linear search.
       HashSeek(target);
-      return;
     } else {
       status_ = Status::NotSupported("block content does not contain hash map");
-      return;
     }
+    return;
   }
 
   bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
@@ -536,62 +535,66 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 // NOTE: in hash seek, if the key is not found in the restart intervals,
 // the iterator will simply be set as "invalid", rather than returning
 // the key that is just pass the target key.
-// return value: found
-bool DataBlockIter::HashSeek(const Slice& target) {
+void DataBlockIter::HashSeek(const Slice& target) {
   assert(data_block_hash_index_);
   Slice user_key = ExtractUserKey(target);
-  DataBlockHashIndexIterator data_block_hash_iter;
-  data_block_hash_index_->NewIterator(&data_block_hash_iter, user_key);
+  uint8_t entry = data_block_hash_index_->Seek(user_key);
 
-  for (; data_block_hash_iter.Valid(); data_block_hash_iter.Next()) {
-    uint32_t restart_index = data_block_hash_iter.Value();
-    SeekToRestartPoint(restart_index);
-    while (true) {
-      // Here we only linear seek the target key inside the restart interval.
-      // When we check each [TAG restart_index] pair in the DataBlockHashIndex
-      // bucket, if a key does not exist inside a restart interval, we avoid
-      // further searching the block content accross restart interval boundary.
-      // Rather, we check the next restart_index in the hash bucket that has
-      // a matching TAG.
-      //
-      // TODO(fwu): check the left and write boundary of the restart interval
-      // to avoid linear seek a target key that is out of range.
-      if (!ParseNextDataKey(true /*within_restart_interval*/) ||
-          Compare(key_, target) >= 0) {
-        break;
-      }
-    }
-    if ((current_ != restarts_) /* valid */ &&
-        // If the user key portion match do we consider key_ matches
-        // Currently we ignore the seq_num, so not supporting snapshot Get().
-        // TODO(fwu) support snapshot Get().
-        user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+  if (entry == kNoEntry) {
+    current_ = restarts_;  // not found, Invalidate the iterator
+    return;
+  }
 
-      // Here we are conservative and only support a limited set of cases
-      ValueType value_type = ExtractValueType(key_.GetKey());
-      if (value_type != ValueType::kTypeValue &&
-          value_type != ValueType::kTypeDeletion) {
-        status_ = Status::NotSupported("record type not supported");
-        return true; // found, but not supported.
-      }
+  if (entry == kCollision) { // HashSeek not effective
+    status_ = Status::NotSupported("Hash Collision");
+    return;
+  }
 
-      // Currently we do not fully support searching a key at specify snapshot.
-      // HashSeek only examine the first matched user_key. If the seqno is
-      // higher than the targe snapshot seqno, we just fall back to BinarySeek,
-      // without search further for the correct seqno.
-      uint64_t target_seqno = GetInternalKeySeqno(target);
-      uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
-      if (target_seqno < seqno) {
-        status_ = Status::NotSupported("snapshot not fully supported");
-        return true; // found, but not supported.
-      }
+  uint32_t restart_index = entry;
 
-      return true;  // found
+  // check if the key is in the restart_interval
+  SeekToRestartPoint(restart_index);
+  while (true) {
+    // Here we only linear seek the target key inside the restart interval.
+    // If a key does not exist inside a restart interval, we avoid
+    // further searching the block content accross restart interval boundary.
+    //
+    // TODO(fwu): check the left and write boundary of the restart interval
+    // to avoid linear seek a target key that is out of range.
+    //
+    // If using hash, we only linear search within the restart inteval.
+    if (!ParseNextDataKey(true /*within_restart_interval*/) ||
+        Compare(key_, target) >= 0) {
+      // we stop at the first potential matching user key.
+      break;
     }
   }
 
+  if ((current_ != restarts_) /* valid */ &&
+      // If the user key portion match do we consider key_ matches
+      user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+
+    // Here we are conservative and only support a limited set of cases
+    ValueType value_type = ExtractValueType(key_.GetKey());
+    if (value_type != ValueType::kTypeValue &&
+        value_type != ValueType::kTypeDeletion) {
+      status_ = Status::NotSupported("record type not supported");
+      return; // found, but not supported.
+    }
+
+    // Currently we do not fully support searching a key at specify snapshot.
+    // HashSeek only examine the first matched user_key. If the seqno is
+    // higher than the targe snapshot seqno, we just fall back to BinarySeek,
+    // without search further for the correct seqno.
+    uint64_t target_seqno = GetInternalKeySeqno(target);
+    uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
+    if (target_seqno < seqno) {
+      status_ = Status::NotSupported("snapshot not fully supported");
+      // found, but not supported
+    }
+    return; // found
+  }
   current_ = restarts_;  // not found, Invalidate the iterator
-  return false;
 }
 
 uint32_t Block::NumRestarts() const {
