@@ -318,6 +318,16 @@ class VersionBuilder::Rep {
   void SaveTo(VersionStorageInfo* vstorage) {
     CheckConsistency(base_vstorage_);
     CheckConsistency(vstorage);
+
+    std::set<uint64_t> hidden_id;
+    // deep copy
+    std::vector<FileMetaData*> deleted_files =
+        base_vstorage_->LevelFiles(num_levels_);
+    for (auto f : deleted_files) {
+      if (f->sst_variety != 0) {
+        hidden_id.insert(f->sst_takeover.begin(), f->sst_takeover.end());
+      }
+    }
     
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
@@ -354,16 +364,28 @@ class VersionBuilder::Rep {
         // Add all smaller files listed in base_
         for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
              base_iter != bpos; ++base_iter) {
-          MaybeAddFile(vstorage, level, *base_iter);
+          MaybeAddFile(vstorage, level, *base_iter, hidden_id, deleted_files);
         }
 
-        MaybeAddFile(vstorage, level, added);
+        MaybeAddFile(vstorage, level, added, hidden_id, deleted_files);
       }
 
       // Add remaining base files
       for (; base_iter != base_end; ++base_iter) {
-        MaybeAddFile(vstorage, level, *base_iter);
+        MaybeAddFile(vstorage, level, *base_iter, hidden_id, deleted_files);
       }
+    }
+    auto mid = std::partition(deleted_files.begin(), deleted_files.end(),
+                              [&](FileMetaData* f) {
+                                return hidden_id.count(f->fd.GetNumber()) > 0;
+                              });
+    for (auto it = deleted_files.begin(); it != mid; ++it) {
+      // hidden files
+      vstorage->AddFile(num_levels_, *it, info_log_);
+    }
+    for (; mid != deleted_files.end(); ++mid) {
+      // *mid is to-be-deleted table file
+      vstorage->RemoveCurrentStats(*mid);
     }
 
     CheckConsistency(vstorage);
@@ -417,10 +439,14 @@ class VersionBuilder::Rep {
     }
   }
 
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f,
+                    std::set<uint64_t>& hidden_id,
+                    std::vector<FileMetaData*>& deleted_files) {
+    if (f->sst_variety != 0) {
+      hidden_id.insert(f->sst_takeover.begin(), f->sst_takeover.end());
+    }
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
-      // f is to-be-deleted table file
-      vstorage->RemoveCurrentStats(f);
+      deleted_files.push_back(f);
     } else {
       vstorage->AddFile(level, f, info_log_);
     }
@@ -463,8 +489,9 @@ void VersionBuilder::LoadTableHandlers(InternalStats* internal_stats,
 }
 
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
-                                  FileMetaData* f) {
-  rep_->MaybeAddFile(vstorage, level, f);
+                                  FileMetaData* f, std::set<uint64_t>& hidden_id,
+                                  std::vector<FileMetaData*>& deleted_files) {
+  rep_->MaybeAddFile(vstorage, level, f, hidden_id, deleted_files);
 }
 
 }  // namespace rocksdb

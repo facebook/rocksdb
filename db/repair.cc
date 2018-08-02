@@ -577,7 +577,7 @@ class Repairer {
       // TODO(opt): separate out into multiple levels
       for (const auto* table : cf_id_and_tables.second) {
         int level = 0;
-        if (hidden_id.find(table->meta.fd.GetNumber()) != hidden_id.end()) {
+        if (hidden_id.count(table->meta.fd.GetNumber()) > 0) {
           level = default_cf_iopts_.num_levels;
         }
         edit.AddFile(level, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),

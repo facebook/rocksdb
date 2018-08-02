@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 #pragma once
+#include <set>
+
 #include "rocksdb/env.h"
 #include "rocksdb/slice_transform.h"
 
@@ -36,7 +38,9 @@ class VersionBuilder {
   void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                          bool prefetch_index_and_filter_in_cache,
                          const SliceTransform* prefix_extractor);
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f,
+                    std::set<uint64_t>& hidden_id,
+                    std::vector<FileMetaData*>& deleted_files);
 
  private:
   class Rep;

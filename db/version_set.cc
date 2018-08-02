@@ -352,7 +352,8 @@ Version::~Version() {
   next_->prev_ = prev_;
 
   // Drop references to files
-  for (int level = 0; level < storage_info_.num_levels_; level++) {
+  // here use level less or EQUAL num_levels for clean hidden files
+  for (int level = 0; level <= storage_info_.num_levels_; level++) {
     for (size_t i = 0; i < storage_info_.files_[level].size(); i++) {
       FileMetaData* f = storage_info_.files_[level][i];
       assert(f->refs > 0);
@@ -1372,8 +1373,9 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
     // compensated_file_size, making lower-level to higher-level compaction
     // will be triggered, which creates higher-level files whose num_deletions
     // will be updated here.
+    // here use level less or EQUAL num_levels for include hidden files
     for (int level = 0;
-         level < storage_info_.num_levels_ && init_count < kMaxInitCount;
+         level <= storage_info_.num_levels_ && init_count < kMaxInitCount;
          ++level) {
       for (auto* file_meta : storage_info_.files_[level]) {
         if (MaybeInitializeFileMetaData(file_meta)) {
@@ -1397,7 +1399,8 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
     // In case all sampled-files contain only deletion entries, then we
     // load the table-property of a file in higher-level to initialize
     // that value.
-    for (int level = storage_info_.num_levels_ - 1;
+    // here use level start from num_levels for include hidden files
+    for (int level = storage_info_.num_levels_;
          storage_info_.accumulated_raw_value_size_ == 0 && level >= 0;
          --level) {
       for (int i = static_cast<int>(storage_info_.files_[level].size()) - 1;
@@ -1746,18 +1749,18 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   auto* level_files = &files_[level];
   // Must not overlap
 #ifndef NDEBUG
-  if (level > 0 && !level_files->empty() &&
-    internal_comparator_->Compare(
-    (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
+  if (level > 0 && level < num_levels_ && !level_files->empty() &&
+      internal_comparator_->Compare(
+          (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
     auto* f2 = (*level_files)[level_files->size() - 1];
     if (info_log != nullptr) {
       Error(info_log, "Adding new file %" PRIu64
-        " range (%s, %s) to level %d but overlapping "
-        "with existing file %" PRIu64 " %s %s",
-        f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
-        f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
-        f2->smallest.DebugString(true).c_str(),
-        f2->largest.DebugString(true).c_str());
+                      " range (%s, %s) to level %d but overlapping "
+                      "with existing file %" PRIu64 " %s %s",
+            f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
+            f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
+            f2->smallest.DebugString(true).c_str(),
+            f2->largest.DebugString(true).c_str());
       LogFlush(info_log);
     }
     assert(false);
