@@ -9,11 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef OS_WIN
-#include <unistd.h>
-#endif
 #include <stdint.h>
 #include <sstream>
+#include <thread>
+#include <chrono>
 
 #include <rocksdb/trace_analyzer_tool.h>
 #include "db/db_test_util.h"
@@ -109,7 +108,7 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(db_->Write(wo, &batch));
 
     ASSERT_OK(db_->Get(ro, "a", &value));
-    sleep(1);
+    std::this_thread::sleep_for (std::chrono::seconds(1));
     db_->Get(ro, "g", &value);
 
     ASSERT_OK(db_->EndTrace());
