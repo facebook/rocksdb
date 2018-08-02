@@ -27,53 +27,38 @@ namespace rocksdb {
 // FOOTER:   A 32bit block footer, which is the NUM_RESTARTS with the MSB as
 //           the flag indicating if this hash index is in use. Note that
 //           given a data block < 32KB, the MSB is never used. So we can
-//           borrow the MSB as the hash index flag. Besides, this format is
-//           compatible with the legacy data-blocks < 32KB, as the MSB is 0.
+//           borrow the MSB as the hash index flag. Therefore, this format is
+//           compatible with the legacy data-blocks with num_restarts < 32768,
+//           as the MSB is 0.
 //
-// If we zoom in the HASH_IDX, the format of the data-block hash index is as
-// follows:
+// The format of the data-block hash index is as follows:
 //
-// HASH_IDX: [B B B ... B IDX NUM_BUCK MAP_START]
+// HASH_IDX: [B B B ... B NUM_BUCK MAP_START]
 //
-// B:        B = bucket, an array of pairs <TAG, restart index>.
-//           TAG is the second hash value of the string. It is used to flag a
-//           matching entry among different keys that are hashed to the same
-//           bucket. A similar tagging idea is used in [Lim et. al, SOSP'11].
-//           However we have a differnet hash design that is not based on cuckoo
-//           hashing as Lim's paper is.
-//           We do not have to store the length of individual buckets, as they
-//           are delimited by the next bucket offset.
-// IDX:      Array of offsets of the index hash bucket (relative to MAP_START)
-// NUM_BUCK: Number of buckets, which is the length of the IDX array.
+// B:         bucket, an array of restart index. Each buckets is uint8_t.
+// NUM_BUCK:  Number of buckets, which is the length of the bucket array.
 // MAP_START: the starting offset of the data-block hash index.
 //
-// Each bucket B has the following structure:
-// [TAG RESTART_INDEX][TAG RESTART_INDEX]...[TAG RESTART_INDEX]
-// where TAG is the hash value of the second hash function.
+// We reserve two special flag:
+//    kNoEntry=255,
+//    kCollision=254.
 //
-// pairs of <key, restart index> are inserted to the hash index. Queries will
-// first lookup this hash index to find the restart index, then go to the
-// corresponding restart interval to search linearly for the key.
+// Buckets are initialized to be kNoEntry.
 //
-// For a point-lookup for a key K:
+// When storing a key in the hash index, the key is first hashed to a bucket.
+// If there the bucket is empty (kNoEntry), the restart index is stored in
+// the bucket. If there is already a restart index there, we will update the
+// existing restart index to a collision marker (kCollision). If the
+// the bucket is already marked as collision, we do not store the restart
+// index either.
 //
-//        Hash1()
-// 1) K ===========> bucket_id
+// During query process, a key is first hashed to a bucket. Then we examine if
+// the buckets store nothing (kNoEntry) or the bucket had a collision
+// (kCollision). If either of those happens, we get the restart index of
+// the key and will directly go to the restart interval to search the key.
 //
-// 2) Look up this bucket_id in the IDX table to find the offset of the bucket
-//
-//        Hash2()
-// 3) K ============> TAG
-// 3) examine the first field (which is TAG) of each entry within this bucket,
-//    skip those without a matching TAG.
-// 4) for the entries matching the TAG, get the restart interval index from the
-//    second field.
-//
-// (following step are implemented in block.cc)
-// 5) lookup the restart index table (refer to the traditional block format),
-//    use the restart interval index to find the offset of the restart interval.
-// 6) linearly search the restart interval for the key.
-//
+// Note that we only support blocks with #restart_interval < 254. If a block
+// has more restart interval than that, hash index will not be create for it.
 
 const uint8_t kNoEntry = 255;
 const uint8_t kCollision = 254;
