@@ -544,15 +544,15 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   // random seek existent keys
-  auto iter =
-    reader.NewIterator<DataBlockIter>(options.comparator, options.comparator,
-                                      nullptr /*iter*/, nullptr /*stats*/,
-                                      true /*total_order_seek*/,
-                                      true /*key_includes_seq*/,
-                                      nullptr /*prefix_index*/,
-                                      true /*is_data_block_point_lookup*/);
-
   for (int i = 0; i < num_records; i++) {
+    auto iter =
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator,
+                                        nullptr /*iter*/, nullptr /*stats*/,
+                                        true /*total_order_seek*/,
+                                        true /*key_includes_seq*/,
+                                        nullptr /*prefix_index*/,
+                                        true /*is_data_block_point_lookup*/);
+
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
@@ -560,13 +560,24 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
 
     // search in block for this key
     iter->Seek(ikey.Encode().ToString());
-    ASSERT_TRUE(iter->Valid());
-    Slice v = iter->value();
-    ASSERT_EQ(v.ToString().compare(values[index]), 0);
+    if (!iter->status().IsNotSupported()) {
+      ASSERT_TRUE(iter->Valid());
+      Slice v = iter->value();
+      ASSERT_EQ(v.ToString().compare(values[index]), 0);
+    }
+    delete iter;
   }
 
   // random seek non-existent keys
   for (int i = 0; i < num_records; i++) {
+    auto iter =
+      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator,
+                                        nullptr /*iter*/, nullptr /*stats*/,
+                                        true /*total_order_seek*/,
+                                        true /*key_includes_seq*/,
+                                        nullptr /*prefix_index*/,
+                                        true /*is_data_block_point_lookup*/);
+
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "0" /* existing key marker */);
@@ -574,10 +585,11 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
 
     // search in block for this key
     iter->Seek(ikey.Encode().ToString());
-    ASSERT_FALSE(iter->Valid());
+    if (!iter->status().IsNotSupported()) {
+      ASSERT_FALSE(iter->Valid());
+    }
+    delete iter;
   }
-
-  delete iter;
 }
 
 }  // namespace rocksdb

@@ -435,7 +435,7 @@ class DataBlockIter final : public BlockIter {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
 
-  bool HashSeek(const Slice& target);
+  void HashSeek(const Slice& target);
 };
 
 class IndexBlockIter final : public BlockIter {
