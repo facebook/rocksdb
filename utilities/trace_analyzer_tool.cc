@@ -3,14 +3,30 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#ifdef GFLAGS
+#ifdef NUMA
+#include <numa.h>
+#include <numaif.h>
+#endif
+#ifndef OS_WIN
+#include <unistd.h>
+#endif
+#include <fcntl.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <fstream>
 #include <iostream>
+#include <sys/types.h>
+#include <condition_variable>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -42,7 +58,13 @@
 #include "util/trace_replay.h"
 #include "utilities/trace_analyzer_tool_imp.h"
 
+#ifdef OS_WIN
+#include <io.h>  // open/close
+#endif
+
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::RegisterFlagValidator;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(trace_path, "", "The trace file path.");
 DEFINE_string(output_dir, "", "The directory to store the output files.");
@@ -1728,4 +1750,4 @@ int trace_analyzer_tool(int argc, char** argv) {
 }
 }  // namespace rocksdb
 
-#endif  // ROCKSDB_LITE
+#endif
