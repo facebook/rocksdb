@@ -24,7 +24,9 @@ namespace rocksdb {
 
 class DBImpl;
 class WriteBatch;
+struct TraceStats;
 class AnalyzerOptions;
+class TraceAnalyzer;
 
 enum TraceOperationType : int {
   kGet = 0,
