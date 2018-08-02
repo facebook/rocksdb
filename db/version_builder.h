@@ -38,9 +38,6 @@ class VersionBuilder {
   void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                          bool prefetch_index_and_filter_in_cache,
                          const SliceTransform* prefix_extractor);
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f,
-                    std::set<uint64_t>& hidden_id,
-                    std::vector<FileMetaData*>& deleted_files);
 
  private:
   class Rep;

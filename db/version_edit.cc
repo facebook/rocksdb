@@ -299,6 +299,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
               return error_msg;
             }
             f.sst_variety = (uint8_t)field[0];
+            field.remove_prefix(1);
             uint64_t size;
             if (!GetVarint64(&field, &size)) {
               return error_msg;

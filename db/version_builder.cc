@@ -55,6 +55,27 @@ bool BySmallestKey(FileMetaData* a, FileMetaData* b,
   // Break ties by file number
   return (a->fd.GetNumber() < b->fd.GetNumber());
 }
+
+void AttachSstTakeover(FileMetaData* f,
+                       std::map<uint64_t, size_t>& hidden_id) {
+  for (auto sst_id : f->sst_takeover) {
+    auto ib = hidden_id.emplace(sst_id, 1);
+    if (!ib.second) {
+      ++ib.first->second;
+    }
+  }
+}
+
+void DetachSstTakever(FileMetaData* f,
+                      std::map<uint64_t, size_t>& hidden_id) {
+  for (auto sst_id : f->sst_takeover) {
+    auto find = hidden_id.find(sst_id);
+    assert(find != hidden_id.end());
+    if (--find->second == 0) {
+      hidden_id.erase(find);
+    }
+  }
+}
 }  // namespace
 
 class VersionBuilder::Rep {
@@ -92,6 +113,8 @@ class VersionBuilder::Rep {
   VersionStorageInfo* base_vstorage_;
   int num_levels_;
   LevelState* levels_;
+  std::map<uint64_t, size_t> hidden_id_;
+  std::vector<FileMetaData*> hidden_files_;
   // Store states of levels larger than num_levels_. We do this instead of
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
@@ -126,7 +149,9 @@ class VersionBuilder::Rep {
         UnrefFile(pair.second);
       }
     }
-
+    for (auto f : hidden_files_) {
+      UnrefFile(f);
+    }
     delete[] levels_;
   }
 
@@ -277,7 +302,9 @@ class VersionBuilder::Rep {
 
         auto exising = levels_[level].added_files.find(number);
         if (exising != levels_[level].added_files.end()) {
-          UnrefFile(exising->second);
+          auto f = exising->second;
+          DetachSstTakever(f, hidden_id_);
+          hidden_files_.push_back(f);
           levels_[level].added_files.erase(exising);
         }
       } else {
@@ -300,8 +327,10 @@ class VersionBuilder::Rep {
 
         assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
                levels_[level].added_files.end());
+        assert(hidden_id_.count(f->fd.GetNumber()) == 0);
         levels_[level].deleted_files.erase(f->fd.GetNumber());
         levels_[level].added_files[f->fd.GetNumber()] = f;
+        AttachSstTakeover(f, hidden_id_);
       } else {
         uint64_t number = new_file.second.fd.GetNumber();
         if (invalid_levels_[level].count(number) == 0) {
@@ -312,6 +341,39 @@ class VersionBuilder::Rep {
         }
       }
     }
+
+    // TODO(zouzhizhang): Fix loading bug
+
+    // Shrink hidden_files_
+    if (hidden_id_.empty()) {
+      for (auto f : hidden_files_) {
+        UnrefFile(f);
+      }
+      hidden_files_.clear();
+    } else if (!hidden_files_.empty()) {
+      size_t size = hidden_files_.size();
+      bool hidden_changed;
+      do {
+        hidden_changed = false;
+        // hidden files <- mid -> deleted files
+        size_t mid = std::partition(
+                          hidden_files_.begin(),
+                          hidden_files_.begin() + size,
+                          [&](FileMetaData* f) {
+                            return hidden_id_.count(f->fd.GetNumber()) > 0;
+                          }) - hidden_files_.begin();
+        while (size > mid) {
+          --size;
+          auto f = hidden_files_[size];
+          if (f->sst_variety != 0) {
+            hidden_changed = true;
+            DetachSstTakever(f, hidden_id_);
+          }
+          UnrefFile(f);
+        }
+      } while (hidden_changed);
+      hidden_files_.resize(size);
+    }
   }
 
   // Save the current state in *v.
@@ -319,16 +381,16 @@ class VersionBuilder::Rep {
     CheckConsistency(base_vstorage_);
     CheckConsistency(vstorage);
 
-    std::set<uint64_t> hidden_id;
-    // deep copy
-    std::vector<FileMetaData*> deleted_files =
-        base_vstorage_->LevelFiles(num_levels_);
-    for (auto f : deleted_files) {
-      if (f->sst_variety != 0) {
-        hidden_id.insert(f->sst_takeover.begin(), f->sst_takeover.end());
-      }
+    // Apply new hidden files
+    for (auto f : hidden_files_) {
+      vstorage->AddFile(num_levels_, f, info_log_);
+      UnrefFile(f);
     }
-    
+    hidden_files_.clear();
+
+    // Deep copy
+    auto deleted_files = base_vstorage_->LevelFiles(num_levels_);
+
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
@@ -352,6 +414,15 @@ class VersionBuilder::Rep {
       FileMetaData* prev_file = nullptr;
 #endif
 
+      auto maybe_add_file = [&](FileMetaData* f) {
+        if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
+          deleted_files.push_back(f);
+        } else {
+          AttachSstTakeover(*base_iter, hidden_id_);
+          vstorage->AddFile(level, f, info_log_);
+        }
+      };
+
       for (const auto& added : added_files) {
 #ifndef NDEBUG
         if (level > 0 && prev_file != nullptr) {
@@ -364,28 +435,39 @@ class VersionBuilder::Rep {
         // Add all smaller files listed in base_
         for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
              base_iter != bpos; ++base_iter) {
-          MaybeAddFile(vstorage, level, *base_iter, hidden_id, deleted_files);
+          maybe_add_file(*base_iter);
         }
 
-        MaybeAddFile(vstorage, level, added, hidden_id, deleted_files);
+        vstorage->AddFile(level, added, info_log_);
       }
 
       // Add remaining base files
       for (; base_iter != base_end; ++base_iter) {
-        MaybeAddFile(vstorage, level, *base_iter, hidden_id, deleted_files);
+        maybe_add_file(*base_iter);
       }
     }
-    auto mid = std::partition(deleted_files.begin(), deleted_files.end(),
-                              [&](FileMetaData* f) {
-                                return hidden_id.count(f->fd.GetNumber()) > 0;
-                              });
-    for (auto it = deleted_files.begin(); it != mid; ++it) {
-      // hidden files
-      vstorage->AddFile(num_levels_, *it, info_log_);
+    // Reclaim hidden files form deleted files
+    size_t pos = 0;
+    while (!hidden_id_.empty()) {
+      // hidden files <- mid -> deleted files
+      size_t mid = std::partition(
+                       deleted_files.begin() + pos, deleted_files.end(),
+                       [&](FileMetaData* f) {
+                         return hidden_id_.count(f->fd.GetNumber()) > 0;
+                       }) - deleted_files.begin();
+      hidden_id_.clear();
+      for (; pos < mid; ++pos) {
+        auto f = deleted_files[pos];
+        // a hidden file !
+        vstorage->AddFile(num_levels_, f, info_log_);
+        AttachSstTakeover(f, hidden_id_);
+      }
     }
-    for (; mid != deleted_files.end(); ++mid) {
-      // *mid is to-be-deleted table file
-      vstorage->RemoveCurrentStats(*mid);
+    // Handle actual deleted files
+    for (; pos < deleted_files.size(); ++pos) {
+      auto f = deleted_files[pos];
+      // f is to-be-deleted table file
+      vstorage->RemoveCurrentStats(f);
     }
 
     CheckConsistency(vstorage);
@@ -438,19 +520,6 @@ class VersionBuilder::Rep {
       t.join();
     }
   }
-
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f,
-                    std::set<uint64_t>& hidden_id,
-                    std::vector<FileMetaData*>& deleted_files) {
-    if (f->sst_variety != 0) {
-      hidden_id.insert(f->sst_takeover.begin(), f->sst_takeover.end());
-    }
-    if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
-      deleted_files.push_back(f);
-    } else {
-      vstorage->AddFile(level, f, info_log_);
-    }
-  }
 };
 
 VersionBuilder::VersionBuilder(const EnvOptions& env_options,
@@ -486,12 +555,6 @@ void VersionBuilder::LoadTableHandlers(InternalStats* internal_stats,
                                        const SliceTransform* prefix_extractor) {
   rep_->LoadTableHandlers(internal_stats, max_threads,
                           prefetch_index_and_filter_in_cache, prefix_extractor);
-}
-
-void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
-                                  FileMetaData* f, std::set<uint64_t>& hidden_id,
-                                  std::vector<FileMetaData*>& deleted_files) {
-  rep_->MaybeAddFile(vstorage, level, f, hidden_id, deleted_files);
 }
 
 }  // namespace rocksdb
