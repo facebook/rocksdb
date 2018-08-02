@@ -1926,9 +1926,13 @@ class StressTest {
         }
       }
 
+      std::vector<int> rand_column_families =
+          GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
+      std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
+
       if (FLAGS_ingest_external_file_one_in > 0 &&
           thread->rand.Uniform(FLAGS_ingest_external_file_one_in) == 0) {
-        TestIngestExternalFile(thread, {rand_column_family}, {rand_key}, lock);
+        TestIngestExternalFile(thread, rand_column_families, rand_keys, lock);
       }
 
       if (FLAGS_acquire_snapshot_one_in > 0 &&
@@ -1967,28 +1971,28 @@ class StressTest {
       int prob_op = thread->rand.Uniform(100);
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
-        TestGet(thread, read_opts, {rand_column_family}, {rand_key});
+        TestGet(thread, read_opts, rand_column_families, rand_keys);
       } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
         // prefix
-        TestPrefixScan(thread, read_opts, {rand_column_family}, {rand_key});
+        TestPrefixScan(thread, read_opts, rand_column_families, rand_keys);
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
-        TestPut(thread, write_opts, read_opts, {rand_column_family}, {rand_key},
+        TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
             value, lock);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
-        TestDelete(thread, write_opts, {rand_column_family}, {rand_key}, lock);
+        TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
       } else if (delBound <= prob_op && prob_op < delRangeBound) {
         // OPERATION delete range
-        TestDeleteRange(thread, write_opts, {rand_column_family}, {rand_key},
+        TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
             lock);
       } else {
         // OPERATION iterate
-        TestIterate(thread, read_opts, {rand_column_family}, {rand_key});
+        TestIterate(thread, read_opts, rand_column_families, rand_keys);
       }
       thread->stats.FinishedSingleOp();
     }
@@ -2001,6 +2005,16 @@ class StressTest {
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
+
+  virtual std::vector<int> GenerateColumnFamilies(
+      const int /* num_column_families */,
+      int rand_column_family) const {
+    return {rand_column_family};
+  }
+
+  virtual std::vector<int64_t> GenerateKeys(int64_t rand_key) const {
+    return {rand_key};
+  }
 
   virtual Status TestGet(ThreadState* thread,
       const ReadOptions& read_opts,
