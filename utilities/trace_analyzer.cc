@@ -5,7 +5,8 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include <rocksdb/trace_analyzer_tool.h>
+#include "rocksdb/trace_analyzer_tool.h"
+
 int main(int argc, char** argv) {
   return rocksdb::trace_analyzer_tool(argc, argv);
 }

@@ -16,6 +16,9 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+
+#include "utilities/trace_analyzer_tool_imp.h"
+
 #include <fcntl.h>
 #include <inttypes.h>
 #include <math.h>
@@ -56,7 +59,6 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/trace_replay.h"
-#include "utilities/trace_analyzer_tool_imp.h"
 
 #ifdef OS_WIN
 #include <io.h>  // open/close

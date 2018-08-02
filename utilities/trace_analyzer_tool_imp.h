@@ -6,6 +6,8 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/trace_analyzer_tool.h"
+
 #include <stdio.h>
 #include <fstream>
 #include <list>
@@ -24,9 +26,6 @@ namespace rocksdb {
 
 class DBImpl;
 class WriteBatch;
-struct TraceStats;
-class AnalyzerOptions;
-class TraceAnalyzer;
 
 enum TraceOperationType : int {
   kGet = 0,
