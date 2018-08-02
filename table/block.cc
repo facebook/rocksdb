@@ -176,11 +176,16 @@ void DataBlockIter::Seek(const Slice& target) {
   //   i.e. data_block_hash_index is not nullptr
   // and 2) data_block_hash_index is valid
   //   i.e. the block content contains hash map
-  if (data_block_hash_index_ && data_block_hash_index_->Valid()) {
-    // suffix seek will set the current_ and restart_index_,
-    // no need to pass back `index`, or linear search.
-    HashSeek(target);
-    return;
+  if (data_block_hash_index_) {
+    if (data_block_hash_index_->Valid()) {
+      // suffix seek will set the current_ and restart_index_,
+      // no need to pass back `index`, or linear search.
+      HashSeek(target);
+      return;
+    } else {
+      status_ = Status::NotSupported("block content does not contain hash map");
+      return;
+    }
   }
 
   bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
@@ -561,6 +566,26 @@ bool DataBlockIter::HashSeek(const Slice& target) {
         // Currently we ignore the seq_num, so not supporting snapshot Get().
         // TODO(fwu) support snapshot Get().
         user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+
+      // Here we are conservative and only support a limited set of cases
+      ValueType value_type = ExtractValueType(key_.GetKey());
+      if (value_type != ValueType::kTypeValue &&
+          value_type != ValueType::kTypeDeletion) {
+        status_ = Status::NotSupported("record type not supported");
+        return true; // found, but not supported.
+      }
+
+      // Currently we do not fully support searching a key at specify snapshot.
+      // HashSeek only examine the first matched user_key. If the seqno is
+      // higher than the targe snapshot seqno, we just fall back to BinarySeek,
+      // without search further for the correct seqno.
+      uint64_t target_seqno = GetInternalKeySeqno(target);
+      uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
+      if (target_seqno < seqno) {
+        status_ = Status::NotSupported("snapshot not fully supported");
+        return true; // found, but not supported.
+      }
+
       return true;  // found
     }
   }

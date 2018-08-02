@@ -382,6 +382,14 @@ class DataBlockIter final : public BlockIter {
   virtual void SeekToLast() override;
 
   void Invalidate(Status s) {
+    if (s.IsNotSupported()) {
+      // the iterator is invalidated due to HashSeek fallback
+      status_ = Status::OK();
+      // falling back to BinarySeek
+      data_block_hash_index_ = nullptr;
+      // We do not clear the iterator, but only clear the hash index.
+      return;
+    }
     InvalidateBase(s);
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
