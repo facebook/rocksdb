@@ -142,6 +142,10 @@ DEFINE_int32(value_interval, 8,
 
 namespace rocksdb {
 
+class TraceAnalyzer;
+class AnalyzerOptions;
+struct TraceStats;
+
 std::map<std::string, int> taOptToIndex = {
     {"get", 0},          {"put", 1},   {"delete", 2},  {"single_delete", 3},
     {"range_delete", 4}, {"merge", 5}, {"iterator", 6}};
