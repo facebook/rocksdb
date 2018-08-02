@@ -18,15 +18,15 @@
 #endif
 #include <fcntl.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
+#include <condition_variable>
 #include <fstream>
 #include <iostream>
-#include <sys/types.h>
-#include <condition_variable>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -82,15 +82,15 @@ DEFINE_uint64(output_time_series, 0,
               "trace collect time, in microseconds"
               "Output the access time sequence of each key\n"
               "format:[type_id time_in_sec access_key_id].");
-DEFINE_uint32(output_prefix_cut, 0,
-              "The number of bytes as prefix to cut the keys."
-              "if it is enabled, it will generate the following:\n"
-              "for accessed keys:\n"
-              "format:[acessed_keyid access_count num_keys ave_access prefix]\n"
-              "for whole key space keys:\n"
-              "format:[start_keyid_in_whole_keyspace prefix]\n"
-              "if 'output_qps_stats' is enabled, it will output:\n"
-              "format:[time_in_sec IO_num], [prefix qps_of_this_second].");
+DEFINE_int32(output_prefix_cut, 0,
+             "The number of bytes as prefix to cut the keys."
+             "if it is enabled, it will generate the following:\n"
+             "for accessed keys:\n"
+             "format:[acessed_keyid access_count num_keys ave_access prefix]\n"
+             "for whole key space keys:\n"
+             "format:[start_keyid_in_whole_keyspace prefix]\n"
+             "if 'output_qps_stats' is enabled, it will output:\n"
+             "format:[time_in_sec IO_num], [prefix qps_of_this_second].");
 DEFINE_bool(output_trace_sequence, false,
             "Out put the trace sequence for further processing"
             "including the type, cf_id, ts, value_sze, key. This file"
@@ -129,17 +129,17 @@ DEFINE_bool(print_overall_stats, true,
 DEFINE_bool(print_key_distribution, false, "Print the key size distribution.");
 DEFINE_bool(output_value_distribution, false,
             "Print the value size distribution, only available for Put.");
-DEFINE_uint32(print_top_k_access, 1,
-              "<top K of the variables to be printed>"
-              "Print the top k accessed keys, top k accessed prefix"
-              "and etc.");
-DEFINE_uint32(output_ignore_count, 0,
-              "<threshold>, ignores the access count <= this value,"
-              "it will shorter the output.");
-DEFINE_uint32(value_interval, 8,
-              "To output the value distribution, we need to set the value"
-              "intervals andmake the statistic of the value size distribution"
-              "in different intervals. The default is 8.");
+DEFINE_int32(print_top_k_access, 1,
+             "<top K of the variables to be printed>"
+             "Print the top k accessed keys, top k accessed prefix"
+             "and etc.");
+DEFINE_int32(output_ignore_count, 0,
+             "<threshold>, ignores the access count <= this value,"
+             "it will shorter the output.");
+DEFINE_int32(value_interval, 8,
+             "To output the value distribution, we need to set the value"
+             "intervals andmake the statistic of the value size distribution"
+             "in different intervals. The default is 8.");
 
 namespace rocksdb {
 
@@ -518,7 +518,8 @@ Status TraceAnalyzer::MakeStatistics() {
       for (auto& it : i.second.a_key_stats) {
         it.second.key_id = i.second.akey_id;
         i.second.akey_id++;
-        if (it.second.access_count <= FLAGS_output_ignore_count) {
+        if (it.second.access_count <=
+            static_cast<uint64_t>(FLAGS_output_ignore_count)) {
           continue;
         }
 
@@ -682,7 +683,7 @@ Status TraceAnalyzer::MakeStatisticKeyStatsOrPrefix(TraceStats& stats) {
         }
 
         // make the top k statistic for the prefix
-        if (static_cast<uint32_t>(stats.top_k_prefix_access.size()) <
+        if (static_cast<int32_t>(stats.top_k_prefix_access.size()) <
             FLAGS_print_top_k_access) {
           stats.top_k_prefix_access.push(
               std::make_pair(prefix_access, prefix_out));
@@ -694,7 +695,7 @@ Status TraceAnalyzer::MakeStatisticKeyStatsOrPrefix(TraceStats& stats) {
           }
         }
 
-        if (static_cast<uint32_t>(stats.top_k_prefix_ave.size()) <
+        if (static_cast<int32_t>(stats.top_k_prefix_ave.size()) <
             FLAGS_print_top_k_access) {
           stats.top_k_prefix_ave.push(
               std::make_pair(prefix_ave_access, prefix_out));
@@ -794,7 +795,7 @@ Status TraceAnalyzer::MakeStatisticQPS() {
 
         // Process the top k IO peaks
         if (FLAGS_output_prefix_cut > 0) {
-          if (static_cast<uint32_t>(i.second.top_k_qps_sec.size()) <
+          if (static_cast<int32_t>(i.second.top_k_qps_sec.size()) <
               FLAGS_print_top_k_access) {
             i.second.top_k_qps_sec.push(
                 std::make_pair(time_it.second, time_it.first));
@@ -1018,7 +1019,7 @@ Status TraceAnalyzer::ReProcessing() {
         }
         TraceStats& stats = ta_[i].stats[cf_id];
         for (auto& it : stats.a_key_stats) {
-          if (static_cast<uint32_t>(stats.top_k_queue.size()) <
+          if (static_cast<int32_t>(stats.top_k_queue.size()) <
               FLAGS_print_top_k_access) {
             stats.top_k_queue.push(
                 std::make_pair(it.second.access_count, it.first));
