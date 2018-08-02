@@ -26,16 +26,11 @@ struct CompactionInputFiles {
   inline FileMetaData* operator[](size_t i) const { return files[i]; }
 };
 
-class Version;
 class ColumnFamilyData;
-class VersionStorageInfo;
 class CompactionFilter;
-
-enum CompactionVarieties : int {
-  kGeneralCompaction,
-  kLinkCompaction,
-  kMapCompaction,
-};
+class LevelFileContainer;
+class Version;
+class VersionStorageInfo;
 
 // A Compaction encapsulates information about a compaction.
 class Compaction {
@@ -50,7 +45,7 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
-             CompactionVarieties compaction_varieties = kGeneralCompaction,
+             SstVarieties compaction_varieties = kGeneralSst,
              const std::vector<ExtendRangePtrStorage>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
 
@@ -114,7 +109,9 @@ class Compaction {
     return &inputs_[compaction_input_level].files;
   }
 
-  const std::vector<CompactionInputFiles>* inputs() { return &inputs_; }
+  const std::vector<CompactionInputFiles>* inputs() const {
+    return &inputs_;
+  }
 
   // Returns the LevelFilesBrief of the specified compaction input level.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
@@ -143,7 +140,7 @@ class Compaction {
   bool deletion_compaction() const { return deletion_compaction_; }
 
   // Compaction varieties
-  CompactionVarieties compaction_varieties() const {
+  SstVarieties compaction_varieties() const {
     return compaction_varieties_;
   }
 
@@ -311,7 +308,7 @@ class Compaction {
   const bool deletion_compaction_;
 
   // Compaction varieties
-  const CompactionVarieties compaction_varieties_;
+  const SstVarieties compaction_varieties_;
 
   // Range limit for inputs
   const std::vector<ExtendRangePtrStorage> input_range_;

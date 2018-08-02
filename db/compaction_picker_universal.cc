@@ -536,7 +536,7 @@ Compaction* UniversalCompactionPicker::PickTrivialMove(
       LLONG_MAX, path_id, kNoCompression,
       GetCompressionOptions(ioptions_, vstorage, output_level), 0,
       /* grandparents */ {}, /* is manual */ false, 0,
-      false /* deletion_compaction */, kGeneralCompaction, {},
+      false /* deletion_compaction */, kGeneralSst, {},
       CompactionReason::kUniversalTrivialMove);
   c->set_is_trivial_move(true);
   return c;
@@ -739,10 +739,10 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
   } else {
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
-  CompactionVarieties compaction_varieties = kGeneralCompaction;
+  SstVarieties compaction_varieties = kGeneralSst;
   uint32_t max_subcompactions = 0;
   if (mutable_cf_options.enable_lazy_compaction) {
-    compaction_varieties = kMapCompaction;
+    compaction_varieties = kMapSst;
     max_subcompactions = 1;
   }
   return new Compaction(
@@ -887,10 +887,10 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     output_level--;
   }
 
-  CompactionVarieties compaction_varieties = kGeneralCompaction;
+  SstVarieties compaction_varieties = kGeneralSst;
   uint32_t max_subcompactions = 0;
   if (mutable_cf_options.enable_lazy_compaction) {
-    compaction_varieties = kMapCompaction;
+    compaction_varieties = kMapSst;
     max_subcompactions = 1;
   }
   return new Compaction(
@@ -1022,7 +1022,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
-      score, false /* deletion_compaction */, kGeneralCompaction, {},
+      score, false /* deletion_compaction */, kGeneralSst, {},
       CompactionReason::kFilesMarkedForCompaction);
 }
 }  // namespace rocksdb

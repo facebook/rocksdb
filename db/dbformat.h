@@ -636,9 +636,9 @@ struct RangeTombstone {
 
 struct SstLinkElement {
   Slice largest_key_;
-  size_t sst_id;
+  uint64_t sst_id;
 
-  SstLinkElement() : sst_id(size_t(-1)) { }
+  SstLinkElement() : sst_id(uint64_t(-1)) { }
 
   bool Decode(Slice ikey, Slice value) {
     largest_key_ = ikey;
@@ -658,8 +658,8 @@ struct SstMapElement {
   Slice smallest_key_;
   Slice largest_key_;
   struct LinkTarget {
-    size_t sst_id;
-    size_t size;
+    uint64_t sst_id;
+    uint64_t size;
   };
   std::vector<LinkTarget> link_;
 
@@ -672,7 +672,7 @@ struct SstMapElement {
     }
     link_.reserve(link_count);
 
-    for (size_t i = 0; i < link_count; ++i) {
+    for (uint64_t i = 0; i < link_count; ++i) {
       LinkTarget l;
       if (!GetFixed64(&value, &l.sst_id) ||
           !GetFixed64(&value, &l.size)) {

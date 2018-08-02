@@ -886,7 +886,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->fd.smallest_seqno, f->fd.largest_seqno,
-                   f->marked_for_compaction, f->file_gene);
+                   f->marked_for_compaction, f->sst_variety,
+                   f->sst_takeover);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -1806,7 +1807,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->fd.smallest_seqno,
                            f->fd.largest_seqno, f->marked_for_compaction,
-                           f->file_gene);
+                           f->sst_variety, f->sst_takeover);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

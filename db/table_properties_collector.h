@@ -11,7 +11,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <set>
 
 namespace rocksdb {
 
@@ -21,7 +20,7 @@ struct InternalKeyTablePropertiesNames {
 };
 
 struct SSTVarietiesTablePropertiesNames {
-  static const std::string kSstGene;
+  static const std::string kSstVariety;
   static const std::string kSstTakeover;
 };
 
@@ -88,14 +87,19 @@ class InternalKeyPropertiesCollectorFactory
   }
 };
 
-// Collecting link or map info
-class SstGenePropertiesCollector : public IntTblPropCollector {
+// Write link or map info
+// Used for repair. E.g missing manifest
+class SstGenePropertiesCollector final : public IntTblPropCollector {
  public:
-   SstGenePropertiesCollector(uint8_t _file_gene)
-       : file_gene_(_file_gene) {}
+   SstGenePropertiesCollector(
+      uint8_t _sst_variety, std::vector<uint64_t>* _sst_takeover)
+      : sst_variety_(_sst_variety),
+        sst_takeover_(_sst_takeover) {}
 
   virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override;
+                             uint64_t file_size) override {
+    return Status::OK();
+  }
 
   virtual Status Finish(UserCollectedProperties* properties) override;
 
@@ -106,26 +110,29 @@ class SstGenePropertiesCollector : public IntTblPropCollector {
   UserCollectedProperties GetReadableProperties() const override;
 
  private:
-  uint8_t file_gene_;
-  std::set<uint64_t> sst_id_set_;
+  uint8_t sst_variety_;
+  std::vector<uint64_t>* sst_takeover_;
 };
 
-class SSTLinkPropertiesCollectorFactory
+class SSTLinkPropertiesCollectorFactory final
     : public IntTblPropCollectorFactory {
  public:
-   SSTLinkPropertiesCollectorFactory(uint8_t _file_gene)
-       : file_gene_(_file_gene) {}
+  SSTLinkPropertiesCollectorFactory(
+      uint8_t _sst_variety, std::vector<uint64_t>* _sst_takeover)
+      : sst_variety_(_sst_variety),
+        sst_takeover_(_sst_takeover) {}
 
   virtual IntTblPropCollector* CreateIntTblPropCollector(
       uint32_t /*column_family_id*/) override {
-    return new SstGenePropertiesCollector(file_gene_);
+    return new SstGenePropertiesCollector(sst_variety_, sst_takeover_);
   }
 
   virtual const char* Name() const override {
     return "SSTGenePropertiesCollectorFactory";
   }
  private:
-  uint8_t file_gene_;
+  uint8_t sst_variety_;
+  std::vector<uint64_t>* sst_takeover_;
 };
 
 // When rocksdb creates a new table, it will encode all "user keys" into

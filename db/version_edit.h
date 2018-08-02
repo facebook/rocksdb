@@ -83,10 +83,10 @@ struct FileSampledStats {
   mutable std::atomic<uint64_t> num_reads_sampled;
 };
 
-enum class SstFileGene {
-  kSST,
-  kLink,
-  kMap
+enum SstVarieties {
+  kGeneralSst,
+  kLinkSst,
+  kMapSst,
 };
 
 struct FileMetaData {
@@ -121,7 +121,8 @@ struct FileMetaData {
   bool marked_for_compaction;  // True if client asked us nicely to compact this
                                // file.
 
-  uint8_t file_gene;           // Zero for plain sst
+  uint8_t sst_variety;                  // Zero for plain sst
+  std::vector<uint64_t> sst_takeover;   // Make these sst hidden
 
   FileMetaData()
       : table_reader_handle(nullptr),
@@ -134,7 +135,7 @@ struct FileMetaData {
         being_compacted(false),
         init_stats_from_file(false),
         marked_for_compaction(false),
-        file_gene(0) {}
+        sst_variety(0) {}
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
@@ -245,7 +246,8 @@ class VersionEdit {
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno,
-               bool marked_for_compaction, uint8_t file_gene) {
+               bool marked_for_compaction, uint8_t sst_variety,
+               const std::vector<uint64_t>& sst_takeover) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
@@ -255,7 +257,8 @@ class VersionEdit {
     f.fd.smallest_seqno = smallest_seqno;
     f.fd.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
-    f.file_gene = file_gene;
+    f.sst_variety = sst_variety;
+    f.sst_takeover = sst_takeover;
     new_files_.emplace_back(level, std::move(f));
   }
 

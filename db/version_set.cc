@@ -1100,7 +1100,7 @@ VersionStorageInfo::VersionStorageInfo(
       num_non_empty_levels_(0),
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
-      files_(new std::vector<FileMetaData*>[num_levels_]),
+      files_(new std::vector<FileMetaData*>[num_levels_ + 1]),
       base_level_(num_levels_ == 1 ? -1 : 1),
       files_by_compaction_pri_(num_levels_),
       level0_non_overlapping_(false),
@@ -1642,7 +1642,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
-        if (f->file_gene != (int)SstFileGene::kSST) {
+        if (f->sst_variety != 0) {
           has_space_amplification_.emplace(level);
         }
       }
@@ -1747,17 +1747,17 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   // Must not overlap
 #ifndef NDEBUG
   if (level > 0 && !level_files->empty() &&
-      internal_comparator_->Compare(
-          (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
+    internal_comparator_->Compare(
+    (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
     auto* f2 = (*level_files)[level_files->size() - 1];
     if (info_log != nullptr) {
       Error(info_log, "Adding new file %" PRIu64
-                      " range (%s, %s) to level %d but overlapping "
-                      "with existing file %" PRIu64 " %s %s",
-            f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
-            f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
-            f2->smallest.DebugString(true).c_str(),
-            f2->largest.DebugString(true).c_str());
+        " range (%s, %s) to level %d but overlapping "
+        "with existing file %" PRIu64 " %s %s",
+        f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
+        f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
+        f2->smallest.DebugString(true).c_str(),
+        f2->largest.DebugString(true).c_str());
       LogFlush(info_log);
     }
     assert(false);
@@ -2689,7 +2689,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       if (print_stats) {
         r.append("(");
         r.append(ToString(
-            files[i]->stats.num_reads_sampled.load(std::memory_order_relaxed)));
+          files[i]->stats.num_reads_sampled.load(std::memory_order_relaxed)));
         r.append(")");
       }
       r.append("\n");
@@ -3687,7 +3687,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   // avoid SIGSEGV in WriteSnapshot()
   // however, all levels bigger or equal to new_levels will be empty
   std::vector<FileMetaData*>* new_files_list =
-      new std::vector<FileMetaData*>[current_levels];
+      new std::vector<FileMetaData*>[current_levels + 1];
   for (int i = 0; i < new_levels - 1; i++) {
     new_files_list[i] = vstorage->LevelFiles(i);
   }
@@ -3695,6 +3695,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   if (first_nonempty_level > 0) {
     new_files_list[new_levels - 1] = vstorage->LevelFiles(first_nonempty_level);
   }
+
+  // Keep the hidden layer sst files
+  new_files_list[new_levels] = vstorage->LevelFiles(current_levels);
 
   delete[] vstorage -> files_;
   vstorage->files_ = new_files_list;
@@ -3976,7 +3979,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->file_gene);
+                       f->marked_for_compaction, f->sst_variety,
+                       f->sst_takeover);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());

@@ -139,7 +139,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
-                       CompactionVarieties _compaction_varieties,
+                       SstVarieties _compaction_varieties,
                        const std::vector<ExtendRangePtrStorage>& _input_range,
                        CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),

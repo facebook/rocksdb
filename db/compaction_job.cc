@@ -825,13 +825,13 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   switch (sub_compact->compaction->compaction_varieties()) {
-  case kGeneralCompaction:
+  case kGeneralSst:
     ProcessGeneralCompaction(sub_compact);
     break;
-  case kLinkCompaction:
+  case kLinkSst:
     ProcessLinkCompaction(sub_compact);
     break;
-  case kMapCompaction:
+  case kMapSst:
     ProcessMapCompaction(sub_compact);
     break;
   }
@@ -1206,9 +1206,17 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
       sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
+  std::vector<uint64_t> sst_takeover;
+  for (auto level_files : *sub_compact->compaction->inputs()) {
+    for (auto file : level_files.files) {
+      sst_takeover.emplace_back(file->fd.GetNumber());
+    }
+  }
+  std::sort(sst_takeover.begin(), sst_takeover.end());
+
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
-      new SSTLinkPropertiesCollectorFactory((uint8_t)SstFileGene::kLink));
+      new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_takeover));
 
   auto status = OpenCompactionOutputFile(sub_compact, &collectors);
   if (!status.ok()) {
@@ -1224,6 +1232,8 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   assert(input->Valid());
   last_key.DecodeFrom(input->key());
   last_source = input->source();
+  sub_compact->current_output()->meta.UpdateBoundaries(
+      input->key(), GetInternalKeySeqno(input->key()));
 
   for (input->Next(); input->Valid(); input->Next()) {
     assert(input->source().type == IteratorSource::kSST);
@@ -1236,16 +1246,20 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
       sub_compact->builder->Add(link.Key(), link.Value(&buffer));
       sub_compact->current_output_file_size = sub_compact->builder->FileSize();
-      sub_compact->current_output()->meta.UpdateBoundaries(
-          last_key.Encode(), GetInternalKeySeqno(last_key.Encode()));
       sub_compact->num_output_records++;
     }
+    sub_compact->current_output()->meta.UpdateBoundaries(
+        input->key(), GetInternalKeySeqno(input->key()));
     last_key.DecodeFrom(input->key());
     last_source = input->source();
   }
   CompactionIterationStats range_del_out_stats;
   status = FinishCompactionOutputFile(
       status, sub_compact, range_del_agg.get(), &range_del_out_stats);
+  sub_compact->current_output()->meta.sst_variety = kLinkSst;
+  sub_compact->current_output()->meta.sst_takeover = std::move(sst_takeover);
+  sub_compact->actual_start = sub_compact->current_output()->meta.smallest;
+  sub_compact->actual_end = sub_compact->current_output()->meta.largest;
   if (!status.ok()) {
     sub_compact->status = status;
   }

@@ -58,60 +58,21 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
           {"kMergeOperands", ToString(merge_operands_)}};
 }
 
-Status SstGenePropertiesCollector::InternalAdd(const Slice& /*key*/,
-                                               const Slice& value,
-                                               uint64_t /*file_size*/) {
-  switch ((SstFileGene)file_gene_) {
-  case SstFileGene::kLink: {
-    // Manual inline for SstLinkElement::Decode
-    Slice value_cpy = value;
-    uint64_t sst_id;
-
-    if (GetFixed64(&value_cpy, &sst_id)) {
-      return Status::InvalidArgument("SstLinkElement decode fial");
-    }
-    sst_id_set_.emplace(sst_id);
-    return Status::OK();
-  }
-  case SstFileGene::kMap: {
-    // Manual inline for SstMapElement::Decode
-    const char* error_msg = "Invalid SstMapElement";
-    Slice value_cpy = value, ignore_slice;
-    uint64_t sst_id, link_count, ignore_u64;
-
-    if (!GetLengthPrefixedSlice(&value_cpy, &ignore_slice) ||
-        !GetVarint64(&value_cpy, &link_count)) {
-      return Status::InvalidArgument(error_msg);
-    }
-    for (size_t i = 0; i < link_count; ++i) {
-      if (!GetFixed64(&value_cpy, &sst_id) ||
-          !GetFixed64(&value_cpy, &ignore_u64)) {
-        return Status::InvalidArgument(error_msg);
-      }
-      sst_id_set_.emplace(sst_id);
-    }
-    return Status::OK();
-  }
-  default:
-    return Status::Corruption("SstGenePropertiesCollector bad file_gene");
-  }
-}
-
 Status SstGenePropertiesCollector::Finish(
     UserCollectedProperties* properties) {
   assert(properties);
-  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstGene) ==
+  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstVariety) ==
          properties->end());
   assert(properties->find(SSTVarietiesTablePropertiesNames::kSstTakeover) ==
          properties->end());
 
-  auto file_gene_value = std::string((const char*)&file_gene_, 1);
+  auto sst_variety_value = std::string((const char*)&sst_variety_, 1);
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstGene, file_gene_value});
+      {SSTVarietiesTablePropertiesNames::kSstVariety, sst_variety_value});
 
   std::string sst_takeover_value;
-  PutVarint64(&sst_takeover_value, sst_id_set_.size());
-  for (auto sst_id : sst_id_set_) {
+  PutVarint64(&sst_takeover_value, sst_takeover_->size());
+  for (auto sst_id : *sst_takeover_) {
     PutVarint64(&sst_takeover_value, sst_id);
   }
   properties->insert(
@@ -123,17 +84,17 @@ Status SstGenePropertiesCollector::Finish(
 UserCollectedProperties
 SstGenePropertiesCollector::GetReadableProperties() const {
   std::string sst_takeover_value;
-  if (sst_id_set_.empty()) {
+  if (sst_takeover_->empty()) {
     sst_takeover_value += "[]";
   } else {
     sst_takeover_value += '[';
-    for (auto sst_id : sst_id_set_) {
+    for (auto sst_id : *sst_takeover_) {
       sst_takeover_value += ToString(sst_id);
       sst_takeover_value += ',';
     }
     sst_takeover_value.back() = ']';
   }
-  return {{"kSstGene", ToString((int)file_gene_)},
+  return {{"kSstVariety", ToString((int)sst_variety_)},
           {"kSstTakeover", sst_takeover_value}};
 }
 
@@ -182,7 +143,7 @@ const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
     "rocksdb.deleted.keys";
 const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
-const std::string SSTVarietiesTablePropertiesNames::kSstGene =
+const std::string SSTVarietiesTablePropertiesNames::kSstVariety =
     "rocksdb.sst.gene";
 const std::string SSTVarietiesTablePropertiesNames::kSstTakeover =
     "rocksdb.sst.takeover";
@@ -202,7 +163,7 @@ uint64_t GetMergeOperands(const UserCollectedProperties& props,
 
 uint8_t GetSstGene(
     const UserCollectedProperties& props) {
-  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstGene);
+  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstVariety);
   if (pos == props.end()) {
     return 0;
   }
@@ -210,7 +171,7 @@ uint8_t GetSstGene(
   return raw[0];
 }
 
-std::vector<uint64_t> GetSstTakeOver(
+std::vector<uint64_t> GetSstTakeover(
     const UserCollectedProperties& props) {
   std::vector<uint64_t> result;
   auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstTakeover);
