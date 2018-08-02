@@ -346,8 +346,8 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
-  // 200 bytes are enough to hold the first two blocks
-  std::shared_ptr<Cache> cache = NewLRUCache(200, 0, false);
+  // 250 bytes are enough to hold the first two blocks
+  std::shared_ptr<Cache> cache = NewLRUCache(250, 0, false);
   table_options.block_cache = cache;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
