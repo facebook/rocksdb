@@ -8,6 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifndef ROCKSDB_LITE
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+    fprintf(stderr, "Please install gflags to run trace_analyzer test\n");
+      return 1;
+}
+#else
 
 #include <stdint.h>
 #include <sstream>
@@ -689,7 +696,7 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
+#endif // GFLAG
 #else
 #include <stdio.h>
 
