@@ -2937,6 +2937,7 @@ Status DBImpl::IngestExternalFile(
   }
   dummy_sv_ctx.Clean();
   if (!status.ok()) {
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
