@@ -28,13 +28,10 @@
 #include <sys/types.h>
 #include <time.h>
 #include <condition_variable>
-#include <fstream>
 #include <iostream>
-#include <map>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
-#include <vector>
 
 #include "db/db_impl.h"
 #include "db/memtable.h"

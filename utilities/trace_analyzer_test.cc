@@ -143,7 +143,7 @@ class TraceAnalyzerTest : public testing::Test {
       snprintf(arg_buffer + cursor, arg.size() + 1, "%s", arg.c_str());
 
       argv[argc++] = arg_buffer + cursor;
-      cursor += arg.size() + 1;
+      cursor += static_cast<int>(arg.size()) + 1;
     }
 
     ASSERT_EQ(0, rocksdb::trace_analyzer_tool(argc, argv));
