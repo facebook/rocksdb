@@ -9,8 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stdint.h>
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
+#include <stdint.h>
 #include <sstream>
 
 #include <rocksdb/trace_analyzer_tool.h>
