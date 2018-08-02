@@ -4,12 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
-
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
 #include "rocksdb/trace_analyzer_tool.h"
-
 int main(int argc, char** argv) {
   return rocksdb::trace_analyzer_tool(argc, argv);
 }
+#endif
 #else
 #include <stdio.h>
 int main(int /*argc*/, char** /*argv*/) {

@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
+#ifndef ROCKSDB_LITE
+
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -16,8 +18,6 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-
-#include "utilities/trace_analyzer_tool_imp.h"
 
 #include <fcntl.h>
 #include <inttypes.h>
@@ -56,10 +56,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/trace_replay.h"
-
-#ifdef OS_WIN
-#include <io.h>  // open/close
-#endif
+#include "utilities/trace_analyzer_tool_imp.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -141,10 +138,6 @@ DEFINE_int32(value_interval, 8,
              "in different intervals. The default is 8.");
 
 namespace rocksdb {
-
-class TraceAnalyzer;
-class AnalyzerOptions;
-struct TraceStats;
 
 std::map<std::string, int> taOptToIndex = {
     {"get", 0},          {"put", 1},   {"delete", 2},  {"single_delete", 3},
@@ -1754,4 +1747,5 @@ int trace_analyzer_tool(int argc, char** argv) {
 }
 }  // namespace rocksdb
 
-#endif
+#endif // Endif of Gflag
+#endif // RocksDB LITE
