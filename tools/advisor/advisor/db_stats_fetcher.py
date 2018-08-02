@@ -174,7 +174,6 @@ class OdsStatsFetcher(TimeSeriesData):
     OUTPUT_FILE = 'temp/stats_out.tmp'
     ERROR_FILE = 'temp/stats_err.tmp'
     RAPIDO_COMMAND = "%s --entity=%s --key=%s --tstart=%s --tend=%s --showtime"
-    ODS_COMMAND = '%s %s %s'  # client, entities, keys
 
     # static methods
     @staticmethod
@@ -191,16 +190,23 @@ class OdsStatsFetcher(TimeSeriesData):
         second = float(pair[1].strip())
         return [first, second]
 
-    def __init__(self, client, entities, key_prefix=None):
+    @staticmethod
+    def _get_ods_cli_stime(start_time):
+        diff = int(time.time() - int(start_time))
+        stime = str(diff) + '_s'
+        return stime
+
+    def __init__(
+        self, client, entities, start_time, end_time, key_prefix=None
+    ):
         super().__init__()
         self.client = client
         self.entities = entities
+        self.start_time = start_time
+        self.end_time = end_time
         self.key_prefix = key_prefix
         self.stats_freq_sec = 60
         self.duration_sec = 60
-        # Fetch last 3 hours data by default
-        self.end_time = int(time.time())
-        self.start_time = self.end_time - (3 * 60 * 60)
 
     def execute_script(self, command):
         print('executing...')
@@ -265,9 +271,10 @@ class OdsStatsFetcher(TimeSeriesData):
             # Parse output and populate the 'keys_ts' map
             self.parse_rapido_output()
         elif re.search('ods', self.client, re.IGNORECASE):
-            command = self.ODS_COMMAND % (
-                self.client,
-                self._get_string_in_quotes(self.entities),
+            command = (
+                self.client + ' ' +
+                '--stime=' + self._get_ods_cli_stime(self.start_time) + ' ' +
+                self._get_string_in_quotes(self.entities) + ' ' +
                 self._get_string_in_quotes(','.join(statistics))
             )
             # Run the tool and fetch the time-series data
@@ -304,17 +311,26 @@ class OdsStatsFetcher(TimeSeriesData):
             transform_desc = transform_desc + ",%)"
         else:
             transform_desc = transform_desc + ")"
-
-        command = self.RAPIDO_COMMAND + " --transform=%s --url=%s"
-        command = command % (
-            self.client,
-            self._get_string_in_quotes(','.join(entities)),
-            self._get_string_in_quotes(','.join(keys)),
-            self._get_string_in_quotes(self.start_time),
-            self._get_string_in_quotes(self.end_time),
-            self._get_string_in_quotes(transform_desc),
-            self._get_string_in_quotes(display)
-        )
+        if re.search('rapido', self.client, re.IGNORECASE):
+            command = self.RAPIDO_COMMAND + " --transform=%s --url=%s"
+            command = command % (
+                self.client,
+                self._get_string_in_quotes(','.join(entities)),
+                self._get_string_in_quotes(','.join(keys)),
+                self._get_string_in_quotes(self.start_time),
+                self._get_string_in_quotes(self.end_time),
+                self._get_string_in_quotes(transform_desc),
+                self._get_string_in_quotes(display)
+            )
+        elif re.search('ods', self.client, re.IGNORECASE):
+            command = (
+                self.client + ' ' +
+                '--stime=' + self._get_ods_cli_stime(self.start_time) + ' ' +
+                '--fburlonly ' +
+                self._get_string_in_quotes(entities) + ' ' +
+                self._get_string_in_quotes(','.join(keys)) + ' ' +
+                self._get_string_in_quotes(transform_desc)
+            )
         self.execute_script(command)
         url = ""
         with open(self.OUTPUT_FILE, 'r') as fp:

@@ -1,3 +1,8 @@
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+#  This source code is licensed under both the GPLv2 (found in the
+#  COPYING file in the root directory) and Apache 2.0 License
+#  (found in the LICENSE.Apache file in the root directory).
+
 from advisor.bench_runner import BenchmarkRunner
 from advisor.db_log_parser import DataSource, DatabaseLogs, NO_COL_FAMILY
 from advisor.db_stats_fetcher import (
@@ -196,8 +201,10 @@ class DBBenchRunner(BenchmarkRunner):
         self._setup_db_before_experiment(db_options, db_path)
         # get the command to run the experiment
         command = self._build_experiment_command(db_options, db_path)
+        experiment_start_time = int(time.time())
         # run experiment
         self._run_command(command)
+        experiment_end_time = int(time.time())
         # parse the db_bench experiment output
         parsed_output = self._parse_output(get_perf_context=True)
 
@@ -224,10 +231,15 @@ class DBBenchRunner(BenchmarkRunner):
         }
         # Create the ODS STATS object
         if self.ods_args:
+            key_prefix = ''
+            if 'key_prefix' in self.ods_args:
+                key_prefix = self.ods_args['key_prefix']
             data_sources[DataSource.Type.TIME_SERIES].append(OdsStatsFetcher(
                 self.ods_args['client_script'],
                 self.ods_args['entity'],
-                self.ods_args['key_prefix']
+                experiment_start_time,
+                experiment_end_time,
+                key_prefix
             ))
         # return the experiment's data-sources and throughput
         return data_sources, parsed_output[self.THROUGHPUT]
