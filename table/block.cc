@@ -171,11 +171,21 @@ void DataBlockIter::Seek(const Slice& target) {
   }
   uint32_t index = 0;
 
+  // we use the hash index
+  // if 1) the caller is doing point lookup
+  //   i.e. data_block_hash_index is not nullptr
+  // and 2) data_block_hash_index is valid
+  //   i.e. the block content contains hash map
   if (data_block_hash_index_) {
-    // suffix seek will set the current_ and restart_index_,
-    // no need to pass back `index`, or linear search.
-    HashSeek(target);
-    return;
+    if (data_block_hash_index_->Valid()) {
+      // suffix seek will set the current_ and restart_index_,
+      // no need to pass back `index`, or linear search.
+      HashSeek(target);
+      return;
+    } else {
+      status_ = Status::NotSupported("block content does not contain hash map");
+      return;
+    }
   }
 
   bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
@@ -556,6 +566,26 @@ bool DataBlockIter::HashSeek(const Slice& target) {
         // Currently we ignore the seq_num, so not supporting snapshot Get().
         // TODO(fwu) support snapshot Get().
         user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+
+      // Here we are conservative and only support a limited set of cases
+      ValueType value_type = ExtractValueType(key_.GetKey());
+      if (value_type != ValueType::kTypeValue &&
+          value_type != ValueType::kTypeDeletion) {
+        status_ = Status::NotSupported("record type not supported");
+        return true; // found, but not supported.
+      }
+
+      // Currently we do not fully support searching a key at specify snapshot.
+      // HashSeek only examine the first matched user_key. If the seqno is
+      // higher than the targe snapshot seqno, we just fall back to BinarySeek,
+      // without search further for the correct seqno.
+      uint64_t target_seqno = GetInternalKeySeqno(target);
+      uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
+      if (target_seqno < seqno) {
+        status_ = Status::NotSupported("snapshot not fully supported");
+        return true; // found, but not supported.
+      }
+
       return true;  // found
     }
   }
@@ -655,16 +685,11 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    // We can use HashIndex only if both conditions are satisfied:
-    // 1) the caller is doing point lookup
-    //      i.e. is_data_block_point_lookup == true;
-    // 2) the embedded HashIndex instance should have been initialized
-    //      i.e. InUse() = true.
-    bool using_hash_index = is_data_block_point_lookup &&
-      data_block_hash_index_.InUse();
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          global_seqno_, read_amp_bitmap_.get(), cachable(),
-                         using_hash_index ? &data_block_hash_index_ : nullptr);
+                         // We can use HashIndex only if doing point lookup
+                         is_data_block_point_lookup ? &data_block_hash_index_
+                         : nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_

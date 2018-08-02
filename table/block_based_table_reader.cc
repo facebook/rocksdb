@@ -2395,6 +2395,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         DataBlockIter biter;
+
+        // first try DataBlockHashIndex
         NewDataBlockIterator<DataBlockIter>(
             rep_, read_options, iiter->value(), &biter, false,
             true /* key_includes_seq */, get_context,
@@ -2414,17 +2416,31 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           break;
         }
 
-        // Call the *saver function on each entry/block until it returns false
-        for (biter.Seek(key); ; biter.Next()) {
-          if (!biter.Valid()) {
-            // If the block uses DataBlockHashIndex, biter is invalid when the
-            // key is not found in the block. So we can break early.
-            if (rep_->use_data_block_hash_index) {
-              done = true;
-            }
-            break;
-          }
+        biter.Seek(key);
 
+        if (!biter.status().IsNotSupported()) {
+          // HashSeek supported
+
+          if (biter.Valid()) { // found
+            ParsedInternalKey parsed_key;
+            s = Status::OK();
+
+            if (!ParseInternalKey(biter.key(), &parsed_key)) {
+              s = Status::Corruption(Slice());
+            }
+
+            get_context->SaveValue(
+                parsed_key, biter.value(), &matched,
+                biter.IsValuePinned() ? &biter : nullptr);
+          }
+          break;
+        }
+
+        //HashSeek is not supported, falling back to binary seek.
+        biter.Invalidate(biter.status());
+
+        // Call the *saver function on each entry/block until it returns false
+        for (biter.Seek(key); biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
