@@ -575,9 +575,11 @@ class LDBTestCase(unittest.TestCase):
                         dumpFilePath,
                         externSstPath))
         # cannot ingest if allow_global_seqno is false
-        self.assertFalse(self.ingestExternSst("--create_if_missing --db=%s"
-                                                  % dbPath,
-                                              externSstPath))
+        self.assertFalse(
+            self.ingestExternSst(
+                "--create_if_missing --allow_global_seqno=false --db=%s"
+                    % dbPath,
+                externSstPath))
         self.assertTrue(self.ingestExternSst(
                             "--create_if_missing --allow_global_seqno --db=%s"
                                 % dbPath,

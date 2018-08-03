@@ -2962,7 +2962,9 @@ WriteExternalSstFilesCommand::WriteExternalSstFilesCommand(
           options, flags, false /* is_read_only */,
           BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
                                ARG_TO, ARG_CREATE_IF_MISSING})) {
-  create_if_missing_ = IsFlagPresent(flags, ARG_CREATE_IF_MISSING);
+  create_if_missing_ =
+      IsFlagPresent(flags, ARG_CREATE_IF_MISSING) ||
+      ParseBooleanOption(options, ARG_CREATE_IF_MISSING, false);
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "output SST file path must be specified");
@@ -3069,13 +3071,39 @@ IngestExternalSstFilesCommand::IngestExternalSstFilesCommand(
       allow_blocking_flush_(true),
       ingest_behind_(false),
       write_global_seqno_(true) {
-  create_if_missing_ = IsFlagPresent(flags, ARG_CREATE_IF_MISSING);
-  move_files_ = IsFlagPresent(flags, ARG_MOVE_FILES);
-  snapshot_consistency_ = IsFlagPresent(flags, ARG_SNAPSHOT_CONSISTENCY);
-  allow_global_seqno_ = IsFlagPresent(flags, ARG_ALLOW_GLOBAL_SEQNO);
-  allow_blocking_flush_ = IsFlagPresent(flags, ARG_ALLOW_BLOCKING_FLUSH);
-  ingest_behind_ = IsFlagPresent(flags, ARG_INGEST_BEHIND);
-  write_global_seqno_ = IsFlagPresent(flags, ARG_WRITE_GLOBAL_SEQNO);
+  create_if_missing_ =
+      IsFlagPresent(flags, ARG_CREATE_IF_MISSING) ||
+      ParseBooleanOption(options, ARG_CREATE_IF_MISSING, false);
+  move_files_ = IsFlagPresent(flags, ARG_MOVE_FILES) ||
+                ParseBooleanOption(options, ARG_MOVE_FILES, false);
+  snapshot_consistency_ =
+      IsFlagPresent(flags, ARG_SNAPSHOT_CONSISTENCY) ||
+      ParseBooleanOption(options, ARG_SNAPSHOT_CONSISTENCY, true);
+  allow_global_seqno_ =
+      IsFlagPresent(flags, ARG_ALLOW_GLOBAL_SEQNO) ||
+      ParseBooleanOption(options, ARG_ALLOW_GLOBAL_SEQNO, true);
+  allow_blocking_flush_ =
+      IsFlagPresent(flags, ARG_ALLOW_BLOCKING_FLUSH) ||
+      ParseBooleanOption(options, ARG_ALLOW_BLOCKING_FLUSH, true);
+  ingest_behind_ = IsFlagPresent(flags, ARG_INGEST_BEHIND) ||
+                   ParseBooleanOption(options, ARG_INGEST_BEHIND, false);
+  write_global_seqno_ =
+      IsFlagPresent(flags, ARG_WRITE_GLOBAL_SEQNO) ||
+      ParseBooleanOption(options, ARG_WRITE_GLOBAL_SEQNO, true);
+
+  if (allow_global_seqno_) {
+    if (!write_global_seqno_) {
+      fprintf(stderr,
+              "Warning: not writing global_seqno to the ingested SST can\n"
+              "prevent older versions of RocksDB from being able to open it\n");
+    }
+  } else {
+    if (write_global_seqno_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "ldb cannot write global_seqno to the ingested SST when global_seqno "
+          "is not allowed");
+    }
+  }
 
   if (params.size() != 1) {
     exec_state_ =
@@ -3088,6 +3116,9 @@ IngestExternalSstFilesCommand::IngestExternalSstFilesCommand(
 void IngestExternalSstFilesCommand::DoCommand() {
   if (!db_) {
     assert(GetExecuteState().IsFailed());
+    return;
+  }
+  if (GetExecuteState().IsFailed()) {
     return;
   }
   ColumnFamilyHandle* cfh = GetCfHandle();
