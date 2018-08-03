@@ -465,6 +465,7 @@ class LevelIterator final : public InternalIterator {
                 const EnvOptions& env_options,
                 const InternalKeyComparator& icomparator,
                 const LevelFilesBrief* flevel,
+                const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
                 const SliceTransform* prefix_extractor, bool should_sample,
                 HistogramImpl* file_read_hist, bool for_compaction,
                 bool skip_filters, int level, RangeDelAggregator* range_del_agg)
@@ -473,6 +474,7 @@ class LevelIterator final : public InternalIterator {
         env_options_(env_options),
         icomparator_(icomparator),
         flevel_(flevel),
+        depend_files_(depend_files),
         prefix_extractor_(prefix_extractor),
         file_read_hist_(file_read_hist),
         should_sample_(should_sample),
@@ -554,7 +556,7 @@ class LevelIterator final : public InternalIterator {
 
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
-        range_del_agg_, prefix_extractor_,
+        depend_files_, range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */,
         file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
         level_);
@@ -565,6 +567,7 @@ class LevelIterator final : public InternalIterator {
   const EnvOptions& env_options_;
   const InternalKeyComparator& icomparator_;
   const LevelFilesBrief* flevel_;
+  const std::unordered_map<uint64_t, FileMetaData*>& depend_files_;
   mutable FileDescriptor current_value_;
   const SliceTransform* prefix_extractor_;
 
@@ -1007,7 +1010,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(), *file.file_metadata,
-          range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
+          storage_info_.depend_files(), range_del_agg,
+          mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0), false, arena,
           false /* skip_filters */, 0 /* level */));
     }
@@ -1028,8 +1032,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     merge_iter_builder->AddIterator(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
-        cfd_->internal_stats()->GetFileReadHist(level),
+        storage_info_.depend_files(), mutable_cf_options_.prefix_extractor.get(),
+        should_sample_file_read(), cfd_->internal_stats()->GetFileReadHist(level),
         false /* for_compaction */, IsFilterSkipped(level), level,
         range_del_agg));
   }
@@ -1059,8 +1063,9 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         continue;
       }
       ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
-          read_options, env_options, cfd_->internal_comparator(), *file->file_metadata,
-          &range_del_agg, mutable_cf_options_.prefix_extractor.get(), nullptr,
+          read_options, env_options, cfd_->internal_comparator(),
+          *file->file_metadata, storage_info_.depend_files(), &range_del_agg,
+          mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0), false, &arena,
           false /* skip_filters */, 0 /* level */));
       status = OverlapWithIterator(
@@ -1074,8 +1079,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
     ScopedArenaIterator iter(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, env_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
-        cfd_->internal_stats()->GetFileReadHist(level),
+        storage_info_.depend_files(), mutable_cf_options_.prefix_extractor.get(),
+        should_sample_file_read(), cfd_->internal_stats()->GetFileReadHist(level),
         false /* for_compaction */, IsFilterSkipped(level), level,
         &range_del_agg));
     status = OverlapWithIterator(
@@ -1205,8 +1210,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
 
     *status = table_cache_->Get(
-        read_options, *internal_comparator(), *f->file_metadata, ikey,
-        &get_context, mutable_cf_options_.prefix_extractor.get(),
+        read_options, *internal_comparator(), *f->file_metadata,
+        storage_info_.depend_files(), ikey, &get_context,
+        mutable_cf_options_.prefix_extractor.get(),
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
@@ -1750,9 +1756,9 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   // Must not overlap
 #ifndef NDEBUG
   if (level > 0 && level < num_levels_ && !level_files->empty() &&
-      internal_comparator_->Compare(
-          (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
-    auto* f2 = (*level_files)[level_files->size() - 1];
+      internal_comparator_->Compare(level_files->back()->largest,
+                                    f->smallest) >= 0) {
+    auto* f2 = level_files->back();
     if (info_log != nullptr) {
       Error(info_log, "Adding new file %" PRIu64
                       " range (%s, %s) to level %d but overlapping "
@@ -1770,6 +1776,9 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
 #endif
   f->refs++;
   level_files->push_back(f);
+  if (level == num_levels_) {
+    depend_files_.emplace(f->fd.GetNumber(), f);
+  }
 }
 
 // Version::PrepareApply() need to be called before calling the function, or
@@ -4103,7 +4112,8 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     TableReader* table_reader_ptr;
     InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
         ReadOptions(), v->env_options_, v->cfd_->internal_comparator(),
-        *f.file_metadata, nullptr /* range_del_agg */,
+        *f.file_metadata, v->storage_info()->depend_files(),
+        nullptr /* range_del_agg */,
         v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
       result = table_reader_ptr->ApproximateOffsetOf(key);
@@ -4175,6 +4185,7 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator* [space];
+  auto& depend_files = c->input_version()->storage_info()->depend_files();
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -4183,7 +4194,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, env_options_compactions, cfd->internal_comparator(),
-              *flevel->files[i].file_metadata, range_del_agg,
+              *flevel->files[i].file_metadata, depend_files, range_del_agg,
               c->mutable_cf_options()->prefix_extractor.get(),
               nullptr /* table_reader_ptr */,
               nullptr /* no per level latency histogram */,
@@ -4194,7 +4205,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         // Create concatenating iterator for the files from this level
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, env_options_compactions,
-            cfd->internal_comparator(), c->input_levels(which),
+            cfd->internal_comparator(), c->input_levels(which), depend_files,
             c->mutable_cf_options()->prefix_extractor.get(),
             false /* should_sample */,
             nullptr /* no per level latency histogram */,

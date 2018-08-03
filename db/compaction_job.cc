@@ -660,6 +660,9 @@ Status CompactionJob::Run() {
         if (file_idx >= files_meta.size()) {
           break;
         }
+        // Use empty depend files to disable map or link sst forward calls
+        // depend files will build in InstallCompactionResults
+        std::unordered_map<uint64_t, FileMetaData*> empty_depend_files;
         // Verify that the table is usable
         // We set for_compaction to false and don't OptimizeForCompactionTableRead
         // here because this is a special case after we finish the table building
@@ -668,8 +671,8 @@ Status CompactionJob::Run() {
         // to cache it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
-            *files_meta[file_idx], nullptr /* range_del_agg */,
-            prefix_extractor, nullptr,
+            *files_meta[file_idx], empty_depend_files,
+            nullptr /* range_del_agg */, prefix_extractor, nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
             false, nullptr /* arena */, false /* skip_filters */,

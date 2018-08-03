@@ -181,6 +181,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
+    const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
     RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level) {
@@ -287,13 +288,14 @@ InternalIterator* TableCache::NewIterator(
   return result;
 }
 
-Status TableCache::Get(const ReadOptions& options,
-                       const InternalKeyComparator& internal_comparator,
-                       const FileMetaData& file_meta, const Slice& k,
-                       GetContext* get_context,
-                       const SliceTransform* prefix_extractor,
-                       HistogramImpl* file_read_hist, bool skip_filters,
-                       int level) {
+Status TableCache::Get(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+    const Slice& k, GetContext* get_context,
+    const SliceTransform* prefix_extractor,
+    HistogramImpl* file_read_hist, bool skip_filters, int level) {
   // TODO(zouzhizhang): handle map or link
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
