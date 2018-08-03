@@ -228,6 +228,8 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
   ASSERT_OK(dbi->EnableFileDeletions(true /* force */));
   ASSERT_EQ(optsfiles_nums.size(), optsfiles_keep.size());
 
+  CloseDB();
+
   std::vector<std::string> files;
   int opts_file_count = 0;
   ASSERT_OK(env_->GetChildren(dbname_, &files));
@@ -243,8 +245,6 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
     }
   }
   ASSERT_EQ(2, opts_file_count);
-
-  CloseDB();
 }
 
 } //namespace rocksdb
