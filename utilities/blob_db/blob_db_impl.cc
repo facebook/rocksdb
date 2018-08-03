@@ -1360,9 +1360,11 @@ Status BlobDBImpl::SyncBlobFiles() {
 // First read the key and expiration of the key, then write the key back
 // with updated expiration if needed.
 //
-// Caveat: updating a key about to expire may make the key reappear after
-// expiration. A fix would be somehow block all readers of the key before
-// blob index being updated.
+// Caveat: Updating a key about to expire may make the key reappear after
+// expiration. Also since the operation is not atomic, it may overwrite a
+// concurrent write. Fix is non-trivial. We may need to block readers to the
+// key until blob index get updated, and we need to use transaction to ensure
+// we don't overwrite concurrent writers.
 Status BlobDBImpl::UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
                              uint64_t ttl) {
   assert(ttl < kNoExpiration - EpochNow());

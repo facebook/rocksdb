@@ -240,7 +240,8 @@ class BlobDB : public StackableDB {
   // Update TTL for an existing key.
   //
   // Caveat: The operation is not atomic. Updating a key about to expire
-  // may make the key reappear after expiration.
+  // may make the key reappear after expiration. Also it may overwrite a
+  // concurrent write.
   virtual Status UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
                            uint64_t ttl) = 0;
 
