@@ -79,15 +79,15 @@ if __name__ == '__main__':
     # these are options that are column-family agnostic and are not yet
     # supported by the Rocksdb Options file: eg. bloom_bits=2
     parser.add_argument(
-        '--base_db_path', required=True, type=str,
-        help='path for the Rocksdb database'
-    )
-    parser.add_argument(
         '--misc_options', nargs='*',
         help='whitespace-separated list of options that are not supported ' +
         'by the Rocksdb OPTIONS file, given in the ' +
         '<option_name>=<option_value> format eg. "bloom_bits=2 ' +
         'rate_limiter_bytes_per_sec=128000000"')
+    parser.add_argument(
+        '--base_db_path', required=True, type=str,
+        help='path for the Rocksdb database'
+    )
     parser.add_argument(
         '--rules_spec', required=True, type=str,
         help='path of the file containing the expert-specified Rules'
