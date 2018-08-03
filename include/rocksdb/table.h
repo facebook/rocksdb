@@ -108,6 +108,9 @@ struct BlockBasedTableOptions {
   };
 
   DataBlockIndexType data_block_index_type = kDataBlockBinarySearch;
+  // #entries/#buckets
+  double data_block_hash_table_util_ratio = 0.75;
+
 
   // This option is now deprecated. No matter what value it is set to,
   // it will behave as if hash_index_allow_collision=true.
