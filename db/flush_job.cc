@@ -391,7 +391,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction, meta_.sst_variety,
-                   meta_.sst_takeover);
+                   meta_.sst_depend);
   }
 
   // Note that here we treat flush as level 0 compaction in internal stats

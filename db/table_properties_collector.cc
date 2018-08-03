@@ -58,12 +58,12 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
           {"kMergeOperands", ToString(merge_operands_)}};
 }
 
-Status SstGenePropertiesCollector::Finish(
+Status SstVarietyPropertiesCollector::Finish(
     UserCollectedProperties* properties) {
   assert(properties);
   assert(properties->find(SSTVarietiesTablePropertiesNames::kSstVariety) ==
          properties->end());
-  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstTakeover) ==
+  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstDepend) ==
          properties->end());
 
   auto sst_variety_value = std::string((const char*)&sst_variety_, 1);
@@ -71,31 +71,31 @@ Status SstGenePropertiesCollector::Finish(
       {SSTVarietiesTablePropertiesNames::kSstVariety, sst_variety_value});
 
   std::string sst_takeover_value;
-  PutVarint64(&sst_takeover_value, sst_takeover_->size());
-  for (auto sst_id : *sst_takeover_) {
+  PutVarint64(&sst_takeover_value, sst_depend_->size());
+  for (auto sst_id : *sst_depend_) {
     PutVarint64(&sst_takeover_value, sst_id);
   }
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstTakeover, sst_takeover_value});
+      {SSTVarietiesTablePropertiesNames::kSstDepend, sst_takeover_value});
 
   return Status::OK();
 }
 
 UserCollectedProperties
-SstGenePropertiesCollector::GetReadableProperties() const {
+SstVarietyPropertiesCollector::GetReadableProperties() const {
   std::string sst_takeover_value;
-  if (sst_takeover_->empty()) {
+  if (sst_depend_->empty()) {
     sst_takeover_value += "[]";
   } else {
     sst_takeover_value += '[';
-    for (auto sst_id : *sst_takeover_) {
+    for (auto sst_id : *sst_depend_) {
       sst_takeover_value += ToString(sst_id);
       sst_takeover_value += ',';
     }
     sst_takeover_value.back() = ']';
   }
   return {{"kSstVariety", ToString((int)sst_variety_)},
-          {"kSstTakeover", sst_takeover_value}};
+          {"kSstDepend", sst_takeover_value}};
 }
 
 namespace {
@@ -145,7 +145,7 @@ const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
 const std::string SSTVarietiesTablePropertiesNames::kSstVariety =
     "rocksdb.sst.gene";
-const std::string SSTVarietiesTablePropertiesNames::kSstTakeover =
+const std::string SSTVarietiesTablePropertiesNames::kSstDepend =
     "rocksdb.sst.takeover";
 
 uint64_t GetDeletedKeys(
@@ -161,7 +161,7 @@ uint64_t GetMergeOperands(const UserCollectedProperties& props,
       props, InternalKeyTablePropertiesNames::kMergeOperands, property_present);
 }
 
-uint8_t GetSstGene(
+uint8_t GetSstVariety(
     const UserCollectedProperties& props) {
   auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstVariety);
   if (pos == props.end()) {
@@ -171,10 +171,10 @@ uint8_t GetSstGene(
   return raw[0];
 }
 
-std::vector<uint64_t> GetSstTakeover(
+std::vector<uint64_t> GetSstDepend(
     const UserCollectedProperties& props) {
   std::vector<uint64_t> result;
-  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstTakeover);
+  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstDepend);
   if (pos == props.end()) {
     return result;
   }

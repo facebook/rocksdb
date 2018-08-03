@@ -1206,17 +1206,17 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
       sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
-  std::vector<uint64_t> sst_takeover;
+  std::vector<uint64_t> sst_depend;
   for (auto level_files : *sub_compact->compaction->inputs()) {
     for (auto file : level_files.files) {
-      sst_takeover.emplace_back(file->fd.GetNumber());
+      sst_depend.emplace_back(file->fd.GetNumber());
     }
   }
-  std::sort(sst_takeover.begin(), sst_takeover.end());
+  std::sort(sst_depend.begin(), sst_depend.end());
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
-      new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_takeover));
+      new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend));
 
   auto status = OpenCompactionOutputFile(sub_compact, &collectors);
   if (!status.ok()) {
@@ -1257,7 +1257,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   status = FinishCompactionOutputFile(
       status, sub_compact, range_del_agg.get(), &range_del_out_stats);
   sub_compact->current_output()->meta.sst_variety = kLinkSst;
-  sub_compact->current_output()->meta.sst_takeover = std::move(sst_takeover);
+  sub_compact->current_output()->meta.sst_depend = std::move(sst_depend);
   sub_compact->actual_start = sub_compact->current_output()->meta.smallest;
   sub_compact->actual_end = sub_compact->current_output()->meta.largest;
   if (!status.ok()) {

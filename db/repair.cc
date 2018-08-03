@@ -535,8 +535,8 @@ class Repairer {
       }
       delete iter;
 
-      t->meta.sst_variety = GetSstGene(props->user_collected_properties);
-      t->meta.sst_takeover = GetSstTakeover(props->user_collected_properties);
+      t->meta.sst_variety = GetSstVariety(props->user_collected_properties);
+      t->meta.sst_depend = GetSstDepend(props->user_collected_properties);
 
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,
@@ -567,24 +567,25 @@ class Repairer {
       edit.SetNextFile(next_file_number_);
       edit.SetColumnFamily(cfd->GetID());
 
-      std::set<uint64_t> hidden_id;
+      std::set<uint64_t> depend_set;
       for (const auto* table : cf_id_and_tables.second) {
         if (table->meta.sst_variety != 0) {
-          auto& sst_takeover = table->meta.sst_takeover;
-          hidden_id.insert(sst_takeover.begin(), sst_takeover.end());
+          auto& sst_depend = table->meta.sst_depend;
+          depend_set.insert(sst_depend.begin(), sst_depend.end());
         }
       }
       // TODO(opt): separate out into multiple levels
       for (const auto* table : cf_id_and_tables.second) {
         int level = 0;
-        if (hidden_id.count(table->meta.fd.GetNumber()) > 0) {
+        if (depend_set.count(table->meta.fd.GetNumber()) > 0) {
+          // This sst should insert into depend level
           level = default_cf_iopts_.num_levels;
         }
         edit.AddFile(level, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
                      table->meta.fd.GetFileSize(), table->meta.smallest,
                      table->meta.largest, table->min_sequence,
                      table->max_sequence, table->meta.marked_for_compaction,
-                     table->meta.sst_variety, table->meta.sst_takeover);
+                     table->meta.sst_variety, table->meta.sst_depend);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

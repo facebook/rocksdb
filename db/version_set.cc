@@ -352,7 +352,7 @@ Version::~Version() {
   next_->prev_ = prev_;
 
   // Drop references to files
-  // here use level less or EQUAL num_levels for clean hidden files
+  // here use level less or EQUAL num_levels for clean depend files
   for (int level = 0; level <= storage_info_.num_levels_; level++) {
     for (size_t i = 0; i < storage_info_.files_[level].size(); i++) {
       FileMetaData* f = storage_info_.files_[level][i];
@@ -1373,7 +1373,7 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
     // compensated_file_size, making lower-level to higher-level compaction
     // will be triggered, which creates higher-level files whose num_deletions
     // will be updated here.
-    // here use level less or EQUAL num_levels for include hidden files
+    // here use level less or EQUAL num_levels for include depend files
     for (int level = 0;
          level <= storage_info_.num_levels_ && init_count < kMaxInitCount;
          ++level) {
@@ -1399,7 +1399,7 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
     // In case all sampled-files contain only deletion entries, then we
     // load the table-property of a file in higher-level to initialize
     // that value.
-    // here use level start from num_levels for include hidden files
+    // here use level start from num_levels for include depend files
     for (int level = storage_info_.num_levels_;
          storage_info_.accumulated_raw_value_size_ == 0 && level >= 0;
          --level) {
@@ -3699,7 +3699,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
     new_files_list[new_levels - 1] = vstorage->LevelFiles(first_nonempty_level);
   }
 
-  // Keep the hidden layer sst files
+  // Keep the depend layer sst files
   new_files_list[new_levels] = vstorage->LevelFiles(current_levels);
 
   delete[] vstorage -> files_;
@@ -3983,7 +3983,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->sst_variety,
-                       f->sst_takeover);
+                       f->sst_depend);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
