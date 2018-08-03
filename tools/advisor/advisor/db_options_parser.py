@@ -6,7 +6,6 @@
 import copy
 from advisor.db_log_parser import DataSource, NO_COL_FAMILY
 from advisor.ini_parser import IniParser
-from advisor.rule_parser import Condition, OptionCondition
 import os
 
 
@@ -28,10 +27,12 @@ class OptionsSpecParser(IniParser):
 
     @staticmethod
     def get_section_name(line):
+        # example: get_section_name('[CFOptions "default"]')
         token_list = line.strip()[1:-1].split('"')
+        # token_list = ['CFOptions', 'default', '']
         if len(token_list) < 3:
             return None
-        return token_list[1]
+        return token_list[1]  # return 'default'
 
     @staticmethod
     def get_section_str(section_type, section_name):
@@ -73,6 +74,9 @@ class DatabaseOptions(DataSource):
 
     @staticmethod
     def is_misc_option(option_name):
+        # these are miscellaneous options that are not yet supported by the
+        # Rocksdb options file, hence they are not prefixed with any section
+        # name
         return '.' not in option_name
 
     @staticmethod
@@ -352,88 +356,3 @@ class DatabaseOptions(DataSource):
             # field
             if col_fam_options_dict:
                 cond.set_trigger(col_fam_options_dict)
-
-
-# TODO(poojam23): remove these methods once the unit tests for this class are
-# in place
-def main():
-    options_file = 'temp/OPTIONS_default.tmp'
-    misc_options = ["misc_opt1=10", "misc_opt2=100", "misc_opt3=1000"]
-    db_options = DatabaseOptions(options_file, misc_options)
-    print(db_options.get_column_families())
-    get_op = db_options.get_options([
-        'DBOptions.db_log_dir',
-        'DBOptions.is_fd_close_on_exec',
-        'CFOptions.memtable_prefix_bloom_size_ratio',
-        'TableOptions.BlockBasedTable.verify_compression',
-        'misc_opt1',
-        'misc_opt3'
-    ])
-    print(get_op)
-    get_op['DBOptions.db_log_dir'][NO_COL_FAMILY] = 'some_random_path'
-    get_op['CFOptions.memtable_prefix_bloom_size_ratio']['default'] = 2.31
-    get_op['TableOptions.BlockBasedTable.verify_compression']['default'] = 4.4
-    get_op['misc_opt2'] = {}
-    get_op['misc_opt2'][NO_COL_FAMILY] = 2
-    db_options.update_options(get_op)
-    print('options updated in ' + db_options.generate_options_config(123))
-    print('misc options ' + repr(db_options.get_misc_options()))
-
-    options_file = 'temp/OPTIONS_123.tmp'
-    db_options = DatabaseOptions(options_file, misc_options)
-    # only CFOptions
-    cond1 = Condition('opt-cond-1')
-    cond1 = OptionCondition.create(cond1)
-    cond1.set_parameter(
-        'options', [
-            'CFOptions.level0_file_num_compaction_trigger',
-            'CFOptions.write_buffer_size',
-            'CFOptions.max_bytes_for_level_base'
-        ]
-    )
-    cond1.set_parameter(
-        'evaluate',
-        'int(options[0])*int(options[1])-int(options[2])>=0'
-    )
-    # only DBOptions
-    cond2 = Condition('opt-cond-2')
-    cond2 = OptionCondition.create(cond2)
-    cond2.set_parameter(
-        'options', [
-            'DBOptions.max_file_opening_threads',
-            'DBOptions.table_cache_numshardbits',
-            'misc_opt2',
-            'misc_opt3'
-        ]
-    )
-    cond2_expr = (
-        '(int(options[0])*int(options[2]))-' +
-        '((4*int(options[1])*int(options[3]))/10)==0'
-    )
-    cond2.set_parameter('evaluate', cond2_expr)
-    # mix of CFOptions and DBOptions
-    cond3 = Condition('opt-cond-3')
-    cond3 = OptionCondition.create(cond3)
-    cond3.set_parameter(
-        'options', [
-            'DBOptions.max_background_jobs',  # 2
-            'DBOptions.write_thread_slow_yield_usec',  # 3
-            'CFOptions.num_levels',  # 7
-            'misc_opt1'  # 10
-        ]
-    )
-    cond3_expr = (
-        '(int(options[3])*int(options[2]))-' +
-        '(int(options[1])*int(options[0]))==64'
-    )
-    cond3.set_parameter('evaluate', cond3_expr)
-
-    db_options.check_and_trigger_conditions([cond1, cond2, cond3])
-    print(cond1.get_trigger())  # {'col-fam-B': ['4', '10', '10']}
-    print(cond2.get_trigger())  # {'DB_WIDE': ['16', '4']}
-    # {'col-fam-B': ['2', '3', '10'], 'col-fam-A': ['2', '3', '7']}
-    print(cond3.get_trigger())
-
-
-if __name__ == "__main__":
-    main()
