@@ -10,7 +10,7 @@ import org.rocksdb.CompactRangeOptions.BottommostLevelCompaction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class CompacRangeOptionsTest {
+public class CompactRangeOptionsTest {
 
   static {
     RocksDB.loadLibrary();

@@ -2042,7 +2042,7 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
 }
 
 
-void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIJJ( // TODO Check method signature
+void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIJJ(
     JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jbyteArray jbegin,
     jint jbegin_len, jbyteArray jend, jint jend_len,
     jlong jcompact_options_handle, jlong jcf_handle) {

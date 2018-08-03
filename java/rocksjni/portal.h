@@ -2896,7 +2896,7 @@ class BatchResultJni : public JavaClass {
   }
 };
 
-// The portal class for org.rocksdb.BottommostLevelCompactionJni
+// The portal class for org.rocksdb.BottommostLevelCompaction
 class BottommostLevelCompactionJni {
  public:
   // Returns the equivalent org.rocksdb.BottommostLevelCompaction for the provided
