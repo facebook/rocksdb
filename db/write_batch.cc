@@ -727,6 +727,11 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
                               ContentFlags::HAS_END_PREPARE |
                               ContentFlags::HAS_BEGIN_PREPARE,
                           std::memory_order_relaxed);
+  if (unprepared_batch) {
+    b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                                ContentFlags::HAS_BEGIN_UNPREPARE,
+                            std::memory_order_relaxed);
+  }
   return Status::OK();
 }
 

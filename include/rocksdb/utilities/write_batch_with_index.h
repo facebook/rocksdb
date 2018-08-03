@@ -231,6 +231,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status PopSavePoint() override;
 
   void SetMaxBytes(size_t max_bytes) override;
+  size_t GetDataSize() const;
 
  private:
   friend class PessimisticTransactionDB;

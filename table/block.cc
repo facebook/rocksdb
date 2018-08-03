@@ -56,12 +56,40 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
   return p;
 }
 
-void BlockIter::Next() {
+void DataBlockIter::Next() {
   assert(Valid());
-  ParseNextKey();
+  ParseNextDataKey();
 }
 
-void BlockIter::Prev() {
+void IndexBlockIter::Next() {
+  assert(Valid());
+  ParseNextIndexKey();
+}
+
+void IndexBlockIter::Prev() {
+  assert(Valid());
+  // Scan backwards to a restart point before current_
+  const uint32_t original = current_;
+  while (GetRestartPoint(restart_index_) >= original) {
+    if (restart_index_ == 0) {
+      // No more entries
+      current_ = restarts_;
+      restart_index_ = num_restarts_;
+      return;
+    }
+    restart_index_--;
+  }
+  SeekToRestartPoint(restart_index_);
+  do {
+    if (!ParseNextIndexKey()) {
+      break;
+    }
+    // Loop until end of current entry hits the start of original entry
+  } while (NextEntryOffset() < original);
+}
+
+// Similar to IndexBlockIter::Prev but also caches the prev entries
+void DataBlockIter::Prev() {
   assert(Valid());
 
   assert(prev_entries_idx_ == -1 ||
@@ -87,11 +115,7 @@ void BlockIter::Prev() {
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
-    if (key_includes_seq_) {
-      key_.SetInternalKey(current_key, false /* copy */);
-    } else {
-      key_.SetUserKey(current_key, false /* copy */);
-    }
+    key_.SetKey(current_key, false /* copy */);
     value_ = current_prev_entry.value;
 
     return;
@@ -117,7 +141,7 @@ void BlockIter::Prev() {
   SeekToRestartPoint(restart_index_);
 
   do {
-    if (!ParseNextKey()) {
+    if (!ParseNextDataKey()) {
       break;
     }
     Slice current_key = key();
@@ -155,7 +179,7 @@ void DataBlockIter::Seek(const Slice& target) {
   // Linear search (within restart block) for first key >= target
 
   while (true) {
-    if (!ParseNextKey() || Compare(key_, seek_key) >= 0) {
+    if (!ParseNextDataKey() || Compare(key_, seek_key) >= 0) {
       return;
     }
   }
@@ -175,8 +199,7 @@ void IndexBlockIter::Seek(const Slice& target) {
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
   } else {
-    ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index,
-                    key_includes_seq_ ? comparator_ : user_comparator_);
+    ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, active_comparator_);
   }
 
   if (!ok) {
@@ -186,7 +209,7 @@ void IndexBlockIter::Seek(const Slice& target) {
   // Linear search (within restart block) for first key >= target
 
   while (true) {
-    if (!ParseNextKey() || Compare(key_, seek_key) >= 0) {
+    if (!ParseNextIndexKey() || Compare(key_, seek_key) >= 0) {
       return;
     }
   }
@@ -207,7 +230,7 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   SeekToRestartPoint(index);
   // Linear search (within restart block) for first key >= seek_key
 
-  while (ParseNextKey() && Compare(key_, seek_key) < 0) {
+  while (ParseNextDataKey() && Compare(key_, seek_key) < 0) {
   }
   if (!Valid()) {
     SeekToLast();
@@ -218,20 +241,38 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   }
 }
 
-void BlockIter::SeekToFirst() {
+void DataBlockIter::SeekToFirst() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   SeekToRestartPoint(0);
-  ParseNextKey();
+  ParseNextDataKey();
 }
 
-void BlockIter::SeekToLast() {
+void IndexBlockIter::SeekToFirst() {
+  if (data_ == nullptr) {  // Not init yet
+    return;
+  }
+  SeekToRestartPoint(0);
+  ParseNextIndexKey();
+}
+
+void DataBlockIter::SeekToLast() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   SeekToRestartPoint(num_restarts_ - 1);
-  while (ParseNextKey() && NextEntryOffset() < restarts_) {
+  while (ParseNextDataKey() && NextEntryOffset() < restarts_) {
+    // Keep skipping
+  }
+}
+
+void IndexBlockIter::SeekToLast() {
+  if (data_ == nullptr) {  // Not init yet
+    return;
+  }
+  SeekToRestartPoint(num_restarts_ - 1);
+  while (ParseNextIndexKey() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
 }
@@ -244,7 +285,7 @@ void BlockIter::CorruptionError() {
   value_.clear();
 }
 
-bool BlockIter::ParseNextKey() {
+bool DataBlockIter::ParseNextDataKey() {
   current_ = NextEntryOffset();
   const char* p = data_ + current_;
   const char* limit = data_ + restarts_;  // Restarts come right after data
@@ -265,11 +306,7 @@ bool BlockIter::ParseNextKey() {
     if (shared == 0) {
       // If this key dont share any bytes with prev key then we dont need
       // to decode it and can use it's address in the block directly.
-      if (key_includes_seq_) {
-        key_.SetInternalKey(Slice(p, non_shared), false /* copy */);
-      } else {
-        key_.SetUserKey(Slice(p, non_shared), false /* copy */);
-      }
+      key_.SetKey(Slice(p, non_shared), false /* copy */);
       key_pinned_ = true;
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
@@ -283,7 +320,7 @@ bool BlockIter::ParseNextKey() {
       // type is kTypeValue, kTypeMerge, kTypeDeletion, or kTypeRangeDeletion.
       assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
 
-      ValueType value_type = ExtractValueType(key_.GetInternalKey());
+      ValueType value_type = ExtractValueType(key_.GetKey());
       assert(value_type == ValueType::kTypeValue ||
              value_type == ValueType::kTypeMerge ||
              value_type == ValueType::kTypeDeletion ||
@@ -309,6 +346,42 @@ bool BlockIter::ParseNextKey() {
     }
     return true;
   }
+}
+
+bool IndexBlockIter::ParseNextIndexKey() {
+  current_ = NextEntryOffset();
+  const char* p = data_ + current_;
+  const char* limit = data_ + restarts_;  // Restarts come right after data
+  if (p >= limit) {
+    // No more entries to return.  Mark as invalid.
+    current_ = restarts_;
+    restart_index_ = num_restarts_;
+    return false;
+  }
+
+  // Decode next entry
+  uint32_t shared, non_shared, value_length;
+  p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
+  if (p == nullptr || key_.Size() < shared) {
+    CorruptionError();
+    return false;
+  }
+  if (shared == 0) {
+    // If this key dont share any bytes with prev key then we dont need
+    // to decode it and can use it's address in the block directly.
+    key_.SetKey(Slice(p, non_shared), false /* copy */);
+    key_pinned_ = true;
+  } else {
+    // This key share `shared` bytes with prev key, we need to decode it
+    key_.TrimAppend(shared, p, non_shared);
+    key_pinned_ = false;
+  }
+  value_ = Slice(p + non_shared, value_length);
+  while (restart_index_ + 1 < num_restarts_ &&
+         GetRestartPoint(restart_index_ + 1) < current_) {
+    ++restart_index_;
+  }
+  return true;
 }
 
 // Binary search in restart array to find the first restart point that
@@ -349,7 +422,7 @@ bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
 }
 
 // Compare target key and the block key of the block of `block_index`.
-// Return -1 if eror.
+// Return -1 if error.
 int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   uint32_t region_offset = GetRestartPoint(block_index);
   uint32_t shared, non_shared, value_length;

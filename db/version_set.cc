@@ -897,8 +897,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
       }
       files.emplace_back(
           MakeTableFileName("", file->fd.GetNumber()), file_path,
-          file->fd.GetFileSize(), file->smallest_seqno, file->largest_seqno,
-          file->smallest.user_key().ToString(),
+          file->fd.GetFileSize(), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted);
@@ -1212,12 +1212,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
     // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
-        get_context.State() != GetContext::kMerge) {
-      for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
-        if (get_context.tickers_value[t] > 0) {
-          RecordTick(db_statistics_, t, get_context.tickers_value[t]);
-        }
-      }
+        get_context.State() != GetContext::kMerge &&
+        db_statistics_ != nullptr) {
+      get_context.ReportCounters();
     }
     switch (get_context.State()) {
       case GetContext::kNotFound:
@@ -1251,10 +1248,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     f = fp.GetNextFile();
   }
 
-  for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
-    if (get_context.tickers_value[t] > 0) {
-      RecordTick(db_statistics_, t, get_context.tickers_value[t]);
-    }
+  if (db_statistics_ != nullptr) {
+    get_context.ReportCounters();
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {
@@ -1665,8 +1660,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction();
   ComputeBottommostFilesMarkedForCompaction();
-  if (immutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_cf_options);
+  if (mutable_cf_options.ttl > 0) {
+    ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
   }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -1695,8 +1690,8 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 }
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
-    const ImmutableCFOptions& ioptions) {
-  assert(ioptions.ttl > 0);
+    const ImmutableCFOptions& ioptions, const uint64_t ttl) {
+  assert(ttl > 0);
 
   expired_ttl_files_.clear();
 
@@ -1713,8 +1708,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
           f->fd.table_reader->GetTableProperties() != nullptr) {
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 &&
-            creation_time < (current_time - ioptions.ttl)) {
+        if (creation_time > 0 && creation_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }
@@ -1897,13 +1891,15 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [](const Fsize& f1, const Fsize& f2) -> bool {
-                    return f1.file->largest_seqno < f2.file->largest_seqno;
+                    return f1.file->fd.largest_seqno <
+                           f2.file->fd.largest_seqno;
                   });
         break;
       case kOldestSmallestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [](const Fsize& f1, const Fsize& f2) -> bool {
-                    return f1.file->smallest_seqno < f2.file->smallest_seqno;
+                    return f1.file->fd.smallest_seqno <
+                           f2.file->fd.smallest_seqno;
                   });
         break;
       case kMinOverlappingRatio:
@@ -1987,17 +1983,17 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
-        level_and_file.second->largest_seqno != 0 &&
+        level_and_file.second->fd.largest_seqno != 0 &&
         level_and_file.second->num_deletions > 1) {
       // largest_seqno might be nonzero due to containing the final key in an
       // earlier compaction, whose seqnum we didn't zero out. Multiple deletions
       // ensures the file really contains deleted or overwritten keys.
-      if (level_and_file.second->largest_seqno < oldest_snapshot_seqnum_) {
+      if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
         bottommost_files_marked_for_compaction_.push_back(level_and_file);
       } else {
         bottommost_files_mark_threshold_ =
             std::min(bottommost_files_mark_threshold_,
-                     level_and_file.second->largest_seqno);
+                     level_and_file.second->fd.largest_seqno);
       }
     }
   }
@@ -2423,7 +2419,7 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
     AppendHumanBytes(f->fd.GetFileSize(), sztxt, sizeof(sztxt));
     int ret = snprintf(scratch->buffer + len, sz,
                        "#%" PRIu64 "(seq=%" PRIu64 ",sz=%s,%d) ",
-                       f->fd.GetNumber(), f->smallest_seqno, sztxt,
+                       f->fd.GetNumber(), f->fd.smallest_seqno, sztxt,
                        static_cast<int>(f->being_compacted));
     if (ret < 0 || ret >= sz)
       break;
@@ -2995,23 +2991,29 @@ Status VersionSet::ProcessManifestWrites(
         delete first_writer.cfd;
       }
     } else {
-      uint64_t max_log_number_in_batch  = 0;
+      // Each version in versions corresponds to a column family.
+      // For each column family, update its log number indicating that logs
+      // with number smaller than this should be ignored.
+      for (const auto version : versions) {
+        uint64_t max_log_number_in_batch = 0;
+        uint32_t cf_id = version->cfd_->GetID();
+        for (const auto& e : batch_edits) {
+          if (e->has_log_number_ && e->column_family_ == cf_id) {
+            max_log_number_in_batch =
+                std::max(max_log_number_in_batch, e->log_number_);
+          }
+        }
+        if (max_log_number_in_batch != 0) {
+          assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
+          version->cfd_->SetLogNumber(max_log_number_in_batch);
+        }
+      }
+
       uint64_t last_min_log_number_to_keep = 0;
       for (auto& e : batch_edits) {
-        if (e->has_log_number_) {
-          max_log_number_in_batch =
-              std::max(max_log_number_in_batch, e->log_number_);
-        }
         if (e->has_min_log_number_to_keep_) {
           last_min_log_number_to_keep =
               std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
-        }
-      }
-      if (max_log_number_in_batch != 0) {
-        for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-          ColumnFamilyData* cfd = versions[i]->cfd_;
-          assert(cfd->GetLogNumber() <= max_log_number_in_batch);
-          cfd->SetLogNumber(max_log_number_in_batch);
         }
       }
 
@@ -3963,7 +3965,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
              cfd->current()->storage_info()->LevelFiles(level)) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno,
+                       f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction);
         }
       }
@@ -4288,8 +4290,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();
         filemetadata.largestkey = file->largest.user_key().ToString();
-        filemetadata.smallest_seqno = file->smallest_seqno;
-        filemetadata.largest_seqno = file->largest_seqno;
+        filemetadata.smallest_seqno = file->fd.smallest_seqno;
+        filemetadata.largest_seqno = file->fd.largest_seqno;
         metadata->push_back(filemetadata);
       }
     }

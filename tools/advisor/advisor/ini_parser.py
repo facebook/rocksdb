@@ -62,8 +62,8 @@ class IniParser:
     def get_key_value_pair(line):
         line = line.strip()
         key = line.split('=')[0].strip()
-        value = line.split('=')[1].strip()
-        if not value:
+        value = "=".join(line.split('=')[1:])
+        if value == "":  # if the option has no value
             return (key, None)
         values = IniParser.get_list_from_value(value)
         if len(values) == 1:

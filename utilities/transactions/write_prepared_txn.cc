@@ -34,6 +34,11 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
     : PessimisticTransaction(txn_db, write_options, txn_options),
       wpt_db_(txn_db) {}
 
+void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
+  PessimisticTransaction::Initialize(txn_options);
+  prepare_batch_cnt_ = 0;
+}
+
 Status WritePreparedTxn::Get(const ReadOptions& read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
