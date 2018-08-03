@@ -361,12 +361,12 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values) {
-    std::vector<PinnableSlice> pinnable_vector;
     assert(values != nullptr);
+    std::vector<PinnableSlice> pinnable_vector(values->size());
     for (size_t i = 0; i < values->size(); ++i) {
-      PinnableSlice pinnable_val(&(*values)[i]);
-      assert(!pinnable_val.IsPinned());
-      pinnable_vector.emplace_back(&(*values)[i]);
+      assert(!pinnable_vector[i].IsPinned());
+      std::string* self_str_ptr = pinnable_vector[i].GetSelf();
+      self_str_ptr->assign((*values)[i]);
     }
     std::vector<Status> s = MultiGet(options, column_family, keys, &pinnable_vector);
     assert(s.size() == pinnable_vector.size());

@@ -1223,7 +1223,8 @@ std::vector<Status> DBImpl::MultiGet(
   // Note: this always resizes the values array
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
-  values->resize(num_keys);
+  // values->resize(num_keys);
+  assert(values->size() == num_keys);
 
   // Keep track of bytes that we read for statistics-recording later
   uint64_t bytes_read = 0;

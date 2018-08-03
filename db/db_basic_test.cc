@@ -738,9 +738,10 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     std::vector<Slice> keys({"k1", "k2", "k3", "k4", "k5", "no_key"});
 
     std::string tmp_string("Temporary data to be overwritten");
-    std::vector<PinnableSlice> values;
+    std::vector<PinnableSlice> values(20);
     for (size_t i = 0; i < 20; ++i) {
-      values.emplace_back(&tmp_string);
+      std::string* self_str_ptr = values[i].GetSelf();
+      self_str_ptr->assign(tmp_string);
     }
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
