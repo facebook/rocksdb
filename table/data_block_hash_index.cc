@@ -16,7 +16,7 @@ const uint32_t kSeed = 2018;
 
 inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
   return static_cast<uint16_t>(
-      rocksdb::XXH32(s.data(), s.size(), kSeed) % num_buckets);
+      rocksdb::XXH32(s.data(), static_cast<int>(s.size()), kSeed) % num_buckets);
 }
 
 void DataBlockHashIndexBuilder::Add(const Slice& key,
