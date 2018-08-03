@@ -90,6 +90,10 @@ class GetContext {
 
   bool sample() const { return sample_; }
 
+  bool is_finished() const {
+    return state_ != kNotFound && state_ != kMerge;
+  }
+
   bool CheckCallback(SequenceNumber seq) {
     if (callback_) {
       return callback_->IsVisible(seq);

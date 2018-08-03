@@ -296,8 +296,51 @@ Status TableCache::Get(
     const Slice& k, GetContext* get_context,
     const SliceTransform* prefix_extractor,
     HistogramImpl* file_read_hist, bool skip_filters, int level) {
-  // TODO(zouzhizhang): handle map or link
   auto& fd = file_meta.fd;
+  if (file_meta.sst_variety == (uint8_t)kLinkSst) {
+    Status s;
+    TableReader* t = fd.table_reader;
+    Cache::Handle* handle = nullptr;
+    if (t == nullptr) {
+      s = FindTable(
+          env_options_, internal_comparator, fd, &handle, prefix_extractor,
+          options.read_tier == kBlockCacheTier /* no_io */,
+          true /* record_read_stats */, file_read_hist, skip_filters, level);
+      if (s.ok()) {
+        t = GetTableReaderFromHandle(handle);
+      }
+    }
+    if (s.ok()) {
+      auto callback = [&](const Slice& ikey, const Slice& value) {
+        SstLinkElement link;
+        if (!link.Decode(ikey, value)) {
+          return false;
+        }
+        auto find = depend_files.find(link.sst_id);
+        if (find == depend_files.end()) {
+          return false;
+        }
+        s = Get(options, internal_comparator, *find->second, depend_files, k,
+                get_context, prefix_extractor, file_read_hist, skip_filters,
+                level);
+        if (!s.ok() || get_context->is_finished()) {
+          return false;
+        }
+        return internal_comparator.user_comparator()->Compare(
+                   ExtractUserKey(k), ExtractUserKey(ikey)) == 0;
+      };
+      typedef decltype(callback) callback_t;
+      t->RangeScan(&k, &callback,
+                   [](void* arg, const Slice& ikey, const Slice& value) {
+                     return (*(callback_t*)arg)(ikey, value);
+                   });
+    }
+    if (handle != nullptr) {
+      ReleaseHandle(handle);
+    }
+    return s;
+  }
+  // TODO(zouzhizhang): handle link
   std::string* row_cache_entry = nullptr;
   bool done = false;
 #ifndef ROCKSDB_LITE
