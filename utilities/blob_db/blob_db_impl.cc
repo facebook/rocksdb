@@ -990,7 +990,7 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
 }
 
 Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
-                                PinnableSlice* value) {
+                                PinnableSlice* value, uint64_t* expiration) {
   assert(value != nullptr);
   BlobIndex blob_index;
   Status s = blob_index.DecodeFrom(index_entry);
@@ -999,6 +999,9 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
   if (blob_index.HasTTL() && blob_index.expiration() <= EpochNow()) {
     return Status::NotFound("Key expired");
+  }
+  if (expiration != nullptr) {
+    *expiration = blob_index.HasTTL() ? blob_index.expiration() : kNoExpiration;
   }
   if (blob_index.IsInlined()) {
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
@@ -1142,7 +1145,7 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
 
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* value) {
+                           PinnableSlice* value, uint64_t* expiration) {
   if (column_family != DefaultColumnFamily()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
@@ -1152,6 +1155,10 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   // TODO(yiwu): For Get() retry if file not found would be a simpler strategy.
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
+
+  if (expiration != nullptr) {
+    *expiration = kNoExpiration;
+  }
 
   Status s;
   bool is_blob_index = false;
@@ -1163,7 +1170,7 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   if (s.ok() && is_blob_index) {
     std::string index_entry = value->ToString();
     value->Reset();
-    s = GetBlobValue(key, index_entry, value);
+    s = GetBlobValue(key, index_entry, value, expiration);
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
@@ -1348,6 +1355,35 @@ Status BlobDBImpl::SyncBlobFiles() {
                     s.ToString().c_str());
   }
   return s;
+}
+
+// First read the key and expiration of the key, then write the key back
+// with updated expiration if needed.
+//
+// Caveat: updating a key about to expire may make the key reappear after
+// expiration. A fix would be somehow block all readers of the key before
+// blob index being updated.
+Status BlobDBImpl::UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
+                             uint64_t ttl) {
+  assert(ttl < kNoExpiration - EpochNow());
+  uint64_t new_expiration = EpochNow() + ttl;
+  PinnableSlice value;
+  uint64_t expiration;
+  Status s = GetImpl(options.read_options, DefaultColumnFamily(), key, &value,
+                     &expiration);
+  if (!s.ok()) {
+    return s;
+  }
+  switch (options.mode) {
+    case UpdateTTLMode::kExtend:
+      if (expiration >= new_expiration) {
+        return Status::OK();
+      }
+      break;
+    default:
+      assert(options.mode == UpdateTTLMode::kUpdate);
+  }
+  return PutUntil(options.write_options, key, value, new_expiration);
 }
 
 std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {

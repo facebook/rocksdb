@@ -93,6 +93,25 @@ struct BlobDBOptions {
   void Dump(Logger* log) const;
 };
 
+// Enum to define behavior of updating TTL of existing key.
+enum class UpdateTTLMode : int {
+  // Change TTL to given TTL, regardless of existing TTL.
+  kUpdate = 1,
+
+  // If existing TTL is longer than given TTL, keep existing TTL.
+  kExtend = 2,
+};
+
+struct UpdateTTLOptions {
+  const ReadOptions& read_options;
+  const WriteOptions& write_options;
+  UpdateTTLMode mode;
+
+  UpdateTTLOptions(const ReadOptions& ro, const WriteOptions& wo,
+                   UpdateTTLMode mo)
+      : read_options(ro), write_options(wo), mode(mo) {}
+};
+
 class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
@@ -217,6 +236,13 @@ class BlobDB : public StackableDB {
   virtual BlobDBOptions GetBlobDBOptions() const = 0;
 
   virtual Status SyncBlobFiles() = 0;
+
+  // Update TTL for an existing key.
+  //
+  // Caveat: The operation is not atomic. Updating a key about to expire
+  // may make the key reappear after expiration.
+  virtual Status UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
+                           uint64_t ttl) = 0;
 
   virtual ~BlobDB() {}
 

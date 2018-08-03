@@ -177,6 +177,9 @@ class BlobDBImpl : public BlobDB {
 
   Status SyncBlobFiles() override;
 
+  Status UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
+                   uint64_t ttl) override;
+
   void UpdateLiveSSTSize();
 
   void GetCompactionContext(BlobCompactionContext* context);
@@ -215,10 +218,10 @@ class BlobDBImpl : public BlobDB {
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value);
+                 PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
-                      PinnableSlice* value);
+                      PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
