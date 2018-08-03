@@ -481,6 +481,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
   block_based_options.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinarySearch;
+  block_based_options.data_block_hash_table_util_ratio = 0.75;
   block_based_options.filter_policy.reset(NewBloomFilterPolicy(10));
   block_based_options.block_cache =
       NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
