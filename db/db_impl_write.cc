@@ -710,7 +710,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   assert(write_context != nullptr && need_log_sync != nullptr);
   Status status;
 
-  status = error_handler_.GetBGError();
+  if (error_handler_.IsDBStopped()) {
+    status = error_handler_.GetBGError();
+  }
 
   PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
 
@@ -1182,7 +1184,11 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       mutex_.Lock();
     }
 
-    while (!error_handler_.IsDBStopped() && write_controller_.IsStopped()) {
+    // Don't wait if there's a background error, even if its a soft error. We
+    // might wait here indefinitely as the background compaction may never
+    // finish successfully, resulting in the stall condition lasting
+    // indefinitely
+    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped()) {
       if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
@@ -1198,7 +1204,19 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     RecordTick(stats_, STALL_MICROS, time_delayed);
   }
 
-  return error_handler_.GetBGError();
+  // If DB is not in read-only mode and write_controller is not stopping
+  // writes, we can ignore any background errors and allow the write to
+  // proceed
+  Status s;
+  if (write_controller_.IsStopped()) {
+    // If writes are still stopped, it means we bailed due to a background
+    // error
+    s = Status::Incomplete(error_handler_.GetBGError().ToString());
+  }
+  if (error_handler_.IsDBStopped()) {
+    s = error_handler_.GetBGError();
+  }
+  return s;
 }
 
 Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,

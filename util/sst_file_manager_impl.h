@@ -131,6 +131,9 @@ class SstFileManagerImpl : public SstFileManager {
   void OnDeleteFileImpl(const std::string& file_path);
 
   void ClearError();
+  bool CheckFreeSpace() {
+    return bg_err_.severity() == Status::Severity::kSoftError;
+  }
 
   Env* env_;
   std::shared_ptr<Logger> logger_;
@@ -162,8 +165,8 @@ class SstFileManagerImpl : public SstFileManager {
   // A path in the filesystem corresponding to this SFM. This is used for
   // calling Env::GetFreeSpace. Posix requires a path in the filesystem
   std::string path_;
-  // Flag to indicate whether to check for available disk space
-  bool check_free_space_;
+  // Save the current background error
+  Status bg_err_;
   // Amount of free disk headroom before allowing recovery from hard errors
   uint64_t reserved_disk_buffer_;
   // For soft errors, amount of free disk space before we can allow

@@ -32,7 +32,6 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                         max_trash_db_ratio, bytes_max_delete_chunk),
       cv_(&mu_),
       closing_(false),
-      check_free_space_(false),
       reserved_disk_buffer_(0),
       free_space_trigger_(0) {
   bg_thread_.reset(new port::Thread(&SstFileManagerImpl::ClearError, this));
@@ -159,10 +158,11 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
                                    : reserved_disk_buffer_);
   if (max_allowed_space_ != 0 &&
       (needed_headroom + total_files_size_ > max_allowed_space_)) {
+    cur_compactions_reserved_size_ -= size_added_by_compaction;
     return false;
   }
 
-  if (check_free_space_) {
+  if (CheckFreeSpace()) {
     auto fn =
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
@@ -170,8 +170,15 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     env_->GetFreeSpace(fn, &free_space);
     if (free_space < needed_headroom) {
       // We hit the condition of not enough disk space
+      cur_compactions_reserved_size_ -= size_added_by_compaction;
+      ROCKS_LOG_ERROR(logger_, "free space [%d bytes] is less than "
+          "needed headroom [%d bytes]\n", free_space, needed_headroom);
       return false;
     }
+  } else {
+    // Take a snapshot of cur_compactions_reserved_size_ for when we encounter
+    // a NoSpace error.
+    free_space_trigger_ = cur_compactions_reserved_size_;
   }
   return true;
 }
@@ -226,9 +233,8 @@ void SstFileManagerImpl::ClearError() {
   while (true) {
     MutexLock l(&mu_);
 
-    while (error_handler_list_.empty() && !check_free_space_ && !closing_) {
+    while (error_handler_list_.empty() && !closing_) {
       cv_.Wait();
-      ;
     }
 
     if (closing_) {
@@ -238,23 +244,28 @@ void SstFileManagerImpl::ClearError() {
     uint64_t free_space;
     Status s = env_->GetFreeSpace(path_, &free_space);
     if (s.ok()) {
-      if (!error_handler_list_.empty()) {
+      if (bg_err_.severity() == Status::Severity::kHardError) {
         // Give priority to hard errors
         if (free_space < reserved_disk_buffer_) {
+          ROCKS_LOG_ERROR(logger_, "free space [%d bytes] is less than "
+              "required disk buffer [%d bytes]\n", free_space,
+              reserved_disk_buffer_);
+          ROCKS_LOG_ERROR(logger_, "Cannot clear hard error\n");
           s = Status::NoSpace();
         }
-      } else {
-        assert(check_free_space_);
+      } else if (bg_err_.severity() == Status::Severity::kSoftError) {
         if (free_space < free_space_trigger_) {
+          ROCKS_LOG_WARN(logger_, "free space [%d bytes] is less than "
+              "free space for compaction trigger [%d bytes]\n", free_space,
+              free_space_trigger_);
+          ROCKS_LOG_WARN(logger_, "Cannot clear soft error\n");
           s = Status::NoSpace();
-        } else {
-          check_free_space_ = false;
         }
       }
     }
 
     if (s.ok()) {
-      while (!error_handler_list_.empty()) {
+      if (!error_handler_list_.empty()) {
         ErrorHandler* handler = error_handler_list_.front();
         error_handler_list_.pop_front();
         // Resume() might try to flush memtable and can fail again with
@@ -268,18 +279,23 @@ void SstFileManagerImpl::ClearError() {
           // and continue with the others
           if (!s.IsShutdownInProgress()) {
             if (s.severity() < Status::Severity::kFatalError) {
+              // Abort and try again later
               error_handler_list_.push_front(handler);
             }
-            // Abort and try again later
-            break;
           }
         }
       }
     }
 
-    if (!s.ok() && (!error_handler_list_.empty() || check_free_space_)) {
+    if (error_handler_list_.empty()) {
+      ROCKS_LOG_INFO(logger_, "Clearing error\n");
+      bg_err_ = Status::OK();
+    }
+
+    if (!s.ok() && !error_handler_list_.empty()) {
       // If recovery failed, reschedule after 5 seconds
-      cv_.TimedWait(5000000);
+      int64_t wait_until = env_->NowMicros() + 5000000;
+      cv_.TimedWait(wait_until);
     }
   }
 }
@@ -288,30 +304,34 @@ void SstFileManagerImpl::StartErrorRecovery(ErrorHandler* handler,
                                             Status bg_error) {
   MutexLock l(&mu_);
   if (bg_error.severity() == Status::Severity::kSoftError) {
-    if (!check_free_space_) {
-      // This is the first instance of a NoSpace error. Set the flag to check
-      // for disk space, and take a snapshot of compaction_start_count_.
-      // Setting the check_free_space_ flag basically means we're in degraded
-      // mode
-      check_free_space_ = true;
-      // Assume that all pending compactions will fail similarly. Set the
-      // trigger for clearing this condition to current compaction reserved
+    if (bg_err_.ok()) {
+      // Setting bg_err_ basically means we're in degraded mode
+      // Assume that all pending compactions will fail similarly. The trigger
+      // for clearing this condition is set to current compaction reserved
       // size, so we stop checking disk space available in
       // EnoughRoomForCompaction once this much free space is available
-      free_space_trigger_ = cur_compactions_reserved_size_;
-      cv_.SignalAll();
+      bg_err_ = bg_error;
     }
   } else if (bg_error.severity() == Status::Severity::kHardError) {
-    // If this is the first instance of this error, kick of a thread to poll
-    // and recover from this condition
-    if (error_handler_list_.empty()) {
-      error_handler_list_.push_back(handler);
-      cv_.SignalAll();
-    } else {
-      error_handler_list_.push_back(handler);
-    }
+    bg_err_ = bg_error;
   } else {
     assert(false);
+  }
+
+  // If this is the first instance of this error, kick of a thread to poll
+  // and recover from this condition
+  if (error_handler_list_.empty()) {
+    error_handler_list_.push_back(handler);
+    cv_.SignalAll();
+  } else {
+    // Check if this DB instance is already in the list
+    for (auto iter = error_handler_list_.begin();
+         iter != error_handler_list_.end(); ++iter) {
+      if ((*iter) == handler) {
+        return;
+      }
+    }
+    error_handler_list_.push_back(handler);
   }
 }
 

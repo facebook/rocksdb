@@ -39,7 +39,8 @@ class ErrorHandlerListener : public EventListener {
       : mutex_(),
         cv_(&mutex_),
         no_auto_recovery_(false),
-        recovery_complete_(false) {}
+        recovery_complete_(false),
+        override_bg_error_(false) {}
 
   void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
                             Status /*bg_error*/, bool* auto_recovery) {
@@ -66,19 +67,34 @@ class ErrorHandlerListener : public EventListener {
     return false;
   }
 
+  void OnBackgroundError(BackgroundErrorReason /*reason*/,
+                         Status* bg_error) override {
+    if (override_bg_error_) {
+      *bg_error = bg_error_;
+      override_bg_error_ = false;
+    }
+  }
+
   void EnableAutoRecovery(bool enable = true) { no_auto_recovery_ = !enable; }
+
+  void OverrideBGError(Status bg_err) {
+    bg_error_ = bg_err;
+    override_bg_error_ = true;
+  }
 
  private:
   InstrumentedMutex mutex_;
   InstrumentedCondVar cv_;
   bool no_auto_recovery_;
   bool recovery_complete_;
+  bool override_bg_error_;
+  Status bg_error_;
 };
 
 TEST_F(DBErrorHandlingTest, FLushWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
-  ErrorHandlerListener* listener = new ErrorHandlerListener();
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.env = fault_env.get();
@@ -109,9 +125,11 @@ TEST_F(DBErrorHandlingTest, FLushWriteError) {
 TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(listener);
   options.env = fault_env.get();
   Status s;
   DestroyAndReopen(options);
@@ -121,6 +139,10 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
+  listener->OverrideBGError(
+      Status(Status::NoSpace(), Status::Severity::kHardError)
+      );
+  listener->EnableAutoRecovery(false);
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"FlushMemTableFinished", "BackgroundCallCompaction:0"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -134,7 +156,7 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   ASSERT_EQ(s, Status::OK());
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kSoftError);
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
 
   fault_env->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -181,7 +203,7 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
 TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
-  ErrorHandlerListener* listener = new ErrorHandlerListener();
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.env = fault_env.get();
@@ -214,7 +236,7 @@ TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
 TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
-  ErrorHandlerListener* listener = new ErrorHandlerListener();
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.env = fault_env.get();
@@ -235,6 +257,77 @@ TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
   // on in the background
   Close();
   DestroyDB(dbname_, options);
+}
+
+TEST_F(DBErrorHandlingTest, WALWriteError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.writable_file_max_buffer_size = 32768;
+  options.env = fault_env.get();
+  options.listeners.emplace_back(listener);
+  Status s;
+
+  listener->EnableAutoRecovery();
+  DestroyAndReopen(options);
+
+  {
+    WriteBatch batch;
+    char val[1024];
+
+    for (auto i = 0; i<100; ++i) {
+      sprintf(val, "%d", i);
+      batch.Put(Key(i), Slice(val, sizeof(val)));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+  };
+
+  {
+    WriteBatch batch;
+    char val[1024];
+    int write_error = 0;
+
+    for (auto i = 100; i<199; ++i) {
+      sprintf(val, "%d", i);
+      batch.Put(Key(i), Slice(val, sizeof(val)));
+    }
+
+    SyncPoint::GetInstance()->SetCallBack("WritableFileWriter::Append:BeforePrepareWrite", [&](void*) {
+      write_error++;
+      if (write_error > 2) {
+        fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+      }
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+    WriteOptions wopts;
+    wopts.sync = true;
+    s = dbfull()->Write(wopts, &batch);
+    ASSERT_EQ(s, s.NoSpace());
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_env->SetFilesystemActive(true);
+  ASSERT_EQ(listener->WaitForRecovery(5000000), true);
+  for (auto i=0; i<199; ++i) {
+    if (i < 100) {
+      ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+    } else {
+      ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+    }
+  }
+  Reopen(options);
+  for (auto i=0; i<199; ++i) {
+    if (i < 100) {
+      ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+    } else {
+      ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+    }
+  }
+  Close();
 }
 
 }  // namespace rocksdb

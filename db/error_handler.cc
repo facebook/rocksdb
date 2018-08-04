@@ -226,14 +226,11 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   }
 
   if (auto_recovery) {
+    recovery_in_prog_ = true;
+
     // Kick-off error specific recovery
     if (bg_error_ == Status::NoSpace()) {
       RecoverFromNoSpace();
-    }
-
-    // If its kHardError, it would have kicked off background polling
-    if (bg_error_.severity() == Status::Severity::kHardError) {
-      recovery_in_prog_ = true;
     }
   }
   return bg_error_;
@@ -304,6 +301,13 @@ Status ErrorHandler::RecoverFromBGError(bool exclusive) {
     }
     recovery_in_prog_ = true;
   }
+
+  if (bg_error_.severity() == Status::Severity::kSoftError) {
+    // Simply clear the background error and return
+    recovery_error_ = Status::OK();
+    return ClearBGError();
+  }
+
   db_mutex_->Unlock();
   db_->CancelAllBackgroundWork(true, false);
   db_mutex_->Lock();
