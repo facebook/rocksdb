@@ -160,8 +160,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
-                                       mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(
+        cfd, &job_context->superversion_contexts[0], mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -691,7 +691,7 @@ Status DBImpl::CompactFilesImpl(
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kManualCompaction);
   }
   c->ReleaseCompactionFiles(s);
@@ -1775,7 +1775,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
@@ -1822,7 +1822,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
@@ -1899,7 +1899,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          c->column_family_data(), &job_context->superversion_context,
+          c->column_family_data(), &job_context->superversion_contexts[0],
           *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     }
     *made_progress = true;
