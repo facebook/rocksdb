@@ -817,7 +817,7 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject /*jdb*/, rocksdb::DB* db,
   env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
   env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
 
-  std::vector<std::string> values;
+  std::vector<std::string> values(keys.size());
   std::vector<rocksdb::Status> s;
   if (cf_handles.size() == 0) {
     s = db->MultiGet(rOpt, keys, &values);
