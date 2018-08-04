@@ -116,8 +116,8 @@ class DBIter final: public Iterator {
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
          uint64_t max_sequential_skip_in_iterations,
-         ReadCallback* read_callback, DBImpl* db_impl,
-         ColumnFamilyData* cfd, bool allow_blob)
+         ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+         bool allow_blob)
       : arena_mode_(arena_mode),
         env_(_env),
         logger_(cf_options.info_log),
@@ -1274,7 +1274,8 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, seq);
 
-  if (db_impl_ != nullptr && cfd_ !=nullptr && db_impl_->GetTracerPtr() != nullptr) {
+  if (db_impl_ != nullptr && cfd_ != nullptr &&
+      db_impl_->GetTracerPtr() != nullptr) {
     db_impl_->GetTracerPtr()->Iter(cfd_->GetID(), target);
   }
 
@@ -1342,7 +1343,8 @@ void DBIter::SeekForPrev(const Slice& target) {
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
-  if (db_impl_ != nullptr && cfd_ !=nullptr && db_impl_->GetTracerPtr() != nullptr) {
+  if (db_impl_ != nullptr && cfd_ != nullptr &&
+      db_impl_->GetTracerPtr() != nullptr) {
     db_impl_->GetTracerPtr()->Iter(cfd_->GetID(), target);
   }
 
@@ -1470,11 +1472,10 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         uint64_t max_sequential_skip_in_iterations,
                         ReadCallback* read_callback, DBImpl* db_impl,
                         ColumnFamilyData* cfd, bool allow_blob) {
-  DBIter* db_iter =
-      new DBIter(env, read_options, cf_options, mutable_cf_options,
-                 user_key_comparator, internal_iter, sequence, false,
-                 max_sequential_skip_in_iterations, read_callback, db_impl,
-                 cfd, allow_blob);
+  DBIter* db_iter = new DBIter(
+      env, read_options, cf_options, mutable_cf_options, user_key_comparator,
+      internal_iter, sequence, false, max_sequential_skip_in_iterations,
+      read_callback, db_impl, cfd, allow_blob);
   return db_iter;
 }
 
@@ -1522,14 +1523,13 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
                               uint64_t max_sequential_skip_in_iteration,
                               uint64_t version_number,
                               ReadCallback* read_callback, DBImpl* db_impl,
-                              ColumnFamilyData* cfd,
-                              bool allow_blob, bool allow_refresh) {
+                              ColumnFamilyData* cfd, bool allow_blob,
+                              bool allow_refresh) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
-  db_iter_ = new (mem)
-      DBIter(env, read_options, cf_options, mutable_cf_options,
-             cf_options.user_comparator, nullptr, sequence, true,
-             max_sequential_skip_in_iteration, read_callback, db_impl,
-             cfd, allow_blob);
+  db_iter_ = new (mem) DBIter(env, read_options, cf_options, mutable_cf_options,
+                              cf_options.user_comparator, nullptr, sequence,
+                              true, max_sequential_skip_in_iteration,
+                              read_callback, db_impl, cfd, allow_blob);
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
 }

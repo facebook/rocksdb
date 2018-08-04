@@ -163,7 +163,7 @@ Status Replayer::Replay() {
         db_->Get(roptions, cf_map_[cf_id], key, &value);
       }
       ops++;
-    } else if(trace.type == kTraceIter) {
+    } else if (trace.type == kTraceIter) {
       // To be implemented in the future if
       // Tracing next() is down
       continue;
