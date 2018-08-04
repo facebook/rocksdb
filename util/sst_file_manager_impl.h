@@ -94,7 +94,7 @@ class SstFileManagerImpl : public SstFileManager {
   virtual void SetMaxTrashDBRatio(double ratio) override;
 
   // Return the total size of trash files
-  uint64_t GetTotalTrashSize();
+  uint64_t GetTotalTrashSize() override;
 
   // Mark file as trash and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path,
