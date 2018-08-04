@@ -20,6 +20,7 @@
 #include "table/iterator_wrapper.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
+#include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
@@ -81,6 +82,101 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 }
 
 #endif  // ROCKSDB_LITE
+
+InternalIterator* TranslateVarietySstIterator(
+    const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
+    const InternalKeyComparator& icomp,
+    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    Arena* arena) {
+  InternalIterator* result;
+  switch (file_meta.sst_variety) {
+  case kLinkSst:
+    result = NewLinkSstIterator(variety_sst_iter, icomp, create_iter, arena);
+    break;
+  case kMapSst:
+    // TODO(zouzhizhang): handle map
+    return variety_sst_iter;
+  default:
+    assert(false);
+    return variety_sst_iter;
+  }
+  result->RegisterCleanup([](void* arg1, void* arg2) {
+    auto iter = (InternalIterator*)arg1;
+    auto arena = (Arena*)arg2;
+    if (arena == nullptr) {
+      delete iter;
+    } else {
+      iter->~InternalIterator();
+    }
+  }, variety_sst_iter, arena);
+  return result;
+}
+
+Status GetFromVarietySst(
+    const FileMetaData& file_meta, TableReader* table_reader,
+    const InternalKeyComparator& icomp, const Slice& k,
+    void* arg, bool(*get_from_sst)(void* arg, Status& s,
+                                   const Slice& upper_bound,
+                                   uint64_t sst_id)) {
+  Status s;
+  switch (file_meta.sst_variety) {
+  case kLinkSst: {
+    auto get_from_link = [&](const Slice& ikey, const Slice& value) {
+      // Manual inline SstLinkElement::Decode
+      uint64_t sst_id;
+      Slice value_copy = value;
+      if (!GetFixed64(&value_copy, &sst_id)) {
+        s = Status::Corruption("Link sst invalid value");
+        return false;
+      }
+      return get_from_sst(arg, s, ikey, sst_id);
+    };
+    table_reader->RangeScan(&k, &get_from_link,
+                            gen_c_style_callback(get_from_link));
+    return s;
+  }
+  case kMapSst: {  
+    auto get_from_map = [&](const Slice& ikey, const Slice& value) {
+      // Manual inline SstMapElement::Decode
+      const char* error_msg = "Map sst invalid value";
+      Slice value_copy = value;
+      Slice smallest_key;
+      uint64_t link_count;
+      uint64_t sst_id, size;
+      
+      if (!GetLengthPrefixedSlice(&value_copy, &smallest_key)) {
+        s = Status::Corruption(error_msg);
+        return false;
+      }
+      if (icomp.Compare(k, smallest_key) < 0) {
+        return false;
+      }
+      if (!GetVarint64(&value_copy, &link_count)) {
+        s = Status::Corruption(error_msg);
+        return false;
+      }
+
+      for (uint64_t i = 0; i < link_count; ++i) {
+        if (!GetFixed64(&value_copy, &sst_id) ||
+            !GetFixed64(&value_copy, &size)) {
+          s = Status::Corruption(error_msg);
+          return false;
+        }
+        if (!get_from_sst(arg, s, ikey, sst_id)) {
+          return false;
+        }
+      }
+      return true;
+    };
+    table_reader->RangeScan(&k, &get_from_map,
+                            gen_c_style_callback(get_from_map));
+    return s;
+  }
+  default:
+    assert(false);
+    return s;
+  }
+}
 
 }  // namespace
 
@@ -269,234 +365,36 @@ InternalIterator* TableCache::NewIterator(
       source_result->SetSource(
           IteratorSource(IteratorSource::kSST, (uintptr_t)&file_meta));
       result = source_result;
-      if (file_meta.sst_variety == (uint8_t)kLinkSst) {
+      if (file_meta.sst_variety != 0 && !depend_files.empty()) {
+        struct {
+          TableCache* table_cache;
+          const ReadOptions& options;
+          const EnvOptions& env_options;
+          const InternalKeyComparator& icomparator;
+          const std::unordered_map<uint64_t, FileMetaData*>& depend_files;
+          const SliceTransform* prefix_extractor;
+          bool for_compaction;
+          bool skip_filters;
+          int level;
 
-        class LinkSstIterator final : public InternalIterator {
-         private:
-          InternalIterator* first_level_iter_;
-          InternalIterator* second_level_iter_;
-          Slice bound_;
-          bool has_bound_;
-          bool is_backword_;
-          Arena arena_;
-          Status status_;
-          const InternalKeyComparator& icomp_;
-          std::function<InternalIterator*(uint64_t, Arena*)> create_iterator_;
-          std::unordered_map<uint64_t, InternalIterator*> iterator_cache_;
-          PinnedIteratorsManager* pinned_iters_mgr_;
-
-          InternalIterator* GetIterator(uint64_t sst_id) {
-            auto find = iterator_cache_.find(sst_id);
-            if (find != iterator_cache_.end()) {
-              return find->second;
+          InternalIterator* operator()(uint64_t sst_id, Arena* iter_arena) {
+            auto find = depend_files.find(sst_id);
+            if (find == depend_files.end()) {
+              return nullptr;
             }
-            auto iter = create_iterator_(sst_id, &arena_);
-            iterator_cache_.emplace(sst_id, iter);
-            if (iter != nullptr) {
-              iter->SetPinnedItersMgr(pinned_iters_mgr_);
-            } else {
-              status_ = Status::Corruption("Link sst missing depend files");
-            }
-            return iter;
+            return table_cache->NewIterator(
+                       options, env_options, icomparator, *find->second,
+                       depend_files, nullptr, prefix_extractor, nullptr,
+                       nullptr, for_compaction, iter_arena, skip_filters,
+                       level);
           }
-
-          bool InitSecondLevelIter() {
-            SstLinkElement link;
-            if (!link.Decode(bound_, first_level_iter_->value())) {
-              status_ = Status::Corruption("Link sst damaged value");
-              second_level_iter_ = nullptr;
-              return false;
-            }
-            second_level_iter_ = GetIterator(link.sst_id);
-            return second_level_iter_ != nullptr;
-          }
-
-          bool InitFirstLevelIter() {
-            if (!first_level_iter_->Valid()) {
-              second_level_iter_ = nullptr;
-              return false;
-            }
-            bound_ = first_level_iter_->key();
-            return InitSecondLevelIter();
-          }
-
-         public:
-          LinkSstIterator(
-              InternalIterator* iter,
-              const InternalKeyComparator& icomp,
-              std::function<InternalIterator*(uint64_t, Arena*)> create)
-              : first_level_iter_(iter),
-                second_level_iter_(nullptr),
-                has_bound_(false),
-                is_backword_(false),
-                icomp_(icomp),
-                create_iterator_(create),
-                pinned_iters_mgr_(nullptr) {}
-
-          ~LinkSstIterator() {
-            for (auto pair : iterator_cache_) {
-              pair.second->~InternalIterator();
-            }
-          }
-
-          virtual bool Valid() const override {
-            return second_level_iter_ != nullptr && second_level_iter_->Valid();
-          }
-          virtual void SeekToFirst() override {
-            first_level_iter_->SeekToFirst();
-            if (InitFirstLevelIter()) {
-              second_level_iter_->SeekToFirst();
-              is_backword_ = false;
-            }
-          }
-          virtual void SeekToLast() override {
-            first_level_iter_->SeekToLast();
-            if (InitFirstLevelIter()) {
-              second_level_iter_->SeekToLast();
-              is_backword_ = false;
-            }
-          }
-          virtual void Seek(const Slice& target) override {
-            first_level_iter_->Seek(target);
-            if (InitFirstLevelIter()) {
-              second_level_iter_->Seek(target);
-              is_backword_ = false;
-            }
-          }
-          virtual void SeekForPrev(const Slice& target) override {
-            LinkSstIterator::Seek(target);
-            if (!LinkSstIterator::Valid()) {
-              LinkSstIterator::SeekToLast();
-            } else if (LinkSstIterator::key() != target) {
-              LinkSstIterator::Prev();
-            }
-          }
-          virtual void Next() override {
-            if (is_backword_) {
-              if (has_bound_) {
-                first_level_iter_->Next();
-              } else {
-                first_level_iter_->SeekToFirst();
-              }
-              bound_ = first_level_iter_->key();
-              is_backword_ = false;
-            }
-            if (second_level_iter_->key() != bound_) {
-              second_level_iter_->Next();
-              assert(second_level_iter_->Valid());
-              return;
-            }
-            InternalKey where;
-            where.DecodeFrom(bound_);
-            first_level_iter_->Next();
-            if (InitFirstLevelIter()) {
-              second_level_iter_->Seek(where.Encode());
-            }
-          }
-          virtual void Prev() override {
-            if (!is_backword_) {
-              first_level_iter_->Prev();
-              has_bound_ = first_level_iter_->Valid();
-              if (has_bound_) {
-                bound_ = first_level_iter_->key();
-              }
-              is_backword_ = true;
-            }
-            if (!has_bound_) {
-              second_level_iter_->Prev();
-              return;
-            }
-            second_level_iter_->Prev();
-            if (second_level_iter_->Valid() &&
-                icomp_.Compare(second_level_iter_->key(), bound_) > 0) {
-              return;
-            }
-            if (InitSecondLevelIter()) {
-              second_level_iter_->SeekForPrev(bound_);
-              first_level_iter_->Prev();
-              has_bound_ = first_level_iter_->Valid();
-              if (has_bound_) {
-                bound_ = first_level_iter_->key();
-              }
-            }
-          }
-          virtual Slice key() const override {
-            return second_level_iter_->key();
-          }
-          virtual Slice value() const override {
-            return second_level_iter_->value();
-          }
-          virtual Status status() const override {
-            return status_;
-          }
-          virtual IteratorSource source() const override {
-            return second_level_iter_->source();
-          }
-          virtual void SetPinnedItersMgr(
-              PinnedIteratorsManager* pinned_iters_mgr) override {
-            pinned_iters_mgr_ = pinned_iters_mgr;
-            for (auto pair : iterator_cache_) {
-              pair.second->SetPinnedItersMgr(pinned_iters_mgr);
-            }
-          }
-          virtual bool IsKeyPinned() const override {
-            return second_level_iter_ != nullptr &&
-                   second_level_iter_->IsKeyPinned();
-          }
-          virtual bool IsValuePinned() const override {
-            return second_level_iter_ != nullptr &&
-                   second_level_iter_->IsValuePinned();
-          }
+        } create_iterator {
+          this, options, env_options, icomparator, depend_files,
+          prefix_extractor, for_compaction, skip_filters, level,
         };
-        if (!depend_files.empty()) {
-          struct CreateIterator {
-            TableCache* self;
-            const ReadOptions& options;
-            const EnvOptions& env_options;
-            const InternalKeyComparator& icomparator;
-            const std::unordered_map<uint64_t, FileMetaData*>& depend_files;
-            const SliceTransform* prefix_extractor;
-            bool for_compaction;
-            bool skip_filters;
-            int level;
-
-            InternalIterator* operator()(uint64_t sst_id, Arena* iter_arena) {
-              auto find = depend_files.find(sst_id);
-              if (find == depend_files.end()) {
-                return nullptr;
-              }
-              return self->NewIterator(options, env_options, icomparator,
-                                       *find->second, depend_files, nullptr,
-                                       prefix_extractor, nullptr, nullptr,
-                                       for_compaction, iter_arena,
-                                       skip_filters, level);
-            }
-          } create_iterator{
-            this, options, env_options, icomparator, depend_files,
-            prefix_extractor, for_compaction, skip_filters, level,
-          };
-          LinkSstIterator* link_sst_iter;
-          if (arena == nullptr) {
-            link_sst_iter = new LinkSstIterator(result, icomparator,
-                                                create_iterator);
-          } else {
-            void* buffer = arena->AllocateAligned(sizeof(LinkSstIterator));
-            link_sst_iter = new(buffer) LinkSstIterator(result, icomparator,
-                                                        create_iterator);
-          }
-          link_sst_iter->RegisterCleanup([](void* arg1, void* arg2) {
-            auto iter = (InternalIterator*)arg1;
-            auto arena = (Arena*)arg2;
-            if (arena == nullptr) {
-              delete iter;
-            } else {
-              iter->~InternalIterator();
-            }
-          }, result, arena);
-          result = link_sst_iter;
-        }
+        result = TranslateVarietySstIterator(file_meta, result, icomparator,
+                                             create_iterator, arena);
       }
-      // TODO(zouzhizhang): handle map
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);
@@ -548,46 +446,6 @@ Status TableCache::Get(
     const SliceTransform* prefix_extractor,
     HistogramImpl* file_read_hist, bool skip_filters, int level) {
   auto& fd = file_meta.fd;
-  if (file_meta.sst_variety == (uint8_t)kLinkSst) {
-    Status s;
-    TableReader* t = fd.table_reader;
-    Cache::Handle* handle = nullptr;
-    if (t == nullptr) {
-      s = FindTable(
-          env_options_, internal_comparator, fd, &handle, prefix_extractor,
-          options.read_tier == kBlockCacheTier /* no_io */,
-          true /* record_read_stats */, file_read_hist, skip_filters, level);
-      if (s.ok()) {
-        t = GetTableReaderFromHandle(handle);
-      }
-    }
-    if (s.ok()) {
-      auto get_from_link = [&](const Slice& ikey, const Slice& value) {
-        SstLinkElement link;
-        if (!link.Decode(ikey, value)) {
-          return false;
-        }
-        auto find = depend_files.find(link.sst_id);
-        if (find == depend_files.end()) {
-          return false;
-        }
-        s = Get(options, internal_comparator, *find->second, depend_files, k,
-                get_context, prefix_extractor, file_read_hist, skip_filters,
-                level);
-        if (!s.ok() || get_context->is_finished()) {
-          return false;
-        }
-        return internal_comparator.user_comparator()->Compare(
-                   ExtractUserKey(k), ExtractUserKey(ikey)) == 0;
-      };
-      t->RangeScan(&k, &get_from_link, gen_c_style_callback(get_from_link));
-    }
-    if (handle != nullptr) {
-      ReleaseHandle(handle);
-    }
-    return s;
-  }
-  // TODO(zouzhizhang): handle link
   std::string* row_cache_entry = nullptr;
   bool done = false;
 #ifndef ROCKSDB_LITE
@@ -596,7 +454,8 @@ Status TableCache::Get(
 
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
-  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
+  if (ioptions_.row_cache && !get_context->NeedToReadSequence() &&
+      file_meta.sst_variety == 0) {
     uint64_t fd_number = fd.GetNumber();
     auto user_key = ExtractUserKey(k);
     // We use the user key as cache key instead of the internal key,
@@ -675,7 +534,31 @@ Status TableCache::Get(
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
+      if (file_meta.sst_variety == 0) {
+        s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
+      } else {
+        ReadOptions options_copy = options;
+        options_copy.ignore_range_deletions = true;
+        auto get_from_sst = [&](Status& status, const Slice& upper_bound,
+                                uint64_t sst_id) {
+          auto find = depend_files.find(sst_id);
+          if (find == depend_files.end()) {
+            status = Status::Corruption("Variety sst depend files missing");
+            return false;
+          }
+          status = Get(options_copy, internal_comparator, *find->second,
+                       depend_files, k, get_context, prefix_extractor,
+                       file_read_hist, skip_filters, level);
+          if (!status.ok() || get_context->is_finished()) {
+            return false;
+          }
+          return internal_comparator.user_comparator()->Compare(
+                     ExtractUserKey(k), ExtractUserKey(upper_bound)) == 0;
+        };
+        s = GetFromVarietySst(file_meta, t, internal_comparator, k,
+                              &get_from_sst,
+                              gen_c_style_callback(get_from_sst));
+      }
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       // Couldn't find Table in cache but treat as kFound if no_io set

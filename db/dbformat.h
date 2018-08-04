@@ -636,20 +636,22 @@ struct RangeTombstone {
 
 struct SstLinkElement {
   Slice largest_key_;
-  uint64_t sst_id;
+  uint64_t sst_id_;
+  uint64_t key_count_;
 
-  SstLinkElement() : sst_id(uint64_t(-1)) { }
+  SstLinkElement() : sst_id_(uint64_t(-1)), key_count_(0) {}
 
   bool Decode(Slice ikey, Slice value) {
     largest_key_ = ikey;
-    return GetFixed64(&value, &sst_id);
+    return GetFixed64(&value, &sst_id_) && GetVarint64(&value, &key_count_);
   }
 
   Slice Key() const { return largest_key_; }
 
   Slice Value(std::string* buffer) {
     buffer->clear();
-    PutFixed64(buffer, sst_id);
+    PutFixed64(buffer, sst_id_);
+    PutVarint64(buffer, key_count_);
     return Slice(*buffer);
   }
 };

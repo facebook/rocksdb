@@ -197,10 +197,204 @@ void TwoLevelIterator::InitDataBlock() {
   }
 }
 
+ class LinkSstIterator final : public InternalIterator {
+  private:
+   InternalIterator* first_level_iter_;
+   InternalIterator* second_level_iter_;
+   Slice bound_;
+   bool has_bound_;
+   bool is_backword_;
+   Arena arena_;
+   Status status_;
+   const InternalKeyComparator& icomp_;
+   std::function<InternalIterator*(uint64_t, Arena*)> create_iterator_;
+   std::unordered_map<uint64_t, InternalIterator*> iterator_cache_;
+   PinnedIteratorsManager* pinned_iters_mgr_;
+
+   InternalIterator* GetIterator(uint64_t sst_id) {
+     auto find = iterator_cache_.find(sst_id);
+     if (find != iterator_cache_.end()) {
+       return find->second;
+     }
+     auto iter = create_iterator_(sst_id, &arena_);
+     iterator_cache_.emplace(sst_id, iter);
+     if (iter != nullptr) {
+       iter->SetPinnedItersMgr(pinned_iters_mgr_);
+     } else {
+       status_ = Status::Corruption("Link sst depend files missing");
+     }
+     return iter;
+   }
+
+   bool InitSecondLevelIter() {
+     // Manual inline SstLinkElement::Decode
+     uint64_t sst_id;
+     Slice value_copy = first_level_iter_->value();
+     if (!GetFixed64(&value_copy, &sst_id)) {
+       status_ = Status::Corruption("Link sst invalid value");
+       second_level_iter_ = nullptr;
+       return false;
+     }
+     second_level_iter_ = GetIterator(sst_id);
+     return second_level_iter_ != nullptr;
+   }
+
+   bool InitFirstLevelIter() {
+     if (!first_level_iter_->Valid()) {
+       second_level_iter_ = nullptr;
+       return false;
+     }
+     bound_ = first_level_iter_->key();
+     return InitSecondLevelIter();
+   }
+
+  public:
+   LinkSstIterator(
+       InternalIterator* iter,
+       const InternalKeyComparator& icomp,
+       const std::function<InternalIterator*(uint64_t, Arena*)>& create)
+       : first_level_iter_(iter),
+         second_level_iter_(nullptr),
+         has_bound_(false),
+         is_backword_(false),
+         icomp_(icomp),
+         create_iterator_(create),
+         pinned_iters_mgr_(nullptr) {}
+
+   ~LinkSstIterator() {
+     for (auto pair : iterator_cache_) {
+       pair.second->~InternalIterator();
+     }
+   }
+
+   virtual bool Valid() const override {
+     return second_level_iter_ != nullptr && second_level_iter_->Valid();
+   }
+   virtual void SeekToFirst() override {
+     first_level_iter_->SeekToFirst();
+     if (InitFirstLevelIter()) {
+       second_level_iter_->SeekToFirst();
+       is_backword_ = false;
+     }
+   }
+   virtual void SeekToLast() override {
+     first_level_iter_->SeekToLast();
+     if (InitFirstLevelIter()) {
+       second_level_iter_->SeekToLast();
+       is_backword_ = false;
+     }
+   }
+   virtual void Seek(const Slice& target) override {
+     first_level_iter_->Seek(target);
+     if (InitFirstLevelIter()) {
+       second_level_iter_->Seek(target);
+       is_backword_ = false;
+     }
+   }
+   virtual void SeekForPrev(const Slice& target) override {
+     LinkSstIterator::Seek(target);
+     if (!LinkSstIterator::Valid()) {
+       LinkSstIterator::SeekToLast();
+     } else if (LinkSstIterator::key() != target) {
+       LinkSstIterator::Prev();
+     }
+   }
+   virtual void Next() override {
+     if (is_backword_) {
+       if (has_bound_) {
+         first_level_iter_->Next();
+       } else {
+         first_level_iter_->SeekToFirst();
+       }
+       bound_ = first_level_iter_->key();
+       is_backword_ = false;
+     }
+     if (second_level_iter_->key() != bound_) {
+       second_level_iter_->Next();
+       assert(second_level_iter_->Valid());
+       return;
+     }
+     InternalKey where;
+     where.DecodeFrom(bound_);
+     first_level_iter_->Next();
+     if (InitFirstLevelIter()) {
+       second_level_iter_->Seek(where.Encode());
+     }
+   }
+   virtual void Prev() override {
+     if (!is_backword_) {
+       first_level_iter_->Prev();
+       has_bound_ = first_level_iter_->Valid();
+       if (has_bound_) {
+         bound_ = first_level_iter_->key();
+       }
+       is_backword_ = true;
+     }
+     if (!has_bound_) {
+       second_level_iter_->Prev();
+       return;
+     }
+     second_level_iter_->Prev();
+     if (second_level_iter_->Valid() &&
+         icomp_.Compare(second_level_iter_->key(), bound_) > 0) {
+       return;
+     }
+     if (InitSecondLevelIter()) {
+       second_level_iter_->SeekForPrev(bound_);
+       first_level_iter_->Prev();
+       has_bound_ = first_level_iter_->Valid();
+       if (has_bound_) {
+         bound_ = first_level_iter_->key();
+       }
+     }
+   }
+   virtual Slice key() const override {
+     return second_level_iter_->key();
+   }
+   virtual Slice value() const override {
+     return second_level_iter_->value();
+   }
+   virtual Status status() const override {
+     return status_;
+   }
+   virtual IteratorSource source() const override {
+     return second_level_iter_->source();
+   }
+   virtual void SetPinnedItersMgr(
+       PinnedIteratorsManager* pinned_iters_mgr) override {
+     pinned_iters_mgr_ = pinned_iters_mgr;
+     for (auto pair : iterator_cache_) {
+       pair.second->SetPinnedItersMgr(pinned_iters_mgr);
+     }
+   }
+   virtual bool IsKeyPinned() const override {
+     return second_level_iter_ != nullptr &&
+            second_level_iter_->IsKeyPinned();
+   }
+   virtual bool IsValuePinned() const override {
+     return second_level_iter_ != nullptr &&
+            second_level_iter_->IsValuePinned();
+   }
+ };
+
 }  // namespace
 
 InternalIterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
                                       InternalIterator* first_level_iter) {
   return new TwoLevelIterator(state, first_level_iter);
 }
+
+InternalIterator* NewLinkSstIterator(
+    InternalIterator* link_sst_iter,
+    const InternalKeyComparator& icomp,
+    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    Arena* arena) {
+  if (arena == nullptr) {
+    return new LinkSstIterator(link_sst_iter, icomp, create_iter);
+  } else {
+    void* buffer = arena->AllocateAligned(sizeof(LinkSstIterator));
+    return new(buffer) LinkSstIterator(link_sst_iter, icomp, create_iter);
+  }
+}
+
 }  // namespace rocksdb

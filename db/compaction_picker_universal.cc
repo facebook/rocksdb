@@ -179,10 +179,9 @@ void UniversalCompactionPicker::SortedRun::Dump(char* out_buf,
     if (file->fd.GetPathId() == 0 || !print_path) {
       snprintf(out_buf, out_buf_size, "file %" PRIu64, file->fd.GetNumber());
     } else {
-      snprintf(out_buf, out_buf_size,
-               "file %" PRIu64
-               "(path "
-               "%" PRIu32 ")",
+      snprintf(out_buf, out_buf_size, "file %" PRIu64
+                                      "(path "
+                                      "%" PRIu32 ")",
                file->fd.GetNumber(), file->fd.GetPathId());
     }
   } else {
@@ -281,7 +280,6 @@ Compaction* UniversalCompactionPicker::PickCompaction(
 
   // Check for size amplification first.
   Compaction* c = nullptr;
-  
   if ((c = PickTrivialMove(cf_name, mutable_cf_options,
                            vstorage, log_buffer)) != nullptr) {
     // universal trivial move;

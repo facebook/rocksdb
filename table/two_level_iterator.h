@@ -39,4 +39,10 @@ struct TwoLevelIteratorState {
 extern InternalIterator* NewTwoLevelIterator(
     TwoLevelIteratorState* state, InternalIterator* first_level_iter);
 
+extern InternalIterator* NewLinkSstIterator(
+    InternalIterator* link_sst_iter,
+    const InternalKeyComparator& icomp,
+    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    Arena* arena = nullptr);
+
 }  // namespace rocksdb

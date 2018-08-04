@@ -2704,7 +2704,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       if (print_stats) {
         r.append("(");
         r.append(ToString(
-          files[i]->stats.num_reads_sampled.load(std::memory_order_relaxed)));
+            files[i]->stats.num_reads_sampled.load(std::memory_order_relaxed)));
         r.append(")");
       }
       r.append("\n");
