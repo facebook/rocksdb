@@ -1210,13 +1210,6 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
       sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
   std::vector<uint64_t> sst_depend;
-  for (auto level_files : *sub_compact->compaction->inputs()) {
-    for (auto file : level_files.files) {
-      sst_depend.emplace_back(file->fd.GetNumber());
-    }
-  }
-  std::sort(sst_depend.begin(), sst_depend.end());
-
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
       new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend));
@@ -1227,6 +1220,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     return;
   }
 
+  std::unordered_set<uint64_t> sst_depend_build;
   InternalKey last_key;
   IteratorSource last_source;
   std::string buffer;
@@ -1238,24 +1232,36 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   sub_compact->current_output()->meta.UpdateBoundaries(
       input->key(), GetInternalKeySeqno(input->key()));
 
+  auto put_link_element = [&] {
+    SstLinkElement link;
+    link.largest_key_ = last_key.Encode();
+    const FileMetaData* meta = (const FileMetaData*)last_source.data;
+    link.sst_id = meta->fd.GetNumber();
+    sst_depend_build.emplace(link.sst_id);
+
+    sub_compact->builder->Add(link.Key(), link.Value(&buffer));
+    sub_compact->current_output_file_size = sub_compact->builder->FileSize();
+    sub_compact->num_output_records++;
+  };
+
   for (input->Next(); input->Valid(); input->Next()) {
     assert(input->source().type == IteratorSource::kSST);
     if (input->source() != last_source) {
-
-      SstLinkElement link;
-      link.largest_key_ = last_key.Encode();
-      const FileMetaData* meta = (const FileMetaData*)last_source.data;
-      link.sst_id = meta->fd.GetNumber();
-
-      sub_compact->builder->Add(link.Key(), link.Value(&buffer));
-      sub_compact->current_output_file_size = sub_compact->builder->FileSize();
-      sub_compact->num_output_records++;
+      put_link_element();
     }
     sub_compact->current_output()->meta.UpdateBoundaries(
         input->key(), GetInternalKeySeqno(input->key()));
     last_key.DecodeFrom(input->key());
     last_source = input->source();
   }
+  put_link_element();
+
+  sst_depend.reserve(sst_depend_build.size());
+  sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
+                    sst_depend_build.end());
+  sst_depend_build.clear();
+  std::sort(sst_depend.begin(), sst_depend.end());
+
   CompactionIterationStats range_del_out_stats;
   status = FinishCompactionOutputFile(
       status, sub_compact, range_del_agg.get(), &range_del_out_stats);

@@ -1004,15 +1004,17 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   bool should_sample = should_sample_file_read();
 
   auto* arena = merge_iter_builder->GetArena();
-  if (level == 0) {
-    // Merge all level zero files together since they may overlap
-    for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
-      const auto& file = storage_info_.LevelFilesBrief(0).files[i];
+  if (level == 0 || storage_info_.LevelFilesBrief(level).num_files == 1) {
+    // Merge all level zero files together since they may overlap.
+    // Or there is only one file ...
+    for (size_t i = 0; i < storage_info_.LevelFilesBrief(level).num_files;
+         i++) {
+      const auto& file = storage_info_.LevelFilesBrief(level).files[i];
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
-          read_options, soptions, cfd_->internal_comparator(), *file.file_metadata,
-          storage_info_.depend_files(), range_del_agg,
+          read_options, soptions, cfd_->internal_comparator(),
+          *file.file_metadata, storage_info_.depend_files(), range_del_agg,
           mutable_cf_options_.prefix_extractor.get(), nullptr,
-          cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+          cfd_->internal_stats()->GetFileReadHist(level), false, arena,
           false /* skip_filters */, 0 /* level */));
     }
     if (should_sample) {
@@ -1032,8 +1034,9 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     merge_iter_builder->AddIterator(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        storage_info_.depend_files(), mutable_cf_options_.prefix_extractor.get(),
-        should_sample_file_read(), cfd_->internal_stats()->GetFileReadHist(level),
+        storage_info_.depend_files(),
+        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
+        cfd_->internal_stats()->GetFileReadHist(level),
         false /* for_compaction */, IsFilterSkipped(level), level,
         range_del_agg));
   }
@@ -2664,7 +2667,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
 }
 
 void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
-  for (int level = 0; level < storage_info_.num_levels(); level++) {
+  for (int level = 0; level <= storage_info_.num_levels(); level++) {
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (const auto& file : files) {
       live->push_back(file->fd);
@@ -3985,7 +3988,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
 
-      for (int level = 0; level < cfd->NumberLevels(); level++) {
+      for (int level = 0; level <= cfd->NumberLevels(); level++) {
         for (const auto& f :
              cfd->current()->storage_info()->LevelFiles(level)) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
@@ -4134,7 +4137,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
     for (Version* v = dummy_versions->next_; v != dummy_versions;
          v = v->next_) {
       const auto* vstorage = v->storage_info();
-      for (int level = 0; level < vstorage->num_levels(); level++) {
+      for (int level = 0; level <= vstorage->num_levels(); level++) {
         total_files += vstorage->LevelFiles(level).size();
       }
     }

@@ -347,18 +347,22 @@ class VersionBuilder::Rep {
     // Add new files
     for (const auto& new_file : edit->GetNewFiles()) {
       const int level = new_file.first;
-      if (level < num_levels_) {
+      if (level <= num_levels_) {
         FileMetaData* f = new FileMetaData(new_file.second);
         f->refs = 1;
 
-        assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
-               levels_[level].added_files.end());
-        assert(depend_map_.count(f->fd.GetNumber()) == 0);
-        levels_[level].deleted_files.erase(f->fd.GetNumber());
-        levels_[level].added_files[f->fd.GetNumber()] = f;
-        if (f->sst_variety != 0) {
-          LoadSstDepend(f, depend_map_);
-          depend_changed = true;
+        if (level < num_levels_) {
+          assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
+                 levels_[level].added_files.end());
+          assert(depend_map_.count(f->fd.GetNumber()) == 0);
+          levels_[level].deleted_files.erase(f->fd.GetNumber());
+          levels_[level].added_files[f->fd.GetNumber()] = f;
+          if (f->sst_variety != 0) {
+            LoadSstDepend(f, depend_map_);
+            depend_changed = true;
+          }
+        } else {
+          depend_files_.push_back(f);
         }
       } else {
         uint64_t number = new_file.second.fd.GetNumber();
