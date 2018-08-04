@@ -1074,10 +1074,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
-      tracer_->Get(column_family, key);
-    }
+    tracer_->Get(column_family, key);
   }
 
   // Acquire SuperVersion
@@ -1619,7 +1616,7 @@ if (read_options.tailing) {
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        read_callback);
+        read_callback, this, cfd);
 #endif
   } else {
     // Note: no need to consider the special case of
@@ -1687,7 +1684,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, read_callback,
-      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob,
+      this, cfd, allow_blob,
       allow_refresh);
 
   InternalIterator* internal_iter =
@@ -1725,7 +1722,7 @@ Status DBImpl::NewIterators(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          read_callback));
+          read_callback, this, cfd));
     }
 #endif
   } else {
@@ -3131,6 +3128,8 @@ Status DBImpl::EndTrace() {
   tracer_.reset();
   return s;
 }
+
+Tracer* DBImpl::GetTracerPtr() const { return tracer_.get(); }
 
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb

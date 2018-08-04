@@ -41,7 +41,12 @@ Status Tracer::Write(WriteBatch* write_batch) {
   trace.ts = env_->NowMicros();
   trace.type = kTraceWrite;
   trace.payload = write_batch->Data();
-  return WriteTrace(trace);
+  Status s;
+  {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    s = WriteTrace(trace);
+  }
+  return s;
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
@@ -49,7 +54,25 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
   trace.ts = env_->NowMicros();
   trace.type = kTraceGet;
   EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
-  return WriteTrace(trace);
+  Status s;
+  {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    s = WriteTrace(trace);
+  }
+  return s;
+}
+
+Status Tracer::Iter(const uint32_t& cf_id, const Slice& key) {
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.type = kTraceIter;
+  EncodeCFAndKey(&trace.payload, cf_id, key);
+  Status s;
+  {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    s = WriteTrace(trace);
+  }
+  return s;
 }
 
 Status Tracer::WriteHeader() {
@@ -140,6 +163,10 @@ Status Replayer::Replay() {
         db_->Get(roptions, cf_map_[cf_id], key, &value);
       }
       ops++;
+    } else if(trace.type == kTraceIter) {
+      // To be implemented in the future if
+      // Tracing next() is down
+      continue;
     } else if (trace.type == kTraceEnd) {
       // Do nothing for now.
       // TODO: Add some validations later.

@@ -36,6 +36,8 @@ extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                                const SequenceNumber& sequence,
                                uint64_t max_sequential_skip_in_iterations,
                                ReadCallback* read_callback,
+                               DBImpl* db_impl = nullptr,
+                               ColumnFamilyData* cfd = nullptr,
                                bool allow_blob = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
@@ -75,7 +77,9 @@ class ArenaWrappedDBIter : public Iterator {
             const MutableCFOptions& mutable_cf_options,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-            ReadCallback* read_callback, bool allow_blob, bool allow_refresh);
+            ReadCallback* read_callback, DBImpl* db_impl,
+            ColumnFamilyData* cfd, bool allow_blob,
+            bool allow_refresh);
 
   void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
                         ColumnFamilyData* cfd, ReadCallback* read_callback,

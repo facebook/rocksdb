@@ -342,6 +342,8 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
+  Tracer* GetTracerPtr() const;
+  InstrumentedMutex& GetTraceMutex() const;
 
 #endif  // ROCKSDB_LITE
 

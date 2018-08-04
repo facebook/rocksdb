@@ -9,12 +9,14 @@
 #include <unordered_map>
 #include <utility>
 
+#include "monitoring/instrumented_mutex.h"
 #include "rocksdb/env.h"
 #include "rocksdb/trace_reader_writer.h"
 
 namespace rocksdb {
 
 class ColumnFamilyHandle;
+class ColumnFamilyData;
 class DB;
 class DBImpl;
 class Slice;
@@ -32,6 +34,7 @@ enum TraceType : char {
   kTraceEnd = 2,
   kTraceWrite = 3,
   kTraceGet = 4,
+  kTraceIter = 5,
   kTraceMax,
 };
 
@@ -57,6 +60,7 @@ class Tracer {
 
   Status Write(WriteBatch* write_batch);
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
+  Status Iter(const uint32_t& cf_id, const Slice& key);
 
   Status Close();
 
@@ -67,6 +71,7 @@ class Tracer {
 
   Env* env_;
   unique_ptr<TraceWriter> trace_writer_;
+  InstrumentedMutex trace_mutex_;
 };
 
 // Replay RocksDB operations from a trace.
