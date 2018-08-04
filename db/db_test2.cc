@@ -458,7 +458,7 @@ namespace {
   void ValidateKeyExistence(DB* db, const std::vector<Slice>& keys_must_exist,
     const std::vector<Slice>& keys_must_not_exist) {
     // Ensure that expected keys exist
-    std::vector<std::string> values;
+    std::vector<std::string> values(keys_must_exist.size());
     if (keys_must_exist.size() > 0) {
       std::vector<Status> status_list =
         db->MultiGet(ReadOptions(), keys_must_exist, &values);
@@ -468,6 +468,8 @@ namespace {
     }
 
     // Ensure that given keys don't exist
+    values.clear();
+    values.resize(keys_must_not_exist.size());
     if (keys_must_not_exist.size() > 0) {
       std::vector<Status> status_list =
         db->MultiGet(ReadOptions(), keys_must_not_exist, &values);

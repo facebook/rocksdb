@@ -1220,10 +1220,8 @@ std::vector<Status> DBImpl::MultiGet(
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
 
-  // Note: this always resizes the values array
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
-  // values->resize(num_keys);
   assert(values->size() == num_keys);
 
   // Keep track of bytes that we read for statistics-recording later
@@ -1257,11 +1255,13 @@ std::vector<Status> DBImpl::MultiGet(
                                   &merge_context, &range_del_agg,
                                   read_options)) {
         done = true;
+        pinnable_val->PinSelf();
         RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(lkey, pinnable_val->GetSelf(), &s,
                                          &merge_context, &range_del_agg,
                                          read_options)) {
         done = true;
+        pinnable_val->PinSelf();
         RecordTick(stats_, MEMTABLE_HIT);
       }
     }
@@ -1271,7 +1271,6 @@ std::vector<Status> DBImpl::MultiGet(
                                   &merge_context, &range_del_agg);
       RecordTick(stats_, MEMTABLE_MISS);
     }
-
     if (s.ok()) {
       bytes_read += pinnable_val->size();
       num_found++;

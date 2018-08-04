@@ -298,7 +298,7 @@ void ProfileQueries(bool enabled_time = false) {
     std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
-    std::vector<std::string> values;
+    std::vector<std::string> values(1, "");
 
     get_perf_context()->Reset();
     ASSERT_OK(db->Get(read_options, key, &value));
@@ -412,7 +412,7 @@ void ProfileQueries(bool enabled_time = false) {
     std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
-    std::vector<std::string> values;
+    std::vector<std::string> values(1);
 
     get_perf_context()->Reset();
     ASSERT_OK(db->Get(read_options, key, &value));

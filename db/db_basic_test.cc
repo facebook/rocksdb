@@ -140,7 +140,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
 
   // MultiGet
-  std::vector<std::string> values;
+  std::vector<std::string> values(6);
   std::vector<Status> status_list = dbfull()->MultiGet(
       ReadOptions(),
       std::vector<Slice>({Slice("aaa"), Slice("ccc"), Slice("eee"),
@@ -738,20 +738,20 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     std::vector<Slice> keys({"k1", "k2", "k3", "k4", "k5", "no_key"});
 
     std::string tmp_string("Temporary data to be overwritten");
-    std::vector<PinnableSlice> values(20);
-    for (size_t i = 0; i < 20; ++i) {
+    std::vector<PinnableSlice> values(6);
+    for (size_t i = 0; i < 6; ++i) {
       std::string* self_str_ptr = values[i].GetSelf();
-      self_str_ptr->assign(tmp_string);
+      self_str_ptr->assign(std::string(tmp_string));
     }
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
     get_perf_context()->Reset();
     std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(values.size(), keys.size());
-    ASSERT_EQ(values[0].data(), "v1");
-    ASSERT_EQ(values[1].data(), "v2");
-    ASSERT_EQ(values[2].data(), "v3");
-    ASSERT_EQ(values[4].data(), "v5");
+    ASSERT_STREQ(values[0].data(), "v1");
+    ASSERT_STREQ(values[1].data(), "v2");
+    ASSERT_STREQ(values[2].data(), "v3");
+    ASSERT_STREQ(values[4].data(), "v5");
     // four kv pairs * two bytes per value
     ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
 
@@ -790,7 +790,8 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     keys[1] = "b";
     cfs.push_back(handles_[0]);
     cfs.push_back(handles_[1]);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    std::vector<PinnableSlice> values2(2);
+    s = db_->MultiGet(ReadOptions(), cfs, keys, &values2);
     ASSERT_EQ(static_cast<int>(s.size()), 2);
     ASSERT_TRUE(s[0].IsNotFound() && s[1].IsNotFound());
   } while (ChangeCompactOptions());

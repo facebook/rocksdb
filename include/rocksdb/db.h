@@ -353,7 +353,7 @@ class DB {
   // the i'th returned status will have Status::ok() true, and (*values)[i]
   // will store the value associated with keys[i].
   //
-  // (*values) will always be resized to be the same size as (keys).
+  // (*values) is required to be the same size as (keys).
   // Similarly, the number of returned statuses will be the number of keys.
   // Note: keys will not be "de-duplicated". Duplicate keys will return
   // duplicate values in order.
@@ -365,8 +365,7 @@ class DB {
     std::vector<PinnableSlice> pinnable_vector(values->size());
     for (size_t i = 0; i < values->size(); ++i) {
       assert(!pinnable_vector[i].IsPinned());
-      std::string* self_str_ptr = pinnable_vector[i].GetSelf();
-      self_str_ptr->assign((*values)[i]);
+      pinnable_vector[i].ResetSelf(&(*values)[i]);
     }
     std::vector<Status> s = MultiGet(options, column_family, keys, &pinnable_vector);
     assert(s.size() == pinnable_vector.size());

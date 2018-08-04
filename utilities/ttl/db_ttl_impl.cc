@@ -227,7 +227,7 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = StripTS((*values)[i].GetSelf());
+    statuses[i] = StripTS(&(*values)[i]);
   }
   return statuses;
 }

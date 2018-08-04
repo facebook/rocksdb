@@ -198,11 +198,11 @@ class TtlTest : public testing::Test {
   void SimpleMultiGetTest() {
     static ReadOptions ropts;
     std::vector<Slice> keys;
-    std::vector<std::string> values;
 
     for (auto& kv : kvmap_) {
       keys.emplace_back(kv.first);
     }
+    std::vector<std::string> values(keys.size(), "");
 
     auto statuses = db_ttl_->MultiGet(ropts, keys, &values);
     size_t i = 0;

@@ -338,7 +338,7 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       std::vector<Slice> multiget_keys;
       multiget_keys.push_back("foo");
       multiget_keys.push_back("bar");
-      std::vector<PinnableSlice> multiget_values;
+      std::vector<PinnableSlice> multiget_values(multiget_keys.size());
       auto statuses =
           db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
       if (wopt.disableWAL) {
@@ -370,12 +370,13 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       // Expect same result in multiget
       multiget_cfs.push_back(handles_[1]);
       multiget_keys.push_back("rocksdb");
+      std::vector<PinnableSlice> multiget_values2(multiget_keys.size());
       statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values2);
       ASSERT_TRUE(statuses[0].ok());
-      ASSERT_EQ("first", multiget_values[0].data());
+      ASSERT_STREQ("first", multiget_values2[0].data());
       ASSERT_TRUE(statuses[1].ok());
-      ASSERT_EQ("one", multiget_values[1].data());
+      ASSERT_STREQ("one", multiget_values2[1].data());
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[2].IsNotFound());
       } else {
@@ -399,17 +400,18 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       ASSERT_TRUE(db_->Get(ropt, handles_[1], "rocksdb", &value).ok());
       ASSERT_EQ(value, "hello");
 
+      std::vector<PinnableSlice> multiget_values3(multiget_keys.size());
       statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values3);
       ASSERT_TRUE(statuses[0].IsNotFound());
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[1].ok());
-        ASSERT_EQ("one", multiget_values[1].data());
+        ASSERT_STREQ("one", multiget_values3[1].data());
       } else {
         ASSERT_TRUE(statuses[1].IsNotFound());
       }
       ASSERT_TRUE(statuses[2].ok());
-      ASSERT_EQ("hello", multiget_values[2].data());
+      ASSERT_STREQ("hello", multiget_values3[2].data());
       if (wopt.disableWAL == 0) {
         DestroyAndReopen(options);
       }
@@ -2017,7 +2019,7 @@ static void MTThreadBody(void* arg) {
       // and that writes to all column families were atomic (unique_id is the
       // same)
       std::vector<Slice> keys(kColumnFamilies, Slice(keybuf));
-      std::vector<PinnableSlice> values;
+      std::vector<PinnableSlice> values(keys.size());
       std::vector<Status> statuses =
           db->MultiGet(ReadOptions(), t->state->test->handles_, keys, &values);
       Status s = statuses[0];
