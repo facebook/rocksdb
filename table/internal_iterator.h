@@ -171,9 +171,9 @@ class SourceInternalIterator : public InternalIterator {
 };
 
 // Return an empty iterator (yields nothing).
-extern SourceInternalIterator* NewEmptyInternalIterator();
+SourceInternalIterator* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
-extern SourceInternalIterator* NewErrorInternalIterator(const Status& status);
+SourceInternalIterator* NewErrorInternalIterator(const Status& status);
 
 }  // namespace rocksdb

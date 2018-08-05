@@ -139,8 +139,8 @@ UserKeyTablePropertiesCollector::GetReadableProperties() const {
 }
 
 
-const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
-    "rocksdb.deleted.keys";
+const std::string InternalKeyTablePropertiesNames::kDeletedKeys
+  = "rocksdb.deleted.keys";
 const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
 const std::string SSTVarietiesTablePropertiesNames::kSstVariety =

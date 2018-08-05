@@ -32,10 +32,10 @@ namespace rocksdb {
 class ForwardLevelIterator : public InternalIterator {
  public:
   ForwardLevelIterator(const ColumnFamilyData* const cfd,
-      const ReadOptions& read_options,
-      const std::vector<FileMetaData*>& files,
-      const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
-      const SliceTransform* prefix_extractor)
+                       const ReadOptions& read_options,
+                       const std::vector<FileMetaData*>& files,
+                       const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+                       const SliceTransform* prefix_extractor)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -774,9 +774,7 @@ void ForwardIterator::ResetIncompleteIterators() {
     DeleteIterator(l0_iters_[i]);
     l0_iters_[i] = cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        *l0_files[i],
-        vstorage.depend_files(),
-        nullptr /* range_del_agg */,
+        *l0_files[i], vstorage.depend_files(), nullptr /* range_del_agg */,
         sv_->mutable_cf_options.prefix_extractor.get());
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }

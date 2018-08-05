@@ -265,7 +265,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       (vstorage->FilesMarkedForCompaction().empty() &&
        !vstorage->has_space_amplification() &&
        sorted_runs.size() < (unsigned int)mutable_cf_options
-                                 .level0_file_num_compaction_trigger)) {
+                                .level0_file_num_compaction_trigger)) {
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: nothing to do\n",
                      cf_name.c_str());
     TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
@@ -753,7 +753,9 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       GetCompressionOptions(ioptions_, vstorage, start_level,
                             enable_compression),
       max_subcompactions, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */, compaction_varieties, {},
+      score, false /* deletion_compaction */,
+      compaction_varieties,
+      {}, // input_range
       compaction_reason);
 }
 

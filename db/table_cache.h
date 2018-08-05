@@ -73,7 +73,8 @@ class TableCache {
              const InternalKeyComparator& internal_comparator,
              const FileMetaData& file_meta,
              const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
-             const Slice& k, GetContext* get_context,
+             const Slice& k,
+             GetContext* get_context,
              const SliceTransform* prefix_extractor = nullptr,
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
              int level = -1);
