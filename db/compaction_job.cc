@@ -673,8 +673,7 @@ Status CompactionJob::Run() {
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
             *files_meta[file_idx], empty_depend_files,
-            nullptr /* range_del_agg */,
-            prefix_extractor, nullptr,
+            nullptr /* range_del_agg */, prefix_extractor, nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
             false, nullptr /* arena */, false /* skip_filters */,
@@ -1209,6 +1208,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
       sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
+  // Used for write properties
   std::vector<uint64_t> sst_depend;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
@@ -1262,6 +1262,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     sub_compact->num_output_records++;
   };
 
+  // Multiway merge, write table switch point into sst
   update_key();
   last_source = input->source();
   for (input->Next(); input->Valid(); input->Next()) {
@@ -1280,6 +1281,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   }
   put_link_element();
 
+  // Prepare sst_depend, IntTblPropCollector::Finish will read it
   sst_depend.reserve(sst_depend_build.size());
   sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
                     sst_depend_build.end());
@@ -1289,10 +1291,13 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   CompactionIterationStats range_del_out_stats;
   status = FinishCompactionOutputFile(
       status, sub_compact, range_del_agg.get(), &range_del_out_stats);
+
+  // Update metadata
   meta.sst_variety = kLinkSst;
   meta.sst_depend = std::move(sst_depend);
   sub_compact->actual_start = meta.smallest;
   sub_compact->actual_end = meta.largest;
+
   if (!status.ok()) {
     sub_compact->status = status;
   }

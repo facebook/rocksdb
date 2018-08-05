@@ -168,6 +168,9 @@ bool UniversalCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
+  if (!vstorage->has_space_amplification()) {
+    return true;
+  }
   return false;
 }
 
@@ -753,10 +756,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       GetCompressionOptions(ioptions_, vstorage, start_level,
                             enable_compression),
       max_subcompactions, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */,
-      compaction_varieties,
-      {}, // input_range
-      compaction_reason);
+      score, false /* deletion_compaction */, compaction_varieties,
+      {} /* input_range */, compaction_reason);
 }
 
 // Look at overall size amplification. If size amplification
@@ -902,10 +903,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       max_subcompactions, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */,
-      compaction_varieties,
-      {}, // input_range
-      CompactionReason::kUniversalSizeAmplification);
+      score, false /* deletion_compaction */, compaction_varieties,
+      {} /* input_range */, CompactionReason::kUniversalSizeAmplification);
 }
 
 // Pick files marked for compaction. Typically, files are marked by
@@ -1024,9 +1023,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
-      score, false /* deletion_compaction */,
-      kGeneralSst,
-      {}, // input_range
+      score, false /* deletion_compaction */, kGeneralSst, {} /* input_range */,
       CompactionReason::kFilesMarkedForCompaction);
 }
 }  // namespace rocksdb

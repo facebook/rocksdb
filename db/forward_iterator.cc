@@ -31,11 +31,11 @@ namespace rocksdb {
 //     iter.Next()
 class ForwardLevelIterator : public InternalIterator {
  public:
-  ForwardLevelIterator(const ColumnFamilyData* const cfd,
-                       const ReadOptions& read_options,
-                       const std::vector<FileMetaData*>& files,
-                       const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
-                       const SliceTransform* prefix_extractor)
+  ForwardLevelIterator(
+      const ColumnFamilyData* const cfd, const ReadOptions& read_options,
+      const std::vector<FileMetaData*>& files,
+      const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+      const SliceTransform* prefix_extractor)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -77,8 +77,7 @@ class ForwardLevelIterator : public InternalIterator {
         cfd_->internal_comparator(), {} /* snapshots */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        *files_[file_index_],
-        depend_files_,
+        *files_[file_index_], depend_files_,
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         prefix_extractor_, nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -711,8 +710,7 @@ void ForwardIterator::RenewIterators() {
     }
     l0_iters_new.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        *l0_files_new[inew],
-        vstorage_new->depend_files(),
+        *l0_files_new[inew], vstorage_new->depend_files(),
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         svnew->mutable_cf_options.prefix_extractor.get()));
   }
@@ -756,8 +754,7 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
       }
     } else {
       level_iters_.push_back(new ForwardLevelIterator(
-          cfd_, read_options_, level_files,
-          vstorage->depend_files(),
+          cfd_, read_options_, level_files, vstorage->depend_files(),
           sv_->mutable_cf_options.prefix_extractor.get()));
     }
   }

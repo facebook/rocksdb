@@ -26,11 +26,11 @@ struct CompactionInputFiles {
   inline FileMetaData* operator[](size_t i) const { return files[i]; }
 };
 
-class Version;
 class ColumnFamilyData;
-class VersionStorageInfo;
 class CompactionFilter;
 class LevelFileContainer;
+class Version;
+class VersionStorageInfo;
 
 // A Compaction encapsulates information about a compaction.
 class Compaction {

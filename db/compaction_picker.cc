@@ -1359,9 +1359,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       start_level_score_, false /* deletion_compaction */,
-      kGeneralSst,
-      {}, // input_range
-      compaction_reason_);
+      kGeneralSst, {} /* input_range */, compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -1611,9 +1609,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
       {}, /* is manual */ false, vstorage->CompactionScore(0),
-      /* is deletion compaction */ true,
-      kGeneralSst,
-      {}, // input_range
+      /* is deletion compaction */ true, kGeneralSst, {} /* input_range */,
       CompactionReason::kFIFOTtl);
   return c;
 }
@@ -1654,10 +1650,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             0 /* output path ID */, mutable_cf_options.compression,
             ioptions_.compression_opts, 0 /* max_subcompactions */, {},
             /* is manual */ false, vstorage->CompactionScore(0),
-            /* is deletion compaction */ false,
-            kGeneralSst,
-            {}, // input_range
-            CompactionReason::kFIFOReduceNumFiles);
+            /* is deletion compaction */ false, kGeneralSst,
+            {} /* input_range */, CompactionReason::kFIFOReduceNumFiles);
         return c;
       }
     }
@@ -1704,9 +1698,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
       {}, /* is manual */ false, vstorage->CompactionScore(0),
-      /* is deletion compaction */ true,
-      kGeneralSst,
-      {}, // input_range
+      /* is deletion compaction */ true, kGeneralSst, {} /* input_range */,
       CompactionReason::kFIFOMaxSize);
   return c;
 }
