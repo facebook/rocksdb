@@ -437,14 +437,15 @@ InternalIterator* TableCache::NewIterator(
   return result;
 }
 
-Status TableCache::Get(
-    const ReadOptions& options,
+Status TableCache::Get(const ReadOptions& options,
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta,
     const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
-    const Slice& k, GetContext* get_context,
+    const Slice& k,
+    GetContext* get_context,
     const SliceTransform* prefix_extractor,
-    HistogramImpl* file_read_hist, bool skip_filters, int level) {
+    HistogramImpl* file_read_hist, bool skip_filters,
+    int level) {
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;

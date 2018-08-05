@@ -250,7 +250,6 @@ class InternalKey {
   std::string DebugString(bool hex = false) const;
 };
 
-
 inline int InternalKeyComparator::Compare(
     const InternalKey& a, const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());

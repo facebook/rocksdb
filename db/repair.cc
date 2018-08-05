@@ -504,7 +504,8 @@ class Repairer {
       std::unordered_map<uint64_t, FileMetaData*> empty_depend_files;
       InternalIterator* iter = table_cache_->NewIterator(
           ReadOptions(), env_options_, cfd->internal_comparator(), t->meta,
-          empty_depend_files, nullptr /* range_del_agg */,
+          empty_depend_files,
+          nullptr /* range_del_agg */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
       bool empty = true;
       ParsedInternalKey parsed;

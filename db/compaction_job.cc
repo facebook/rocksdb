@@ -673,7 +673,8 @@ Status CompactionJob::Run() {
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
             *files_meta[file_idx], empty_depend_files,
-            nullptr /* range_del_agg */, prefix_extractor, nullptr,
+            nullptr /* range_del_agg */,
+            prefix_extractor, nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
             false, nullptr /* arena */, false /* skip_filters */,
@@ -985,7 +986,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
 
     // Open output file if necessary
     if (sub_compact->builder == nullptr) {
-      status = OpenCompactionOutputFile(sub_compact, nullptr);
+      status = OpenCompactionOutputFile(sub_compact);
       if (!status.ok()) {
         break;
       }
@@ -1151,7 +1152,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   if (status.ok() && sub_compact->builder == nullptr &&
       sub_compact->outputs.size() == 0) {
     // handle subcompaction containing only range deletions
-    status = OpenCompactionOutputFile(sub_compact, nullptr);
+    status = OpenCompactionOutputFile(sub_compact);
   }
 
   // Call FinishCompactionOutputFile() even if status is not ok: it needs to

@@ -26,11 +26,11 @@ struct CompactionInputFiles {
   inline FileMetaData* operator[](size_t i) const { return files[i]; }
 };
 
+class Version;
 class ColumnFamilyData;
+class VersionStorageInfo;
 class CompactionFilter;
 class LevelFileContainer;
-class Version;
-class VersionStorageInfo;
 
 // A Compaction encapsulates information about a compaction.
 class Compaction {
@@ -109,9 +109,7 @@ class Compaction {
     return &inputs_[compaction_input_level].files;
   }
 
-  const std::vector<CompactionInputFiles>* inputs() const {
-    return &inputs_;
-  }
+  const std::vector<CompactionInputFiles>* inputs() const { return &inputs_; }
 
   // Returns the LevelFilesBrief of the specified compaction input level.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {

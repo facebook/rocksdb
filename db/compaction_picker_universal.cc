@@ -262,10 +262,10 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       CalculateSortedRuns(*vstorage, ioptions_, mutable_cf_options);
 
   if (sorted_runs.size() == 0 ||
-      (!vstorage->has_space_amplification() &&
-       (vstorage->FilesMarkedForCompaction().empty() &&
-        sorted_runs.size() < (unsigned int)mutable_cf_options
-                                 .level0_file_num_compaction_trigger))) {
+      (vstorage->FilesMarkedForCompaction().empty() &&
+       !vstorage->has_space_amplification() &&
+       sorted_runs.size() < (unsigned int)mutable_cf_options
+                                 .level0_file_num_compaction_trigger)) {
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: nothing to do\n",
                      cf_name.c_str());
     TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
@@ -900,7 +900,9 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       max_subcompactions, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */, compaction_varieties, {},
+      score, false /* deletion_compaction */,
+      compaction_varieties,
+      {}, // input_range
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -1020,7 +1022,9 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
                          1),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
-      score, false /* deletion_compaction */, kGeneralSst, {},
+      score, false /* deletion_compaction */,
+      kGeneralSst,
+      {}, // input_range
       CompactionReason::kFilesMarkedForCompaction);
 }
 }  // namespace rocksdb

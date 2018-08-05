@@ -31,8 +31,7 @@ namespace rocksdb {
 //     iter.Next()
 class ForwardLevelIterator : public InternalIterator {
  public:
-  ForwardLevelIterator(
-      const ColumnFamilyData* const cfd,
+  ForwardLevelIterator(const ColumnFamilyData* const cfd,
       const ReadOptions& read_options,
       const std::vector<FileMetaData*>& files,
       const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
@@ -78,7 +77,8 @@ class ForwardLevelIterator : public InternalIterator {
         cfd_->internal_comparator(), {} /* snapshots */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        *files_[file_index_], depend_files_,
+        *files_[file_index_],
+        depend_files_,
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         prefix_extractor_, nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -711,7 +711,8 @@ void ForwardIterator::RenewIterators() {
     }
     l0_iters_new.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        *l0_files_new[inew], vstorage_new->depend_files(),
+        *l0_files_new[inew],
+        vstorage_new->depend_files(),
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         svnew->mutable_cf_options.prefix_extractor.get()));
   }
@@ -755,7 +756,8 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
       }
     } else {
       level_iters_.push_back(new ForwardLevelIterator(
-          cfd_, read_options_, level_files, vstorage->depend_files(),
+          cfd_, read_options_, level_files,
+          vstorage->depend_files(),
           sv_->mutable_cf_options.prefix_extractor.get()));
     }
   }
@@ -772,7 +774,9 @@ void ForwardIterator::ResetIncompleteIterators() {
     DeleteIterator(l0_iters_[i]);
     l0_iters_[i] = cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        *l0_files[i], vstorage.depend_files(), nullptr /* range_del_agg */,
+        *l0_files[i],
+        vstorage.depend_files(),
+        nullptr /* range_del_agg */,
         sv_->mutable_cf_options.prefix_extractor.get());
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }

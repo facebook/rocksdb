@@ -115,7 +115,7 @@ class CompactionJob {
   Status OpenCompactionOutputFile(
       SubcompactionState* sub_compact,
       std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-          replace_collector_factorys);
+          replace_collector_factorys = nullptr);
   void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
