@@ -95,7 +95,18 @@ void TwoLevelIterator::Seek(const Slice& target) {
 }
 
 void TwoLevelIterator::SeekForPrev(const Slice& target) {
-  first_level_iter_.Seek(target);
+  // Use `SeekForPrev` here to mimic the behavior of `Seek`
+  // because that `Seek` returns false in some cases when `prefix_same_as_start`
+  // is enabled.
+  first_level_iter_.SeekForPrev(target);
+  if (!first_level_iter_.Valid()) {
+      // The only case that we can't get a valid iterator, ignoring the case of empty blocks,
+      // is that the value of the first index is greater than `target`.
+      first_level_iter_.SeekToFirst();
+  }
+  while (first_level_iter_.Valid() && first_level_iter_.key().compare(target) < 0) {
+    first_level_iter_.Next();
+  }
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
     second_level_iter_.SeekForPrev(target);
