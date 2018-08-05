@@ -35,6 +35,14 @@ struct SuperVersionContext {
   explicit SuperVersionContext(bool create_superversion = false)
     : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
 
+  explicit SuperVersionContext(SuperVersionContext&& other)
+      : superversions_to_free(std::move(other.superversions_to_free)),
+#ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
+        write_stall_notifications(std::move(other.write_stall_notifications)),
+#endif
+        new_superversion(std::move(other.new_superversion)) {
+  }
+
   void NewSuperVersion() {
     new_superversion = unique_ptr<SuperVersion>(new SuperVersion());
   }
@@ -98,8 +106,15 @@ struct JobContext {
   }
 
   inline bool HaveSomethingToClean() const {
+    bool sv_have_sth = false;
+    for (const auto& sv_ctx : superversion_contexts) {
+      if (sv_ctx.HaveSomethingToDelete()) {
+        sv_have_sth = true;
+        break;
+      }
+    }
     return memtables_to_free.size() > 0 || logs_to_free.size() > 0 ||
-           superversion_context.HaveSomethingToDelete();
+           sv_have_sth;
   }
 
   // Structure to store information for candidate files to delete.
@@ -142,7 +157,8 @@ struct JobContext {
   // a list of memtables to be free
   autovector<MemTable*> memtables_to_free;
 
-  SuperVersionContext superversion_context;
+  // contexts for installing superversions for multiple column families
+  std::vector<SuperVersionContext> superversion_contexts;
 
   autovector<log::Writer*> logs_to_free;
 
@@ -158,13 +174,14 @@ struct JobContext {
   size_t num_alive_log_files = 0;
   uint64_t size_log_to_delete = 0;
 
-  explicit JobContext(int _job_id, bool create_superversion = false)
-    : superversion_context(create_superversion) {
+  explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;
     manifest_file_number = 0;
     pending_manifest_file_number = 0;
     log_number = 0;
     prev_log_number = 0;
+    superversion_contexts.emplace_back(
+        SuperVersionContext(create_superversion));
   }
 
   // For non-empty JobContext Clean() has to be called at least once before
@@ -173,7 +190,9 @@ struct JobContext {
   // doing potentially slow Clean() with locked DB mutex.
   void Clean() {
     // free superversions
-    superversion_context.Clean();
+    for (auto& sv_context : superversion_contexts) {
+      sv_context.Clean();
+    }
     // free pending memtables
     for (auto m : memtables_to_free) {
       delete m;

@@ -160,8 +160,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
-                                       mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(
+        cfd, &job_context->superversion_contexts[0], mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -230,8 +230,8 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->smallest_seqno;
-    info.largest_seqno = file_meta->largest_seqno;
+    info.smallest_seqno = file_meta->fd.smallest_seqno;
+    info.largest_seqno = file_meta->fd.largest_seqno;
     info.table_properties = prop;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
@@ -281,8 +281,8 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->smallest_seqno;
-    info.largest_seqno = file_meta->largest_seqno;
+    info.smallest_seqno = file_meta->fd.smallest_seqno;
+    info.largest_seqno = file_meta->fd.largest_seqno;
     info.table_properties = prop;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
@@ -691,7 +691,7 @@ Status DBImpl::CompactFilesImpl(
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kManualCompaction);
   }
   c->ReleaseCompactionFiles(s);
@@ -885,7 +885,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
-                   f->smallest_seqno, f->largest_seqno,
+                   f->fd.smallest_seqno, f->fd.largest_seqno,
                    f->marked_for_compaction);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -1888,7 +1888,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
@@ -1917,8 +1917,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
-                           f->largest, f->smallest_seqno, f->largest_seqno,
-                           f->marked_for_compaction);
+                           f->largest, f->fd.smallest_seqno,
+                           f->fd.largest_seqno, f->marked_for_compaction);
 
         ROCKS_LOG_BUFFER(
             log_buffer,
@@ -1935,7 +1935,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
@@ -2012,7 +2012,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          c->column_family_data(), &job_context->superversion_context,
+          c->column_family_data(), &job_context->superversion_contexts[0],
           *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     }
     *made_progress = true;
@@ -2204,7 +2204,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
                         old_sv->mutable_cf_options.max_write_buffer_number;
   }
 
-  if (sv_context->new_superversion == nullptr) {
+  // this branch is unlikely to step in
+  if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);

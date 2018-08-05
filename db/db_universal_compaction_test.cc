@@ -1822,9 +1822,9 @@ TEST_P(DBTestUniversalCompaction, FinalSortedRunCompactFilesConflict) {
         "CompactFilesImpl:1"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread compact_files_thread([&]() {
+  port::Thread compact_files_thread([&]() {
     ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), default_cfh,
-        {first_sst_filename}, num_levels_ - 1));
+                                     {first_sst_filename}, num_levels_ - 1));
   });
 
   TEST_SYNC_POINT(

@@ -189,8 +189,8 @@ DEFINE_string(
     "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
-    "\theapprofile -- Dump a heap profile (if supported by this"
-    " port)\n");
+    "\theapprofile -- Dump a heap profile (if supported by this port)\n"
+    "\treplay      -- replay the trace file specified with trace_file\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -727,6 +727,8 @@ DEFINE_bool(report_bg_io_stats, false,
 
 DEFINE_bool(use_stderr_info_logger, false,
             "Write info logs to stderr instead of to LOG file. ");
+
+DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -1970,6 +1972,7 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
+  TraceOptions trace_options_;
   int64_t reads_;
   int64_t deletes_;
   double read_random_exp_range_;
@@ -2658,6 +2661,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         PrintStats("rocksdb.levelstats");
       } else if (name == "sstables") {
         PrintStats("rocksdb.sstables");
+      } else if (name == "replay") {
+        if (num_threads > 1) {
+          fprintf(stderr, "Multi-threaded replay is not yet supported\n");
+          exit(1);
+        }
+        if (FLAGS_trace_file == "") {
+          fprintf(stderr, "Please set --trace_file to be replayed from\n");
+          exit(1);
+        }
+        method = &Benchmark::Replay;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         exit(1);
@@ -2688,6 +2701,32 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
+
+#ifndef ROCKSDB_LITE
+        // A trace_file option can be provided both for trace and replay
+        // operations. But db_bench does not support tracing and replaying at
+        // the same time, for now. So, start tracing only when it is not a
+        // replay.
+        if (FLAGS_trace_file != "" && name != "replay") {
+          std::unique_ptr<TraceWriter> trace_writer;
+          Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
+                                        FLAGS_trace_file, &trace_writer);
+          if (!s.ok()) {
+            fprintf(stderr, "Encountered an error starting a trace, %s\n",
+                    s.ToString().c_str());
+            exit(1);
+          }
+          s = db_.db->StartTrace(trace_options_, std::move(trace_writer));
+          if (!s.ok()) {
+            fprintf(stderr, "Encountered an error starting a trace, %s\n",
+                    s.ToString().c_str());
+            exit(1);
+          }
+          fprintf(stdout, "Tracing the workload to: [%s]\n",
+                  FLAGS_trace_file.c_str());
+        }
+#endif  // ROCKSDB_LITE
+
         if (num_warmup > 0) {
           printf("Warming up benchmark by running %d times\n", num_warmup);
         }
@@ -2713,6 +2752,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         (this->*post_process_method)();
       }
     }
+
+#ifndef ROCKSDB_LITE
+    if (name != "replay" && FLAGS_trace_file != "") {
+      Status s = db_.db->EndTrace();
+      if (!s.ok()) {
+        fprintf(stderr, "Encountered an error ending the trace, %s\n",
+                s.ToString().c_str());
+      }
+    }
+#endif  // ROCKSDB_LITE
+
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
@@ -3389,14 +3439,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
-    if (FLAGS_cache_size) {
-      // If this is a block based table, also need to set block_cache
-      if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
-          options.table_factory->GetOptions() != nullptr) {
-        BlockBasedTableOptions* table_options =
-            reinterpret_cast<BlockBasedTableOptions*>(
-                options.table_factory->GetOptions());
+    // If this is a block based table, set some related options
+    if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
+        options.table_factory->GetOptions() != nullptr) {
+      BlockBasedTableOptions* table_options =
+          reinterpret_cast<BlockBasedTableOptions*>(
+              options.table_factory->GetOptions());
+      if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
+      }
+      if (FLAGS_bloom_bits >= 0) {
+        table_options->filter_policy.reset(NewBloomFilterPolicy(
+            FLAGS_bloom_bits, FLAGS_use_block_based_filter));
       }
     }
     if (FLAGS_row_cache_size) {
@@ -4174,7 +4228,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     delete iter;
     thread->stats.AddBytes(bytes);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
     }
   }
 
@@ -4256,7 +4311,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
     }
   }
 
@@ -4334,7 +4390,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
     }
   }
 
@@ -4491,7 +4548,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
     }
   }
 
@@ -5053,17 +5111,27 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
-      DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % merge_keys_, merge_keys_, &key);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+      int64_t key_rand = thread->rand.Next() % merge_keys_;
+      GenerateKeyFromInt(key_rand, merge_keys_, &key);
 
-      Status s = db->Merge(write_options_, key, gen.Generate(value_size_));
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_with_cfh->db->Merge(write_options_,
+                                   db_with_cfh->GetCfh(key_rand), key,
+                                   gen.Generate(value_size_));
+      } else {
+        s = db_with_cfh->db->Merge(write_options_,
+                                   db_with_cfh->db->DefaultColumnFamily(), key,
+                                   gen.Generate(value_size_));
+      }
 
       if (!s.ok()) {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
       bytes += key.size() + value_size_;
-      thread->stats.FinishedOps(nullptr, db, 1, kMerge);
+      thread->stats.FinishedOps(nullptr, db_with_cfh->db, 1, kMerge);
     }
 
     // Print some statistics
@@ -5242,7 +5310,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
     }
     thread->stats.AddBytes(static_cast<int64_t>(inserter.GetBytesInserted()));
   }
@@ -5404,7 +5473,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(get_perf_context()->ToString());
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
     }
   }
 
@@ -5524,6 +5594,37 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       stats = "(failed)";
     }
     fprintf(stdout, "\n%s\n", stats.c_str());
+  }
+
+  void Replay(ThreadState* thread) {
+    if (db_.db != nullptr) {
+      Replay(thread, &db_);
+    }
+  }
+
+  void Replay(ThreadState* /*thread*/, DBWithColumnFamilies* db_with_cfh) {
+    Status s;
+    unique_ptr<TraceReader> trace_reader;
+    s = NewFileTraceReader(FLAGS_env, EnvOptions(), FLAGS_trace_file,
+                           &trace_reader);
+    if (!s.ok()) {
+      fprintf(
+          stderr,
+          "Encountered an error creating a TraceReader from the trace file. "
+          "Error: %s\n",
+          s.ToString().c_str());
+      exit(1);
+    }
+    Replayer replayer(db_with_cfh->db, db_with_cfh->cfh,
+                      std::move(trace_reader));
+    s = replayer.Replay();
+    if (s.ok()) {
+      fprintf(stdout, "Replay started from trace_file: %s\n",
+              FLAGS_trace_file.c_str());
+    } else {
+      fprintf(stderr, "Starting replay failed. Error: %s\n",
+              s.ToString().c_str());
+    }
   }
 };
 
