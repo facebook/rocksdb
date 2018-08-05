@@ -2704,6 +2704,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
+#ifndef ROCKSDB_LITE
         // A trace_file option can be provided both for trace and replay
         // operations. But db_bench does not support tracing and replaying at
         // the same time, for now. So, start tracing only when it is not a
@@ -2726,6 +2727,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           fprintf(stdout, "Tracing the workload to: [%s]\n",
                   FLAGS_trace_file.c_str());
         }
+#endif  // ROCKSDB_LITE
 
         if (num_warmup > 0) {
           printf("Warming up benchmark by running %d times\n", num_warmup);
@@ -2753,6 +2755,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     }
 
+#ifndef ROCKSDB_LITE
     if (name != "replay" && FLAGS_trace_file != "") {
       Status s = db_.db->EndTrace();
       if (!s.ok()) {
@@ -2760,6 +2763,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                 s.ToString().c_str());
       }
     }
+#endif  // ROCKSDB_LITE
 
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
