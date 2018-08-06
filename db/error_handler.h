@@ -53,8 +53,6 @@ class ErrorHandler {
 
     bool IsRecoveryInProgress() { return recovery_in_prog_; }
 
-    const ImmutableDBOptions& db_options() { return db_options_; }
-
     Status RecoverFromBGError(bool exclusive = false);
     void CancelErrorRecovery();
 
