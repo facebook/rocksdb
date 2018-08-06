@@ -192,6 +192,8 @@ class Block {
 
   SequenceNumber global_seqno() const { return global_seqno_; }
 
+  bool UseDataBlockHashIndex() const { return data_block_hash_index_.Valid();}
+
  private:
   BlockContents contents_;
   const char* data_;            // contents_.data.data()
@@ -203,7 +205,7 @@ class Block {
   // the encoded value (kDisableGlobalSequenceNumber means disabled)
   const SequenceNumber global_seqno_;
 
-  std::unique_ptr<DataBlockHashIndex> data_block_hash_index_;
+  DataBlockHashIndex data_block_hash_index_;
 
   // No copying allowed
   Block(const Block&) = delete;
@@ -380,6 +382,14 @@ class DataBlockIter final : public BlockIter {
   virtual void SeekToLast() override;
 
   void Invalidate(Status s) {
+    if (s.IsNotSupported()) {
+      // the iterator is invalidated due to HashSeek fallback
+      status_ = Status::OK();
+      // falling back to BinarySeek
+      data_block_hash_index_ = nullptr;
+      // We do not clear the iterator, but only clear the hash index.
+      return;
+    }
     InvalidateBase(s);
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
@@ -425,7 +435,7 @@ class DataBlockIter final : public BlockIter {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
 
-  bool HashSeek(const Slice& target);
+  void HashSeek(const Slice& target);
 };
 
 class IndexBlockIter final : public BlockIter {

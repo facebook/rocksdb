@@ -301,7 +301,8 @@ struct BlockBasedTableBuilder::Rep {
                       ? std::min(table_options.block_size, kDefaultPageSize)
                       : 0),
         data_block(table_options.block_restart_interval,
-                   table_options.use_delta_encoding),
+                   table_options.use_delta_encoding,
+                   table_options.data_block_index_type),
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_dict(_compression_dict),
