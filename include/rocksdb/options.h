@@ -1281,6 +1281,8 @@ struct IngestExternalFileOptions {
   bool write_global_seqno = true;
 };
 
+struct TraceOptions {};
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

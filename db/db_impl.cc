@@ -1071,6 +1071,15 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(column_family, key);
+    }
+  }
+
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
@@ -2227,9 +2236,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
-                                         *cfd->GetLatestMutableCFOptions(),
-                                         FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_contexts[0],
+          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2312,9 +2321,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
-                                         *cfd->GetLatestMutableCFOptions(),
-                                         FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_contexts[0],
+          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2928,6 +2937,8 @@ Status DBImpl::IngestExternalFile(
   }
   dummy_sv_ctx.Clean();
   if (!status.ok()) {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
@@ -3105,6 +3116,20 @@ void DBImpl::WaitForIngestFile() {
   while (num_running_ingest_file_ > 0) {
     bg_cv_.Wait();
   }
+}
+
+Status DBImpl::StartTrace(const TraceOptions& /* options */,
+                          std::unique_ptr<TraceWriter>&& trace_writer) {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+  return Status::OK();
+}
+
+Status DBImpl::EndTrace() {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  Status s = tracer_->Close();
+  tracer_.reset();
+  return s;
 }
 
 #endif  // ROCKSDB_LITE
