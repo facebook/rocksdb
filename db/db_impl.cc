@@ -3127,7 +3127,7 @@ Status DBImpl::EndTrace() {
   return s;
 }
 
+#endif  // ROCKSDB_LITE
 Tracer* DBImpl::GetTracerPtr() const { return tracer_.get(); }
 
-#endif  // ROCKSDB_LITE
 }  // namespace rocksdb

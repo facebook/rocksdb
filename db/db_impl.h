@@ -342,10 +342,8 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
-  Tracer* GetTracerPtr() const;
-  InstrumentedMutex& GetTraceMutex() const;
-
 #endif  // ROCKSDB_LITE
+  Tracer* GetTracerPtr() const;
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then
