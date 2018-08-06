@@ -1260,49 +1260,28 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
-  if (atomic_flush_) {
-    if (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
-        bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+  while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
+         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+    assert(!flush_queue_.empty());
+    const auto& flush_req = flush_queue_.front();
+    assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
+    unscheduled_flushes_ -= static_cast<int>(flush_req.size());
+    bg_flush_scheduled_++;
+    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+  }
+
+  // special case -- if high-pri (flush) thread pool is empty, then schedule
+  // flushes in low-pri (compaction) thread pool.
+  if (is_flush_pool_empty) {
+    while (unscheduled_flushes_ > 0 &&
+           bg_flush_scheduled_ + bg_compaction_scheduled_ <
+               bg_job_limits.max_flushes) {
       assert(!flush_queue_.empty());
       const auto& flush_req = flush_queue_.front();
       assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
       unscheduled_flushes_ -= static_cast<int>(flush_req.size());
       bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
-    }
-
-    // special case -- if high-pri (flush) thread pool is empty, then schedule
-    // flushes in low-pri (compaction) thread pool.
-    if (is_flush_pool_empty) {
-      if (unscheduled_flushes_ > 0 &&
-          bg_flush_scheduled_ + bg_compaction_scheduled_ <
-              bg_job_limits.max_flushes) {
-        assert(!flush_queue_.empty());
-        const auto& flush_req = flush_queue_.front();
-        assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
-        unscheduled_flushes_ -= static_cast<int>(flush_req.size());
-        bg_flush_scheduled_++;
-        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
-      }
-    }
-  } else {
-    while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
-           bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-      unscheduled_flushes_--;
-      bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
-    }
-
-    // special case -- if high-pri (flush) thread pool is empty, then schedule
-    // flushes in low-pri (compaction) thread pool.
-    if (is_flush_pool_empty) {
-      while (unscheduled_flushes_ > 0 &&
-             bg_flush_scheduled_ + bg_compaction_scheduled_ <
-                 bg_job_limits.max_flushes) {
-        unscheduled_flushes_--;
-        bg_flush_scheduled_++;
-        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
-      }
+      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
   }
 
