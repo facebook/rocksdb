@@ -1201,7 +1201,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
 
-  int max_num_levels = 0;
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
@@ -1228,13 +1227,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (!s.ok()) {
         break;
       }
-      int num_levels = cfd->current()->storage_info()->num_levels();
-      max_num_levels = num_levels > max_num_levels ? num_levels : max_num_levels;
     }
   }
-  // TODO(Zhongyi): need to initialize this in all threads that might need
-  // access to PerfContextByLevel
-  perf_context.EnablePerLevelPerfContext(max_num_levels);
   TEST_SYNC_POINT("DBImpl::Open:Opened");
   Status persist_options_status;
   if (s.ok()) {

@@ -4,6 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
+#define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
+#define MAX_PERF_CONTEXT_LEVELS 16
 
 #include <stdint.h>
 #include <string>
@@ -32,9 +35,14 @@ struct PerfContext {
 
   std::string ToString(bool exclude_zero_counters = false) const;
 
-  void EnablePerLevelPerfContext(int levels);
+  // enable per level perf context and allocate storage for PerfContextByLevel
+  void EnablePerLevelPerfContext();
 
+  // disable per level perf contxt by setting the flag to false
   void DisablePerLevelPerfContext();
+
+  // free the space for PerfContextByLevel, also disable per level perf context
+  void ClearPerLevelPerfContext();
 
   uint64_t user_key_comparison_count; // total number of user key comparisons
   uint64_t block_cache_hit_count;     // total number of block cache hits
@@ -184,7 +192,6 @@ struct PerfContext {
   uint64_t env_new_logger_nanos;
   PerfContextByLevel* perf_context_by_level;
   bool per_level_perf_context_enabled;
-  size_t num_levels;
 };
 
 // Get Thread-local PerfContext object pointer

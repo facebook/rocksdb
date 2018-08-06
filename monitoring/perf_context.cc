@@ -105,15 +105,14 @@ void PerfContext::Reset() {
   env_unlock_file_nanos = 0;
   env_new_logger_nanos = 0;
   // TODO: or simply delete perf_context_by_level?
-  if (per_level_perf_context_enabled && num_levels > 0) {
-    for (size_t i = 0; i < num_levels; ++i) {
+  if (per_level_perf_context_enabled && perf_context_by_level) {
+    for (size_t i = 0; i < MAX_PERF_CONTEXT_LEVELS; ++i) {
       perf_context_by_level->bloom_filter_useful = 0;
       perf_context_by_level->bloom_filter_full_positive = 0;
       perf_context_by_level->bloom_filter_full_true_positive = 0;
     }
   }
   per_level_perf_context_enabled = false;
-  num_levels = 0;
 #endif
 }
 
@@ -123,9 +122,10 @@ void PerfContext::Reset() {
   }
 
 #define PERF_CONTEXT_BY_LEVEL_OUTPUT(counter)                     \
-  if (!exclude_zero_counters && per_level_perf_context_enabled) { \
+  if (!exclude_zero_counters && per_level_perf_context_enabled && \
+      perf_context_by_level) { \
     ss << #counter << " = ";                                      \
-    for (size_t i = 0; i < num_levels; ++i) {                     \
+    for (size_t i = 0; i < MAX_PERF_CONTEXT_LEVELS; ++i) {        \
       ss << perf_context_by_level[i].counter << ", ";             \
     }                                                             \
   }
@@ -211,16 +211,23 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #endif
 }
 
-void PerfContext::EnablePerLevelPerfContext(int levels){
-  num_levels = levels;
-  perf_context_by_level = new PerfContextByLevel[levels];
+void PerfContext::EnablePerLevelPerfContext(){
+  if (!perf_context_by_level) {
+    perf_context_by_level = new PerfContextByLevel[MAX_PERF_CONTEXT_LEVELS];
+  }
   per_level_perf_context_enabled = true;
 }
 
 void PerfContext::DisablePerLevelPerfContext(){
   per_level_perf_context_enabled = false;
-  delete perf_context_by_level;
-  perf_context_by_level = nullptr;
+}
+
+void PerfContext::ClearPerLevelPerfContext(){
+  if (perf_context_by_level) {
+    delete perf_context_by_level;
+    perf_context_by_level = nullptr;
+  }
+  per_level_perf_context_enabled = false;
 }
 
 }

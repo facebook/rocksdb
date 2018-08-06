@@ -60,12 +60,16 @@ extern __thread PerfContext perf_context;
   }
 
 // Increase metric value
-#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)        \
-  if (perf_level >= PerfLevel::kEnableCount &&                 \
-      perf_context.perf_context_by_level &&                    \
-      perf_context.per_level_perf_context_enabled &&           \
-      level < perf_context.num_levels) {                       \
-    perf_context.perf_context_by_level[level].metric += value; \
+#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)                      \
+  if (perf_level >= PerfLevel::kEnableCount &&                               \
+      perf_context.perf_context_by_level &&                                  \
+      perf_context.per_level_perf_context_enabled) {                         \
+    if (level < MAX_PERF_CONTEXT_LEVELS) {                                   \
+      perf_context.perf_context_by_level[level].metric += value;             \
+    } else {                                                                 \
+      perf_context.perf_context_by_level[MAX_PERF_CONTEXT_LEVELS - 1].metric \
+      += value;                                                              \
+    }                                                                        \
   }
 
 #endif
