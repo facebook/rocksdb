@@ -79,7 +79,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       dbname_(dbname),
       db_impl_(nullptr),
       env_(db_options.env),
-      ttl_extractor_(blob_db_options.ttl_extractor.get()),
       bdb_options_(blob_db_options),
       db_options_(db_options),
       cf_options_(cf_options),
@@ -563,12 +562,8 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
-    std::string new_value;
-    Slice value_slice;
-    uint64_t expiration =
-        blob_db_impl_->ExtractExpiration(key, value, &value_slice, &new_value);
-    Status s = blob_db_impl_->PutBlobValue(options_, key, value_slice,
-                                           expiration, &batch_);
+    Status s = blob_db_impl_->PutBlobValue(options_, key, value,
+                                           kNoExpiration, &batch_);
     return s;
   }
 
@@ -661,10 +656,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 
 Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
-  std::string new_value;
-  Slice value_slice;
-  uint64_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
-  return PutUntil(options, key, value_slice, expiration);
+  return PutUntil(options, key, value, kNoExpiration);
 }
 
 Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
@@ -784,20 +776,6 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressBlock(raw, compression_ctx, &ct, kBlockBasedTableVersionFormat,
                 compression_output);
   return *compression_output;
-}
-
-uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
-                                       Slice* value_slice,
-                                       std::string* new_value) {
-  uint64_t expiration = kNoExpiration;
-  bool has_expiration = false;
-  bool value_changed = false;
-  if (ttl_extractor_ != nullptr) {
-    has_expiration = ttl_extractor_->ExtractExpiration(
-        key, value, EpochNow(), &expiration, new_value, &value_changed);
-  }
-  *value_slice = value_changed ? Slice(*new_value) : value;
-  return has_expiration ? expiration : kNoExpiration;
 }
 
 void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
