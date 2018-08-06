@@ -2394,6 +2394,22 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
         break;
       } else {
+        // The fallback logic in BlockBasedTable::Get() when trying HashSeek:
+        //
+        // 1) first try to use HashSeek(), by creating a DataBlockIter with
+        // is_data_block_point_lookup = true.
+        //
+        // 2) if DataBlockIter find the data_block_hash_index_ is not initilzed,
+        // or the key found is not supported (unsupported record type, or higher
+        // seqno), it set status_ to Status::NotSupported and return.
+        //
+        // 3) BlockBasedTable::Get() will check the biter status to see if it
+        // needs to fall back to the normal binary seek logic. If fall-back is
+        // needed, the BlockIter is reused after Invalidate().
+        //
+        // 4) Invalidate() will check the status parameter to see if this biter
+        // is falling back. If so it will set data_block_hash_index_ to nullptr
+        // to avoid using HashSeek().
         DataBlockIter biter;
 
         // first try DataBlockHashIndex
