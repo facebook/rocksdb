@@ -1254,11 +1254,11 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
   // [earliest_sequence, obsolete_sequence). But doing so will make the
   // implementation more complicated.
   SequenceNumber obsolete_sequence = bfile->GetObsoleteSequence();
-  SequenceNumber oldest_snapshot = 0;
+  SequenceNumber oldest_snapshot = kMaxSequenceNumber;
   {
     // Need to lock DBImpl mutex before access snapshot list.
     InstrumentedMutexLock l(db_impl_->mutex());
-    auto snapshots = db_impl_->snapshots();
+    auto& snapshots = db_impl_->snapshots();
     if (!snapshots.empty()) {
       oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
     }
