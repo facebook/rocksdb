@@ -559,9 +559,15 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
   if (cenv->GetCloudType() == CloudType::kCloudNone) {
     // We don't need to SanitizeDirectory()
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] SanitizeDirectory skipping dir %s for non-cloud env",
+        local_name.c_str());
     return Status::OK();
   }
   if (cenv->GetCloudType() != CloudType::kCloudAws) {
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+        "[db_cloud_impl] SanitizeDirectory dir %s found non aws env",
+        local_name.c_str());
     return Status::NotSupported("We only support AWS for now.");
   }
   // acquire the local env
