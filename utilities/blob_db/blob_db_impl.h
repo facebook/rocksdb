@@ -130,6 +130,10 @@ class BlobDBImpl : public BlobDB {
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             uint64_t* expiration) override;
+
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
 
@@ -215,10 +219,10 @@ class BlobDBImpl : public BlobDB {
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value);
+                 PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
-                      PinnableSlice* value);
+                      PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
