@@ -90,9 +90,6 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
   estimate += VarintLength(key.size()); // varint for key length.
   estimate += VarintLength(value.size()); // varint for value length.
 
-  /* one more <TAG, restart_index_> pair in bucket */;
-  estimate += data_block_hash_index_builder_ ? sizeof(uint16_t) * 2 : 0;
-
   return estimate;
 }
 
