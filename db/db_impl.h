@@ -888,6 +888,11 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
+  Status FlushMemTablesToOutputFile(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<uint64_t>& memtable_ids, bool* made_progress,
+      JobContext* job_context, LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -980,11 +985,9 @@ class DBImpl : public DB {
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
-  void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
 
-  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> GroupFlushRequest;
-  void SchedulePendingGroupFlush(const GroupFlushRequest& req,
-                                 FlushReason flush_reason);
+  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+  void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
@@ -1027,8 +1030,7 @@ class DBImpl : public DB {
   // helper functions for adding and removing from flush & compaction queues
   void AddToCompactionQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromCompactionQueue();
-  void AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason);
-  ColumnFamilyData* PopFirstFromFlushQueue();
+  FlushRequest PopFirstFromFlushQueue();
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
@@ -1261,14 +1263,10 @@ class DBImpl : public DB {
   // in MaybeScheduleFlushOrCompaction()
   // invariant(column family present in flush_queue_ <==>
   // ColumnFamilyData::pending_flush_ == true)
-  std::deque<ColumnFamilyData*> flush_queue_;
+  std::deque<FlushRequest> flush_queue_;
   // invariant(column family present in compaction_queue_ <==>
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
-
-  // atomic_flush_queue_ stores batches of column families that should be
-  // flushed.
-  std::deque<GroupFlushRequest> group_flush_queue_;
 
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;

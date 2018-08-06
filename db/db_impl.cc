@@ -348,9 +348,12 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
-    auto cfd = PopFirstFromFlushQueue();
-    if (cfd->Unref()) {
-      delete cfd;
+    auto flush_req = PopFirstFromFlushQueue();
+    for (auto& iter : flush_req) {
+      auto cfd = iter.first;
+      if (cfd->Unref()) {
+        delete cfd;
+      }
     }
   }
   while (!compaction_queue_.empty()) {

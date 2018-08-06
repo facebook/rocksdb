@@ -1075,7 +1075,8 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
         break;
       }
       cfd->imm()->FlushRequested();
-      SchedulePendingFlush(cfd, FlushReason::kWriteBufferManager);
+      SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
+                           FlushReason::kWriteBufferManager);
     }
   }
   MaybeScheduleFlushOrCompaction();
@@ -1102,7 +1103,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // happen while we're in the write thread
   ColumnFamilyData* cfd_picked = nullptr;
   SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
-  GroupFlushRequest group_flush_req;
+  FlushRequest flush_req;
 
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
@@ -1120,7 +1121,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
           break;
         }
         uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-        group_flush_req.emplace_back(cfd, flush_memtable_id);
+        flush_req.emplace_back(cfd, flush_memtable_id);
       } else {
         uint64_t seq = cfd->mem()->GetCreationSeq();
         if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
@@ -1130,13 +1131,13 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       }
     }
   }
-  if (atomic_flush_ && !group_flush_req.empty()) {
+  if (atomic_flush_ && !flush_req.empty()) {
     if (status.ok()) {
-      for (auto& iter : group_flush_req) {
+      for (auto& iter : flush_req) {
         auto cfd = iter.first;
         cfd->imm()->FlushRequested();
       }
-      SchedulePendingGroupFlush(group_flush_req, FlushReason::kWriteBufferFull);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
       MaybeScheduleFlushOrCompaction();
     }
   } else if (!atomic_flush_ && cfd_picked != nullptr) {
@@ -1144,7 +1145,9 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
                             FlushReason::kWriteBufferFull);
     if (status.ok()) {
       cfd_picked->imm()->FlushRequested();
-      SchedulePendingFlush(cfd_picked, FlushReason::kWriteBufferFull);
+      SchedulePendingFlush(
+          {{cfd_picked, cfd_picked->imm()->GetLatestMemTableID()}},
+          FlushReason::kWriteBufferFull);
       MaybeScheduleFlushOrCompaction();
     }
   }
@@ -1246,7 +1249,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       return Status::OK();
     }
     Status s;
-    GroupFlushRequest group_flush_req;
+    FlushRequest flush_req;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped() ||
           (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty())) {
@@ -1259,15 +1262,15 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
         break;
       }
       uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      group_flush_req.emplace_back(cfd, flush_memtable_id);
+      flush_req.emplace_back(cfd, flush_memtable_id);
     }
 
     if (s.ok()) {
-      for (auto& iter : group_flush_req) {
+      for (auto& iter : flush_req) {
         auto cfd = iter.first;
         cfd->imm()->FlushRequested();
       }
-      SchedulePendingGroupFlush(group_flush_req, FlushReason::kWriteBufferFull);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
       ColumnFamilyData* cfd;
       while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
         if (cfd->Unref()) {
