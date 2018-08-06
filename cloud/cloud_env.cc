@@ -109,6 +109,9 @@ Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
       if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
         if (RemapFilename(noepoch) != fname) {
           // Ignore returned status on purpose.
+          Log(InfoLogLevel::INFO_LEVEL, info_log_,
+              "DeleteInvisibleFiles deleting %s from destination bucket",
+              fname.c_str());
           DeleteCloudFileFromDest(fname);
         }
       }
@@ -124,6 +127,9 @@ Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
     if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
       if (RemapFilename(RemoveEpoch(fname)) != fname) {
         // Ignore returned status on purpose.
+        Log(InfoLogLevel::INFO_LEVEL, info_log_,
+            "DeleteInvisibleFiles deleting file %s from local dir",
+            fname.c_str());
         GetBaseEnv()->DeleteFile(dbname + "/" + fname);
       }
     }
