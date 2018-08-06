@@ -61,23 +61,27 @@ namespace rocksdb {
 
 const uint8_t kNoEntry = 255;
 const uint8_t kCollision = 254;
+const uint16_t kInitNumBuckets = 400;
 
 class DataBlockHashIndexBuilder {
  public:
-  explicit DataBlockHashIndexBuilder(uint16_t n)
-      : num_buckets_(n),
-        buckets_(n, kNoEntry),
+  explicit DataBlockHashIndexBuilder(double r)
+      : num_buckets_(kInitNumBuckets),
+        util_ratio_(r),
+        buckets_(kInitNumBuckets, kNoEntry),
         estimate_(sizeof(uint16_t) /*num_bucket*/ +
-                  n * sizeof(uint8_t) /*n buckets*/) {}
+                  kInitNumBuckets * sizeof(uint8_t) /*n buckets*/) {}
   void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
-  void Reset();
+  void Reset(uint16_t estimated_num_keys);
   inline size_t EstimateSize() { return estimate_; }
 
  private:
   uint16_t num_buckets_;
+  double util_ratio_;
   std::vector<uint8_t> buckets_;
   size_t estimate_;
+  friend class DataBlockHashIndex_DataBlockHashTestSmall_Test;
 };
 
 class DataBlockHashIndex {
