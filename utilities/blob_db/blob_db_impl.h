@@ -235,9 +235,6 @@ class BlobDBImpl : public BlobDB {
   void ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
                         SequenceNumber obsolete_seq, bool update_size);
 
-  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
-                             Slice* value_slice, std::string* new_value);
-
   Status PutBlobValue(const WriteOptions& options, const Slice& key,
                       const Slice& value, uint64_t expiration,
                       WriteBatch* batch);
@@ -337,7 +334,6 @@ class BlobDBImpl : public BlobDB {
   // the base DB
   DBImpl* db_impl_;
   Env* env_;
-  TTLExtractor* ttl_extractor_;
 
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;

@@ -18,8 +18,6 @@ namespace rocksdb {
 
 namespace blob_db {
 
-class TTLExtractor;
-
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
 // It lacks lots of importatant functionalities, e.g. DB restarts,
@@ -66,11 +64,6 @@ struct BlobDBOptions {
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
   uint64_t blob_file_size = 256 * 1024 * 1024;
-
-  // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
-  // applications can set a TTLExtractor which can extract TTL from key-value
-  // pairs.
-  std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
@@ -227,33 +220,6 @@ class BlobDB : public StackableDB {
 // Destroy the content of the database.
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options);
-
-// TTLExtractor allow applications to extract TTL from key-value pairs.
-// This useful for applications using Put or WriteBatch to write keys and
-// don't intend to migrate to PutWithTTL or PutUntil.
-//
-// Applications can implement either ExtractTTL or ExtractExpiration. If both
-// are implemented, ExtractExpiration will take precedence.
-class TTLExtractor {
- public:
-  // Extract TTL from key-value pair.
-  // Return true if the key has TTL, false otherwise. If key has TTL,
-  // TTL is pass back through ttl. The method can optionally modify the value,
-  // pass the result back through new_value, and also set value_changed to true.
-  virtual bool ExtractTTL(const Slice& key, const Slice& value, uint64_t* ttl,
-                          std::string* new_value, bool* value_changed);
-
-  // Extract expiration time from key-value pair.
-  // Return true if the key has expiration time, false otherwise. If key has
-  // expiration time, it is pass back through expiration. The method can
-  // optionally modify the value, pass the result back through new_value,
-  // and also set value_changed to true.
-  virtual bool ExtractExpiration(const Slice& key, const Slice& value,
-                                 uint64_t now, uint64_t* expiration,
-                                 std::string* new_value, bool* value_changed);
-
-  virtual ~TTLExtractor() = default;
-};
 
 }  // namespace blob_db
 }  // namespace rocksdb
