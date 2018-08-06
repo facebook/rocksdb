@@ -121,6 +121,7 @@ void CreateAwsEnv(const std::string& dbpath,
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
     return;
   }
+  ((CloudEnvImpl*)s)->TEST_DisableCloudManifest();
   // If we are keeping wal in cloud storage, then tail it as well.
   // so that our unit tests can run to completion.
   if (!coptions.keep_local_log_files) {
@@ -259,7 +260,7 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
   unique_ptr<RandomAccessFile> rand_file;
   Slice result;
   char scratch[100];
-  std::string fname = "/f.sst";
+  std::string fname = "/100.sst";
 
   ASSERT_OK(
       env_->NewWritableFile(test_dir_ + fname, &writable_file, soptions_));
