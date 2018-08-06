@@ -22,10 +22,10 @@
 #include <sys/stat.h>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
-#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
+#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>

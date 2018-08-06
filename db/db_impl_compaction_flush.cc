@@ -40,6 +40,7 @@ bool DBImpl::EnoughRoomForCompaction(
     }
   }
 #else
+  (void)cfd;
   (void)inputs;
   (void)sfm_reserved_compact_space;
 #endif  // ROCKSDB_LITE

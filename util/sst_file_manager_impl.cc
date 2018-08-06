@@ -166,7 +166,7 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     auto fn =
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
-    size_t free_space = 0;
+    uint64_t free_space = 0;
     env_->GetFreeSpace(fn, &free_space);
     if (free_space < needed_headroom) {
       // We hit the condition of not enough disk space
