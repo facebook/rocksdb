@@ -1466,6 +1466,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     for (auto& iter : flush_req) {
       auto cfd = iter.first;
       if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
+        --unscheduled_flushes_;
         // can't flush this CF, try next one
         if (cfd->Unref()) {
           delete cfd;
@@ -2182,7 +2183,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options, FlushReason flush_reason) {
+    const MutableCFOptions& mutable_cf_options, FlushReason /* flush_reason */) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -2201,8 +2202,6 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
-                       flush_reason);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 

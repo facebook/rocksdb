@@ -1265,7 +1265,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       flush_req.emplace_back(cfd, flush_memtable_id);
     }
 
-    if (s.ok()) {
+    if (s.ok() && !flush_req.empty()) {
       for (auto& iter : flush_req) {
         auto cfd = iter.first;
         cfd->imm()->FlushRequested();
@@ -1290,7 +1290,10 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       if (!status.ok()) {
         return status;
       }
+      cfd->imm()->FlushRequested();
+      SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}}, FlushReason::kWriteBufferFull);
     }
+    MaybeScheduleFlushOrCompaction();
     return Status::OK();
   }
 }
