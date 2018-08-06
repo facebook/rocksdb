@@ -130,6 +130,10 @@ class BlobDBImpl : public BlobDB {
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             uint64_t* expiration) override;
+
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
 
@@ -176,9 +180,6 @@ class BlobDBImpl : public BlobDB {
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
 
   Status SyncBlobFiles() override;
-
-  Status UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
-                   uint64_t ttl) override;
 
   void UpdateLiveSSTSize();
 

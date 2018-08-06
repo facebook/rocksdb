@@ -1001,7 +1001,11 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::NotFound("Key expired");
   }
   if (expiration != nullptr) {
-    *expiration = blob_index.HasTTL() ? blob_index.expiration() : kNoExpiration;
+    if (blob_index.HasTTL()) {
+      *expiration = blob_index.expiration();
+    } else {
+      *expiration = kNoExpiration;
+    }
   }
   if (blob_index.IsInlined()) {
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
@@ -1138,9 +1142,15 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
+  return Get(read_options, column_family, key, value, nullptr /*expiration*/);
+}
+
+Status BlobDBImpl::Get(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, uint64_t* expiration) {
   StopWatch get_sw(env_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value, expiration);
 }
 
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
@@ -1156,10 +1166,6 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
-  if (expiration != nullptr) {
-    *expiration = kNoExpiration;
-  }
-
   Status s;
   bool is_blob_index = false;
   s = db_impl_->GetImpl(ro, column_family, key, value,
@@ -1167,6 +1173,9 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
+  if (expiration != nullptr) {
+    *expiration = kNoExpiration;
+  }
   if (s.ok() && is_blob_index) {
     std::string index_entry = value->ToString();
     value->Reset();
@@ -1355,37 +1364,6 @@ Status BlobDBImpl::SyncBlobFiles() {
                     s.ToString().c_str());
   }
   return s;
-}
-
-// First read the key and expiration of the key, then write the key back
-// with updated expiration if needed.
-//
-// Caveat: Updating a key about to expire may make the key reappear after
-// expiration. Also since the operation is not atomic, it may overwrite a
-// concurrent write. Fix is non-trivial. We may need to block readers to the
-// key until blob index get updated, and we need to use transaction to ensure
-// we don't overwrite concurrent writers.
-Status BlobDBImpl::UpdateTTL(const UpdateTTLOptions& options, const Slice& key,
-                             uint64_t ttl) {
-  assert(ttl < kNoExpiration - EpochNow());
-  uint64_t new_expiration = EpochNow() + ttl;
-  PinnableSlice value;
-  uint64_t expiration;
-  Status s = GetImpl(options.read_options, DefaultColumnFamily(), key, &value,
-                     &expiration);
-  if (!s.ok()) {
-    return s;
-  }
-  switch (options.mode) {
-    case UpdateTTLMode::kExtend:
-      if (expiration >= new_expiration) {
-        return Status::OK();
-      }
-      break;
-    default:
-      assert(options.mode == UpdateTTLMode::kUpdate);
-  }
-  return PutUntil(options.write_options, key, value, new_expiration);
 }
 
 std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {

@@ -520,6 +520,25 @@ TEST_F(BlobDBTest, StackableDBGet) {
   }
 }
 
+TEST_F(BlobDBTest, GetExpiration) {
+  Options options;
+  options.env = mock_env_.get();
+  BlobDBOptions bdb_options;
+  bdb_options.disable_background_tasks = true;
+  mock_env_->set_current_time(100);
+  Open(bdb_options, options);
+  Put("key1", "value1");
+  PutWithTTL("key2", "value2", 200);
+  PinnableSlice value;
+  uint64_t expiration;
+  ASSERT_OK(blob_db_->Get(ReadOptions(), "key1", &value, &expiration));
+  ASSERT_EQ("value1", value.ToString());
+  ASSERT_EQ(kNoExpiration, expiration);
+  ASSERT_OK(blob_db_->Get(ReadOptions(), "key2", &value, &expiration));
+  ASSERT_EQ("value2", value.ToString());
+  ASSERT_EQ(300 /* = 100 + 200 */, expiration);
+}
+
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
   BlobDBOptions bdb_options;
@@ -1546,73 +1565,6 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   data_after_compact["large_key2"] = large_value;
   data_after_compact["large_key3"] = large_value;
   VerifyDB(data_after_compact);
-}
-
-TEST_F(BlobDBTest, UpdateTTL) {
-  Options options;
-  options.env = mock_env_.get();
-  BlobDBOptions bdb_options;
-  bdb_options.disable_background_tasks = true;
-  mock_env_->set_current_time(100);
-  Open(bdb_options, options);
-
-  // key1 and key2 should expire before we update its TTL
-  ASSERT_OK(PutWithTTL("key1", "value1", 50));
-  ASSERT_OK(PutWithTTL("key2", "value2", 50));
-  mock_env_->set_current_time(200);
-  ReadOptions ro;
-  WriteOptions wo;
-  UpdateTTLOptions update(ro, wo, UpdateTTLMode::kUpdate);
-  UpdateTTLOptions extend(ro, wo, UpdateTTLMode::kExtend);
-  Status s;
-  s = blob_db_->UpdateTTL(update, "key1", 100);
-  ASSERT_TRUE(s.IsNotFound());
-  s = blob_db_->UpdateTTL(extend, "key2", 100);
-  ASSERT_TRUE(s.IsNotFound());
-
-  std::map<std::string, std::string> data;
-  // We will extend TTL of key2, and shorten TTL of key4 and key5,
-  // all with kUpdate mode.
-  ASSERT_OK(PutWithTTL("key3", "value3", 150, &data));
-  ASSERT_OK(PutWithTTL("key4", "value4", 150, &data));
-  ASSERT_OK(Put("key5", "value5", &data));
-  // We will extend TTL of key6, and shorten TTL of key7 and key8,
-  // all with kExtend mode.
-  ASSERT_OK(PutWithTTL("key6", "value6", 150, &data));
-  ASSERT_OK(PutWithTTL("key7", "value7", 150, &data));
-  ASSERT_OK(Put("key8", "value8", &data));
-
-  ASSERT_OK(blob_db_->UpdateTTL(update, "key3", 250));
-  ASSERT_OK(blob_db_->UpdateTTL(update, "key4", 50));
-  ASSERT_OK(blob_db_->UpdateTTL(update, "key5", 50));
-  ASSERT_OK(blob_db_->UpdateTTL(extend, "key6", 250));
-  ASSERT_OK(blob_db_->UpdateTTL(extend, "key7", 50));
-  ASSERT_OK(blob_db_->UpdateTTL(extend, "key8", 50));
-
-  // All key still exists.
-  VerifyDB(data);
-
-  // Move clock forward. key4 and key5 expired because of shorten TTL.
-  // However key7 and key8 survived because in extend mode the pre-existing
-  // longer TTL is used.
-  mock_env_->set_current_time(300);
-  data.erase("key4");
-  data.erase("key5");
-  VerifyDB(data);
-
-  // Move clock forward. key7 has expiration 250 at the beginning and should
-  // expired now.
-  mock_env_->set_current_time(400);
-  data.erase("key7");
-  VerifyDB(data);
-
-  // Move clock forward. Both key3 and key6 has expiration 350 and should
-  // expired now. key8 begin with no TTL and extending with a shorter TTL
-  // doesn't assign a TTL to it.
-  mock_env_->set_current_time(500);
-  data.erase("key3");
-  data.erase("key6");
-  VerifyDB(data);
 }
 
 }  //  namespace blob_db
