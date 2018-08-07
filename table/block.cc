@@ -197,7 +197,10 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
   }
 
   Slice user_key = ExtractUserKey(target);
-  uint8_t entry = data_block_hash_index_->Seek(user_key);
+  uint8_t entry = data_block_hash_index_->Seek(
+      data_,
+      restarts_ + num_restarts_ * sizeof(uint32_t) /*map_offset*/,
+      user_key);
 
   if (entry == kNoEntry) {
     *hash_effective = true;
@@ -640,16 +643,16 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
             break;
           }
 
+          uint16_t map_offset;
           data_block_hash_index_.Initialize(
-              Slice(contents.data.data(), /* chop off NUM_RESTARTS */
-                    contents.data.size() - sizeof(uint32_t)));
+              contents.data.data(),
+              contents.data.size() - sizeof(uint32_t) /*chop off NUM_RESTARTS*/,
+              &map_offset);
 
-          restart_offset_ = data_block_hash_index_.DataBlockHashMapStart() -
-                            num_restarts_ * sizeof(uint32_t);
+          restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
 
-          if (restart_offset_ >
-              data_block_hash_index_.DataBlockHashMapStart()) {
-            // DataBlockHashMapStart() is too small for NumRestarts() and
+          if (restart_offset_ > map_offset) {
+            // map_offset is too small for NumRestarts() and
             // therefore restart_offset_ wrapped around.
             size_ = 0;
             break;

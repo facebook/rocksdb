@@ -14,9 +14,10 @@
 
 namespace rocksdb {
 
-bool SearchForOffset(DataBlockHashIndex& index, const Slice& key,
+bool SearchForOffset(DataBlockHashIndex& index, const char* data,
+                     uint16_t map_offset, const Slice& key,
                      uint8_t& restart_point) {
-  uint8_t entry = index.Seek(key);
+  uint8_t entry = index.Seek(data, map_offset, key);
   if (entry == kCollision) {
     return true;
   }
@@ -51,14 +52,15 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
 
     Slice s(buffer2);
     DataBlockHashIndex index;
-    index.Initialize(s);
+    uint16_t map_offset;
+    index.Initialize(s.data(), s.size(), &map_offset);
 
     // the additional hash map should start at the end of the buffer
-    ASSERT_EQ(original_size, index.DataBlockHashMapStart());
+    ASSERT_EQ(original_size, map_offset);
     for (uint8_t i = 0; i < 2; i++) {
       std::string key("key" + std::to_string(i));
       uint8_t restart_point = i;
-      ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+      ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
     }
     builder.Reset();
   }
@@ -87,14 +89,15 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
 
   Slice s(buffer2);
   DataBlockHashIndex index;
-  index.Initialize(s);
+  uint16_t map_offset;
+  index.Initialize(s.data(), s.size(), &map_offset);
 
   // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, index.DataBlockHashMapStart());
+  ASSERT_EQ(original_size, map_offset);
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+    ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
   }
 }
 
@@ -121,14 +124,15 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
 
   Slice s(buffer2);
   DataBlockHashIndex index;
-  index.Initialize(s);
+  uint16_t map_offset;
+  index.Initialize(s.data(), s.size(), &map_offset);
 
   // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, index.DataBlockHashMapStart());
+  ASSERT_EQ(original_size, map_offset);
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+    ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
   }
 }
 
@@ -159,16 +163,17 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
 
   Slice s(buffer2);
   DataBlockHashIndex index;
-  index.Initialize(s);
+  uint16_t map_offset;
+  index.Initialize(s.data(), s.size(), &map_offset);
 
   // the additional hash map should start at the end of the buffer
-  ASSERT_EQ(original_size, index.DataBlockHashMapStart());
+  ASSERT_EQ(original_size, map_offset);
   for (uint8_t i = 0; i < 100; i++) {
     std::string key = "key" + std::to_string(i);
     uint8_t restart_point = i;
     if (m.count(key)) {
       ASSERT_TRUE(m[key] == restart_point);
-      ASSERT_TRUE(SearchForOffset(index, key, restart_point));
+      ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
     } else {
       // we allow false positve, so don't test the nonexisting keys.
       // when false positive happens, the search will continue to the

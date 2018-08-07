@@ -33,11 +33,10 @@ namespace rocksdb {
 //
 // The format of the data-block hash index is as follows:
 //
-// HASH_IDX: [B B B ... B NUM_BUCK MAP_START]
+// HASH_IDX: [B B B ... B NUM_BUCK]
 //
 // B:         bucket, an array of restart index. Each buckets is uint8_t.
 // NUM_BUCK:  Number of buckets, which is the length of the bucket array.
-// MAP_START: the starting offset of the data-block hash index.
 //
 // We reserve two special flag:
 //    kNoEntry=255,
@@ -68,7 +67,7 @@ class DataBlockHashIndexBuilder {
   explicit DataBlockHashIndexBuilder(uint16_t n)
       : num_buckets_(n),
         buckets_(n, kNoEntry),
-        estimate_(2 * sizeof(uint16_t) /*num_buck and maps_start*/ +
+        estimate_(sizeof(uint16_t) /*num_bucket*/ +
                   n * sizeof(uint8_t) /*n buckets*/) {}
   void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
@@ -83,27 +82,22 @@ class DataBlockHashIndexBuilder {
 
 class DataBlockHashIndex {
  public:
-  DataBlockHashIndex():size_(0), num_buckets_(0) {}
+  DataBlockHashIndex() : num_buckets_(0) {}
 
-  void Initialize(Slice block_content);
-  inline uint16_t DataBlockHashMapStart() const {
-    return static_cast<uint16_t>(map_start_ - data_);
-  }
-  bool Valid() const {return size_ != 0;}
-  uint8_t Seek(const Slice& key) const;
+  void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
+
+  uint8_t Seek(const char* data, uint16_t map_offset, const Slice& key) const;
+
+  inline bool Valid() { return num_buckets_ != 0; }
 
  private:
-  const char *data_;
   // To make the serialized hash index compact and to save the space overhead,
   // here all the data fields persisted in the block are in uint16 format.
   // We find that a uint16 is large enough to index every offset of a 64KiB
   // block.
   // So in other words, DataBlockHashIndex does not support block size equal
   // or greater then 64KiB.
-  uint16_t size_;
   uint16_t num_buckets_;
-  const char *map_start_;    // start of the map
-  const char *bucket_table_; // start offset of the bucket index table
 };
 
 }  // namespace rocksdb
