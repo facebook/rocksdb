@@ -61,6 +61,7 @@ void EventHelpers::NotifyOnBackgroundError(
   (void)reason;
   (void)bg_error;
   (void)db_mutex;
+  (void)auto_recovery;
 #endif  // ROCKSDB_LITE
 }
 
@@ -186,8 +187,7 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
   db_mutex->Lock();
 #else
   (void)listeners;
-  (void)reason;
-  (void)bg_error;
+  (void)old_bg_error;
   (void)db_mutex;
 #endif  // ROCKSDB_LITE
 }

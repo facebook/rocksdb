@@ -121,6 +121,7 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
 };
 
 void ErrorHandler::CancelErrorRecovery() {
+#ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
 
   if (recovery_in_prog_) {
@@ -139,6 +140,7 @@ void ErrorHandler::CancelErrorRecovery() {
       }
     }
   }
+#endif
 }
 
 // This is the main function for looking at an error during a background
@@ -238,6 +240,7 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
 
 Status ErrorHandler::OverrideNoSpaceError(Status bg_error,
                                           bool* auto_recovery) {
+#ifndef ROCKSDB_LITE
   if (bg_error.severity() >= Status::Severity::kFatalError) {
     return bg_error;
   }
@@ -266,9 +269,14 @@ Status ErrorHandler::OverrideNoSpaceError(Status bg_error,
   }
 
   return bg_error;
+#else
+  (void)auto_recovery;
+  return Status(bg_error, Status::Severity::kFatalError);
+#endif
 }
 
 void ErrorHandler::RecoverFromNoSpace() {
+#ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
       reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
 
@@ -276,9 +284,11 @@ void ErrorHandler::RecoverFromNoSpace() {
   if (sfm) {
     sfm->StartErrorRecovery(this, bg_error_);
   }
+#endif
 }
 
 Status ErrorHandler::ClearBGError() {
+#ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
 
   // Signal that recovery succeeded
@@ -290,9 +300,13 @@ Status ErrorHandler::ClearBGError() {
                                                  old_bg_error, db_mutex_);
   }
   return recovery_error_;
+#else
+  return bg_error_;
+#endif
 }
 
 Status ErrorHandler::RecoverFromBGError(bool exclusive) {
+#ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
   if (exclusive) {
     // If exclusive is set, its a manual recovery
@@ -321,5 +335,9 @@ Status ErrorHandler::RecoverFromBGError(bool exclusive) {
     recovery_in_prog_ = false;
   }
   return s;
+#else
+  (void)exclusive;
+  return bg_error_;
+#endif
 }
 }

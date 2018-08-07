@@ -134,13 +134,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   for (size_t i = 0; i < result.db_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
-#endif
 
   if (result.sst_file_manager.get() == nullptr) {
     std::shared_ptr<SstFileManager> sst_file_manager(
         NewSstFileManager(result.env, result.info_log));
     result.sst_file_manager = sst_file_manager;
   }
+#endif
   return result;
 }
 
