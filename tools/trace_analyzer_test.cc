@@ -26,10 +26,10 @@ int main() {
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "tools/trace_analyzer_tool_imp.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/trace_replay.h"
-#include "utilities/trace_analyzer_tool_imp.h"
 
 namespace rocksdb {
 

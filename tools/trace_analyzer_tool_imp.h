@@ -44,7 +44,7 @@ struct TraceUnit {
   std::string key;
 };
 
-struct TypeCorre {
+struct TypeCorrelation {
   uint64_t count;
   uint64_t total_ts;
 };
@@ -56,19 +56,19 @@ struct StatsUnit {
   uint64_t succ_count;  // current only used to count Get if key found
   uint32_t cf_id;
   size_t value_size;
-  std::vector<TypeCorre> v_corre;
+  std::vector<TypeCorrelation> v_correlation;
 };
 
 class AnalyzerOptions {
  public:
-  std::vector<std::vector<int>> corre_map;
-  std::vector<std::pair<int, int>> corre_list;
+  std::vector<std::vector<int>> correlation_map;
+  std::vector<std::pair<int, int>> correlation_list;
 
   AnalyzerOptions();
 
   ~AnalyzerOptions();
 
-  void SparseCorreInput(const std::string& in_str);
+  void SparseCorrelationInput(const std::string& in_str);
 };
 
 // Note that, for the variable names  in the trace_analyzer,
@@ -83,7 +83,7 @@ struct TraceStats {
   std::string cf_name;
   uint64_t a_count;
   uint64_t a_succ_count;
-  uint64_t akey_id;
+  uint64_t a_key_id;
   uint64_t a_key_size_sqsum;
   uint64_t a_key_size_sum;
   uint64_t a_key_mid;
@@ -115,7 +115,7 @@ struct TraceStats {
                       std::greater<std::pair<uint32_t, uint32_t>>>
       top_k_qps_sec;
   std::list<TraceUnit> time_series;
-  std::vector<std::pair<uint64_t, uint64_t>> corre_output;
+  std::vector<std::pair<uint64_t, uint64_t>> correlation_output;
 
   std::unique_ptr<rocksdb::WritableFile> time_series_f;
   std::unique_ptr<rocksdb::WritableFile> a_key_f;
@@ -168,17 +168,17 @@ class TraceAnalyzer {
 
   // The trace  processing functions for different type
   Status HandleGet(uint32_t column_family_id, const std::string& key,
-                     const uint64_t& ts, const uint32_t& get_ret);
+                   const uint64_t& ts, const uint32_t& get_ret);
   Status HandlePut(uint32_t column_family_id, const Slice& key,
-                     const Slice& value);
+                   const Slice& value);
   Status HandleDelete(uint32_t column_family_id, const Slice& key);
   Status HandleSingleDelete(uint32_t column_family_id, const Slice& key);
   Status HandleDeleteRange(uint32_t column_family_id, const Slice& begin_key,
-                             const Slice& end_key);
+                           const Slice& end_key);
   Status HandleMerge(uint32_t column_family_id, const Slice& key,
-                       const Slice& value);
+                     const Slice& value);
   Status HandleIter(uint32_t column_family_id, const std::string& key,
-                      const uint64_t& ts);
+                    const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
@@ -211,8 +211,8 @@ class TraceAnalyzer {
   Status KeyStatsInsertion(const uint32_t& type, const uint32_t& cf_id,
                            const std::string& key, const size_t value_size,
                            const uint64_t ts);
-  Status StatsUnitCorreUpdate(StatsUnit& unit, const uint32_t& type,
-                              const uint64_t& ts, const std::string& key);
+  Status StatsUnitCorrelationUpdate(StatsUnit& unit, const uint32_t& type,
+                                    const uint64_t& ts, const std::string& key);
   Status OpenStatsOutputFiles(const std::string& type, TraceStats& new_stats);
   Status CreateOutputFile(const std::string& type, const std::string& cf_name,
                           const std::string& ending,
