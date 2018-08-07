@@ -685,7 +685,8 @@ tools_lib: $(TOOLS_LIBRARY)
 
 test_libs: $(TEST_LIBS)
 
-dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
+# dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
+dbg: $(LIBRARY)
 
 # creates static library and programs
 release:
