@@ -171,23 +171,6 @@ void DataBlockIter::Seek(const Slice& target) {
     return;
   }
   uint32_t index = 0;
-
-  // we use the hash index
-  // if 1) the caller is doing point lookup
-  //   i.e. data_block_hash_index is not nullptr
-  // and 2) data_block_hash_index is valid
-  //   i.e. the block content contains hash map
-  if (data_block_hash_index_) {
-    if (data_block_hash_index_->Valid()) {
-      // hash seek will set the current_ and restart_index_,
-      // no need to pass back `index`, or linear search.
-      HashSeek(target);
-    } else {
-      status_ = Status::NotSupported("block content does not contain hash map");
-    }
-    return;
-  }
-
   bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
 
   if (!ok) {
@@ -201,6 +184,83 @@ void DataBlockIter::Seek(const Slice& target) {
       return;
     }
   }
+}
+
+void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
+                               bool* found) {
+  assert(data_block_hash_index_);
+  // if the block content contains hash map
+  if (!data_block_hash_index_->Valid()) {
+    *hash_effective = false;
+    *found = false;
+    return;
+  }
+
+  Slice user_key = ExtractUserKey(target);
+  uint8_t entry = data_block_hash_index_->Seek(user_key);
+
+  if (entry == kNoEntry) {
+    *hash_effective = true;
+    *found = false; // TODO(fwu): block boundary corner case
+    return;
+  }
+
+  if (entry == kCollision) { // HashSeek not effective
+    *hash_effective = false;
+    *found = false;
+    return;
+  }
+
+  uint32_t restart_index = entry;
+
+  // check if the key is in the restart_interval
+  SeekToRestartPoint(restart_index);
+  while (true) {
+    // Here we only linear seek the target key inside the restart interval.
+    // If a key does not exist inside a restart interval, we avoid
+    // further searching the block content accross restart interval boundary.
+    //
+    // TODO(fwu): check the left and write boundary of the restart interval
+    // to avoid linear seek a target key that is out of range.
+    //
+    // If using hash, we only linear search within the restart inteval.
+    if (!ParseNextDataKey(true /*within_restart_interval*/) ||
+        Compare(key_, target) >= 0) {
+      // we stop at the first potential matching user key.
+      break;
+    }
+  }
+
+  if ((current_ != restarts_) /* valid */ &&
+      // If the user key portion match do we consider key_ matches
+      user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
+
+    // Here we are conservative and only support a limited set of cases
+    ValueType value_type = ExtractValueType(key_.GetKey());
+    if (value_type != ValueType::kTypeValue &&
+        value_type != ValueType::kTypeDeletion) {
+      *hash_effective = false;
+      *found = true;
+      return; // found, but not supported.
+    }
+
+    // Currently we do not fully support searching a key at specify snapshot.
+    // HashSeek only examine the first matched user_key. If the seqno is
+    // higher than the targe snapshot seqno, we just fall back to BinarySeek,
+    // without search further for the correct seqno.
+    uint64_t target_seqno = GetInternalKeySeqno(target);
+    uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
+    if (target_seqno < seqno) {
+      *hash_effective = false;
+      *found = true;
+      return; // found, but not supported.
+    }
+    *hash_effective = true;
+    *found = true; // successfully found
+    return;
+  }
+  *hash_effective = true;
+  *found = false; // not found
 }
 
 void IndexBlockIter::Seek(const Slice& target) {
@@ -533,71 +593,6 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   }
 }
 
-// NOTE: in hash seek, if the key is not found in the restart intervals,
-// the iterator will simply be set as "invalid", rather than returning
-// the key that is just pass the target key.
-void DataBlockIter::HashSeek(const Slice& target) {
-  assert(data_block_hash_index_);
-  Slice user_key = ExtractUserKey(target);
-  uint8_t entry = data_block_hash_index_->Seek(user_key);
-
-  if (entry == kNoEntry) {
-    current_ = restarts_;  // not found, Invalidate the iterator
-    return;
-  }
-
-  if (entry == kCollision) { // HashSeek not effective
-    status_ = Status::NotSupported("Hash Collision");
-    return;
-  }
-
-  uint32_t restart_index = entry;
-
-  // check if the key is in the restart_interval
-  SeekToRestartPoint(restart_index);
-  while (true) {
-    // Here we only linear seek the target key inside the restart interval.
-    // If a key does not exist inside a restart interval, we avoid
-    // further searching the block content accross restart interval boundary.
-    //
-    // TODO(fwu): check the left and write boundary of the restart interval
-    // to avoid linear seek a target key that is out of range.
-    //
-    // If using hash, we only linear search within the restart inteval.
-    if (!ParseNextDataKey(true /*within_restart_interval*/) ||
-        Compare(key_, target) >= 0) {
-      // we stop at the first potential matching user key.
-      break;
-    }
-  }
-
-  if ((current_ != restarts_) /* valid */ &&
-      // If the user key portion match do we consider key_ matches
-      user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
-
-    // Here we are conservative and only support a limited set of cases
-    ValueType value_type = ExtractValueType(key_.GetKey());
-    if (value_type != ValueType::kTypeValue &&
-        value_type != ValueType::kTypeDeletion) {
-      status_ = Status::NotSupported("record type not supported");
-      return; // found, but not supported.
-    }
-
-    // Currently we do not fully support searching a key at specify snapshot.
-    // HashSeek only examine the first matched user_key. If the seqno is
-    // higher than the targe snapshot seqno, we just fall back to BinarySeek,
-    // without search further for the correct seqno.
-    uint64_t target_seqno = GetInternalKeySeqno(target);
-    uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
-    if (target_seqno < seqno) {
-      status_ = Status::NotSupported("snapshot not fully supported");
-      // found, but not supported
-    }
-    return; // found
-  }
-  current_ = restarts_;  // not found, Invalidate the iterator
-}
-
 uint32_t Block::NumRestarts() const {
   assert(size_ >= 2*sizeof(uint32_t));
   uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
@@ -678,8 +673,7 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
                                   DataBlockIter* iter, Statistics* stats,
                                   bool /*total_order_seek*/,
                                   bool /*key_includes_seq*/,
-                                  BlockPrefixIndex* /*prefix_index*/,
-                                  bool is_data_block_point_lookup) {
+                                  BlockPrefixIndex* /*prefix_index*/) {
   DataBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -697,9 +691,7 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
   } else {
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
                          global_seqno_, read_amp_bitmap_.get(), cachable(),
-                         // We can use HashIndex only if doing point lookup
-                         is_data_block_point_lookup ? &data_block_hash_index_
-                         : nullptr);
+                         &data_block_hash_index_);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
@@ -716,8 +708,7 @@ IndexBlockIter* Block::NewIterator(const Comparator* cmp,
                                    const Comparator* ucmp, IndexBlockIter* iter,
                                    Statistics* /*stats*/, bool total_order_seek,
                                    bool key_includes_seq,
-                                   BlockPrefixIndex* prefix_index,
-                                   bool /* is_data_block_point_lookup */) {
+                                   BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;

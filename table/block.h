@@ -22,7 +22,6 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
-#include "format.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -32,6 +31,7 @@
 #include "table/internal_iterator.h"
 #include "util/random.h"
 #include "util/sync_point.h"
+#include "format.h"
 
 namespace rocksdb {
 
@@ -184,15 +184,12 @@ class Block {
                           Statistics* stats = nullptr,
                           bool total_order_seek = true,
                           bool key_includes_seq = true,
-                          BlockPrefixIndex* prefix_index = nullptr,
-                          bool is_data_block_point_lookup = false);
+                          BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
 
   SequenceNumber global_seqno() const { return global_seqno_; }
-
-  bool UseDataBlockHashIndex() const { return data_block_hash_index_.Valid();}
 
  private:
   BlockContents contents_;
@@ -371,6 +368,8 @@ class DataBlockIter final : public BlockIter {
 
   virtual void Seek(const Slice& target) override;
 
+  void SeekForGet(const Slice& target, bool* effective, bool* found);
+
   virtual void SeekForPrev(const Slice& target) override;
 
   virtual void Prev() override;
@@ -382,14 +381,6 @@ class DataBlockIter final : public BlockIter {
   virtual void SeekToLast() override;
 
   void Invalidate(Status s) {
-    if (s.IsNotSupported()) {
-      // the iterator is invalidated due to HashSeek fallback
-      status_ = Status::OK();
-      // falling back to BinarySeek
-      data_block_hash_index_ = nullptr;
-      // We do not clear the iterator, but only clear the hash index.
-      return;
-    }
     InvalidateBase(s);
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
@@ -435,7 +426,6 @@ class DataBlockIter final : public BlockIter {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
 
-  void HashSeek(const Slice& target);
 };
 
 class IndexBlockIter final : public BlockIter {

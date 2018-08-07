@@ -225,15 +225,14 @@ class BlockBasedTable : public TableReader {
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
       TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
-      FilePrefetchBuffer* prefetch_buffer = nullptr,
-      bool is_data_block_point_lookup = false);
+      FilePrefetchBuffer* prefetch_buffer = nullptr);
   template <typename TBlockIter>
   static TBlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
       TBlockIter* input_iter = nullptr, bool is_index = false,
       bool key_includes_seq = true, GetContext* get_context = nullptr,
-      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr,
-      bool is_data_block_point_lookup = false);
+      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
+
   class PartitionedIndexIteratorState;
 
   friend class PartitionIndexReader;
@@ -437,9 +436,6 @@ struct BlockBasedTable::Rep {
         filter_type(FilterType::kNoFilter),
         index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
         hash_index_allow_collision(false),
-        // This is set to false by default. Later it will be determined by
-        // the block content
-        use_data_block_hash_index(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
         range_del_handle(BlockHandle::NullBlockHandle()),
@@ -488,10 +484,6 @@ struct BlockBasedTable::Rep {
   std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
   bool hash_index_allow_collision;
-
-   // true if the block is a data block and uses DataBlockHashIndex
-  bool use_data_block_hash_index;
-
   bool whole_key_filtering;
   bool prefix_filtering;
   // TODO(kailiu) It is very ugly to use internal key in table, since table

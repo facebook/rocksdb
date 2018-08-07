@@ -1664,8 +1664,7 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     TBlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context, FilePrefetchBuffer* prefetch_buffer,
-    bool is_data_block_point_lookup) {
+    GetContext* get_context, FilePrefetchBuffer* prefetch_buffer) {
   BlockHandle handle;
   Slice input = index_value;
   // We intentionally allow extra stuff in index_value so that we
@@ -1673,8 +1672,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   Status s = handle.DecodeFrom(&input);
   return NewDataBlockIterator<TBlockIter>(rep, ro, handle, input_iter, is_index,
                                           key_includes_seq, get_context, s,
-                                          prefetch_buffer,
-                                          is_data_block_point_lookup);
+                                          prefetch_buffer);
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -1685,8 +1683,7 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
     TBlockIter* input_iter, bool is_index, bool key_includes_seq,
-    GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer,
-    bool is_data_block_point_lookup) {
+    GetContext* get_context, Status s, FilePrefetchBuffer* prefetch_buffer) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   const bool no_io = (ro.read_tier == kBlockCacheTier);
@@ -1736,10 +1733,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const bool kTotalOrderSeek = true;
     iter = block.value->NewIterator<TBlockIter>(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-        iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq,
-        nullptr /*prefix_index*/, is_data_block_point_lookup);
-    // we set rep->use_data_block_hash_index according to the block content
-    rep->use_data_block_hash_index = block.value->UseDataBlockHashIndex();
+        iter, rep->ioptions.statistics, kTotalOrderSeek, key_includes_seq);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
@@ -2394,30 +2388,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
         break;
       } else {
-        // The fallback logic in BlockBasedTable::Get() when trying HashSeek:
-        //
-        // 1) first try to use HashSeek(), by creating a DataBlockIter with
-        // is_data_block_point_lookup = true.
-        //
-        // 2) if DataBlockIter find the data_block_hash_index_ is not initilzed,
-        // or the key found is not supported (unsupported record type, or higher
-        // seqno), it set status_ to Status::NotSupported and return.
-        //
-        // 3) BlockBasedTable::Get() will check the biter status to see if it
-        // needs to fall back to the normal binary seek logic. If fall-back is
-        // needed, the BlockIter is reused after Invalidate().
-        //
-        // 4) Invalidate() will check the status parameter to see if this biter
-        // is falling back. If so it will set data_block_hash_index_ to nullptr
-        // to avoid using HashSeek().
         DataBlockIter biter;
 
-        // first try DataBlockHashIndex
         NewDataBlockIterator<DataBlockIter>(
             rep_, read_options, iiter->value(), &biter, false,
-            true /* key_includes_seq */, get_context,
-            nullptr /* prefetch_buffer */,
-            true /* is_data_block_point_lookup */);
+            true /* key_includes_seq */, get_context);
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter.status().IsIncomplete()) {
@@ -2432,12 +2407,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           break;
         }
 
-        biter.Seek(key);
+        bool hash_effective, found;
+        biter.SeekForGet(key, &hash_effective, &found);
 
-        if (!biter.status().IsNotSupported()) {
-          // HashSeek supported
-
-          if (biter.Valid()) { // found
+        if (hash_effective) {
+          if (found) {
             ParsedInternalKey parsed_key;
             s = Status::OK();
 
@@ -2449,11 +2423,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                 parsed_key, biter.value(), &matched,
                 biter.IsValuePinned() ? &biter : nullptr);
           }
+          //HashSeek is effective, break from the two-level iteration.
           break;
         }
 
-        //HashSeek is not supported, falling back to binary seek.
-        biter.Invalidate(biter.status());
+        //HashSeek is not effective, falling back to binary seek.
 
         // Call the *saver function on each entry/block until it returns false
         for (biter.Seek(key); biter.Valid(); biter.Next()) {
