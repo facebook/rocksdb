@@ -1358,18 +1358,22 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   auto& flush_req = flush_queue_.front();
   flush_queue_.pop_front();
+  unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   // TODO: need to unset flush reason?
   return flush_req;
 }
 
 void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
                                   FlushReason flush_reason) {
+  if (flush_req.empty()) {
+    return;
+  }
   for (auto& iter : flush_req) {
     auto cfd = iter.first;
     cfd->Ref();
     cfd->SetFlushReason(flush_reason);
-    ++unscheduled_flushes_;
   }
+  unscheduled_flushes_ += static_cast<int>(flush_req.size());
   flush_queue_.push_back(flush_req);
 }
 
@@ -1460,7 +1464,6 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     const auto& flush_req = PopFirstFromFlushQueue();
-    unscheduled_flushes_ -= static_cast<int>(flush_req.size());
 
     for (auto& iter : flush_req) {
       auto cfd = iter.first;
@@ -2181,8 +2184,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options,
-    FlushReason /* flush_reason */) {
+    const MutableCFOptions& mutable_cf_options, FlushReason flush_reason) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -2201,6 +2203,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
+  SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
+                       flush_reason);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 

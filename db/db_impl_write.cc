@@ -1290,11 +1290,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       if (!status.ok()) {
         return status;
       }
-      cfd->imm()->FlushRequested();
-      SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
-                           FlushReason::kWriteBufferFull);
     }
-    MaybeScheduleFlushOrCompaction();
     return Status::OK();
   }
 }
