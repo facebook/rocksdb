@@ -334,6 +334,25 @@ TEST_F(BlobDBTest, StackableDBGet) {
   }
 }
 
+TEST_F(BlobDBTest, GetExpiration) {
+  Options options;
+  options.env = mock_env_.get();
+  BlobDBOptions bdb_options;
+  bdb_options.disable_background_tasks = true;
+  mock_env_->set_current_time(100);
+  Open(bdb_options, options);
+  Put("key1", "value1");
+  PutWithTTL("key2", "value2", 200);
+  PinnableSlice value;
+  uint64_t expiration;
+  ASSERT_OK(blob_db_->Get(ReadOptions(), "key1", &value, &expiration));
+  ASSERT_EQ("value1", value.ToString());
+  ASSERT_EQ(kNoExpiration, expiration);
+  ASSERT_OK(blob_db_->Get(ReadOptions(), "key2", &value, &expiration));
+  ASSERT_EQ("value2", value.ToString());
+  ASSERT_EQ(300 /* = 100 + 200 */, expiration);
+}
+
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
   BlobDBOptions bdb_options;
