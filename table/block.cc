@@ -20,6 +20,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "table/block_prefix_index.h"
+#include "table/data_block_index_format.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
@@ -600,13 +601,19 @@ void DataBlockIter::HashSeek(const Slice& target) {
 uint32_t Block::NumRestarts() const {
   assert(size_ >= 2*sizeof(uint32_t));
   uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
-  return block_footer & 0x7FFFFFFF;
+  uint32_t num_restarts;
+  BlockBasedTableOptions::DataBlockIndexType index_type;
+  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
+  return num_restarts;
 }
 
-uint32_t Block::IndexType() const {
+BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
   assert(size_ >= 2 * sizeof(uint32_t));
   uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
-  return block_footer >> 31;
+  uint32_t num_restarts;
+  BlockBasedTableOptions::DataBlockIndexType index_type;
+  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
+  return index_type;
 }
 
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,

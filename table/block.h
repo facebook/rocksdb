@@ -156,7 +156,7 @@ class Block {
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const;
-  uint32_t IndexType() const;
+  BlockBasedTableOptions::DataBlockIndexType IndexType() const;
   CompressionType compression_type() const {
     return contents_.compression_type;
   }

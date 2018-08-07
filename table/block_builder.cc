@@ -35,8 +35,9 @@
 
 #include <algorithm>
 #include <assert.h>
-#include "rocksdb/comparator.h"
 #include "db/dbformat.h"
+#include "rocksdb/comparator.h"
+#include "table/data_block_index_format.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -99,14 +100,17 @@ Slice BlockBuilder::Finish() {
     PutFixed32(&buffer_, restarts_[i]);
   }
 
-  // footer is the num_restarts with the MSB as a flag indicating if
-  // data_block_hash_index is used.
-  uint32_t block_footer = static_cast<uint32_t>(restarts_.size());
+  uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
+  BlockBasedTableOptions::DataBlockIndexType index_type =
+    BlockBasedTableOptions::kDataBlockBinarySearch;
   if (data_block_hash_index_builder_) {
     data_block_hash_index_builder_->Finish(buffer_);
-    // embed the data block index type to the MSB of the num_restarts
-    block_footer |= BlockBasedTableOptions::kDataBlockHashSearch << 31;
+    index_type = BlockBasedTableOptions::kDataBlockHashSearch;
   }
+
+  // footer is a packed format of data_block_index_type and num_restarts
+  uint32_t block_footer = PackIndexTypeAndNumRestarts(
+      index_type, num_restarts);
 
   PutFixed32(&buffer_, block_footer);
   finished_ = true;
