@@ -6,8 +6,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/trace_analyzer_tool.h"
-
 #include <stdio.h>
 #include <fstream>
 #include <list>
@@ -72,6 +70,13 @@ class AnalyzerOptions {
 
   void SparseCorreInput(const std::string& in_str);
 };
+
+// Note that, for the variable names  in the trace_analyzer,
+// Starting with 'a_' means the variable is used for 'accessed_keys'.
+// Starting with 'w_' means it is used for 'the whole key space'.
+// Ending with '_f' means a file write or reader pointer.
+// For example, 'a_count' means 'accessed_keys_count',
+// 'w_key_f' means 'whole_key_space_file'.
 
 struct TraceStats {
   uint32_t cf_id;
@@ -162,17 +167,17 @@ class TraceAnalyzer {
   Status WriteTraceUnit(TraceUnit& unit);
 
   // The trace  processing functions for different type
-  Status HandleGetCF(uint32_t column_family_id, const std::string& key,
+  Status HandleGet(uint32_t column_family_id, const std::string& key,
                      const uint64_t& ts, const uint32_t& get_ret);
-  Status HandlePutCF(uint32_t column_family_id, const Slice& key,
+  Status HandlePut(uint32_t column_family_id, const Slice& key,
                      const Slice& value);
-  Status HandleDeleteCF(uint32_t column_family_id, const Slice& key);
-  Status HandleSingleDeleteCF(uint32_t column_family_id, const Slice& key);
-  Status HandleDeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+  Status HandleDelete(uint32_t column_family_id, const Slice& key);
+  Status HandleSingleDelete(uint32_t column_family_id, const Slice& key);
+  Status HandleDeleteRange(uint32_t column_family_id, const Slice& begin_key,
                              const Slice& end_key);
-  Status HandleMergeCF(uint32_t column_family_id, const Slice& key,
+  Status HandleMerge(uint32_t column_family_id, const Slice& key,
                        const Slice& value);
-  Status HandleIterCF(uint32_t column_family_id, const std::string& key,
+  Status HandleIter(uint32_t column_family_id, const std::string& key,
                       const uint64_t& ts);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
@@ -230,10 +235,6 @@ class TraceAnalyzer {
 // write bach handler to be used for WriteBache iterator
 // when processing the write trace
 class TraceWriteHandler : public WriteBatch::Handler {
- private:
-  TraceAnalyzer* ta_ptr;
-  std::string tmp_use;
-
  public:
   TraceWriteHandler() { ta_ptr = nullptr; }
   TraceWriteHandler(TraceAnalyzer* _ta_ptr) { ta_ptr = _ta_ptr; }
@@ -241,26 +242,32 @@ class TraceWriteHandler : public WriteBatch::Handler {
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
-    return ta_ptr->HandlePutCF(column_family_id, key, value);
+    return ta_ptr->HandlePut(column_family_id, key, value);
   }
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
-    return ta_ptr->HandleDeleteCF(column_family_id, key);
+    return ta_ptr->HandleDelete(column_family_id, key);
   }
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    return ta_ptr->HandleSingleDeleteCF(column_family_id, key);
+    return ta_ptr->HandleSingleDelete(column_family_id, key);
   }
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,
                                const Slice& end_key) override {
-    return ta_ptr->HandleDeleteRangeCF(column_family_id, begin_key, end_key);
+    return ta_ptr->HandleDeleteRange(column_family_id, begin_key, end_key);
   }
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
-    return ta_ptr->HandleMergeCF(column_family_id, key, value);
+    return ta_ptr->HandleMerge(column_family_id, key, value);
   }
+
+ private:
+  TraceAnalyzer* ta_ptr;
+  std::string tmp_use;
 };
+
+int trace_analyzer_tool(int argc, char** argv);
 
 }  // namespace rocksdb
 

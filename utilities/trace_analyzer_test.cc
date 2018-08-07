@@ -11,8 +11,8 @@
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
-    fprintf(stderr, "Please install gflags to run trace_analyzer test\n");
-      return 1;
+  fprintf(stderr, "Please install gflags to run trace_analyzer test\n");
+  return 1;
 }
 #else
 
@@ -21,7 +21,6 @@ int main() {
 #include <thread>
 #include <chrono>
 
-#include <rocksdb/trace_analyzer_tool.h>
 #include "db/db_test_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -33,47 +32,11 @@ int main() {
 #include "utilities/trace_analyzer_tool_imp.h"
 
 namespace rocksdb {
+
 namespace {
 static const int kMaxArgCount = 100;
 static const size_t kArgBufferSize = 100000;
-
-bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
-                 std::string* output, bool* has_data, Status* result) {
-  const int kBufferSize = 128;
-  char buffer[kBufferSize + 1];
-  Slice input_slice;
-
-  std::string line;
-  bool has_complete_line = false;
-  while (!has_complete_line) {
-    if (std::getline(*iss, line)) {
-      has_complete_line = !iss->eof();
-    } else {
-      has_complete_line = false;
-    }
-    if (!has_complete_line) {
-      // if we're not sure whether we have a complete line,
-      // further read from the file.
-      if (*has_data) {
-        *result = seq_file->Read(kBufferSize, &input_slice, buffer);
-      }
-      if (input_slice.size() == 0) {
-        // meaning we have read all the data
-        *has_data = false;
-        break;
-      } else {
-        iss->str(line + input_slice.ToString());
-        // reset the internal state of iss so that we can keep reading it.
-        iss->clear();
-        *has_data = (input_slice.size() == kBufferSize);
-        continue;
-      }
-    }
-  }
-  *output = line;
-  return *has_data || has_complete_line;
 }
-}  // namespace
 
 // The helper functions for the test
 class TraceAnalyzerTest : public testing::Test {
@@ -125,14 +88,7 @@ class TraceAnalyzerTest : public testing::Test {
     std::unique_ptr<WritableFile> whole_f;
     std::string whole_path = test_path_ + "/0.txt";
     ASSERT_OK(env_->NewWritableFile(whole_path, &whole_f, env_options_));
-    std::ostringstream whole;
-    whole << "0x61\n"
-          << "0x62\n"
-          << "0x63\n"
-          << "0x64\n"
-          << "0x65\n"
-          << "0x66\n";
-    std::string whole_str(whole.str());
+    std::string whole_str = "0x61\n0x62\n0x63\n0x64\n0x65\n0x66\n";
     ASSERT_OK(whole_f->Append(whole_str));
     delete db_;
     ASSERT_OK(DestroyDB(dbname_, options));
@@ -696,7 +652,7 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#endif // GFLAG
+#endif  // GFLAG
 #else
 #include <stdio.h>
 

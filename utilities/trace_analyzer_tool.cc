@@ -147,54 +147,7 @@ std::map<int, std::string> taIndexToOpt = {
     {0, "get"},          {1, "put"},   {2, "delete"},  {3, "single_delete"},
     {4, "range_delete"}, {5, "merge"}, {6, "iterator"}};
 
-// Transfer the Microsecond time to date time
-std::string TraceAnalyzer::MicrosdToDate(uint64_t time_in) {
-  time_t tx = static_cast<time_t>(time_in / 1000000);
-  int rest = static_cast<int>(time_in % 1000000);
-  std::string date_time(ctime(&tx));
-  date_time.pop_back();
-  date_time += " +: " + std::to_string(rest);
-  return date_time;
-}
-
 namespace {
-
-bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
-                 std::string* output, bool* has_data, Status* result) {
-  const int kBufferSize = 128;
-  char buffer[kBufferSize + 1];
-  Slice input_slice;
-
-  std::string line;
-  bool has_complete_line = false;
-  while (!has_complete_line) {
-    if (std::getline(*iss, line)) {
-      has_complete_line = !iss->eof();
-    } else {
-      has_complete_line = false;
-    }
-    if (!has_complete_line) {
-      // if we're not sure whether we have a complete line,
-      // further read from the file.
-      if (*has_data) {
-        *result = seq_file->Read(kBufferSize, &input_slice, buffer);
-      }
-      if (input_slice.size() == 0) {
-        // meaning we have read all the data
-        *has_data = false;
-        break;
-      } else {
-        iss->str(line + input_slice.ToString());
-        // reset the internal state of iss so that we can keep reading it.
-        iss->clear();
-        *has_data = (input_slice.size() == kBufferSize);
-        continue;
-      }
-    }
-  }
-  *output = line;
-  return *has_data || has_complete_line;
-}
 
 uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
   if (op1 == 0 || op2 == 0) {
@@ -455,6 +408,13 @@ Status TraceAnalyzer::StartProcessing() {
       total_writes_++;
       c_time_ = trace.ts;
       WriteBatch batch(trace.payload);
+
+      // Note that, if the write happens in a transaction,
+      // 'Write' will be called twice, one for Prepare, one for
+      // Commit. Thus, in the trace, for the same WriteBatch, there
+      // will be two reords if it is in a transaction. Here, we only
+      // process the reord that is committed. If write is non-transaction,
+      // HasBeginPrepare()==false, so we process it normally.
       if (batch.HasBeginPrepare() && !batch.HasCommit()) {
         continue;
       }
@@ -470,7 +430,7 @@ Status TraceAnalyzer::StartProcessing() {
       DecodeCFAndKey(trace.payload, &cf_id, &key);
       total_gets_++;
 
-      s = HandleGetCF(cf_id, key.ToString(), trace.ts, 1);
+      s = HandleGet(cf_id, key.ToString(), trace.ts, 1);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the get in the trace\n");
         exit(1);
@@ -481,7 +441,7 @@ Status TraceAnalyzer::StartProcessing() {
       uint32_t cf_id = 0;
       Slice key;
       DecodeCFAndKey(trace.payload, &cf_id, &key);
-      s = HandleIterCF(cf_id, key.ToString(), trace.ts);
+      s = HandleIter(cf_id, key.ToString(), trace.ts);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
         exit(1);
@@ -1335,7 +1295,7 @@ void TraceAnalyzer::CloseOutputFiles() {
 }
 
 // Handle the Get request in the trace
-Status TraceAnalyzer::HandleGetCF(uint32_t column_family_id,
+Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
                                   const std::string& key, const uint64_t& ts,
                                   const uint32_t& get_ret) {
   Status s;
@@ -1363,7 +1323,7 @@ Status TraceAnalyzer::HandleGetCF(uint32_t column_family_id,
 }
 
 // Handle the Put request in the write batch of the trace
-Status TraceAnalyzer::HandlePutCF(uint32_t column_family_id, const Slice& key,
+Status TraceAnalyzer::HandlePut(uint32_t column_family_id, const Slice& key,
                                   const Slice& value) {
   Status s;
   size_t value_size = value.ToString().size();
@@ -1387,7 +1347,7 @@ Status TraceAnalyzer::HandlePutCF(uint32_t column_family_id, const Slice& key,
 }
 
 // Handle the Delete request in the write batch of the trace
-Status TraceAnalyzer::HandleDeleteCF(uint32_t column_family_id,
+Status TraceAnalyzer::HandleDelete(uint32_t column_family_id,
                                      const Slice& key) {
   Status s;
   size_t value_size = 0;
@@ -1411,7 +1371,7 @@ Status TraceAnalyzer::HandleDeleteCF(uint32_t column_family_id,
 }
 
 // Handle the SingleDelete request in the write batch of the trace
-Status TraceAnalyzer::HandleSingleDeleteCF(uint32_t column_family_id,
+Status TraceAnalyzer::HandleSingleDelete(uint32_t column_family_id,
                                            const Slice& key) {
   Status s;
   size_t value_size = 0;
@@ -1435,7 +1395,7 @@ Status TraceAnalyzer::HandleSingleDeleteCF(uint32_t column_family_id,
 }
 
 // Handle the DeleteRange request in the write batch of the trace
-Status TraceAnalyzer::HandleDeleteRangeCF(uint32_t column_family_id,
+Status TraceAnalyzer::HandleDeleteRange(uint32_t column_family_id,
                                           const Slice& begin_key,
                                           const Slice& end_key) {
   Status s;
@@ -1462,7 +1422,7 @@ Status TraceAnalyzer::HandleDeleteRangeCF(uint32_t column_family_id,
 }
 
 // Handle the Merge request in the write batch of the trace
-Status TraceAnalyzer::HandleMergeCF(uint32_t column_family_id, const Slice& key,
+Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
                                     const Slice& value) {
   Status s;
   size_t value_size = value.ToString().size();
@@ -1486,7 +1446,7 @@ Status TraceAnalyzer::HandleMergeCF(uint32_t column_family_id, const Slice& key,
 }
 
 // Handle the Iterator request in the trace
-Status TraceAnalyzer::HandleIterCF(uint32_t column_family_id,
+Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
                                    const std::string& key, const uint64_t& ts) {
   Status s;
   size_t value_size = 0;
@@ -1675,7 +1635,7 @@ Status TraceAnalyzer::WriteTraceSequence(const uint32_t& type,
   ret =
       sprintf(buffer_, "%u %u %zu %" PRIu64 "\n", type, cf_id, value_size, ts);
   if (ret < 0) {
-    return Status::IOError("failed to write the file");
+    return Status::IOError("failed to format the output");
   }
   std::string printout(buffer_);
   if (!FLAGS_no_key) {

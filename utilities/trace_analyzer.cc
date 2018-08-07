@@ -11,7 +11,7 @@ int main() {
   return 1;
 }
 #else
-#include "rocksdb/trace_analyzer_tool.h"
+#include "utilities/trace_analyzer_tool_imp.h"
 int main(int argc, char** argv) {
   return rocksdb::trace_analyzer_tool(argc, argv);
 }
