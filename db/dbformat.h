@@ -633,12 +633,12 @@ struct RangeTombstone {
   }
 };
 
-struct SstLinkElement {
+struct LinkSstElement {
   Slice largest_key_;
   uint64_t sst_id_;
   uint64_t key_count_;
 
-  SstLinkElement() : sst_id_(uint64_t(-1)), key_count_(0) {}
+  LinkSstElement() : sst_id_(uint64_t(-1)), key_count_(0) {}
 
   bool Decode(Slice ikey, Slice value) {
     largest_key_ = ikey;
@@ -655,7 +655,7 @@ struct SstLinkElement {
   }
 };
 
-struct SstMapElement {
+struct MapSstElement {
   Slice smallest_key_;
   Slice largest_key_;
   struct LinkTarget {

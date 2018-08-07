@@ -37,7 +37,8 @@ namespace rocksdb {
 // std::priority_queue: the comparison operator is expected to provide the
 // less-than relation, but top() will return the maximum.
 
-template<typename T, typename Compare = std::less<T>>
+template<typename T, typename Compare = std::less<T>,
+         class VectorType = autovector<T>>
 class BinaryHeap {
  public:
   BinaryHeap() { }
@@ -97,6 +98,8 @@ class BinaryHeap {
   }
 
   void reset_root_cmp_cache() { root_cmp_cache_ = port::kMaxSizet; }
+
+  const Compare& comparator() const { return cmp_; }
 
  private:
   static inline size_t get_root() { return 0; }
@@ -158,7 +161,7 @@ class BinaryHeap {
   }
 
   Compare cmp_;
-  autovector<T> data_;
+  VectorType data_;
   // Used to reduce number of cmp_ calls in downheap()
   size_t root_cmp_cache_ = port::kMaxSizet;
 };

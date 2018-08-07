@@ -94,8 +94,7 @@ InternalIterator* TranslateVarietySstIterator(
     result = NewLinkSstIterator(variety_sst_iter, icomp, create_iter, arena);
     break;
   case kMapSst:
-    // TODO(zouzhizhang): handle map
-    return variety_sst_iter;
+    result = NewMapSstIterator(variety_sst_iter, icomp, create_iter, arena);
   default:
     assert(false);
     return variety_sst_iter;
@@ -122,7 +121,7 @@ Status GetFromVarietySst(
   switch (file_meta.sst_variety) {
   case kLinkSst: {
     auto get_from_link = [&](const Slice& ikey, const Slice& value) {
-      // Manual inline SstLinkElement::Decode
+      // Manual inline LinkSstElement::Decode
       uint64_t sst_id;
       Slice value_copy = value;
       if (!GetFixed64(&value_copy, &sst_id)) {
@@ -137,7 +136,7 @@ Status GetFromVarietySst(
   }
   case kMapSst: {  
     auto get_from_map = [&](const Slice& ikey, const Slice& value) {
-      // Manual inline SstMapElement::Decode
+      // Manual inline MapSstElement::Decode
       const char* error_msg = "Map sst invalid value";
       Slice value_copy = value;
       Slice smallest_key;

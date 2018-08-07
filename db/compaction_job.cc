@@ -1250,7 +1250,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
                           GetInternalKeySeqno(last_key.Encode()));
   };
   auto put_link_element = [&] {
-    SstLinkElement link;
+    LinkSstElement link;
     link.largest_key_ = last_key.Encode();
     const FileMetaData* meta = (const FileMetaData*)last_source.data;
     link.sst_id_ = meta->fd.GetNumber();

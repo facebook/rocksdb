@@ -14,6 +14,7 @@
 #include "table/block.h"
 #include "table/format.h"
 #include "util/arena.h"
+#include "util/heap.h"
 
 namespace rocksdb {
 
@@ -197,185 +198,427 @@ void TwoLevelIterator::InitDataBlock() {
   }
 }
 
- class LinkSstIterator final : public InternalIterator {
-  private:
-   InternalIterator* first_level_iter_;
-   InternalIterator* second_level_iter_;
-   Slice bound_;
-   bool has_bound_;
-   bool is_backword_;
-   Arena arena_;
-   Status status_;
-   const InternalKeyComparator& icomp_;
-   std::function<InternalIterator*(uint64_t, Arena*)> create_iterator_;
-   std::unordered_map<uint64_t, InternalIterator*> iterator_cache_;
-   PinnedIteratorsManager* pinned_iters_mgr_;
+struct IteratorCache {
+  std::function<InternalIterator*(uint64_t, Arena*)> create_iterator_;
+  Arena arena_;
+  PinnedIteratorsManager* pinned_iters_mgr_;
+  std::unordered_map<uint64_t, InternalIterator*> iterator_cache_;
 
-   InternalIterator* GetIterator(uint64_t sst_id) {
-     auto find = iterator_cache_.find(sst_id);
-     if (find != iterator_cache_.end()) {
-       return find->second;
-     }
-     auto iter = create_iterator_(sst_id, &arena_);
-     iterator_cache_.emplace(sst_id, iter);
-     if (iter != nullptr) {
-       iter->SetPinnedItersMgr(pinned_iters_mgr_);
-     } else {
-       status_ = Status::Corruption("Link sst depend files missing");
-     }
-     return iter;
-   }
+  IteratorCache(
+      std::function<InternalIterator*(uint64_t, Arena*)> create_iterator)
+      : create_iterator_(create_iterator),
+        pinned_iters_mgr_(nullptr) {}
 
-   bool InitSecondLevelIter() {
-     // Manual inline SstLinkElement::Decode
-     uint64_t sst_id;
-     Slice value_copy = first_level_iter_->value();
-     if (!GetFixed64(&value_copy, &sst_id)) {
-       status_ = Status::Corruption("Link sst invalid value");
-       second_level_iter_ = nullptr;
-       return false;
-     }
-     second_level_iter_ = GetIterator(sst_id);
-     return second_level_iter_ != nullptr;
-   }
+  ~IteratorCache() {
+    for (auto pair : iterator_cache_) {
+      pair.second->~InternalIterator();
+    }
+  }
 
-   bool InitFirstLevelIter() {
-     if (!first_level_iter_->Valid()) {
-       second_level_iter_ = nullptr;
-       return false;
-     }
-     bound_ = first_level_iter_->key();
-     return InitSecondLevelIter();
-   }
+  InternalIterator* GetIterator(uint64_t sst_id) {
+    auto find = iterator_cache_.find(sst_id);
+    if (find != iterator_cache_.end()) {
+      return find->second;
+    }
+    auto iter = create_iterator_(sst_id, &arena_);
+    if (iter != nullptr) {
+      iter->SetPinnedItersMgr(pinned_iters_mgr_);
+      iterator_cache_.emplace(sst_id, iter);
+    }
+    return iter;
+  }
 
-  public:
-   LinkSstIterator(
-       InternalIterator* iter,
-       const InternalKeyComparator& icomp,
-       const std::function<InternalIterator*(uint64_t, Arena*)>& create)
-       : first_level_iter_(iter),
-         second_level_iter_(nullptr),
-         has_bound_(false),
-         is_backword_(false),
-         icomp_(icomp),
-         create_iterator_(create),
-         pinned_iters_mgr_(nullptr) {}
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+    for (auto pair : iterator_cache_) {
+      pair.second->SetPinnedItersMgr(pinned_iters_mgr);
+    }
+  }
+};
 
-   ~LinkSstIterator() {
-     for (auto pair : iterator_cache_) {
-       pair.second->~InternalIterator();
-     }
-   }
+class LinkSstIterator final : public InternalIterator {
+ private:
+  InternalIterator* first_level_iter_;
+  InternalIterator* second_level_iter_;
+  Slice bound_;
+  bool has_bound_;
+  bool is_backword_;
+  Status status_;
+  const InternalKeyComparator& icomp_;
+  IteratorCache iterator_cache_;
 
-   virtual bool Valid() const override {
-     return second_level_iter_ != nullptr && second_level_iter_->Valid();
-   }
-   virtual void SeekToFirst() override {
-     first_level_iter_->SeekToFirst();
-     if (InitFirstLevelIter()) {
-       second_level_iter_->SeekToFirst();
-       is_backword_ = false;
-     }
-   }
-   virtual void SeekToLast() override {
-     first_level_iter_->SeekToLast();
-     if (InitFirstLevelIter()) {
-       second_level_iter_->SeekToLast();
-       is_backword_ = false;
-     }
-   }
-   virtual void Seek(const Slice& target) override {
-     first_level_iter_->Seek(target);
-     if (InitFirstLevelIter()) {
-       second_level_iter_->Seek(target);
-       is_backword_ = false;
-     }
-   }
-   virtual void SeekForPrev(const Slice& target) override {
-     LinkSstIterator::Seek(target);
-     if (!LinkSstIterator::Valid()) {
-       LinkSstIterator::SeekToLast();
-     } else if (LinkSstIterator::key() != target) {
-       LinkSstIterator::Prev();
-     }
-   }
-   virtual void Next() override {
-     if (is_backword_) {
-       if (has_bound_) {
-         first_level_iter_->Next();
-       } else {
-         first_level_iter_->SeekToFirst();
-       }
-       bound_ = first_level_iter_->key();
-       is_backword_ = false;
-     }
-     if (second_level_iter_->key() != bound_) {
-       second_level_iter_->Next();
-       assert(second_level_iter_->Valid());
-       return;
-     }
-     InternalKey where;
-     where.DecodeFrom(bound_);
-     first_level_iter_->Next();
-     if (InitFirstLevelIter()) {
-       second_level_iter_->Seek(where.Encode());
-     }
-   }
-   virtual void Prev() override {
-     if (!is_backword_) {
-       first_level_iter_->Prev();
-       has_bound_ = first_level_iter_->Valid();
-       if (has_bound_) {
-         bound_ = first_level_iter_->key();
-       }
-       is_backword_ = true;
-     }
-     if (!has_bound_) {
-       second_level_iter_->Prev();
-       return;
-     }
-     second_level_iter_->Prev();
-     if (second_level_iter_->Valid() &&
-         icomp_.Compare(second_level_iter_->key(), bound_) > 0) {
-       return;
-     }
-     if (InitSecondLevelIter()) {
-       second_level_iter_->SeekForPrev(bound_);
-       first_level_iter_->Prev();
-       has_bound_ = first_level_iter_->Valid();
-       if (has_bound_) {
-         bound_ = first_level_iter_->key();
-       }
-     }
-   }
-   virtual Slice key() const override {
-     return second_level_iter_->key();
-   }
-   virtual Slice value() const override {
-     return second_level_iter_->value();
-   }
-   virtual Status status() const override {
-     return status_;
-   }
-   virtual IteratorSource source() const override {
-     return second_level_iter_->source();
-   }
-   virtual void SetPinnedItersMgr(
-       PinnedIteratorsManager* pinned_iters_mgr) override {
-     pinned_iters_mgr_ = pinned_iters_mgr;
-     for (auto pair : iterator_cache_) {
-       pair.second->SetPinnedItersMgr(pinned_iters_mgr);
-     }
-   }
-   virtual bool IsKeyPinned() const override {
-     return second_level_iter_ != nullptr &&
-            second_level_iter_->IsKeyPinned();
-   }
-   virtual bool IsValuePinned() const override {
-     return second_level_iter_ != nullptr &&
-            second_level_iter_->IsValuePinned();
-   }
- };
+  bool InitFirstLevelIter() {
+    if (!first_level_iter_->Valid()) {
+      second_level_iter_ = nullptr;
+      return false;
+    }
+    bound_ = first_level_iter_->key();
+    return InitSecondLevelIter();
+  }
+
+  bool InitSecondLevelIter() {
+    // Manual inline LinkSstElement::Decode
+    uint64_t sst_id;
+    Slice value_copy = first_level_iter_->value();
+    if (!GetFixed64(&value_copy, &sst_id)) {
+      status_ = Status::Corruption("Link sst invalid value");
+      second_level_iter_ = nullptr;
+      return false;
+    }
+    second_level_iter_ = iterator_cache_.GetIterator(sst_id);
+    if (second_level_iter_ == nullptr) {
+      status_ = Status::Corruption("Link sst depend files missing");
+      return false;
+    }
+    return true;
+  }
+
+ public:
+  LinkSstIterator(
+      InternalIterator* iter,
+      const InternalKeyComparator& icomp,
+      const std::function<InternalIterator*(uint64_t, Arena*)>& create)
+      : first_level_iter_(iter),
+        second_level_iter_(nullptr),
+        has_bound_(false),
+        is_backword_(false),
+        icomp_(icomp),
+        iterator_cache_(create) {}
+
+  virtual bool Valid() const override {
+    return second_level_iter_ != nullptr && second_level_iter_->Valid();
+  }
+  virtual void SeekToFirst() override {
+    first_level_iter_->SeekToFirst();
+    if (InitFirstLevelIter()) {
+      second_level_iter_->SeekToFirst();
+      is_backword_ = false;
+    }
+  }
+  virtual void SeekToLast() override {
+    first_level_iter_->SeekToLast();
+    if (InitFirstLevelIter()) {
+      second_level_iter_->SeekToLast();
+      is_backword_ = false;
+    }
+  }
+  virtual void Seek(const Slice& target) override {
+    first_level_iter_->Seek(target);
+    if (InitFirstLevelIter()) {
+      second_level_iter_->Seek(target);
+      is_backword_ = false;
+    }
+  }
+  virtual void SeekForPrev(const Slice& target) override {
+    LinkSstIterator::Seek(target);
+    if (!LinkSstIterator::Valid()) {
+      LinkSstIterator::SeekToLast();
+    } else if (LinkSstIterator::key() != target) {
+      LinkSstIterator::Prev();
+    }
+  }
+  virtual void Next() override {
+    if (is_backword_) {
+      if (has_bound_) {
+        first_level_iter_->Next();
+      } else {
+        first_level_iter_->SeekToFirst();
+      }
+      bound_ = first_level_iter_->key();
+      is_backword_ = false;
+    }
+    if (second_level_iter_->key() != bound_) {
+      second_level_iter_->Next();
+      assert(second_level_iter_->Valid());
+      return;
+    }
+    InternalKey where;
+    where.DecodeFrom(bound_);
+    first_level_iter_->Next();
+    if (InitFirstLevelIter()) {
+      second_level_iter_->Seek(where.Encode());
+    }
+  }
+  virtual void Prev() override {
+    if (!is_backword_) {
+      first_level_iter_->Prev();
+      has_bound_ = first_level_iter_->Valid();
+      if (has_bound_) {
+        bound_ = first_level_iter_->key();
+      }
+      is_backword_ = true;
+    }
+    if (!has_bound_) {
+      second_level_iter_->Prev();
+      return;
+    }
+    second_level_iter_->Prev();
+    if (second_level_iter_->Valid() &&
+        icomp_.Compare(second_level_iter_->key(), bound_) > 0) {
+      return;
+    }
+    if (InitSecondLevelIter()) {
+      second_level_iter_->SeekForPrev(bound_);
+      first_level_iter_->Prev();
+      has_bound_ = first_level_iter_->Valid();
+      if (has_bound_) {
+        bound_ = first_level_iter_->key();
+      }
+    }
+  }
+  virtual Slice key() const override {
+    return second_level_iter_->key();
+  }
+  virtual Slice value() const override {
+    return second_level_iter_->value();
+  }
+  virtual Status status() const override {
+    return status_;
+  }
+  virtual IteratorSource source() const override {
+    return second_level_iter_->source();
+  }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    iterator_cache_.SetPinnedItersMgr(pinned_iters_mgr);
+  }
+  virtual bool IsKeyPinned() const override {
+    return second_level_iter_ != nullptr &&
+           second_level_iter_->IsKeyPinned();
+  }
+  virtual bool IsValuePinned() const override {
+    return second_level_iter_ != nullptr &&
+           second_level_iter_->IsValuePinned();
+  }
+};
+
+ 
+class MapSstIterator final : public InternalIterator {
+ private:
+  InternalIterator* first_level_iter_;
+  bool is_backword_;
+  Status status_;
+  IteratorCache iterator_cache_;
+  MapSstElement current_map_;
+  struct HeapElement {
+    InternalIterator* iter;
+    Slice key;
+  };
+  template<bool is_less>
+  class HeapComparator {
+   public:
+    HeapComparator(const InternalKeyComparator& comparator)
+        : c_(comparator) {}
+
+    bool operator()(const HeapElement& a, const HeapElement& b) const {
+      return is_less ? c_.Compare(a.key, b.key) < 0
+                     : c_.Compare(a.key, b.key) > 0;
+    }
+
+    const InternalKeyComparator& icomp() const { return c_; }
+   private:
+    const InternalKeyComparator& c_;
+  };
+  union {
+    typedef std::vector<HeapElement> HeapVectorType;
+    // They have same layout, but we only use one of them at same time
+    BinaryHeap<HeapElement, HeapComparator<0>, HeapVectorType> min_heap_;
+    BinaryHeap<HeapElement, HeapComparator<1>, HeapVectorType> max_heap_;
+  };
+
+  bool InitFirstLevelIter() {
+    min_heap_.clear();
+    if (!first_level_iter_->Valid()) {
+      return false;
+    }
+    if (!current_map_.Decode(first_level_iter_->key(),
+                             first_level_iter_->value())) {
+      status_ = Status::Corruption("Map sst invalid value");
+      return false;
+    }
+    return true;
+  }
+
+  void InitSecondLevelMinHeap(const Slice& target) {
+    assert(min_heap_.empty());
+    for (auto link : current_map_.link_) {
+      auto it = iterator_cache_.GetIterator(link.sst_id);
+      if (it == nullptr) {
+        status_ = Status::Corruption("Map sst depend files missing");
+        min_heap_.clear();
+        return;
+      }
+      it->Seek(target);
+      if (it->Valid()) {
+        min_heap_.push(HeapElement{it, it->key()});
+      }
+    }
+    assert(!min_heap_.empty());
+  }
+
+  void InitSecondLevelMaxHeap(const Slice& target) {
+    assert(max_heap_.empty());
+    for (auto link : current_map_.link_) {
+      auto it = iterator_cache_.GetIterator(link.sst_id);
+      if (it == nullptr) {
+        status_ = Status::Corruption("Map sst depend files missing");
+        max_heap_.clear();
+        return;
+      }
+      it->SeekForPrev(target);
+      if (it->Valid()) {
+        max_heap_.push(HeapElement{it, it->key()});
+      }
+    }
+    assert(!max_heap_.empty());
+  }
+
+ public:
+  MapSstIterator(
+      InternalIterator* iter,
+      const InternalKeyComparator& icomp,
+      const std::function<InternalIterator*(uint64_t, Arena*)>& create)
+      : first_level_iter_(iter),
+        is_backword_(false),
+        iterator_cache_(create),
+        min_heap_(icomp) {}
+
+  ~MapSstIterator() {
+    min_heap_.~BinaryHeap();
+  }
+
+  virtual bool Valid() const override {
+    return !min_heap_.empty();
+  }
+  virtual void SeekToFirst() override {
+    first_level_iter_->SeekToFirst();
+    if (InitFirstLevelIter()) {
+      InitSecondLevelMinHeap(current_map_.smallest_key_);
+      is_backword_ = false;
+    }
+  }
+  virtual void SeekToLast() override {
+    first_level_iter_->SeekToLast();
+    if (InitFirstLevelIter()) {
+      InitSecondLevelMaxHeap(current_map_.largest_key_);
+      is_backword_ = false;
+    }
+  }
+  virtual void Seek(const Slice& target) override {
+    first_level_iter_->Seek(target);
+    if (!InitFirstLevelIter()) {
+      return;
+    }
+    auto& icomp = min_heap_.comparator().icomp();
+    Slice seek_target = target;
+    if (icomp.Compare(target, current_map_.smallest_key_) < 0) {
+      seek_target = current_map_.smallest_key_;
+    }
+    InitSecondLevelMinHeap(seek_target);
+    is_backword_ = false;
+  }
+  virtual void SeekForPrev(const Slice& target) override {
+    first_level_iter_->Seek(target);
+    if (!InitFirstLevelIter()) {
+      return;
+    }
+    auto& icomp = min_heap_.comparator().icomp();
+    Slice seek_target = target;
+    if (icomp.Compare(target, current_map_.smallest_key_) < 0) {
+      seek_target = current_map_.smallest_key_;
+    }
+    InitSecondLevelMaxHeap(seek_target);
+    is_backword_ = true;
+  }
+  virtual void Next() override {
+    if (is_backword_) {
+      InternalKey where;
+      where.DecodeFrom(max_heap_.top().key);
+      max_heap_.clear();
+      InitSecondLevelMinHeap(where.Encode());
+      is_backword_ = false;
+    }
+    auto current = min_heap_.top();
+    if (current.key != current_map_.largest_key_) {
+      current.iter->Next();
+      if (current.iter->Valid()) {
+        current.key = current.iter->key();
+        min_heap_.replace_top(current);
+      } else {
+        min_heap_.pop();
+      }
+      assert(!min_heap_.empty());
+      return;
+    }
+    first_level_iter_->Next();
+    if (InitFirstLevelIter()) {
+      InitSecondLevelMinHeap(current_map_.smallest_key_);
+    }
+  }
+  virtual void Prev() override {
+    if (is_backword_) {
+      InternalKey where;
+      where.DecodeFrom(min_heap_.top().key);
+      min_heap_.clear();
+      InitSecondLevelMaxHeap(where.Encode());
+      is_backword_ = true;
+    }
+    auto current = max_heap_.top();
+    if (current.key != current_map_.largest_key_) {
+      current.iter->Next();
+      if (current.iter->Valid()) {
+        current.key = current.iter->key();
+        max_heap_.replace_top(current);
+      } else {
+        max_heap_.pop();
+      }
+      assert(!max_heap_.empty());
+      return;
+    }
+    first_level_iter_->Prev();
+    if (InitFirstLevelIter()) {
+      InitSecondLevelMaxHeap(current_map_.largest_key_);
+    }
+  }
+  virtual Slice key() const override {
+    return min_heap_.top().key;
+  }
+  virtual Slice value() const override {
+    return min_heap_.top().iter->value();
+  }
+  virtual Status status() const override {
+    return status_;
+  }
+  virtual IteratorSource source() const override {
+    return min_heap_.top().iter->source();
+  }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    iterator_cache_.SetPinnedItersMgr(pinned_iters_mgr);
+  }
+  virtual bool IsKeyPinned() const override {
+    return !min_heap_.empty() &&
+           min_heap_.top().iter->IsKeyPinned();
+  }
+  virtual bool IsValuePinned() const override {
+    return !min_heap_.empty() &&
+           min_heap_.top().iter->IsValuePinned();
+  }
+};
+
+template<class IteratorType>
+InternalIterator* NewVarietySstIterator(
+    InternalIterator* link_sst_iter,
+    const InternalKeyComparator& icomp,
+    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    Arena* arena) {
+  if (arena == nullptr) {
+    return new IteratorType(link_sst_iter, icomp, create_iter);
+  } else {
+    void* buffer = arena->AllocateAligned(sizeof(IteratorType));
+    return new(buffer) IteratorType(link_sst_iter, icomp, create_iter);
+  }
+}
 
 }  // namespace
 
@@ -389,12 +632,18 @@ InternalIterator* NewLinkSstIterator(
     const InternalKeyComparator& icomp,
     const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
     Arena* arena) {
-  if (arena == nullptr) {
-    return new LinkSstIterator(link_sst_iter, icomp, create_iter);
-  } else {
-    void* buffer = arena->AllocateAligned(sizeof(LinkSstIterator));
-    return new(buffer) LinkSstIterator(link_sst_iter, icomp, create_iter);
-  }
+  return NewVarietySstIterator<LinkSstIterator>(link_sst_iter, icomp,
+                                                create_iter, arena);
+}
+
+
+InternalIterator* NewMapSstIterator(
+    InternalIterator* link_sst_iter,
+    const InternalKeyComparator& icomp,
+    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    Arena* arena) {
+  return NewVarietySstIterator<MapSstIterator>(link_sst_iter, icomp,
+                                               create_iter, arena);
 }
 
 }  // namespace rocksdb
