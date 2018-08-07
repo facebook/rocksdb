@@ -135,6 +135,7 @@ Status Replayer::Replay() {
   ReadOptions roptions;
   Trace trace;
   uint64_t ops = 0;
+  Iterator* single_iter = nullptr;
   while (s.ok()) {
     trace.reset();
     s = ReadTrace(&trace);
@@ -164,9 +165,21 @@ Status Replayer::Replay() {
       }
       ops++;
     } else if (trace.type == kTraceIter) {
-      // To be implemented in the future if
-      // Tracing next() is down
-      continue;
+      // Currently, only support to call the Seek()
+      uint32_t cf_id = 0;
+      Slice key;
+      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
+        return Status::Corruption("Invalid Column Family ID.");
+      }
+
+      if (cf_id == 0) {
+        single_iter = db_->NewIterator(roptions);
+      } else {
+        single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
+      }
+      ops++;
+      delete single_iter;
     } else if (trace.type == kTraceEnd) {
       // Do nothing for now.
       // TODO: Add some validations later.
