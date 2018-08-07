@@ -545,8 +545,8 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter =
-      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
+    auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
+                                                  options.comparator);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
@@ -566,8 +566,8 @@ TEST_F(BlockTest, DataBlockHashIndexTest) {
 
   // random seek non-existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter =
-      reader.NewIterator<DataBlockIter>(options.comparator, options.comparator);
+    auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
+                                                  options.comparator);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "0" /* existing key marker */);

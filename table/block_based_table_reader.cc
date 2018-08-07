@@ -2423,11 +2423,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                 parsed_key, biter.value(), &matched,
                 biter.IsValuePinned() ? &biter : nullptr);
           }
-          //HashSeek is effective, break from the two-level iteration.
+          // HashSeek is effective, break from the two-level iteration.
           break;
         }
 
-        //HashSeek is not effective, falling back to binary seek.
+        // HashSeek is not effective, falling back to binary seek.
 
         // Call the *saver function on each entry/block until it returns false
         for (biter.Seek(key); biter.Valid(); biter.Next()) {

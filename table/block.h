@@ -22,6 +22,7 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "format.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -31,7 +32,6 @@
 #include "table/internal_iterator.h"
 #include "util/random.h"
 #include "util/sync_point.h"
-#include "format.h"
 
 namespace rocksdb {
 
@@ -420,7 +420,7 @@ class DataBlockIter final : public BlockIter {
   DataBlockHashIndex* data_block_hash_index_;
   const Comparator* user_comparator_;
 
-  bool ParseNextDataKey(bool within_restart_interval = false);
+  bool ParseNextDataKey(const char* limit = nullptr);
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);

@@ -201,11 +201,11 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
 
   if (entry == kNoEntry) {
     *hash_effective = true;
-    *found = false; // TODO(fwu): block boundary corner case
+    *found = false;  // TODO(fwu): block boundary corner case
     return;
   }
 
-  if (entry == kCollision) { // HashSeek not effective
+  if (entry == kCollision) {  // HashSeek not effective
     *hash_effective = false;
     *found = false;
     return;
@@ -214,7 +214,14 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
   uint32_t restart_index = entry;
 
   // check if the key is in the restart_interval
+  assert(restart_index < num_restarts_);
   SeekToRestartPoint(restart_index);
+
+  const char* limit = nullptr;
+  if (restart_index_ + 1 < num_restarts_) {
+    limit = data_ + GetRestartPoint(restart_index_ + 1);
+  }
+
   while (true) {
     // Here we only linear seek the target key inside the restart interval.
     // If a key does not exist inside a restart interval, we avoid
@@ -224,8 +231,7 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
     // to avoid linear seek a target key that is out of range.
     //
     // If using hash, we only linear search within the restart inteval.
-    if (!ParseNextDataKey(true /*within_restart_interval*/) ||
-        Compare(key_, target) >= 0) {
+    if (!ParseNextDataKey(limit) || Compare(key_, target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -234,14 +240,13 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
   if ((current_ != restarts_) /* valid */ &&
       // If the user key portion match do we consider key_ matches
       user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
-
     // Here we are conservative and only support a limited set of cases
     ValueType value_type = ExtractValueType(key_.GetKey());
     if (value_type != ValueType::kTypeValue &&
         value_type != ValueType::kTypeDeletion) {
       *hash_effective = false;
       *found = true;
-      return; // found, but not supported.
+      return;  // found, but not supported.
     }
 
     // Currently we do not fully support searching a key at specify snapshot.
@@ -252,15 +257,15 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
     uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
     if (target_seqno < seqno) {
       *hash_effective = false;
-      *found = true;
-      return; // found, but not supported.
+      *found = true;  // TODO(fwu): block boundary corner case
+      return;         // found, but not supported.
     }
     *hash_effective = true;
-    *found = true; // successfully found
+    *found = true;  // successfully found
     return;
   }
   *hash_effective = true;
-  *found = false; // not found
+  *found = false;  // not found
 }
 
 void IndexBlockIter::Seek(const Slice& target) {
@@ -363,18 +368,11 @@ void BlockIter::CorruptionError() {
   value_.clear();
 }
 
-// if within_restart_interval == true, we only parse next key within
-// current restart invterval. The default value of within_restart_interval
-// is false.
-bool DataBlockIter::ParseNextDataKey(bool within_restart_interval) {
+bool DataBlockIter::ParseNextDataKey(const char* limit) {
   current_ = NextEntryOffset();
   const char* p = data_ + current_;
-  const char* limit = data_ + restarts_;  // Restarts come right after data
-  if (within_restart_interval) {
-    assert(restart_index_ < num_restarts_);
-    if (restart_index_ + 1 < num_restarts_) {
-      limit = data_ + GetRestartPoint(restart_index_ + 1);
-    }
+  if (!limit) {
+    limit = data_ + restarts_;  // Restarts come right after data
   }
 
   if (p >= limit) {
