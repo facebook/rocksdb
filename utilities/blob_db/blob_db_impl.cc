@@ -968,7 +968,7 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
 }
 
 Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
-                                PinnableSlice* value) {
+                                PinnableSlice* value, uint64_t* expiration) {
   assert(value != nullptr);
   BlobIndex blob_index;
   Status s = blob_index.DecodeFrom(index_entry);
@@ -977,6 +977,13 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
   if (blob_index.HasTTL() && blob_index.expiration() <= EpochNow()) {
     return Status::NotFound("Key expired");
+  }
+  if (expiration != nullptr) {
+    if (blob_index.HasTTL()) {
+      *expiration = blob_index.expiration();
+    } else {
+      *expiration = kNoExpiration;
+    }
   }
   if (blob_index.IsInlined()) {
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
@@ -1113,14 +1120,20 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
+  return Get(read_options, column_family, key, value, nullptr /*expiration*/);
+}
+
+Status BlobDBImpl::Get(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, uint64_t* expiration) {
   StopWatch get_sw(env_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value, expiration);
 }
 
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* value) {
+                           PinnableSlice* value, uint64_t* expiration) {
   if (column_family != DefaultColumnFamily()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
@@ -1138,10 +1151,13 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
+  if (expiration != nullptr) {
+    *expiration = kNoExpiration;
+  }
   if (s.ok() && is_blob_index) {
     std::string index_entry = value->ToString();
     value->Reset();
-    s = GetBlobValue(key, index_entry, value);
+    s = GetBlobValue(key, index_entry, value, expiration);
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
