@@ -1265,7 +1265,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     assert(!flush_queue_.empty());
     const auto& flush_req = flush_queue_.front();
     assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
-    unscheduled_flushes_ -= static_cast<int>(flush_req.size());
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
@@ -1279,7 +1278,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       assert(!flush_queue_.empty());
       const auto& flush_req = flush_queue_.front();
       assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
-      unscheduled_flushes_ -= static_cast<int>(flush_req.size());
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
@@ -1462,11 +1460,11 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     const auto& flush_req = PopFirstFromFlushQueue();
+    unscheduled_flushes_ -= static_cast<int>(flush_req.size());
 
     for (auto& iter : flush_req) {
       auto cfd = iter.first;
       if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
-        --unscheduled_flushes_;
         // can't flush this CF, try next one
         if (cfd->Unref()) {
           delete cfd;
@@ -2183,7 +2181,8 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options, FlushReason /* flush_reason */) {
+    const MutableCFOptions& mutable_cf_options,
+    FlushReason /* flush_reason */) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_

@@ -1291,7 +1291,8 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
         return status;
       }
       cfd->imm()->FlushRequested();
-      SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}}, FlushReason::kWriteBufferFull);
+      SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
+                           FlushReason::kWriteBufferFull);
     }
     MaybeScheduleFlushOrCompaction();
     return Status::OK();
