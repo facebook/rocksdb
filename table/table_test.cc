@@ -3658,7 +3658,6 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   options.comparator = BytewiseComparator();
 
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  options.prefix_extractor.reset(NewNoopTransform());
 
   TableConstructor c(options.comparator);
 
