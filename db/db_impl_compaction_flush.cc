@@ -1323,7 +1323,7 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
 
 DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
-  auto& flush_req = flush_queue_.front();
+  auto flush_req = flush_queue_.front();
   assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));
   unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   flush_queue_.pop_front();
