@@ -21,7 +21,6 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
-#include "rocksdb/trace_reader_writer.h"
 #include "table/internal_iterator.h"
 #include "util/arena.h"
 #include "util/filename.h"

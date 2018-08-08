@@ -1686,7 +1686,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, this, cfd, allow_blob, allow_refresh);
+      sv->version_number, read_callback, this, cfd, allow_blob,
+      ((read_options.snapshot != nullptr) ? false : allow_refresh));
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
