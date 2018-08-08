@@ -209,7 +209,7 @@ Status DBImpl::FlushMemTablesToOutputFile(
   assert(sz == static_cast<int>(mutable_cf_options_list.size()));
   assert(sz == static_cast<int>(memtable_ids.size()));
   // TODO (yanqin): will be used in the future
-  (void) memtable_ids;
+  (void)memtable_ids;
 
   Status s;
   for (int i = 0; i != sz; ++i) {
@@ -2152,7 +2152,8 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options, FlushReason /* flush_reason */) {
+    const MutableCFOptions& mutable_cf_options,
+    FlushReason /* flush_reason */) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_

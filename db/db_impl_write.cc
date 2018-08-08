@@ -1438,7 +1438,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context, mutable_cf_options);
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                     mutable_cf_options);
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }

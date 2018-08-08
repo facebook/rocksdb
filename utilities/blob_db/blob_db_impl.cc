@@ -562,8 +562,8 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
-    Status s = blob_db_impl_->PutBlobValue(options_, key, value,
-                                           kNoExpiration, &batch_);
+    Status s = blob_db_impl_->PutBlobValue(options_, key, value, kNoExpiration,
+                                           &batch_);
     return s;
   }
 
