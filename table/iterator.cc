@@ -165,7 +165,7 @@ Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
 }
 
-template <class TValue = Slice>
+template <class TValue>
 InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status) {
   return new EmptyInternalIterator<TValue>(status);
 }
@@ -174,7 +174,7 @@ template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status);
 
-template <class TValue = Slice>
+template <class TValue>
 InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
                                                        Arena* arena) {
   if (arena == nullptr) {
@@ -196,7 +196,7 @@ InternalIteratorBase<TValue>* NewEmptyInternalIterator() {
 template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator();
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator();
 
-template <class TValue = Slice>
+template <class TValue>
 InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
   if (arena == nullptr) {
     return NewEmptyInternalIterator<TValue>();
