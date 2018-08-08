@@ -8,15 +8,20 @@
 #include "rocksdb/slice.h"
 #include "table/data_block_hash_index.h"
 #include "util/coding.h"
-#include "util/xxhash.h"
+#include "util/hash.h"
 
 namespace rocksdb {
 
-const uint32_t kSeed = 2018;
-
 inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
-  return static_cast<uint16_t>(
-      rocksdb::XXH32(s.data(), static_cast<int>(s.size()), kSeed) % num_buckets);
+  assert(num_buckets > 0);
+  // The build-in hash cannot well distribute strings when into different
+  // buckets when num_buckets is power of two, resulting in high hash
+  // collision.
+  // We made the num_buckets to be odd to avoid this issue.
+  if ((num_buckets & 1) == 0) {
+    num_buckets--;
+  }
+  return static_cast<uint16_t>(GetSliceHash(s) % num_buckets);
 }
 
 void DataBlockHashIndexBuilder::Add(const Slice& key,
@@ -49,12 +54,12 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 void DataBlockHashIndexBuilder::Reset(uint16_t estimated_num_keys) {
   // update the num_bucket using the new estimated_num_keys for this block
   if (util_ratio_ <= 0) {
-    util_ratio_ = 0.75; // sanity check
+    util_ratio_ = 0.75;  // sanity check
   }
-  num_buckets_ = static_cast<uint16_t>(
-      static_cast<double>(estimated_num_keys) / util_ratio_);
+  num_buckets_ = static_cast<uint16_t>(static_cast<double>(estimated_num_keys) /
+                                       util_ratio_);
   if (num_buckets_ == 0) {
-    num_buckets_ = kInitNumBuckets; // sanity check
+    num_buckets_ = kInitNumBuckets;  // sanity check
   }
   buckets_.resize(num_buckets_);
   std::fill(buckets_.begin(), buckets_.end(), kNoEntry);

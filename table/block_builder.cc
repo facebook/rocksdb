@@ -51,7 +51,7 @@ BlockBuilder::BlockBuilder(
       restarts_(),
       counter_(0),
       finished_(false),
-      num_keys_(0){
+      num_keys_(0) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
