@@ -482,8 +482,9 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
 // the first restart point with a key = target
 template <class TValue>
 template <typename DecodeKeyFunc>
-bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
-                           uint32_t* index, const Comparator* comp) {
+bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
+                                   uint32_t right, uint32_t* index,
+                                   const Comparator* comp) {
   assert(left <= right);
 
   while (left < right) {

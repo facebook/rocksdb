@@ -22,7 +22,8 @@ struct TwoLevelIteratorState {
   TwoLevelIteratorState() {}
 
   virtual ~TwoLevelIteratorState() {}
-  virtual InternalIteratorBase<BlockHandle>* NewSecondaryIterator(const BlockHandle& handle) = 0;
+  virtual InternalIteratorBase<BlockHandle>* NewSecondaryIterator(
+      const BlockHandle& handle) = 0;
 };
 
 
@@ -37,6 +38,7 @@ struct TwoLevelIteratorState {
 // an iterator over the contents of the corresponding block.
 // Note: this function expects first_level_iter was not created using the arena
 extern InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
-    TwoLevelIteratorState* state, InternalIteratorBase<BlockHandle>* first_level_iter);
+    TwoLevelIteratorState* state,
+    InternalIteratorBase<BlockHandle>* first_level_iter);
 
 }  // namespace rocksdb

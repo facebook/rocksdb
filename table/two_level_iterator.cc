@@ -21,8 +21,9 @@ namespace {
 
 class TwoLevelIndexIterator : public InternalIteratorBase<BlockHandle> {
  public:
-  explicit TwoLevelIndexIterator(TwoLevelIteratorState* state,
-                            InternalIteratorBase<BlockHandle>* first_level_iter);
+  explicit TwoLevelIndexIterator(
+      TwoLevelIteratorState* state,
+      InternalIteratorBase<BlockHandle>* first_level_iter);
 
   virtual ~TwoLevelIndexIterator() {
     first_level_iter_.DeleteIter(false /* is_arena_mode */);
@@ -80,8 +81,9 @@ class TwoLevelIndexIterator : public InternalIteratorBase<BlockHandle> {
   BlockHandle data_block_handle_;
 };
 
-TwoLevelIndexIterator::TwoLevelIndexIterator(TwoLevelIteratorState* state,
-                                   InternalIteratorBase<BlockHandle>* first_level_iter)
+TwoLevelIndexIterator::TwoLevelIndexIterator(
+    TwoLevelIteratorState* state,
+    InternalIteratorBase<BlockHandle>* first_level_iter)
     : state_(state), first_level_iter_(first_level_iter) {}
 
 void TwoLevelIndexIterator::Seek(const Slice& target) {
@@ -174,7 +176,8 @@ void TwoLevelIndexIterator::SkipEmptyDataBlocksBackward() {
   }
 }
 
-void TwoLevelIndexIterator::SetSecondLevelIterator(InternalIteratorBase<BlockHandle>* iter) {
+void TwoLevelIndexIterator::SetSecondLevelIterator(
+    InternalIteratorBase<BlockHandle>* iter) {
   InternalIteratorBase<BlockHandle>* old_iter = second_level_iter_.Set(iter);
   delete old_iter;
 }
@@ -190,7 +193,8 @@ void TwoLevelIndexIterator::InitDataBlock() {
       // second_level_iter is already constructed with this iterator, so
       // no need to change anything
     } else {
-      InternalIteratorBase<BlockHandle>* iter = state_->NewSecondaryIterator(handle);
+      InternalIteratorBase<BlockHandle>* iter =
+          state_->NewSecondaryIterator(handle);
       data_block_handle_ = handle;
       SetSecondLevelIterator(iter);
     }
@@ -199,8 +203,9 @@ void TwoLevelIndexIterator::InitDataBlock() {
 
 }  // namespace
 
-InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(TwoLevelIteratorState* state,
-                                      InternalIteratorBase<BlockHandle>* first_level_iter) {
+InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
+    TwoLevelIteratorState* state,
+    InternalIteratorBase<BlockHandle>* first_level_iter) {
   return new TwoLevelIndexIterator(state, first_level_iter);
 }
 }  // namespace rocksdb

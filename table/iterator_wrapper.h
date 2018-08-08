@@ -23,7 +23,8 @@ template <class TValue = Slice>
 class IteratorWrapperBase {
  public:
   IteratorWrapperBase() : iter_(nullptr), valid_(false) {}
-  explicit IteratorWrapperBase(InternalIteratorBase<TValue>* _iter) : iter_(nullptr) {
+  explicit IteratorWrapperBase(InternalIteratorBase<TValue>* _iter)
+      : iter_(nullptr) {
     Set(_iter);
   }
   ~IteratorWrapperBase() {}
@@ -56,7 +57,10 @@ class IteratorWrapperBase {
   // Iterator interface methods
   bool Valid() const        { return valid_; }
   Slice key() const         { assert(Valid()); return key_; }
-  TValue value() const       { assert(Valid()); return iter_->value(); }
+  TValue value() const {
+    assert(Valid());
+    return iter_->value();
+  }
   // Methods below require iter() != nullptr
   Status status() const     { assert(iter_); return iter_->status(); }
   void Next()               { assert(iter_); iter_->Next();        Update(); }

@@ -169,13 +169,14 @@ template <class TValue = Slice>
 InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status) {
   return new EmptyInternalIterator<TValue>(status);
 }
-template
-InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(const Status& status);
-template
-InternalIteratorBase<Slice>* NewErrorInternalIterator(const Status& status);
+template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
+    const Status& status);
+template InternalIteratorBase<Slice>* NewErrorInternalIterator(
+    const Status& status);
 
 template <class TValue = Slice>
-InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status, Arena* arena) {
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
+                                                       Arena* arena) {
   if (arena == nullptr) {
     return NewErrorInternalIterator<TValue>(status);
   } else {
@@ -183,10 +184,10 @@ InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status, Are
     return new (mem) EmptyInternalIterator<TValue>(status);
   }
 }
-template
-InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(const Status& status, Arena* arena);
-template
-InternalIteratorBase<Slice>* NewErrorInternalIterator(const Status& status, Arena* arena);
+template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
+template InternalIteratorBase<Slice>* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
 
 template <class TValue>
 InternalIteratorBase<TValue>* NewEmptyInternalIterator() {
@@ -204,10 +205,8 @@ InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
     return new (mem) EmptyInternalIterator<TValue>(Status::OK());
   }
 }
-template
-InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator(Arena* arena);
-template
-InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
-
+template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator(
+    Arena* arena);
+template InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
 
 }  // namespace rocksdb

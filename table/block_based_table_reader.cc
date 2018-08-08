@@ -233,9 +233,9 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   }
 
   // return a two-level iterator: first level is on the partition index
-  virtual InternalIteratorBase<BlockHandle>* NewIterator(IndexBlockIter* /*iter*/ = nullptr,
-                                        bool /*dont_care*/ = true,
-                                        bool fill_cache = true) override {
+  virtual InternalIteratorBase<BlockHandle>* NewIterator(
+      IndexBlockIter* /*iter*/ = nullptr, bool /*dont_care*/ = true,
+      bool fill_cache = true) override {
     Statistics* kNullStats = nullptr;
     // Filters are already checked before seeking the index
     if (!partition_map_.empty()) {
@@ -296,7 +296,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     auto& file = table_->rep_->file;
     prefetch_buffer.reset(new FilePrefetchBuffer());
     Status s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
-      static_cast<size_t>(prefetch_len));
+                                         static_cast<size_t>(prefetch_len));
 
     // After prefetch, read the partitions one by one
     biter.SeekToFirst();
@@ -405,9 +405,9 @@ class BinarySearchIndexReader : public IndexReader {
     return s;
   }
 
-  virtual InternalIteratorBase<BlockHandle>* NewIterator(IndexBlockIter* iter = nullptr,
-                                        bool /*dont_care*/ = true,
-                                        bool /*dont_care*/ = true) override {
+  virtual InternalIteratorBase<BlockHandle>* NewIterator(
+      IndexBlockIter* iter = nullptr, bool /*dont_care*/ = true,
+      bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
     return index_block_->NewIterator<IndexBlockIter>(
         icomparator_, icomparator_->user_comparator(), iter, kNullStats, true,
@@ -530,9 +530,9 @@ class HashIndexReader : public IndexReader {
     return Status::OK();
   }
 
-  virtual InternalIteratorBase<BlockHandle>* NewIterator(IndexBlockIter* iter = nullptr,
-                                        bool total_order_seek = true,
-                                        bool /*dont_care*/ = true) override {
+  virtual InternalIteratorBase<BlockHandle>* NewIterator(
+      IndexBlockIter* iter = nullptr, bool total_order_seek = true,
+      bool /*dont_care*/ = true) override {
     Statistics* kNullStats = nullptr;
     return index_block_->NewIterator<IndexBlockIter>(
         icomparator_, icomparator_->user_comparator(), iter, kNullStats,
@@ -1019,8 +1019,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       bool disable_prefix_seek =
           rep->index_type == BlockBasedTableOptions::kHashSearch &&
           need_upper_bound_check;
-      unique_ptr<InternalIteratorBase<BlockHandle>> iter(new_table->NewIndexIterator(
-          ReadOptions(), disable_prefix_seek, nullptr, &index_entry));
+      unique_ptr<InternalIteratorBase<BlockHandle>> iter(
+          new_table->NewIndexIterator(ReadOptions(), disable_prefix_seek,
+                                      nullptr, &index_entry));
       s = iter->status();
       if (s.ok()) {
         // This is the first call to NewIndexIterator() since we're in Open().
@@ -1583,7 +1584,8 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
       input_iter->Invalidate(Status::Incomplete("no blocking io"));
       return input_iter;
     } else {
-      return NewErrorInternalIterator<BlockHandle>(Status::Incomplete("no blocking io"));
+      return NewErrorInternalIterator<BlockHandle>(
+          Status::Incomplete("no blocking io"));
     }
   }
 
@@ -1833,7 +1835,7 @@ BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
       index_key_is_full_(index_key_is_full) {}
 
 template <class TBlockIter, typename TValue>
-const size_t BlockBasedTableIterator<TBlockIter,TValue>::kMaxReadaheadSize =
+const size_t BlockBasedTableIterator<TBlockIter, TValue>::kMaxReadaheadSize =
     256 * 1024;
 
 InternalIteratorBase<BlockHandle>*
@@ -1989,7 +1991,7 @@ bool BlockBasedTable::PrefixMayMatch(
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::Seek(const Slice& target) {
+void BlockBasedTableIterator<TBlockIter, TValue>::Seek(const Slice& target) {
   is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
@@ -2019,7 +2021,8 @@ void BlockBasedTableIterator<TBlockIter,TValue>::Seek(const Slice& target) {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::SeekForPrev(const Slice& target) {
+void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
+    const Slice& target) {
   is_out_of_bound_ = false;
   if (!CheckPrefixMayMatch(target)) {
     ResetDataIter();
@@ -2062,7 +2065,7 @@ void BlockBasedTableIterator<TBlockIter,TValue>::SeekForPrev(const Slice& target
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::SeekToFirst() {
+void BlockBasedTableIterator<TBlockIter, TValue>::SeekToFirst() {
   is_out_of_bound_ = false;
   SavePrevIndexValue();
   index_iter_->SeekToFirst();
@@ -2076,7 +2079,7 @@ void BlockBasedTableIterator<TBlockIter,TValue>::SeekToFirst() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::SeekToLast() {
+void BlockBasedTableIterator<TBlockIter, TValue>::SeekToLast() {
   is_out_of_bound_ = false;
   SavePrevIndexValue();
   index_iter_->SeekToLast();
@@ -2090,21 +2093,21 @@ void BlockBasedTableIterator<TBlockIter,TValue>::SeekToLast() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::Next() {
+void BlockBasedTableIterator<TBlockIter, TValue>::Next() {
   assert(block_iter_points_to_real_block_);
   block_iter_.Next();
   FindKeyForward();
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::Prev() {
+void BlockBasedTableIterator<TBlockIter, TValue>::Prev() {
   assert(block_iter_points_to_real_block_);
   block_iter_.Prev();
   FindKeyBackward();
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::InitDataBlock() {
+void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
   BlockHandle data_block_handle = index_iter_->value();
   if (!block_iter_points_to_real_block_ ||
       data_block_handle.offset() != prev_index_value_.offset() ||
@@ -2154,7 +2157,7 @@ void BlockBasedTableIterator<TBlockIter,TValue>::InitDataBlock() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::FindKeyForward() {
+void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyForward() {
   assert(!is_out_of_bound_);
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
@@ -2194,7 +2197,7 @@ void BlockBasedTableIterator<TBlockIter,TValue>::FindKeyForward() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter,TValue>::FindKeyBackward() {
+void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyBackward() {
   assert(!is_out_of_bound_);
   while (!block_iter_.Valid()) {
     if (!block_iter_.status().ok()) {
@@ -2271,7 +2274,8 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
   }
   // The meta-block exists but isn't in uncompressed block cache (maybe
   // because it is disabled), so go through the full lookup process.
-  return NewDataBlockIterator<DataBlockIter>(rep_, read_options, rep_->range_del_handle);
+  return NewDataBlockIterator<DataBlockIter>(rep_, read_options,
+                                             rep_->range_del_handle);
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(
@@ -2425,7 +2429,8 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   auto iiter = NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
-    iiter_unique_ptr = std::unique_ptr<InternalIteratorBase<BlockHandle>>(iiter);
+    iiter_unique_ptr =
+        std::unique_ptr<InternalIteratorBase<BlockHandle>>(iiter);
   }
 
   if (!iiter->status().ok()) {
@@ -2488,7 +2493,8 @@ Status BlockBasedTable::VerifyChecksum() {
       NewIndexIterator(ReadOptions(), false, &iiter_on_stack);
   std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
-    iiter_unique_ptr = std::unique_ptr<InternalIteratorBase<BlockHandle>>(iiter);
+    iiter_unique_ptr =
+        std::unique_ptr<InternalIteratorBase<BlockHandle>>(iiter);
   }
   if (!iiter->status().ok()) {
     // error opening index iterator
@@ -2498,7 +2504,8 @@ Status BlockBasedTable::VerifyChecksum() {
   return s;
 }
 
-Status BlockBasedTable::VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter) {
+Status BlockBasedTable::VerifyChecksumInBlocks(
+    InternalIteratorBase<BlockHandle>* index_iter) {
   Status s;
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
     s = index_iter->status();
@@ -2521,7 +2528,8 @@ Status BlockBasedTable::VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>
   return s;
 }
 
-Status BlockBasedTable::VerifyChecksumInBlocks(InternalIteratorBase<Slice>* index_iter) {
+Status BlockBasedTable::VerifyChecksumInBlocks(
+    InternalIteratorBase<Slice>* index_iter) {
   Status s;
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
     s = index_iter->status();
@@ -2548,7 +2556,8 @@ Status BlockBasedTable::VerifyChecksumInBlocks(InternalIteratorBase<Slice>* inde
 
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
-  std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter(NewIndexIterator(options));
+  std::unique_ptr<InternalIteratorBase<BlockHandle>> iiter(
+      NewIndexIterator(options));
   iiter->Seek(key);
   assert(iiter->Valid());
   CachableEntry<Block> block;
@@ -2681,7 +2690,8 @@ Status BlockBasedTable::CreateIndexReader(
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
-  unique_ptr<InternalIteratorBase<BlockHandle>> index_iter(NewIndexIterator(ReadOptions()));
+  unique_ptr<InternalIteratorBase<BlockHandle>> index_iter(
+      NewIndexIterator(ReadOptions()));
 
   index_iter->Seek(key);
   uint64_t result;

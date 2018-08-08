@@ -177,9 +177,9 @@ class BlockBasedTable : public TableReader {
     // to
     // a different object then iter and the callee has the ownership of the
     // returned object.
-    virtual InternalIteratorBase<BlockHandle>* NewIterator(IndexBlockIter* iter = nullptr,
-                                          bool total_order_seek = true,
-                                          bool fill_cache = true) = 0;
+    virtual InternalIteratorBase<BlockHandle>* NewIterator(
+        IndexBlockIter* iter = nullptr, bool total_order_seek = true,
+        bool fill_cache = true) = 0;
 
     // The size of the index.
     virtual size_t size() const = 0;
@@ -393,7 +393,8 @@ class BlockBasedTable::PartitionedIndexIteratorState
       BlockBasedTable* table,
       std::unordered_map<uint64_t, CachableEntry<Block>>* block_map,
       const bool index_key_includes_seq, const bool index_key_is_full);
-  InternalIteratorBase<BlockHandle>* NewSecondaryIterator(const BlockHandle& index_value) override;
+  InternalIteratorBase<BlockHandle>* NewSecondaryIterator(
+      const BlockHandle& index_value) override;
 
  private:
   // Don't own table_
@@ -530,8 +531,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   BlockBasedTableIterator(BlockBasedTable* table,
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
-                          InternalIteratorBase<BlockHandle>* index_iter, bool check_filter,
-                          bool need_upper_bound_check,
+                          InternalIteratorBase<BlockHandle>* index_iter,
+                          bool check_filter, bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor, bool is_index,
                           bool key_includes_seq = true,
                           bool index_key_is_full = true,

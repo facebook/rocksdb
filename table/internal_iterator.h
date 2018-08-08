@@ -131,11 +131,12 @@ extern InternalIteratorBase<TValue>* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status);
+extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
+    const Status& status);
 
 // Return an empty iterator with the specified status, allocated arena.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
-                                                  Arena* arena);
+extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
 
 }  // namespace rocksdb
