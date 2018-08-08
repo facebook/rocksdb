@@ -227,6 +227,90 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   }
 }
 
+TEST(DataBlockHashIndex, BlockTestSingleKey) {
+  Options options = Options();
+
+  BlockBuilder builder(16 /* block_restart_interval */,
+                       true /* use_delta_encoding */,
+                       BlockBasedTableOptions::kDataBlockHashSearch);
+
+  std::string ukey("gopher");
+  std::string value("gold");
+  InternalKey ikey(ukey, 10, kTypeValue);
+  builder.Add(ikey.Encode().ToString(), value /*value*/);
+
+  // read serialized contents of the block
+  Slice rawblock = builder.Finish();
+
+  // create block reader
+  BlockContents contents;
+  contents.data = rawblock;
+  contents.cachable = false;
+  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+
+  auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
+                                                options.comparator);
+
+  bool hash_effective, found;
+  // search in block for the key just inserted
+  {
+    InternalKey seek_ikey(ukey, 10, kValueTypeForSeek);
+    iter->SeekForGet(ikey.Encode().ToString(), &hash_effective, &found);
+    ASSERT_TRUE(hash_effective);
+    ASSERT_TRUE(found);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(options.comparator->Compare(
+                  iter->key(), ikey.Encode().ToString()), 0);
+    ASSERT_EQ(iter->value(), value);
+  }
+
+  // search in block for a non-existent ukey
+  {
+    std::string non_exist_ukey("squirrel");
+    InternalKey seek_ikey(non_exist_ukey, 10, kValueTypeForSeek);
+    iter->SeekForGet(seek_ikey.Encode().ToString(), &hash_effective, &found);
+    ASSERT_TRUE(hash_effective);
+    ASSERT_FALSE(found);
+    // if not found iter->Valid() is undefined
+  }
+
+  // search in block for the existing ukey, but with higher seqno
+  {
+    InternalKey seek_ikey(ukey, 20, kValueTypeForSeek);
+
+    // searching "gopher@20"
+    iter->SeekForGet(ikey.Encode().ToString(), &hash_effective, &found);
+    ASSERT_TRUE(hash_effective);
+    ASSERT_TRUE(found);
+    ASSERT_TRUE(iter->Valid());
+
+    // user key should match
+    ASSERT_EQ(options.comparator->Compare(
+                  ExtractUserKey(iter->key()), ukey), 0);
+
+    // seek_key seqno number should be greater than that of iter result
+    ASSERT_GT(GetInternalKeySeqno(seek_ikey.Encode()),
+              GetInternalKeySeqno(iter->key()));
+
+    ASSERT_EQ(iter->value(), value);
+  }
+
+  // Search in block for the existing ukey, but with lower seqno
+  // in this case, seek can find the first occurrence of the user_key, but
+  // ParseNextDataKey() will skip it as it does not have a older seqno.
+  // In this case, GetForSeek() is effective to locate the user_key, we
+  // use iter->Valid() == false to indicate we've reached to the end of
+  // the block and the caller should continue searching the next block.
+  {
+    InternalKey seek_ikey(ukey, 5, kValueTypeForSeek);
+    iter->SeekForGet(seek_ikey.Encode().ToString(), &hash_effective, &found);
+    ASSERT_TRUE(hash_effective);
+    ASSERT_FALSE(iter->Valid());
+  }
+
+  delete iter;
+}
+
 TEST(DataBlockHashIndex, BlockTestLarge) {
   Random rnd(1019);
   Options options = Options();
