@@ -1065,6 +1065,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
                  oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
+  FlushRequest flush_req;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
@@ -1074,12 +1075,11 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       if (!status.ok()) {
         break;
       }
+      flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
       cfd->imm()->FlushRequested();
-      SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
-                           FlushReason::kWriteBufferManager);
     }
   }
-  MaybeScheduleFlushOrCompaction();
+  ScheduleWork(flush_req, FlushReason::kWriteBufferManager);
   return status;
 }
 
@@ -1103,7 +1103,6 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // happen while we're in the write thread
   ColumnFamilyData* cfd_picked = nullptr;
   SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
-  FlushRequest flush_req;
 
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
@@ -1112,44 +1111,32 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (!cfd->mem()->IsEmpty()) {
       // We only consider active mem table, hoping immutable memtable is
       // already in the process of flushing.
-      if (atomic_flush_) {
-        cfd->Ref();
-        status =
-            SwitchMemtable(cfd, write_context, FlushReason::kWriteBufferFull);
-        cfd->Unref();
-        if (!status.ok()) {
-          break;
-        }
-        uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-        flush_req.emplace_back(cfd, flush_memtable_id);
-      } else {
-        uint64_t seq = cfd->mem()->GetCreationSeq();
-        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-          cfd_picked = cfd;
-          seq_num_for_cf_picked = seq;
-        }
+      uint64_t seq = cfd->mem()->GetCreationSeq();
+      if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+        cfd_picked = cfd;
+        seq_num_for_cf_picked = seq;
       }
     }
   }
-  if (atomic_flush_ && !flush_req.empty()) {
-    if (status.ok()) {
-      for (auto& iter : flush_req) {
-        auto cfd = iter.first;
-        cfd->imm()->FlushRequested();
-      }
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
-      MaybeScheduleFlushOrCompaction();
+
+  autovector<ColumnFamilyData*> cfds;
+  if (cfd_picked != nullptr) {
+    cfds.push_back(cfd_picked);
+  }
+  FlushRequest flush_req;
+  for (const auto cfd : cfds) {
+    cfd->Ref();
+    status = SwitchMemtable(cfd, write_context, FlushReason::kWriteBufferFull);
+    cfd->Unref();
+    if (!status.ok()) {
+      break;
     }
-  } else if (!atomic_flush_ && cfd_picked != nullptr) {
-    status = SwitchMemtable(cfd_picked, write_context,
-                            FlushReason::kWriteBufferFull);
-    if (status.ok()) {
-      cfd_picked->imm()->FlushRequested();
-      SchedulePendingFlush(
-          {{cfd_picked, cfd_picked->imm()->GetLatestMemTableID()}},
-          FlushReason::kWriteBufferFull);
-      MaybeScheduleFlushOrCompaction();
-    }
+    uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+    cfd->imm()->FlushRequested();
+    flush_req.emplace_back(cfd, flush_memtable_id);
+  }
+  if (status.ok()) {
+    ScheduleWork(flush_req, FlushReason::kWriteBufferFull);
   }
   return status;
 }
@@ -1244,55 +1231,22 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
-  if (atomic_flush_) {
-    if (flush_scheduler_.Empty()) {
-      return Status::OK();
-    }
-    Status s;
-    FlushRequest flush_req;
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped() ||
-          (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty())) {
-        continue;
-      }
-      cfd->Ref();
-      s = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
-      cfd->Unref();
-      if (!s.ok()) {
-        break;
+  ColumnFamilyData* cfd;
+  FlushRequest flush_req;
+  while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+    auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+    if (cfd->Unref()) {
+      delete cfd;
+    } else {
+      if (!status.ok()) {
+        return status;
       }
       uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
       flush_req.emplace_back(cfd, flush_memtable_id);
     }
-
-    if (s.ok() && !flush_req.empty()) {
-      for (auto& iter : flush_req) {
-        auto cfd = iter.first;
-        cfd->imm()->FlushRequested();
-      }
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
-      ColumnFamilyData* cfd;
-      while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-        if (cfd->Unref()) {
-          delete cfd;
-        }
-      }
-      MaybeScheduleFlushOrCompaction();
-    }
-    return s;
-  } else {
-    ColumnFamilyData* cfd;
-    while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-      auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
-      if (cfd->Unref()) {
-        delete cfd;
-      }
-      if (!status.ok()) {
-        return status;
-      }
-    }
-    return Status::OK();
   }
+  ScheduleWork(flush_req, FlushReason::kWriteBufferFull);
+  return Status::OK();
 }
 
 #ifndef ROCKSDB_LITE
@@ -1314,7 +1268,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
-                              FlushReason flush_reason) {
+                              FlushReason /* flush_reason */) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {
@@ -1485,8 +1439,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options, flush_reason);
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context, mutable_cf_options);
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }

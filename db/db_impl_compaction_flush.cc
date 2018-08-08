@@ -208,6 +208,9 @@ Status DBImpl::FlushMemTablesToOutputFile(
   int sz = static_cast<int>(cfds.size());
   assert(sz == static_cast<int>(mutable_cf_options_list.size()));
   assert(sz == static_cast<int>(memtable_ids.size()));
+  // TODO (yanqin): will be used in the future
+  (void) memtable_ids;
+
   Status s;
   for (int i = 0; i != sz; ++i) {
     s = FlushMemTableToOutputFile(cfds[i], mutable_cf_options_list[i],
@@ -1095,7 +1098,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
-  bool schedule_flush = false;
   uint64_t flush_memtable_id = 0;
   FlushRequest flush_req;
   {
@@ -1107,32 +1109,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (atomic_flush_) {
-      // Refer to ColumnFamilySet for the reason of Ref/Unref
-      for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
-        if (loop_cfd->IsDropped() || (loop_cfd->imm()->NumNotFlushed() == 0 &&
-                                      loop_cfd->mem()->IsEmpty() &&
-                                      cached_recoverable_state_empty_.load())) {
-          continue;
-        }
-        loop_cfd->Ref();
-        s = SwitchMemtable(loop_cfd, &context);
-        loop_cfd->Unref();
-        if (!s.ok()) {
-          break;
-        }
-        flush_memtable_id = loop_cfd->imm()->GetLatestMemTableID();
-        flush_req.emplace_back(loop_cfd, flush_memtable_id);
-      }
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+        cached_recoverable_state_empty_.load()) {
+      s = Status::OK();
     } else {
-      if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-          cached_recoverable_state_empty_.load()) {
-        s = Status::OK();
-      } else {
-        s = SwitchMemtable(cfd, &context);
-        flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-        flush_req.emplace_back(cfd, flush_memtable_id);
-      }
+      s = SwitchMemtable(cfd, &context);
+      flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      flush_req.emplace_back(cfd, flush_memtable_id);
     }
 
     if (s.ok()) {
@@ -1140,34 +1123,22 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         auto& loop_cfd = elem.first;
         loop_cfd->imm()->FlushRequested();
       }
-      schedule_flush = !flush_req.empty();
-      if (schedule_flush) {
-        SchedulePendingFlush(flush_req, flush_reason);
-      }
+      ScheduleWork(flush_req, flush_reason);
     }
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
     }
-
-    if (schedule_flush) {
-      MaybeScheduleFlushOrCompaction();
-    }
   }
 
   if (s.ok() && flush_options.wait) {
-    if (atomic_flush_) {
-      autovector<ColumnFamilyData*> cfds;
-      autovector<uint64_t> flush_memtable_ids;
-      for (auto& iter : flush_req) {
-        cfds.push_back(iter.first);
-        flush_memtable_ids.push_back(iter.second);
-      }
-      s = WaitForFlushMemTables(cfds, flush_memtable_ids);
-    } else {
-      // Wait until the compaction completes
-      s = WaitForFlushMemTable(cfd, &flush_memtable_id);
+    autovector<ColumnFamilyData*> cfds;
+    autovector<uint64_t> flush_memtable_ids;
+    for (auto& iter : flush_req) {
+      cfds.push_back(iter.first);
+      flush_memtable_ids.push_back(iter.second);
     }
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
@@ -1263,8 +1234,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
     assert(!flush_queue_.empty());
-    const auto& flush_req = flush_queue_.front();
-    assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
@@ -1276,8 +1245,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_job_limits.max_flushes) {
       assert(!flush_queue_.empty());
-      const auto& flush_req = flush_queue_.front();
-      assert(flush_req.size() <= static_cast<size_t>(unscheduled_flushes_));
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
@@ -1358,6 +1325,7 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   auto& flush_req = flush_queue_.front();
   flush_queue_.pop_front();
+  assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));
   unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   // TODO: need to unset flush reason?
   return flush_req;
@@ -2184,7 +2152,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options, FlushReason flush_reason) {
+    const MutableCFOptions& mutable_cf_options, FlushReason /* flush_reason */) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -2203,8 +2171,6 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush({{cfd, cfd->imm()->GetLatestMemTableID()}},
-                       flush_reason);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 
@@ -2212,6 +2178,15 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +
                                mutable_cf_options.write_buffer_size *
                                    mutable_cf_options.max_write_buffer_number;
+}
+
+void DBImpl::ScheduleWork(const FlushRequest& req, FlushReason flush_reason) {
+  SchedulePendingFlush(req, flush_reason);
+  for (const auto& elem : req) {
+    auto cfd = elem.first;
+    SchedulePendingCompaction(cfd);
+  }
+  MaybeScheduleFlushOrCompaction();
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,
