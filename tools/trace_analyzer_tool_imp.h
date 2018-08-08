@@ -219,11 +219,9 @@ class TraceAnalyzer {
                           std::unique_ptr<rocksdb::WritableFile>* f_ptr);
   void CloseOutputFiles();
 
-  void PrintGetStatistics();
+  void PrintStatistics();
   Status TraceUnitWriter(std::unique_ptr<rocksdb::WritableFile>& f_ptr,
                          TraceUnit& unit);
-  std::string MicrosdToDate(uint64_t time);
-
   Status WriteTraceSequence(const uint32_t& type, const uint32_t& cf_id,
                             const std::string& key, const size_t value_size,
                             const uint64_t ts);

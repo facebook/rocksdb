@@ -751,7 +751,7 @@ Status TraceAnalyzer::MakeStatisticQPS() {
           }
         }
 
-        // Process the top k IO peaks
+        // Process the top k QPS peaks
         if (FLAGS_output_prefix_cut > 0) {
           if (static_cast<int32_t>(stat.second.top_k_qps_sec.size()) <
               FLAGS_print_top_k_access) {
@@ -858,31 +858,31 @@ Status TraceAnalyzer::ReProcessing() {
             ta_[type].stats.find(cf_id) == ta_[type].stats.end()) {
           continue;
         }
-        TraceStats& stats = ta_[type].stats[cf_id];
-        if (!stats.time_series_f) {
+        TraceStats& stat = ta_[type].stats[cf_id];
+        if (!stat.time_series_f) {
           fprintf(stderr, "Cannot write time_series of '%s' in '%u'\n",
                   ta_[type].type_name.c_str(), cf_id);
           continue;
         }
-        while (!stats.time_series.empty()) {
+        while (!stat.time_series.empty()) {
           uint64_t key_id = 0;
-          auto found = stats.a_key_stats.find(stats.time_series.front().key);
-          if (found != stats.a_key_stats.end()) {
+          auto found = stat.a_key_stats.find(stat.time_series.front().key);
+          if (found != stat.a_key_stats.end()) {
             key_id = found->second.key_id;
           }
           ret = sprintf(buffer_, "%u %" PRIu64 " %" PRIu64 "\n",
-                        stats.time_series.front().type,
-                        stats.time_series.front().ts, key_id);
+                        stat.time_series.front().type,
+                        stat.time_series.front().ts, key_id);
           if (ret < 0) {
             return Status::IOError("Format the output failed");
           }
           std::string printout(buffer_);
-          s = stats.time_series_f->Append(printout);
+          s = stat.time_series_f->Append(printout);
           if (!s.ok()) {
             fprintf(stderr, "Write time series file failed\n");
             return s;
           }
-          stats.time_series.pop_front();
+          stat.time_series.pop_front();
         }
       }
     }
@@ -976,16 +976,16 @@ Status TraceAnalyzer::ReProcessing() {
             ta_[type].stats.find(cf_id) == ta_[type].stats.end()) {
           continue;
         }
-        TraceStats& stats = ta_[type].stats[cf_id];
-        for (auto& record : stats.a_key_stats) {
-          if (static_cast<int32_t>(stats.top_k_queue.size()) <
+        TraceStats& stat = ta_[type].stats[cf_id];
+        for (auto& record : stat.a_key_stats) {
+          if (static_cast<int32_t>(stat.top_k_queue.size()) <
               FLAGS_print_top_k_access) {
-            stats.top_k_queue.push(
+            stat.top_k_queue.push(
                 std::make_pair(record.second.access_count, record.first));
           } else {
-            if (record.second.access_count > stats.top_k_queue.top().first) {
-              stats.top_k_queue.pop();
-              stats.top_k_queue.push(
+            if (record.second.access_count > stat.top_k_queue.top().first) {
+              stat.top_k_queue.pop();
+              stat.top_k_queue.push(
                   std::make_pair(record.second.access_count, record.first));
             }
           }
@@ -1004,7 +1004,7 @@ Status TraceAnalyzer::EndProcessing() {
   if (FLAGS_no_print) {
     return Status::OK();
   }
-  PrintGetStatistics();
+  PrintStatistics();
   CloseOutputFiles();
   return Status::OK();
 }
@@ -1181,7 +1181,7 @@ Status TraceAnalyzer::StatsUnitCorrelationUpdate(StatsUnit& unit,
   return Status::OK();
 }
 
-// when a new trace stattistic is created, the file handler
+// when a new trace statistic is created, the file handler
 // pointers should be initiated if needed according to
 // the trace analyzer options
 Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
@@ -1479,7 +1479,7 @@ Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
 // -----type
 //          |__cf_id
 //                |_statistics
-void TraceAnalyzer::PrintGetStatistics() {
+void TraceAnalyzer::PrintStatistics() {
   for (int type = 0; type < kTaTypeNum; type++) {
     if (!ta_[type].enabled) {
       continue;
@@ -1490,7 +1490,7 @@ void TraceAnalyzer::PrintGetStatistics() {
     printf("\n################# Operation Type: %s #####################\n",
            ta_[type].type_name.c_str());
     if (qps_ave_.size() == kTaTypeNum + 1) {
-      printf("Peak IO is: %u Average IO is: %f\n", qps_peak_[type],
+      printf("Peak QPS is: %u Average QPS is: %f\n", qps_peak_[type],
              qps_ave_[type]);
     }
     for (auto& stat_it : ta_[type].stats) {
