@@ -464,7 +464,7 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
     auto newp = GetVarint64Ptr(value_.data(), l, &o);
     newp = GetVarint64Ptr(newp, l, &s);
     decoded_value_ = BlockHandle(o, s);
-    value_.UpdateSize(newp - value_.data());
+    value_.set_size(newp - value_.data());
   } else {
     uint64_t next_value_base =
         decoded_value_.offset() + decoded_value_.size() + kBlockTrailerSize;
@@ -472,7 +472,7 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
     auto newp = GetVarsignedint64Ptr(value_.data(), l, &delta);
     decoded_value_ =
         BlockHandle(next_value_base, decoded_value_.size() + delta);
-    value_.UpdateSize(newp - value_.data());
+    value_.set_size(newp - value_.data());
   }
 }
 

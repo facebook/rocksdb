@@ -56,6 +56,7 @@ class Slice {
 
   // Return the length (in bytes) of the referenced data
   size_t size() const { return size_; }
+  inline void set_size(size_t s) { size_ = s; }
 
   // Return true iff the length of the referenced data is zero
   bool empty() const { return size_ == 0; }
@@ -116,8 +117,6 @@ class Slice {
  // private: make these public for rocksdbjni access
   const char* data_;
   size_t size_;
-
-  inline void UpdateSize(size_t size) { size_ = size; }
 
   // Intentionally copyable
 };
