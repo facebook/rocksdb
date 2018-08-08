@@ -539,7 +539,7 @@ Status TableCache::Get(
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      if (file_meta.sst_variety == 0) {
+      if (file_meta.sst_variety == 0 || depend_files.empty()) {
         s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
       } else {
         ReadOptions options_copy = options;

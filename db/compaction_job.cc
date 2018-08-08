@@ -612,6 +612,9 @@ Status CompactionJob::Run() {
 
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
+  // map compact don't need multithreads
+  assert(compact_->compaction->compaction_varieties() != kMapSst ||
+         compact_->sub_compact_states.size() == 1);
   thread_pool.reserve(num_threads - 1);
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
     thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
@@ -669,7 +672,7 @@ Status CompactionJob::Run() {
         // here because this is a special case after we finish the table building
         // No matter whether use_direct_io_for_flush_and_compaction is true,
         // we will regard this verification as user reads since the goal is
-        // to cache it here for further user reads
+        // to map it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
             *files_meta[file_idx], empty_depend_files,
@@ -1078,7 +1081,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       output_file_ended = true;
     }
     const Slice* next_key = nullptr;
-    if (output_file_ended) {
+    if (output_file_ended && false) { // test map and link , disable tempory
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
       }
@@ -1305,8 +1308,398 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
 
 void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
-  ProcessLinkCompaction(sub_compact);
-  // TODO(zouzhizhang):
+  auto compaction = compact_->compaction;
+  auto cfd = compaction->column_family_data();
+
+  struct IteratorCache {
+    struct CacheItem {
+      InternalIterator* iter;
+      TableReader* reader;
+    };
+    std::unordered_map<uint64_t, CacheItem> map;
+    Arena arena;
+    std::unique_ptr<RangeDelAggregator> range_del_agg;
+
+    ~IteratorCache() {
+      for (auto pair : map) {
+        pair.second.iter->~InternalIterator();
+      }
+    }
+  } iterator_cache;
+  iterator_cache.range_del_agg.reset(
+      new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
+
+  auto new_iterator = [&](FileMetaData* f, int level,
+                          TableReader** reader) {
+    ReadOptions read_options;
+    read_options.verify_checksums = true;
+    read_options.fill_cache = false;
+    read_options.total_order_seek = true;
+    std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
+
+    return cfd->table_cache()->NewIterator(
+               read_options, env_optiosn_for_read_,
+               cfd->internal_comparator(), *f, empty_delend_files,
+               iterator_cache.range_del_agg.get(),
+               compaction->mutable_cf_options()->prefix_extractor.get(),
+               reader, nullptr /* no per level latency histogram */,
+               true /* for_compaction */, &iterator_cache.arena,
+               false /* skip_filters */, level);
+  };
+  auto get_iterator = [&](FileMetaData* f, int level) {
+    auto find = iterator_cache.map.find(f->fd.GetNumber());
+    if (find != iterator_cache.map.end()) {
+      return find->second.iter;
+    }
+    IteratorCache::CacheItem item;
+    item.iter = new_iterator(f, level, &item.reader);
+    iterator_cache.map.emplace(f->fd.GetNumber(), item);
+    return item.iter;
+  };
+  auto get_iterator_and_reader = [&](uint64_t sst_id) {
+    auto find = iterator_cache.map.find(sst_id);
+    if (find != iterator_cache.map.end()) {
+      return find->second;
+    }
+    auto& depend_files
+        = compaction->input_version()->storage_info()->depend_files();
+    IteratorCache::CacheItem item;
+    auto find_f = depend_files.find(sst_id);
+    if (find_f == depend_files.end()) {
+      item.iter = NewErrorInternalIterator(
+                      Status::Corruption("Map sst depend files missing"));
+      item.reader = nullptr;
+    } else {
+      item.iter = new_iterator(find_f->second, -1, &item.reader);
+    }
+    iterator_cache.map.emplace(sst_id, item);
+    return item;
+  };
+
+  struct Endpoint {
+    std::string point;
+    bool include;
+
+    Endpoint(const Slice& _key, bool _include)
+        : point(_key.data(), _key.size()),
+          include(_include) {}
+  };
+  struct LevelMap {
+    std::vector<Endpoint> map;
+    std::vector<std::vector<uint64_t>> link_storage;
+  };
+
+  // Used for write properties
+  std::vector<uint64_t> sst_depend;
+  std::list<LevelMap> level_maps;
+
+  MapSstElement map_element;
+  for (auto& level_files : *compaction->inputs()) {
+    LevelMap level;
+    for (auto f : level_files.files) {
+      if (f->sst_variety == kMapSst) {
+        auto iter = get_iterator(f, level_files.level);
+        if (!iter->status().ok()) {
+          sub_compact->status = iter->status();
+          return;
+        }
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+          if (!map_element.Decode(iter->key(), iter->value())) {
+            sub_compact->status =
+                Status::Corruption("Map sst invalid key or value");
+            return;
+          }
+          level.map.emplace_back(map_element.smallest_key_, true);
+          level.map.emplace_back(map_element.largest_key_, true);
+          std::vector<uint64_t> link(map_element.link_.size());
+          for (size_t i = 0; i < link.size(); ++i) {
+            link[i] = map_element.link_[i].sst_id;
+          }
+          level.link_storage.emplace_back(std::move(link));
+        }
+        sst_depend.insert(sst_depend.end(), f->sst_depend.begin(),
+                          f->sst_depend.end());
+      } else {
+        get_iterator(f, level_files.level); // load into cache
+        level.map.emplace_back(f->smallest.Encode(), true);
+        level.map.emplace_back(f->largest.Encode(), true);
+        std::vector<uint64_t> link = {f->fd.GetNumber()};
+        level.link_storage.emplace_back(std::move(link));
+        sst_depend.push_back(f->fd.GetNumber());
+      }
+    }
+    if (!level.map.empty()) {
+      level_maps.emplace_back(std::move(level));
+    }
+  }
+  auto merge_map = [](LevelMap& l, LevelMap& r,
+                      const InternalKeyComparator& icomp) {
+    LevelMap output;
+    assert(!l.map.empty());
+    assert(!r.map.empty());
+    assert(l.map.size() % 2 == 0);
+    assert(r.map.size() % 2 == 0);
+    auto put_bound = [&](const Slice& key, bool include) {
+      output.map.emplace_back(key, include);
+    };
+    auto put_link = [&](const std::vector<uint64_t>* link_l,
+                        const std::vector<uint64_t>* link_r) {
+      std::vector<uint64_t> link;
+      if (link_l != nullptr) {
+        link.insert(link.end(), link_l->begin(), link_l->end());
+      }
+      if (link_r != nullptr) {
+        link.insert(link.end(), link_r->begin(), link_r->end());
+      }
+      assert(!link.empty());
+      output.link_storage.push_back(std::move(link));
+    };
+    size_t li = 0, ri = 0;  // index
+    size_t lc, rc;          // change
+#define CASE(a,b,c,d) (int(a) | (int(b) << 1) | (int(c) << 2) | (int(d) << 3))
+    do {
+      int lo = li % 2, ro = ri % 2;
+      int c;
+      if (li < l.map.size() && ri < r.map.size()) {
+        c = icomp.Compare(l.map[li].point, r.map[ri].point);
+        if (c == 0) {
+          switch (CASE(lo, l.map[li].include, ro, r.map[li].include)) {
+          // l: [   [   (   )   )
+          // r: (   )   ]   ]   (
+          case CASE(0, 1, 0, 0):
+          case CASE(0, 1, 1, 0):
+          case CASE(0, 0, 1, 1):
+          case CASE(1, 0, 1, 1):
+          case CASE(1, 0, 0, 0):
+            c = -1;
+            break;
+          // l: (   )   ]   ]   (
+          // r: [   [   (   )   )
+          case CASE(0, 0, 0, 1):
+          case CASE(1, 0, 0, 1):
+          case CASE(1, 1, 0, 0):
+          case CASE(1, 1, 1, 0):
+          case CASE(0, 0, 1, 0):
+            c = 1;
+            break;
+          // l: [   ]   (   )   [   ]
+          // r: [   ]   (   )   ]   [
+          default:
+            c = 0;
+            break;
+          }
+        }
+      } else {
+        c = li < l.map.size() ? -1 : 1;
+      }
+      lc = c <= 0;
+      rc = c >= 0;
+      switch (CASE(lo, ro, lc, rc)) {
+      // out l , out r , enter l
+      case CASE(0, 0, 1, 0):
+        put_bound(l.map[li].point, l.map[li].include);  // left
+        put_link(&l.link_storage[li >> 1], nullptr);
+        break;
+      // in l , out r , leave l
+      case CASE(1, 0, 1, 0):
+        put_bound(l.map[li].point, l.map[li].include);  // right
+        break;
+      // out l , out r , enter r
+      case CASE(0, 0, 0, 1):
+        put_bound(r.map[ri].point, r.map[ri].include);  // left
+        put_link(nullptr, &r.link_storage[ri >> 1]);
+        break;
+      // out l , in r , leave r
+      case CASE(0, 1, 0, 1):
+        put_bound(r.map[ri].point, r.map[ri].include);  // right
+        break;
+      // in l , out r , begin r
+      case CASE(1, 0, 0, 1):
+        put_bound(r.map[ri].point, !r.map[ri].include); // right
+        put_bound(r.map[ri].point, r.map[ri].include);  // left
+        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
+        break;
+      // in l , in r , leave r
+      case CASE(1, 1, 0, 1):
+        put_bound(r.map[ri].point, r.map[ri].include);  // right
+        put_bound(r.map[ri].point, !r.map[ri].include); // left
+        put_link(&l.link_storage[li >> 1], nullptr);
+        break;
+      // out l , in r , begin l
+      case CASE(0, 1, 1, 0):
+        put_bound(l.map[li].point, !l.map[li].include); // right
+        put_bound(l.map[li].point, l.map[li].include);  // left
+        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
+        break;
+      // in l , in r , leave l
+      case CASE(1, 1, 1, 0):
+        put_bound(l.map[li].point, l.map[li].include);  // right
+        put_bound(l.map[li].point, !l.map[li].include); // left
+        put_link(nullptr, &r.link_storage[ri >> 1]);
+        break;
+      // out l , out r , enter l , enter r
+      case CASE(0, 0, 1, 1):
+        assert(l.map[li].point == r.map[ri].point);
+        assert(l.map[li].include == r.map[ri].include);
+        put_bound(l.map[li].point, l.map[li].include);  // left
+        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
+        break;
+      // in l , in r , leave l , leave r
+      case CASE(1, 1, 1, 1):
+        assert(l.map[li].point == r.map[ri].point);
+        assert(l.map[li].include == r.map[ri].include);
+        put_bound(l.map[li].point, l.map[li].include);  // right
+        break;
+      // in l , out r , leave l , enter r
+      case CASE(1, 0, 1, 1):
+        assert(l.map[li].point == r.map[ri].point);
+        assert(l.map[li].include);
+        assert(r.map[ri].include);
+        put_bound(l.map[li].point, false);              // right
+        put_bound(l.map[li].point, true);               // left
+        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
+        put_bound(r.map[ri].point, true);               // right
+        put_bound(r.map[ri].point, false);              // left
+        put_link(nullptr, &r.link_storage[ri >> 1]);
+        break;
+      // out l , in r , enter l , leave r
+      case CASE(0, 1, 1, 1):
+        assert(l.map[li].point == r.map[ri].point);
+        assert(l.map[li].include);
+        assert(r.map[ri].include);
+        put_bound(r.map[ri].point, false);              // right
+        put_bound(r.map[ri].point, true);               // left
+        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
+        put_bound(l.map[li].point, true);               // right
+        put_bound(l.map[li].point, false);              // left
+        put_link(nullptr, &r.link_storage[ri >> 1]);
+        break;
+      default:
+        assert(false);
+      }
+      li += lc;
+      ri += rc;
+    } while (li != l.map.size() || ri != r.map.size());
+#undef CASE
+    assert(output.map.size() % 2 == 0);
+    return output;
+  };
+  while (level_maps.size() > 1) {
+    auto merge_a = level_maps.begin();
+    auto merge_b = std::next(merge_a);
+    size_t min_sum =
+        merge_a->link_storage.size() + merge_b->link_storage.size();
+    for (auto next = std::next(merge_b); next != level_maps.end();
+         ++merge_b, ++next) {
+      size_t sum = merge_b->link_storage.size() + next->link_storage.size();
+      if (sum < min_sum) {
+        min_sum = sum;
+        merge_a = merge_b;
+      }
+    }
+    merge_b = std::next(merge_a);
+    level_maps.insert(merge_a, merge_map(*merge_a, *merge_b,
+                                         cfd->internal_comparator()));
+    level_maps.erase(merge_a);
+    level_maps.erase(merge_b);
+  }
+
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
+  collectors.emplace_back(
+      new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend));
+
+  auto status = OpenCompactionOutputFile(sub_compact, &collectors);
+  if (!status.ok()) {
+    sub_compact->status = status;
+    return;
+  }
+  
+  assert(sub_compact->start == nullptr);
+  assert(sub_compact->end == nullptr);
+
+  auto& meta = sub_compact->current_output()->meta;
+
+  std::sort(sst_depend.begin(), sst_depend.end());
+
+  auto& level_map = level_maps.front();
+  std::string buffer;
+  InternalKey new_start, new_end;
+  for (size_t i = 0; i < level_map.map.size(); i += 2) {
+    auto start = level_map.map[i];
+    auto end = level_map.map[i + 1];
+    new_start.Clear();
+    new_end.Clear();
+    map_element.link_.clear();
+    Slice k;
+    for (auto sst_id : level_map.link_storage[i >> 1]) {
+      auto item = get_iterator_and_reader(sst_id);
+      auto iter = item.iter;
+      if (!iter->status().ok()) {
+        sub_compact->status = iter->status();
+        return;
+      }
+      iter->Seek(start.point);
+      if (!iter->Valid()) {
+        continue;
+      }
+      if (!start.include && iter->key() == start.point) {
+        iter->Next();
+        if (!iter->Valid()) {
+          continue;
+        }
+      }
+      k = iter->key();
+      if (new_start.size() == 0 ||
+          cfd->internal_comparator().Compare(k, new_start.Encode()) < 0) {
+        new_start.DecodeFrom(k);
+      }
+      uint64_t left_offset = item.reader->ApproximateOffsetOf(k);
+      iter->SeekForPrev(end.point);
+      if (iter->Valid()) {
+        continue;
+      }
+      if (!start.include && iter->key() == end.point) {
+        iter->Prev();
+        if (!iter->Valid()) {
+          continue;
+        }
+      }
+      k = iter->key();
+      if (new_end.size() == 0 ||
+          cfd->internal_comparator().Compare(k, new_end.Encode()) > 0) {
+        new_end.DecodeFrom(k);
+      }
+      uint64_t right_offset = item.reader->ApproximateOffsetOf(k);
+      MapSstElement::LinkTarget link;
+      link.sst_id = sst_id;
+      link.size = right_offset - left_offset;
+      map_element.link_.emplace_back(link);
+    }
+    if (!map_element.link_.empty()) {
+      map_element.smallest_key_ = new_start.Encode();
+      map_element.largest_key_ = new_end.Encode();
+      meta.UpdateBoundaries(map_element.Key(),
+                            GetInternalKeySeqno(map_element.Key()));
+      sub_compact->builder->Add(map_element.Key(), map_element.Value(&buffer));
+      sub_compact->current_output_file_size = sub_compact->builder->FileSize();
+      sub_compact->num_output_records++;
+    }
+  }
+
+  CompactionIterationStats range_del_out_stats;
+  status = FinishCompactionOutputFile(
+      status, sub_compact, iterator_cache.range_del_agg.get(),
+      &range_del_out_stats);
+
+  // Update metadata
+  meta.sst_variety = kMapSst;
+  meta.sst_depend = std::move(sst_depend);
+  sub_compact->actual_start = meta.smallest;
+  sub_compact->actual_end = meta.largest;
+
+  if (!status.ok()) {
+    sub_compact->status = status;
+  }
 }
 
 void CompactionJob::RecordDroppedKeys(

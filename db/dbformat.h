@@ -665,6 +665,7 @@ struct MapSstElement {
   std::vector<LinkTarget> link_;
 
   bool Decode(Slice ikey, Slice value) {
+    link_.clear();
     largest_key_ = ikey;
     uint64_t link_count;
     if (!GetLengthPrefixedSlice(&value, &smallest_key_) ||

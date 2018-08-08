@@ -4193,7 +4193,7 @@ InternalIterator* VersionSet::MakeInputIterator(
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
-      if (c->level(which) == 0) {
+      if (c->level(which) == 0 || c->input_levels(which)->num_files == 1) {
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
@@ -4203,7 +4203,7 @@ InternalIterator* VersionSet::MakeInputIterator(
               nullptr /* table_reader_ptr */,
               nullptr /* no per level latency histogram */,
               true /* for_compaction */, nullptr /* arena */,
-              false /* skip_filters */, static_cast<int>(which) /* level */);
+              false /* skip_filters */, c->level(which) /* level */);
         }
       } else {
         // Create concatenating iterator for the files from this level
