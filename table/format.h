@@ -212,7 +212,7 @@ struct BlockContents {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
       return malloc_usable_size(allocation.get());
 #else
-      return sizeof(*allocation.get());
+      return data.size();
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     } else {
       return 0;  // no extra memory is occupied by the data
