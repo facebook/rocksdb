@@ -95,6 +95,7 @@ InternalIterator* TranslateVarietySstIterator(
     break;
   case kMapSst:
     result = NewMapSstIterator(variety_sst_iter, icomp, create_iter, arena);
+    break;
   default:
     assert(false);
     return variety_sst_iter;
@@ -115,8 +116,7 @@ Status GetFromVarietySst(
     const FileMetaData& file_meta, TableReader* table_reader,
     const InternalKeyComparator& icomp, const Slice& k,
     void* arg, bool(*get_from_sst)(void* arg, const Slice& find_k,
-                                   uint64_t sst_id, Status& status,
-                                   const Slice& upper_bound)) {
+                                   uint64_t sst_id, Status& status)) {
   Status s;
   switch (file_meta.sst_variety) {
   case kLinkSst: {
@@ -128,7 +128,8 @@ Status GetFromVarietySst(
         s = Status::Corruption("Link sst invalid value");
         return false;
       }
-      return get_from_sst(arg, k, sst_id, s, ikey);
+      return get_from_sst(arg, k, sst_id, s) &&
+             ExtractUserKey(k) == ExtractUserKey(ikey);
     };
     table_reader->RangeScan(&k, &get_from_link,
                             gen_c_style_callback(get_from_link));
@@ -165,11 +166,11 @@ Status GetFromVarietySst(
           s = Status::Corruption(error_msg);
           return false;
         }
-        if (!get_from_sst(arg, find_k, sst_id, s, ikey)) {
+        if (!get_from_sst(arg, find_k, sst_id, s)) {
           return false;
         }
       }
-      return true;
+      return ExtractUserKey(k) == ExtractUserKey(ikey);
     };
     table_reader->RangeScan(&k, &get_from_map,
                             gen_c_style_callback(get_from_map));
@@ -546,7 +547,7 @@ Status TableCache::Get(
         options_copy.ignore_range_deletions = true;
         // Forward query to target sst
         auto get_from_sst = [&](const Slice& find_k, uint64_t sst_id,
-                                Status& status, const Slice& upper_bound) {
+                                Status& status) {
           auto find = depend_files.find(sst_id);
           if (find == depend_files.end()) {
             status = Status::Corruption("Variety sst depend files missing");
@@ -555,10 +556,8 @@ Status TableCache::Get(
           status = Get(options_copy, internal_comparator, *find->second,
                        depend_files, find_k, get_context, prefix_extractor,
                        file_read_hist, skip_filters, level);
-          if (!status.ok() || get_context->is_finished()) {
-            return false;
-          }
-          return ExtractUserKey(k) == ExtractUserKey(upper_bound);
+
+          return status.ok() && !get_context->is_finished();
         };
         s = GetFromVarietySst(file_meta, t, internal_comparator, k,
                               &get_from_sst,

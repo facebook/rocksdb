@@ -525,7 +525,11 @@ class MapSstIterator final : public InternalIterator {
     auto& icomp = min_heap_.comparator().icomp();
     Slice seek_target = target;
     if (icomp.Compare(target, current_map_.smallest_key_) < 0) {
-      seek_target = current_map_.smallest_key_;
+      first_level_iter_->Prev();
+      if (!InitFirstLevelIter()) {
+        return;
+      }
+      seek_target = current_map_.largest_key_;
     }
     InitSecondLevelMaxHeap(seek_target);
     is_backword_ = true;
@@ -556,7 +560,7 @@ class MapSstIterator final : public InternalIterator {
     }
   }
   virtual void Prev() override {
-    if (is_backword_) {
+    if (!is_backword_) {
       InternalKey where;
       where.DecodeFrom(min_heap_.top().key);
       min_heap_.clear();
@@ -564,8 +568,8 @@ class MapSstIterator final : public InternalIterator {
       is_backword_ = true;
     }
     auto current = max_heap_.top();
-    if (current.key != current_map_.largest_key_) {
-      current.iter->Next();
+    if (current.key != current_map_.smallest_key_) {
+      current.iter->Prev();
       if (current.iter->Valid()) {
         current.key = current.iter->key();
         max_heap_.replace_top(current);

@@ -1463,27 +1463,29 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
       if (li < l.map.size() && ri < r.map.size()) {
         c = icomp.Compare(l.map[li].point, r.map[ri].point);
         if (c == 0) {
-          switch (CASE(lo, l.map[li].include, ro, r.map[li].include)) {
-          // l: [   [   (   )   )
-          // r: (   )   ]   ]   (
+          switch (CASE(lo, l.map[li].include, ro, r.map[ri].include)) {
+          // l: [   [   (   )   )   [
+          // r: (   )   ]   ]   (   ]
           case CASE(0, 1, 0, 0):
           case CASE(0, 1, 1, 0):
           case CASE(0, 0, 1, 1):
           case CASE(1, 0, 1, 1):
           case CASE(1, 0, 0, 0):
+          case CASE(0, 1, 1, 1):
             c = -1;
             break;
-          // l: (   )   ]   ]   (
-          // r: [   [   (   )   )
+          // l: (   )   ]   ]   (   ]
+          // r: [   [   (   )   )   [
           case CASE(0, 0, 0, 1):
           case CASE(1, 0, 0, 1):
           case CASE(1, 1, 0, 0):
           case CASE(1, 1, 1, 0):
           case CASE(0, 0, 1, 0):
+          case CASE(1, 1, 0, 1):
             c = 1;
             break;
-          // l: [   ]   (   )   [   ]
-          // r: [   ]   (   )   ]   [
+          // l: [   ]   (   )
+          // r: [   ]   (   )
           default:
             c = 0;
             break;
@@ -1539,40 +1541,12 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
         break;
       // out l , out r , enter l , enter r
       case CASE(0, 0, 1, 1):
-        assert(l.map[li].point == r.map[ri].point);
-        assert(l.map[li].include == r.map[ri].include);
         put_bound(l.map[li].point, l.map[li].include);  // left
         put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
         break;
       // in l , in r , leave l , leave r
       case CASE(1, 1, 1, 1):
-        assert(l.map[li].point == r.map[ri].point);
-        assert(l.map[li].include == r.map[ri].include);
         put_bound(l.map[li].point, l.map[li].include);  // right
-        break;
-      // in l , out r , leave l , enter r
-      case CASE(1, 0, 1, 1):
-        assert(l.map[li].point == r.map[ri].point);
-        assert(l.map[li].include);
-        assert(r.map[ri].include);
-        put_bound(l.map[li].point, false);              // right
-        put_bound(l.map[li].point, true);               // left
-        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
-        put_bound(r.map[ri].point, true);               // right
-        put_bound(r.map[ri].point, false);              // left
-        put_link(nullptr, &r.link_storage[ri >> 1]);
-        break;
-      // out l , in r , enter l , leave r
-      case CASE(0, 1, 1, 1):
-        assert(l.map[li].point == r.map[ri].point);
-        assert(l.map[li].include);
-        assert(r.map[ri].include);
-        put_bound(r.map[ri].point, false);              // right
-        put_bound(r.map[ri].point, true);               // left
-        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
-        put_bound(l.map[li].point, true);               // right
-        put_bound(l.map[li].point, false);              // left
-        put_link(nullptr, &r.link_storage[ri >> 1]);
         break;
       default:
         assert(false);
@@ -1581,7 +1555,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
       ri += rc;
     } while (li != l.map.size() || ri != r.map.size());
 #undef CASE
-    assert(output.map.size() % 2 == 0);
+    assert(output.map.size() == output.link_storage.size() * 2);
     return output;
   };
   while (level_maps.size() > 1) {
@@ -1624,13 +1598,14 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   auto& level_map = level_maps.front();
   std::string buffer;
   InternalKey new_start, new_end;
+  InternalKey k_start, k_end;
+  auto& icomp = cfd->internal_comparator();
   for (size_t i = 0; i < level_map.map.size(); i += 2) {
     auto start = level_map.map[i];
     auto end = level_map.map[i + 1];
     new_start.Clear();
     new_end.Clear();
     map_element.link_.clear();
-    Slice k;
     for (auto sst_id : level_map.link_storage[i >> 1]) {
       auto item = get_iterator_and_reader(sst_id);
       auto iter = item.iter;
@@ -1648,28 +1623,33 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
           continue;
         }
       }
-      k = iter->key();
-      if (new_start.size() == 0 ||
-          cfd->internal_comparator().Compare(k, new_start.Encode()) < 0) {
-        new_start.DecodeFrom(k);
-      }
-      uint64_t left_offset = item.reader->ApproximateOffsetOf(k);
+      k_start.DecodeFrom(iter->key());
       iter->SeekForPrev(end.point);
-      if (iter->Valid()) {
+      if (!iter->Valid()) {
         continue;
       }
-      if (!start.include && iter->key() == end.point) {
+      if (!end.include && iter->key() == end.point) {
         iter->Prev();
         if (!iter->Valid()) {
           continue;
         }
       }
-      k = iter->key();
-      if (new_end.size() == 0 ||
-          cfd->internal_comparator().Compare(k, new_end.Encode()) > 0) {
-        new_end.DecodeFrom(k);
+      k_end.DecodeFrom(iter->key());
+      if (icomp.Compare(k_start.Encode(), k_end.Encode()) > 0) {
+        continue;
       }
-      uint64_t right_offset = item.reader->ApproximateOffsetOf(k);
+      if (new_start.size() == 0 ||
+          icomp.Compare(k_start.Encode(), new_start.Encode()) < 0) {
+        new_start = k_start;
+      }
+      if (new_end.size() == 0 ||
+          icomp.Compare(k_end.Encode(), new_end.Encode()) > 0) {
+        new_end = k_end;
+      }
+      uint64_t left_offset =
+          item.reader->ApproximateOffsetOf(k_start.Encode());
+      uint64_t right_offset =
+          item.reader->ApproximateOffsetOf(k_end.Encode());
       MapSstElement::LinkTarget link;
       link.sst_id = sst_id;
       link.size = right_offset - left_offset;
