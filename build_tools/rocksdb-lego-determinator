@@ -88,6 +88,8 @@ CLANG="USE_CLANG=1"
 LITE="OPT=\"-DROCKSDB_LITE -g\""
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
+TSAN_CRASH="CRASH_TEST_EXT_ARGS='--compression_type=zstd --log2_keys_per_lock=22'"
+NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
 SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-8u60-64/; export PATH=\$JAVA_HOME/bin:\$PATH"
@@ -380,14 +382,14 @@ STRESS_CRASH_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build and run RocksDB debug stress tests',
-                'shell':'$SHM $DEBUG make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
             {
                 'name':'Build and run RocksDB debug crash tests',
                 'timeout': 86400,
-                'shell':'$SHM $DEBUG make J=1 crash_test || $CONTRUN_NAME=crash_test $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test || $CONTRUN_NAME=crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }
@@ -452,7 +454,7 @@ ASAN_CRASH_TEST_COMMANDS="[
             {
                 'name':'Build and run RocksDB debug asan_crash_test',
                 'timeout': 86400,
-                'shell':'$SHM $DEBUG make J=1 asan_crash_test || $CONTRUN_NAME=asan_crash_test $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 asan_crash_test || $CONTRUN_NAME=asan_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -494,7 +496,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
             {
                 'name':'Build and run RocksDB debug ubsan_crash_test',
                 'timeout': 86400,
-                'shell':'$SHM $DEBUG make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -560,7 +562,7 @@ TSAN_CRASH_TEST_COMMANDS="[
             {
                 'name':'Compile and run',
                 'timeout': 86400,
-                'shell':'set -o pipefail && $SHM $DEBUG $TSAN CRASH_TEST_KILL_ODD=1887 CRASH_TEST_EXT_ARGS=--log2_keys_per_lock=22  make J=1 crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL',
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },

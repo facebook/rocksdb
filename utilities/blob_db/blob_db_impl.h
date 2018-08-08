@@ -130,6 +130,10 @@ class BlobDBImpl : public BlobDB {
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             uint64_t* expiration) override;
+
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
 
@@ -215,10 +219,10 @@ class BlobDBImpl : public BlobDB {
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value);
+                 PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
-                      PinnableSlice* value);
+                      PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -234,9 +238,6 @@ class BlobDBImpl : public BlobDB {
   // REQUIRED: hold write lock of mutex_ or during DB open.
   void ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
                         SequenceNumber obsolete_seq, bool update_size);
-
-  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
-                             Slice* value_slice, std::string* new_value);
 
   Status PutBlobValue(const WriteOptions& options, const Slice& key,
                       const Slice& value, uint64_t expiration,
@@ -337,7 +338,6 @@ class BlobDBImpl : public BlobDB {
   // the base DB
   DBImpl* db_impl_;
   Env* env_;
-  TTLExtractor* ttl_extractor_;
 
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;

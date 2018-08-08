@@ -573,7 +573,6 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
-  WriteContext write_context;
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
   nonmem_write_thread_.EnterAsBatchGroupLeader(&w, &write_group);

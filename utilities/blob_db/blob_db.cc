@@ -88,9 +88,6 @@ void BlobDBOptions::Dump(Logger* log) const {
       log, "                            BlobDBOptions.blob_file_size: %" PRIu64,
       blob_file_size);
   ROCKS_LOG_HEADER(
-      log, "                             BlobDBOptions.ttl_extractor: %p",
-      ttl_extractor.get());
-  ROCKS_LOG_HEADER(
       log, "                               BlobDBOptions.compression: %d",
       static_cast<int>(compression));
   ROCKS_LOG_HEADER(
