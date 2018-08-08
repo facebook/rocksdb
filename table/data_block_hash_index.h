@@ -42,6 +42,8 @@ namespace rocksdb {
 //    kNoEntry=255,
 //    kCollision=254.
 //
+// Therefore, the max number of restarts this hash index can supoport is 253.
+//
 // Buckets are initialized to be kNoEntry.
 //
 // When storing a key in the hash index, the key is first hashed to a bucket.

@@ -162,6 +162,8 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     // const uint8_t kNoEntry = 255;
     // const uint8_t kCollision = 254;
     // so normal restart index cannot be these values.
+    // the max number of restarts this hash index can supoport is 253
+    // TODO(fwu): error handling of a larger number of restart.
     assert(restarts_.size() < kCollision);
     data_block_hash_index_builder_->Add(
         ExtractUserKey(key), static_cast<uint8_t>(restarts_.size()) - 1);
