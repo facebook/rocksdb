@@ -1074,7 +1074,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
-    tracer_->Get(column_family, key);
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(column_family, key);
+    }
   }
 
   // Acquire SuperVersion
@@ -3128,6 +3131,27 @@ Status DBImpl::EndTrace() {
 }
 
 #endif  // ROCKSDB_LITE
-Tracer* DBImpl::GetTracerPtr() const { return tracer_.get(); }
+
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorSeek(cf_id, key);
+    }
+  }
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorSeekForPrev(cf_id, key);
+    }
+  }
+  return s;
+}
 
 }  // namespace rocksdb

@@ -1274,9 +1274,8 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, seq);
 
-  if (db_impl_ != nullptr && cfd_ != nullptr &&
-      db_impl_->GetTracerPtr() != nullptr) {
-    db_impl_->GetTracerPtr()->Iter(cfd_->GetID(), target);
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
   }
 
   if (iterate_lower_bound_ != nullptr &&
@@ -1343,9 +1342,8 @@ void DBIter::SeekForPrev(const Slice& target) {
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
-  if (db_impl_ != nullptr && cfd_ != nullptr &&
-      db_impl_->GetTracerPtr() != nullptr) {
-    db_impl_->GetTracerPtr()->Iter(cfd_->GetID(), target);
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
   }
 
   RecordTick(statistics_, NUMBER_DB_SEEK);

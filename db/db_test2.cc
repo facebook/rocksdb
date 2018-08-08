@@ -2532,6 +2532,7 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   single_iter = db_->NewIterator(ro);
   single_iter->Seek("f");
+  single_iter->SeekForPrev("g");
   delete single_iter;
 
   ASSERT_EQ("1", Get(0, "a"));

@@ -41,12 +41,7 @@ Status Tracer::Write(WriteBatch* write_batch) {
   trace.ts = env_->NowMicros();
   trace.type = kTraceWrite;
   trace.payload = write_batch->Data();
-  Status s;
-  {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    s = WriteTrace(trace);
-  }
-  return s;
+  return WriteTrace(trace);
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
@@ -54,25 +49,23 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
   trace.ts = env_->NowMicros();
   trace.type = kTraceGet;
   EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
-  Status s;
-  {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    s = WriteTrace(trace);
-  }
-  return s;
+  return WriteTrace(trace);
 }
 
-Status Tracer::Iter(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.type = kTraceIter;
+  trace.type = kTraceIteratorSeek;
   EncodeCFAndKey(&trace.payload, cf_id, key);
-  Status s;
-  {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    s = WriteTrace(trace);
-  }
-  return s;
+  return WriteTrace(trace);
+}
+
+Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.type = kTraceIteratorSeekForPrev;
+  EncodeCFAndKey(&trace.payload, cf_id, key);
+  return WriteTrace(trace);
 }
 
 Status Tracer::WriteHeader() {
@@ -164,7 +157,23 @@ Status Replayer::Replay() {
         db_->Get(roptions, cf_map_[cf_id], key, &value);
       }
       ops++;
-    } else if (trace.type == kTraceIter) {
+    } else if (trace.type == kTraceIteratorSeek) {
+      uint32_t cf_id = 0;
+      Slice key;
+      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
+        return Status::Corruption("Invalid Column Family ID.");
+      }
+
+      if (cf_id == 0) {
+        single_iter = db_->NewIterator(roptions);
+      } else {
+        single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
+      }
+      single_iter->Seek(key);
+      ops++;
+      delete single_iter;
+    } else if (trace.type == kTraceIteratorSeekForPrev) {
       // Currently, only support to call the Seek()
       uint32_t cf_id = 0;
       Slice key;
@@ -178,6 +187,7 @@ Status Replayer::Replay() {
       } else {
         single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
       }
+      single_iter->SeekForPrev(key);
       ops++;
       delete single_iter;
     } else if (trace.type == kTraceEnd) {
