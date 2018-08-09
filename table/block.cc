@@ -186,16 +186,30 @@ void DataBlockIter::Seek(const Slice& target) {
   }
 }
 
+// Optimized Seek for point lookup for an internal key `target`
+// target = "seek_user_key @ seqno".
+//
+// If the return value is FALSE, iter location is undefined, and it means:
+// 1) there is no key in this block falling into the range:
+//    ["seek_user_key @ seqno", "seek_user_key @ 0"], inclusive; AND
+// 2) the last key of this block has a greater user_key from seek_user_key
+//
+// If the return value is TRUE, iter location has two possibilies:
+// 1) If iter is valid, it is set to a location as if set by BinarySeek. In
+//    this case, it points to the first key_ with a larger user_key or a
+//    matching user_key with a seqno no greater than the seeking seqno.
+// 2) If the iter is invalid, it means either the block has no such user_key,
+//    or the block ends with a matching user_key but with a larger seqno.
 bool DataBlockIter::SeekForGet(const Slice& target) {
   if (!data_block_hash_index_) {
     Seek(target);
-    return true /*may_exist*/;
+    return true;
   }
 
   if (!data_block_hash_index_->Valid()) {
     // if the block content does not contain hash map, fall back
     Seek(target);
-    return true /*may_exist*/;
+    return true;
   }
 
   Slice user_key = ExtractUserKey(target);
@@ -216,13 +230,13 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
     // have to conntinue searching the next block. So we invalidate the
     // iterator to tell the caller to go on.
     Invalidate(Status::OK());
-    return true /*may_exist*/;
+    return true;
   }
 
   if (entry == kCollision) {
     // HashSeek not effective, falling back
     Seek(target);
-    return true /*may_exist*/;
+    return true;
   }
 
   uint32_t restart_index = entry;
@@ -262,13 +276,13 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
     //
     // The result may exist in the next block in either case, so may_exist is
     // returned as true.
-    return true /*may_exist*/;
+    return true;
   }
 
   if (user_comparator_->Compare(key_.GetUserKey(), user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     // return false to tell the caller to break from the top-level for-loop
-    return false /*may_exist*/;
+    return false;
   }
 
   // Here we are conservative and only support a limited set of cases
@@ -276,11 +290,11 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
   if (value_type != ValueType::kTypeValue &&
       value_type != ValueType::kTypeDeletion) {
     Seek(target);
-    return true /*may_exist*/;
+    return true;
   }
 
   // Result found, and the iter is correctly set.
-  return true /*may_exist*/;
+  return true;
 }
 
 void IndexBlockIter::Seek(const Slice& target) {
