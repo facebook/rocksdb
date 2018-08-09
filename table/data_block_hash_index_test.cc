@@ -73,7 +73,8 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
 }
 
 TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
-  DataBlockHashIndexBuilder builder(0.75);
+  DataBlockHashIndexBuilder builder;
+  builder.Initialize(0.75 /*util_ratio*/);
   for (int j = 0; j < 5; j++) {
     for (uint8_t i = 0; i < 2 + j; i++) {
       std::string key("key" + std::to_string(i));
@@ -111,7 +112,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
 
 TEST(DataBlockHashIndex, DataBlockHashTest) {
   // bucket_num = 200, #keys = 100. 50% utilization
-  DataBlockHashIndexBuilder builder(0.75);
+  DataBlockHashIndexBuilder builder;
+  builder.Initialize(0.75 /*util_ratio*/);
 
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
@@ -146,7 +148,8 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
 
 TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   // bucket_num = 2. There will be intense hash collisions
-  DataBlockHashIndexBuilder builder(0.75);
+  DataBlockHashIndexBuilder builder;
+  builder.Initialize(0.75 /*util_ratio*/);
 
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
@@ -180,7 +183,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
 }
 
 TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
-  DataBlockHashIndexBuilder builder(0.75);
+  DataBlockHashIndexBuilder builder;
+  builder.Initialize(0.75 /*util_ratio*/);
   std::unordered_map<std::string, uint8_t> m;
 
   for (uint8_t i = 0; i < 100; i++) {

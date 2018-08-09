@@ -14,17 +14,18 @@ namespace rocksdb {
 
 void DataBlockHashIndexBuilder::Add(const Slice& key,
                                     const uint8_t& restart_index) {
+  assert(Valid());
   // TODO(fwu): error handling
   uint32_t hash_value = GetSliceHash(key);
   hash_and_restart_pairs_.emplace_back(hash_value, restart_index);
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
-  uint16_t num_buckets =
-    static_cast<uint16_t>(static_cast<double>(hash_and_restart_pairs_.size()) /
-                          util_ratio_);
+  assert(Valid());
+  uint16_t num_buckets = static_cast<uint16_t>(
+      static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
   if (num_buckets == 0) {
-    num_buckets = 1; // sanity check
+    num_buckets = 1;  // sanity check
   }
 
   // The build-in hash cannot well distribute strings when into different
@@ -35,7 +36,7 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 
   std::vector<uint8_t> buckets(num_buckets, kNoEntry);
   // write the restart_index array
-  for (auto & entry: hash_and_restart_pairs_) {
+  for (auto& entry : hash_and_restart_pairs_) {
     uint32_t hash_value = entry.first;
     uint8_t restart_index = entry.second;
     uint16_t buck_idx = static_cast<uint16_t>(hash_value % num_buckets);
@@ -48,7 +49,7 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
     // anything.
   }
 
-  for (uint8_t restart_index: buckets) {
+  for (uint8_t restart_index : buckets) {
     buffer.append(const_cast<const char*>(
                       reinterpret_cast<char*>(&restart_index)),
                   sizeof(restart_index));
@@ -63,6 +64,7 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 }
 
 void DataBlockHashIndexBuilder::Reset() {
+  assert(Valid());
   hash_and_restart_pairs_.clear();
 }
 

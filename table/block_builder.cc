@@ -55,8 +55,8 @@ BlockBuilder::BlockBuilder(
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
     case BlockBasedTableOptions::kDataBlockHashSearch:
-      data_block_hash_index_builder_.reset(
-          new DataBlockHashIndexBuilder(data_block_hash_table_util_ratio));
+      data_block_hash_index_builder_.Initialize(
+          data_block_hash_table_util_ratio);
       break;
     default:
       assert(0);
@@ -74,8 +74,8 @@ void BlockBuilder::Reset() {
   counter_ = 0;
   finished_ = false;
   last_key_.clear();
-  if (data_block_hash_index_builder_) {
-    data_block_hash_index_builder_->Reset();
+  if (data_block_hash_index_builder_.Valid()) {
+    data_block_hash_index_builder_.Reset();
   }
 }
 
@@ -104,8 +104,8 @@ Slice BlockBuilder::Finish() {
   uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
   BlockBasedTableOptions::DataBlockIndexType index_type =
     BlockBasedTableOptions::kDataBlockBinarySearch;
-  if (data_block_hash_index_builder_) {
-    data_block_hash_index_builder_->Finish(buffer_);
+  if (data_block_hash_index_builder_.Valid()) {
+    data_block_hash_index_builder_.Finish(buffer_);
     index_type = BlockBasedTableOptions::kDataBlockHashSearch;
   }
 
@@ -155,7 +155,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
 
-  if (data_block_hash_index_builder_) {
+  if (data_block_hash_index_builder_.Valid()) {
     // two largest numbers for uint8_t is used as speical flags
     // const uint8_t kNoEntry = 255;
     // const uint8_t kCollision = 254;
@@ -163,7 +163,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     // the max number of restarts this hash index can supoport is 253
     // TODO(fwu): error handling of a larger number of restart.
     assert(restarts_.size() < kCollision);
-    data_block_hash_index_builder_->Add(
+    data_block_hash_index_builder_.Add(
         ExtractUserKey(key), static_cast<uint8_t>(restarts_.size()) - 1);
   }
 

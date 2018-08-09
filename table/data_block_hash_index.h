@@ -67,16 +67,20 @@ const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
  public:
-  explicit DataBlockHashIndexBuilder(double util_ratio) {
+  DataBlockHashIndexBuilder() : util_ratio_(0) {}
+
+  void Initialize(double util_ratio) {
     if (util_ratio <= 0) {
-      util_ratio = kDefaultUtilRatio; // sanity check
+      util_ratio = kDefaultUtilRatio;  // sanity check
     }
     util_ratio_ = util_ratio;
   }
+
+  bool Valid() const { return util_ratio_ > 0; }
   void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
   void Reset();
-  inline size_t EstimateSize() {
+  inline size_t EstimateSize() const {
     uint16_t estimated_num_buckets = static_cast<uint16_t>(
         static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
 

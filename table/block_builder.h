@@ -43,8 +43,8 @@ class BlockBuilder {
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
   inline size_t CurrentSizeEstimate() const {
-    return estimate_ + (data_block_hash_index_builder_
-                            ? data_block_hash_index_builder_->EstimateSize()
+    return estimate_ + (data_block_hash_index_builder_.Valid()
+                            ? data_block_hash_index_builder_.EstimateSize()
                             : 0);
   }
 
@@ -66,7 +66,7 @@ class BlockBuilder {
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
-  std::unique_ptr<DataBlockHashIndexBuilder> data_block_hash_index_builder_;
+  DataBlockHashIndexBuilder data_block_hash_index_builder_;
 };
 
 }  // namespace rocksdb
