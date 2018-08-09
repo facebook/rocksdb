@@ -66,7 +66,7 @@ class CompilerErrorParser(MatchErrorParser):
     def __init__(self):
         # format (compile error):
         #   '<filename>:<line #>:<column #>: error: <error msg>'
-        # format (compile error):
+        # format (link error):
         #   '<filename>:<line #>: error: <error msg>'
         # The below regex catches both
         super(CompilerErrorParser, self).__init__(r'\S+:\d+: error:')
