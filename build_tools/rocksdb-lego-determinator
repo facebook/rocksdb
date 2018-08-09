@@ -88,7 +88,7 @@ CLANG="USE_CLANG=1"
 LITE="OPT=\"-DROCKSDB_LITE -g\""
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
-TSAN_CRASH="CRASH_TEST_EXT_ARGS='--compression_type=zstd --log2_keys_per_lock=22'"
+TSAN_CRASH='CRASH_TEST_EXT_ARGS="--compression_type=zstd --log2_keys_per_lock=22"'
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
