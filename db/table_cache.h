@@ -31,7 +31,6 @@ class Arena;
 struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
-class InternalIterator;
 
 class TableCache {
  public:

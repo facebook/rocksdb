@@ -63,6 +63,7 @@ namespace {
 FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const BlockBasedTableOptions& table_opt,
+    const bool use_delta_encoding_for_index_values,
     PartitionedIndexBuilder* const p_index_builder) {
   if (table_opt.filter_policy == nullptr) return nullptr;
 
@@ -85,7 +86,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          p_index_builder, partition_size);
+          use_delta_encoding_for_index_values, p_index_builder, partition_size);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
@@ -266,6 +267,7 @@ struct BlockBasedTableBuilder::Rep {
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
+  const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
@@ -306,6 +308,8 @@ struct BlockBasedTableBuilder::Rep {
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_dict(_compression_dict),
         compression_ctx(_compression_type, _compression_opts),
+        use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
+                                            !table_opt.block_align),
         compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
@@ -317,18 +321,21 @@ struct BlockBasedTableBuilder::Rep {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
-          &internal_comparator, table_options);
+          &internal_comparator, use_delta_encoding_for_index_values,
+          table_options);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
-          &this->internal_prefix_transform, table_options));
+          &this->internal_prefix_transform, use_delta_encoding_for_index_values,
+          table_options));
     }
     if (skip_filters) {
       filter_builder = nullptr;
     } else {
       filter_builder.reset(CreateFilterBlockBuilder(
-          _ioptions, _moptions, table_options, p_index_builder_));
+          _ioptions, _moptions, table_options,
+          use_delta_encoding_for_index_values, p_index_builder_));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -793,6 +800,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
     rep_->props.index_key_is_user_key =
         !rep_->index_builder->seperator_is_key_plus_seq();
+    rep_->props.index_value_is_delta_encoded =
+        rep_->use_delta_encoding_for_index_values;
     rep_->props.creation_time = rep_->creation_time;
     rep_->props.oldest_key_time = rep_->oldest_key_time;
 

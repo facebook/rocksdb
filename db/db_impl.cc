@@ -1047,7 +1047,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   } else {
     CleanupSuperVersion(super_version);
   }
-  return NewErrorInternalIterator(s, arena);
+  return NewErrorInternalIterator<Slice>(s, arena);
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
