@@ -6,8 +6,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <stdio.h>
-#include <fstream>
 #include <list>
 #include <map>
 #include <queue>
@@ -32,8 +30,9 @@ enum TraceOperationType : int {
   kSingleDelete = 3,
   kRangeDelete = 4,
   kMerge = 5,
-  kIter = 6,
-  kTaTypeNum = 7
+  kIteratorSeek = 6,
+  kIteratorSeekForPrev = 7,
+  kTaTypeNum = 8
 };
 
 struct TraceUnit {
@@ -178,7 +177,7 @@ class TraceAnalyzer {
   Status HandleMerge(uint32_t column_family_id, const Slice& key,
                      const Slice& value);
   Status HandleIter(uint32_t column_family_id, const std::string& key,
-                    const uint64_t& ts);
+                    const uint64_t& ts, TraceType& trace_type);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
@@ -262,7 +261,6 @@ class TraceWriteHandler : public WriteBatch::Handler {
 
  private:
   TraceAnalyzer* ta_ptr;
-  std::string tmp_use;
 };
 
 int trace_analyzer_tool(int argc, char** argv);

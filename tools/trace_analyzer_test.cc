@@ -16,17 +16,18 @@ int main() {
 }
 #else
 
-#include <stdint.h>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <thread>
-#include <chrono>
 
 #include "db/db_test_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
-#include "tools/trace_analyzer_tool_imp.h"
+#include "tools/trace_analyzer_tool.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/trace_replay.h"
@@ -155,7 +156,7 @@ TEST_F(TraceAnalyzerTest, Get) {
   std::string file_path;
   std::vector<std::string> paras = {"./trace_analyzer",
                                     "-analyze_get",
-                                    "-output_trace_sequence",
+                                    "-convert_to_human_readable_trace",
                                     "-output_key_stats",
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
@@ -163,6 +164,7 @@ TEST_F(TraceAnalyzerTest, Get) {
                                     "-output_time_series=10",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
+                                    "-no_key",
                                     "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
@@ -187,7 +189,7 @@ TEST_F(TraceAnalyzerTest, Get) {
 
   // Check the trace sequence
   std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "0", "0"};
-  file_path = output_path + "/test-trace_sequence.txt";
+  file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
@@ -213,7 +215,7 @@ TEST_F(TraceAnalyzerTest, Get) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 0 0 0 0 0 0 1"};
+  std::vector<std::string> all_qps = {"1 0 0 0 0 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -234,13 +236,19 @@ TEST_F(TraceAnalyzerTest, Put) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/put";
   std::string file_path;
-  std::vector<std::string> paras = {
-      "./trace_analyzer",       "-analyze_get",
-      "-analyze_put",           "-output_trace_sequence",
-      "-output_key_stats",      "-output_access_count_stats",
-      "-output_prefix=test",    "-output_prefix_cut=1",
-      "-output_time_series=10", "-output_value_distribution",
-      "-output_qps_stats",      "-no_print"};
+  std::vector<std::string> paras = {"./trace_analyzer",
+                                    "-analyze_get",
+                                    "-analyze_put",
+                                    "-convert_to_human_readable_trace",
+                                    "-output_key_stats",
+                                    "-output_access_count_stats",
+                                    "-output_prefix=test",
+                                    "-output_prefix_cut=1",
+                                    "-output_time_series=10",
+                                    "-output_value_distribution",
+                                    "-output_qps_stats",
+                                    "-no_key",
+                                    "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
     GenerateTrace(trace_path);
@@ -264,7 +272,7 @@ TEST_F(TraceAnalyzerTest, Put) {
 
   // Check the trace sequence
   std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "0", "0"};
-  file_path = output_path + "/test-trace_sequence.txt";
+  file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
@@ -289,7 +297,7 @@ TEST_F(TraceAnalyzerTest, Put) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 1 0 0 0 0 0 2"};
+  std::vector<std::string> all_qps = {"1 1 0 0 0 0 0 0 2"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -320,7 +328,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
                                     "-analyze_get",
                                     "-analyze_put",
                                     "-analyze_delete",
-                                    "-output_trace_sequence",
+                                    "-convert_to_human_readable_trace",
                                     "-output_key_stats",
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
@@ -328,6 +336,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
                                     "-output_time_series=10",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
+                                    "-no_key",
                                     "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
@@ -353,7 +362,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
 
   // Check the trace sequence
   std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "0", "0"};
-  file_path = output_path + "/test-trace_sequence.txt";
+  file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
@@ -378,7 +387,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 1 1 0 0 0 0 3"};
+  std::vector<std::string> all_qps = {"1 1 1 0 0 0 0 0 3"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -399,14 +408,21 @@ TEST_F(TraceAnalyzerTest, Merge) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/merge";
   std::string file_path;
-  std::vector<std::string> paras = {
-      "./trace_analyzer",       "-analyze_get",
-      "-analyze_put",           "-analyze_delete",
-      "-analyze_merge",         "-output_trace_sequence",
-      "-output_key_stats",      "-output_access_count_stats",
-      "-output_prefix=test",    "-output_prefix_cut=1",
-      "-output_time_series=10", "-output_value_distribution",
-      "-output_qps_stats",      "-no_print"};
+  std::vector<std::string> paras = {"./trace_analyzer",
+                                    "-analyze_get",
+                                    "-analyze_put",
+                                    "-analyze_delete",
+                                    "-analyze_merge",
+                                    "-convert_to_human_readable_trace",
+                                    "-output_key_stats",
+                                    "-output_access_count_stats",
+                                    "-output_prefix=test",
+                                    "-output_prefix_cut=1",
+                                    "-output_time_series=10",
+                                    "-output_value_distribution",
+                                    "-output_qps_stats",
+                                    "-no_key",
+                                    "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
     GenerateTrace(trace_path);
@@ -430,7 +446,7 @@ TEST_F(TraceAnalyzerTest, Merge) {
 
   // Check the trace sequence
   std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "0", "0"};
-  file_path = output_path + "/test-trace_sequence.txt";
+  file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
@@ -455,7 +471,7 @@ TEST_F(TraceAnalyzerTest, Merge) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 1 1 0 0 1 0 4"};
+  std::vector<std::string> all_qps = {"1 1 1 0 0 1 0 0 4"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -489,7 +505,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
                                     "-analyze_delete",
                                     "-analyze_merge",
                                     "-analyze_single_delete",
-                                    "-output_trace_sequence",
+                                    "-convert_to_human_readable_trace",
                                     "-output_key_stats",
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
@@ -497,6 +513,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
                                     "-output_time_series=10",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
+                                    "-no_key",
                                     "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
@@ -522,7 +539,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
 
   // Check the trace sequence
   std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "0", "0"};
-  file_path = output_path + "/test-trace_sequence.txt";
+  file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
@@ -547,7 +564,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 1 1 1 0 1 0 5"};
+  std::vector<std::string> all_qps = {"1 1 1 1 0 1 0 0 5"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -569,15 +586,23 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   std::string trace_path = test_path_ + "/trace";
   std::string output_path = test_path_ + "/range_delete";
   std::string file_path;
-  std::vector<std::string> paras = {
-      "./trace_analyzer",       "-analyze_get",
-      "-analyze_put",           "-analyze_delete",
-      "-analyze_merge",         "-analyze_single_delete",
-      "-analyze_range_delete",  "-output_trace_sequence",
-      "-output_key_stats",      "-output_access_count_stats",
-      "-output_prefix=test",    "-output_prefix_cut=1",
-      "-output_time_series=10", "-output_value_distribution",
-      "-output_qps_stats",      "-no_print"};
+  std::vector<std::string> paras = {"./trace_analyzer",
+                                    "-analyze_get",
+                                    "-analyze_put",
+                                    "-analyze_delete",
+                                    "-analyze_merge",
+                                    "-analyze_single_delete",
+                                    "-analyze_range_delete",
+                                    "-convert_to_human_readable_trace",
+                                    "-output_key_stats",
+                                    "-output_access_count_stats",
+                                    "-output_prefix=test",
+                                    "-output_prefix_cut=1",
+                                    "-output_time_series=10",
+                                    "-output_value_distribution",
+                                    "-output_qps_stats",
+                                    "-no_key",
+                                    "-no_print"};
   Status s = env_->FileExists(trace_path);
   if (!s.ok()) {
     GenerateTrace(trace_path);
@@ -602,7 +627,7 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
 
   // Check the trace sequence
   std::vector<std::string> k_sequence = {"1", "5", "2", "3", "4", "0", "0"};
-  file_path = output_path + "/test-trace_sequence.txt";
+  file_path = output_path + "/test-human_readable_trace.txt";
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
@@ -628,7 +653,7 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"1 1 1 1 2 1 0 7"};
+  std::vector<std::string> all_qps = {"1 1 1 1 2 1 0 0 7"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 

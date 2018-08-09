@@ -19,15 +19,10 @@
 #include <unistd.h>
 #endif
 
-#include <fcntl.h>
-#include <inttypes.h>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <time.h>
-#include <condition_variable>
+#include <cinttypes>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -49,7 +44,7 @@
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_reader.h"
-#include "tools/trace_analyzer_tool_imp.h"
+#include "tools/trace_analyzer_tool.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/file_reader_writer.h"
@@ -64,50 +59,73 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(trace_path, "", "The trace file path.");
 DEFINE_string(output_dir, "", "The directory to store the output files.");
-DEFINE_string(output_prefix, "", "The prefix used for all the output files.");
+DEFINE_string(output_prefix, "trace",
+              "The prefix used for all the output files.");
 DEFINE_bool(output_key_stats, false,
             "Output the key access count statistics to file\n"
             "for accessed keys:\n"
-            "format:[cf_id value_size access_keyid access_count]\n"
+            "file name: <prefix>-<query type>-<cf_id>-accessed_key_stats.txt\n"
+            "Format:[cf_id value_size access_keyid access_count]\n"
             "for the whole key space keys:\n"
-            "format:[whole_key_space_keyid access_count]");
+            "File name: <prefix>-<query type>-<cf_id>-whole_key_stats.txt\n"
+            "Format:[whole_key_space_keyid access_count]");
 DEFINE_bool(output_access_count_stats, false,
-            "Output the access count distribution statistics to file."
-            "format:[access_count number_of_access_count]");
+            "Output the access count distribution statistics to file.\n"
+            "File name:  <prefix>-<query type>-<cf_id>-accessed_"
+            "key_count_distribution.txt \n"
+            "Format:[access_count number_of_access_count]");
 DEFINE_uint64(output_time_series, 0,
-              "trace collect time, in microseconds"
+              "Specify the trace collect time, in microseconds \n"
               "Output the access time sequence of each key\n"
-              "format:[type_id time_in_sec access_key_id].");
+              "File name: <prefix>-<query type>-<cf_id>-time_series.txt\n"
+              "Format:[type_id time_in_sec access_keyid].");
 DEFINE_int32(output_prefix_cut, 0,
-             "The number of bytes as prefix to cut the keys."
+             "The number of bytes as prefix to cut the keys.\n"
              "if it is enabled, it will generate the following:\n"
              "for accessed keys:\n"
-             "format:[acessed_keyid access_count num_keys ave_access prefix]\n"
+             "File name: <prefix>-<query type>-<cf_id>-"
+             "accessed_key_prefix_cut.txt \n"
+             "Format:[acessed_keyid access_count_of_prefix "
+             "number_of_keys_in_prefix average_key_access "
+             "prefix_succ_ratio prefix]\n"
              "for whole key space keys:\n"
-             "format:[start_keyid_in_whole_keyspace prefix]\n"
-             "if 'output_qps_stats' is enabled, it will output:\n"
-             "format:[time_in_sec IO_num], [prefix qps_of_this_second].");
-DEFINE_bool(output_trace_sequence, false,
-            "Out put the trace sequence for further processing"
-            "including the type, cf_id, ts, value_sze, key. This file"
-            "will be extremely large (similar size as the original trace)"
-            "you can specify 'no_key' to reduce the size\n"
-            "format:[type_id cf_id value_size time_in_micorsec <key>].");
+             "File name: <prefix>-<query type>-<cf_id>"
+             "-whole_key_prefix_cut.txt\n"
+             "Format:[start_keyid_in_whole_keyspace prefix]\n"
+             "if 'output_qps_stats' and 'top_k' are enabled, it will output:\n"
+             "File name: <prefix>-<query type>-<cf_id>"
+             "-accessed_top_k_qps_prefix_cut.txt\n"
+             "Format:[the_top_ith_qps_time QPS], [prefix qps_of_this_second].");
+DEFINE_bool(convert_to_human_readable_trace, false,
+            "Convert the binary trace file to a human readable txt file "
+            "for further processing. "
+            "This file will be extremely large "
+            "(similar size as the original binary trace file). "
+            "You can specify 'no_key' to reduce the size, if key is not "
+            "needed in the next step\n"
+            "File name: <prefix>_human_readable_trace.txt\n"
+            "Format:[type_id cf_id value_size time_in_micorsec <key>].");
 DEFINE_bool(output_qps_stats, false,
-            "Output the query per second(qps) statistics"
-            "For the overall qps, it will contain all qps of each query type.\n"
+            "Output the query per second(qps) statistics \n"
+            "For the overall qps, it will contain all qps of each query type. "
+            "The time is started from the first trace record\n"
+            "File name: <prefix>_qps_stats.txt\n"
+            "Format: [qps_type_1 qps_type_2 ...... overall_qps]\n"
             "For each cf and query, it will have its own qps output\n"
-            "format:[query_count_in_this_second].");
+            "File name: <prefix>-<query type>-<cf_id>_qps_stats.txt \n"
+            "Format:[query_count_in_this_second].");
 DEFINE_bool(no_print, false, "Do not print out any result");
 DEFINE_string(
-    output_correlation, "",
+    print_correlation, "",
     "intput format: [correlation pairs][.,.]\n"
-    "Output the query correlations between the pairs of query types"
+    "Output the query correlations between the pairs of query types "
     "listed in the parameter, input should select the operations from:\n"
-    "get, put, delete, single_delete, rangle_delete, merge. No space\n"
-    "between the pairs separated by commar. Example: =[get,get]...");
+    "get, put, delete, single_delete, rangle_delete, merge. No space "
+    "between the pairs separated by commar. Example: =[get,get]... "
+    "It will print out the number of pairs of 'A after B' and "
+    "the average time interval between the two query");
 DEFINE_string(key_space_dir, "",
-              "<the directory stores full key space files>"
+              "<the directory stores full key space files> \n"
               "The key space files should be: <column family id>.txt");
 DEFINE_bool(analyze_get, false, "Analyze the Get query.");
 DEFINE_bool(analyze_put, false, "Analyze the Put query.");
@@ -116,36 +134,45 @@ DEFINE_bool(analyze_single_delete, false, "Analyze the SingleDelete query.");
 DEFINE_bool(analyze_range_delete, false, "Analyze the DeleteRange query.");
 DEFINE_bool(analyze_merge, false, "Analyze the Merge query.");
 DEFINE_bool(analyze_iterator, false,
-            "Analyze the iterate query like seek() and seekForPre().");
-DEFINE_bool(no_key, true,
+            " Analyze the iterate query like seek() and seekForPrev().");
+DEFINE_bool(no_key, false,
             " Does not output the key to the result files to make smaller.");
 DEFINE_bool(print_overall_stats, true,
-            " Print the stats of the whole trace,"
+            " Print the stats of the whole trace, "
             "like total requests, keys, and etc.");
 DEFINE_bool(print_key_distribution, false, "Print the key size distribution.");
-DEFINE_bool(output_value_distribution, false,
-            "Print the value size distribution, only available for Put.");
+DEFINE_bool(
+    output_value_distribution, false,
+    "Out put the value size distribution, only available for Put and Merge.\n"
+    "File name: <prefix>-<query type>-<cf_id>"
+    "-accessed_value_size_distribution.txt\n"
+    "Format:[Number_of_value_size_between x and "
+    "x+value_interval is: <the count>]");
 DEFINE_int32(print_top_k_access, 1,
-             "<top K of the variables to be printed>"
-             "Print the top k accessed keys, top k accessed prefix"
+             "<top K of the variables to be printed> "
+             "Print the top k accessed keys, top k accessed prefix "
              "and etc.");
 DEFINE_int32(output_ignore_count, 0,
-             "<threshold>, ignores the access count <= this value,"
+             "<threshold>, ignores the access count <= this value, "
              "it will shorter the output.");
 DEFINE_int32(value_interval, 8,
-             "To output the value distribution, we need to set the value"
-             "intervals andmake the statistic of the value size distribution"
+             "To output the value distribution, we need to set the value "
+             "intervals and make the statistic of the value size distribution "
              "in different intervals. The default is 8.");
 
 namespace rocksdb {
 
 std::map<std::string, int> taOptToIndex = {
-    {"get", 0},          {"put", 1},   {"delete", 2},  {"single_delete", 3},
-    {"range_delete", 4}, {"merge", 5}, {"iterator", 6}};
+    {"get", 0},           {"put", 1},
+    {"delete", 2},        {"single_delete", 3},
+    {"range_delete", 4},  {"merge", 5},
+    {"iterator_Seek", 6}, {"iterator_SeekForPrev", 7}};
 
 std::map<int, std::string> taIndexToOpt = {
-    {0, "get"},          {1, "put"},   {2, "delete"},  {3, "single_delete"},
-    {4, "range_delete"}, {5, "merge"}, {6, "iterator"}};
+    {0, "get"},           {1, "put"},
+    {2, "delete"},        {3, "single_delete"},
+    {4, "range_delete"},  {5, "merge"},
+    {6, "iterator_Seek"}, {7, "iterator_SeekForPrev"}};
 
 namespace {
 
@@ -176,7 +203,7 @@ AnalyzerOptions::~AnalyzerOptions() {}
 void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
   std::string cur = in_str;
   if (cur.size() == 0) {
-    FLAGS_output_correlation = "";
+    FLAGS_print_correlation = "";
     return;
   }
   while (!cur.empty()) {
@@ -290,11 +317,17 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   } else {
     ta_[5].enabled = false;
   }
-  ta_[6].type_name = "iterator";
+  ta_[6].type_name = "iterator_Seek";
   if (FLAGS_analyze_iterator) {
     ta_[6].enabled = true;
   } else {
     ta_[6].enabled = false;
+  }
+  ta_[7].type_name = "iterator_SeekForPrev";
+  if (FLAGS_analyze_iterator) {
+    ta_[7].enabled = true;
+  } else {
+    ta_[7].enabled = false;
   }
 }
 
@@ -311,10 +344,10 @@ Status TraceAnalyzer::PrepareProcessing() {
   }
 
   // Prepare and open the trace sequence file writer if needed
-  if (FLAGS_output_trace_sequence) {
+  if (FLAGS_convert_to_human_readable_trace) {
     std::string trace_sequence_name;
     trace_sequence_name =
-        output_path_ + "/" + FLAGS_output_prefix + "-trace_sequence.txt";
+        output_path_ + "/" + FLAGS_output_prefix + "-human_readable_trace.txt";
     s = env_->NewWritableFile(trace_sequence_name, &trace_sequence_f_,
                               env_options_);
     if (!s.ok()) {
@@ -422,7 +455,7 @@ Status TraceAnalyzer::StartProcessing() {
       s = batch.Iterate(&write_handler);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the write batch in the trace\n");
-        exit(1);
+        return s;
       }
     } else if (trace.type == kTraceGet) {
       uint32_t cf_id = 0;
@@ -433,18 +466,17 @@ Status TraceAnalyzer::StartProcessing() {
       s = HandleGet(cf_id, key.ToString(), trace.ts, 1);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the get in the trace\n");
-        exit(1);
+        return s;
       }
-    } else if (trace.type == kTraceIter) {
-      // Not supported in the current trace_replay to collect iterator
-      // Need to be refactored if trace_replay implemented tracing iteator
+    } else if (trace.type == kTraceIteratorSeek ||
+               trace.type == kTraceIteratorSeekForPrev) {
       uint32_t cf_id = 0;
       Slice key;
       DecodeCFAndKey(trace.payload, &cf_id, &key);
-      s = HandleIter(cf_id, key.ToString(), trace.ts);
+      s = HandleIter(cf_id, key.ToString(), trace.ts, trace.type);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
-        exit(1);
+        return s;
       }
     } else if (trace.type == kTraceEnd) {
       break;
@@ -499,8 +531,11 @@ Status TraceAnalyzer::MakeStatistics() {
           }
         }
 
-        if (!FLAGS_output_correlation.empty()) {
+        if (!FLAGS_print_correlation.empty()) {
           s = MakeStatisticCorrelation(stat.second, record.second);
+          if (!s.ok()) {
+            return s;
+          }
         }
       }
 
@@ -550,7 +585,9 @@ Status TraceAnalyzer::MakeStatistics() {
           stat.second.a_value_mid = (v_begin + v_end) / 2;
           get_mid = true;
         }
-        if (FLAGS_output_value_distribution && stat.second.a_value_size_f) {
+        if (FLAGS_output_value_distribution && stat.second.a_value_size_f &&
+            (type == TraceOperationType::kPut ||
+             type == TraceOperationType::kMerge)) {
           ret = sprintf(buffer_,
                         "Number_of_value_size_between %" PRIu64 " and %" PRIu64
                         " is: %" PRIu64 "\n",
@@ -594,8 +631,7 @@ Status TraceAnalyzer::MakeStatisticKeyStatsOrPrefix(TraceStats& stats) {
   for (auto& record : stats.a_key_stats) {
     // write the key access statistic file
     if (!stats.a_key_f) {
-      fprintf(stderr, "The accessed_key_stats file is not opend\n");
-      exit(1);
+      return Status::IOError("Failed to open accessed_key_stats file.");
     }
     stats.a_succ_count += record.second.succ_count;
     double succ_ratio = (static_cast<double>(record.second.succ_count)) /
@@ -682,8 +718,7 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
                                                StatsUnit& unit) {
   if (stats.correlation_output.size() !=
       analyzer_opts_.correlation_list.size()) {
-    fprintf(stderr, "Cannot make the statistic of correlation\n");
-    return Status::OK();
+    return Status::Corruption("Cannot make the statistic of correlation.");
   }
 
   for (int i = 0; i < static_cast<int>(analyzer_opts_.correlation_list.size());
@@ -1063,7 +1098,7 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
         static_cast<uint64_t>(value_size), static_cast<uint64_t>(value_size));
     ta_[type].stats[cf_id].a_value_size_sum = value_size;
     s = OpenStatsOutputFiles(ta_[type].type_name, ta_[type].stats[cf_id]);
-    if (!FLAGS_output_correlation.empty()) {
+    if (!FLAGS_print_correlation.empty()) {
       s = StatsUnitCorrelationUpdate(unit, type, ts, key);
     }
     ta_[type].stats[cf_id].a_key_stats[key] = unit;
@@ -1092,7 +1127,7 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
       if (type != TraceOperationType::kGet || value_size > 0) {
         found_key->second.succ_count++;
       }
-      if (!FLAGS_output_correlation.empty()) {
+      if (!FLAGS_print_correlation.empty()) {
         s = StatsUnitCorrelationUpdate(found_key->second, type, ts, key);
       }
     }
@@ -1156,7 +1191,7 @@ Status TraceAnalyzer::StatsUnitCorrelationUpdate(StatsUnit& unit,
                                                  const std::string& key) {
   if (type_second >= kTaTypeNum) {
     fprintf(stderr, "Unknown Type Id: %u\n", type_second);
-    exit(1);
+    return Status::NotFound();
   }
 
   for (int type_first = 0; type_first < kTaTypeNum; type_first++) {
@@ -1304,7 +1339,7 @@ Status TraceAnalyzer::HandleGet(uint32_t column_family_id,
                                 const uint32_t& get_ret) {
   Status s;
   size_t value_size = 0;
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     s = WriteTraceSequence(TraceOperationType::kGet, column_family_id, key,
                            value_size, ts);
     if (!s.ok()) {
@@ -1331,7 +1366,7 @@ Status TraceAnalyzer::HandlePut(uint32_t column_family_id, const Slice& key,
                                 const Slice& value) {
   Status s;
   size_t value_size = value.ToString().size();
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     s = WriteTraceSequence(TraceOperationType::kPut, column_family_id,
                            key.ToString(), value_size, c_time_);
     if (!s.ok()) {
@@ -1355,7 +1390,7 @@ Status TraceAnalyzer::HandleDelete(uint32_t column_family_id,
                                    const Slice& key) {
   Status s;
   size_t value_size = 0;
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     s = WriteTraceSequence(TraceOperationType::kDelete, column_family_id,
                            key.ToString(), value_size, c_time_);
     if (!s.ok()) {
@@ -1379,7 +1414,7 @@ Status TraceAnalyzer::HandleSingleDelete(uint32_t column_family_id,
                                          const Slice& key) {
   Status s;
   size_t value_size = 0;
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     s = WriteTraceSequence(TraceOperationType::kSingleDelete, column_family_id,
                            key.ToString(), value_size, c_time_);
     if (!s.ok()) {
@@ -1404,7 +1439,7 @@ Status TraceAnalyzer::HandleDeleteRange(uint32_t column_family_id,
                                         const Slice& end_key) {
   Status s;
   size_t value_size = 0;
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     s = WriteTraceSequence(TraceOperationType::kRangeDelete, column_family_id,
                            begin_key.ToString(), value_size, c_time_);
     if (!s.ok()) {
@@ -1430,7 +1465,7 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
                                   const Slice& value) {
   Status s;
   size_t value_size = value.ToString().size();
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
     s = WriteTraceSequence(TraceOperationType::kMerge, column_family_id,
                            key.ToString(), value_size, c_time_);
     if (!s.ok()) {
@@ -1451,22 +1486,33 @@ Status TraceAnalyzer::HandleMerge(uint32_t column_family_id, const Slice& key,
 
 // Handle the Iterator request in the trace
 Status TraceAnalyzer::HandleIter(uint32_t column_family_id,
-                                 const std::string& key, const uint64_t& ts) {
+                                 const std::string& key, const uint64_t& ts,
+                                 TraceType& trace_type) {
   Status s;
   size_t value_size = 0;
-  if (FLAGS_output_trace_sequence && trace_sequence_f_) {
-    s = WriteTraceSequence(TraceOperationType::kIter, column_family_id, key,
-                           value_size, ts);
+  int type = -1;
+  if (trace_type == kTraceIteratorSeek) {
+    type = TraceOperationType::kIteratorSeek;
+  } else if (trace_type == kTraceIteratorSeekForPrev) {
+    type = TraceOperationType::kIteratorSeekForPrev;
+  } else {
+    return s;
+  }
+  if (type == -1) {
+    return s;
+  }
+
+  if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
+    s = WriteTraceSequence(type, column_family_id, key, value_size, ts);
     if (!s.ok()) {
       return Status::Corruption("Failed to write the trace sequence to file");
     }
   }
 
-  if (!ta_[TraceOperationType::kIter].enabled) {
+  if (!ta_[type].enabled) {
     return Status::OK();
   }
-  s = KeyStatsInsertion(TraceOperationType::kIter, column_family_id, key,
-                        value_size, ts);
+  s = KeyStatsInsertion(type, column_family_id, key, value_size, ts);
   if (!s.ok()) {
     return Status::Corruption("Failed to insert key statistics");
   }
@@ -1574,7 +1620,7 @@ void TraceAnalyzer::PrintStatistics() {
       }
 
       // print the operation correlations
-      if (!FLAGS_output_correlation.empty()) {
+      if (!FLAGS_print_correlation.empty()) {
         for (int correlation = 0;
              correlation <
              static_cast<int>(analyzer_opts_.correlation_list.size());
@@ -1661,56 +1707,55 @@ int trace_analyzer_tool(int argc, char** argv) {
 
   ParseCommandLineFlags(&argc, &argv, true);
 
-  if (!FLAGS_output_correlation.empty()) {
-    analyzer_opts.SparseCorrelationInput(FLAGS_output_correlation);
+  if (!FLAGS_print_correlation.empty()) {
+    analyzer_opts.SparseCorrelationInput(FLAGS_print_correlation);
   }
 
-  TraceAnalyzer* analyzer =
-      new TraceAnalyzer(FLAGS_trace_path, FLAGS_output_dir, analyzer_opts);
+  std::unique_ptr<TraceAnalyzer> analyzer(
+      new TraceAnalyzer(FLAGS_trace_path, FLAGS_output_dir, analyzer_opts));
 
-  if (analyzer == nullptr) {
+  if (!analyzer) {
     fprintf(stderr, "Cannot initiate the trace analyzer\n");
     exit(1);
   }
 
   rocksdb::Status s = analyzer->PrepareProcessing();
   if (!s.ok()) {
+    fprintf(stderr, "%s\n", s.getState());
     fprintf(stderr, "Cannot initiate the trace reader\n");
-    delete analyzer;
     exit(1);
   }
 
   s = analyzer->StartProcessing();
   if (!s.ok()) {
+    fprintf(stderr, "%s\n", s.getState());
     fprintf(stderr, "Cannot processing the trace\n");
-    delete analyzer;
     exit(1);
   }
 
   s = analyzer->MakeStatistics();
   if (!s.ok()) {
+    fprintf(stderr, "%s\n", s.getState());
     analyzer->EndProcessing();
     fprintf(stderr, "Cannot make the statistics\n");
-    delete analyzer;
     exit(1);
   }
 
   s = analyzer->ReProcessing();
   if (!s.ok()) {
+    fprintf(stderr, "%s\n", s.getState());
     fprintf(stderr, "Cannot re-process the trace for more statistics\n");
     analyzer->EndProcessing();
-    delete analyzer;
     exit(1);
   }
 
   s = analyzer->EndProcessing();
   if (!s.ok()) {
+    fprintf(stderr, "%s\n", s.getState());
     fprintf(stderr, "Cannot close the trace analyzer\n");
-    delete analyzer;
     exit(1);
   }
 
-  delete analyzer;
   return 0;
 }
 }  // namespace rocksdb
