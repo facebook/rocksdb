@@ -2389,7 +2389,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         DataBlockIter biter;
-
         NewDataBlockIterator<DataBlockIter>(
             rep_, read_options, iiter->value(), &biter, false,
             true /* key_includes_seq */, get_context);
@@ -2407,30 +2406,17 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           break;
         }
 
-        bool hash_effective, found;
-        biter.SeekForGet(key, &hash_effective, &found);
-
-        if (hash_effective) {
-          if (found) {
-            ParsedInternalKey parsed_key;
-            s = Status::OK();
-
-            if (!ParseInternalKey(biter.key(), &parsed_key)) {
-              s = Status::Corruption(Slice());
-            }
-
-            get_context->SaveValue(
-                parsed_key, biter.value(), &matched,
-                biter.IsValuePinned() ? &biter : nullptr);
-          }
-          // HashSeek is effective, break from the two-level iteration.
+        bool may_exist = biter.SeekForGet(key);
+        if (!may_exist) {
+          // HashSeek cannot find the key this block and the the iter is not
+          // the end of the block, i.e. cannot be in the following blocks
+          // either. In this case, the seek_key cannot be found, so we break
+          // from the top level for-loop.
           break;
         }
 
-        // HashSeek is not effective, falling back to binary seek.
-
         // Call the *saver function on each entry/block until it returns false
-        for (biter.Seek(key); biter.Valid(); biter.Next()) {
+        for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());

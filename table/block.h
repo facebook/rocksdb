@@ -368,7 +368,7 @@ class DataBlockIter final : public BlockIter {
 
   virtual void Seek(const Slice& target) override;
 
-  void SeekForGet(const Slice& target, bool* effective, bool* found);
+  bool SeekForGet(const Slice& target);
 
   virtual void SeekForPrev(const Slice& target) override;
 

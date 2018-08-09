@@ -186,33 +186,43 @@ void DataBlockIter::Seek(const Slice& target) {
   }
 }
 
-void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
-                               bool* found) {
-  assert(data_block_hash_index_);
-  // if the block content contains hash map
+bool DataBlockIter::SeekForGet(const Slice& target) {
+  if (!data_block_hash_index_) {
+    Seek(target);
+    return true /*may_exist*/;
+  }
+
   if (!data_block_hash_index_->Valid()) {
-    *hash_effective = false;
-    *found = false;
-    return;
+    // if the block content does not contain hash map, fall back
+    Seek(target);
+    return true /*may_exist*/;
   }
 
   Slice user_key = ExtractUserKey(target);
-  uint8_t entry = data_block_hash_index_->Seek(
-      data_,
-      static_cast<uint16_t>(
-          restarts_ + num_restarts_ * sizeof(uint32_t)) /*map_offset*/,
-      user_key);
+  uint16_t map_offset =
+      static_cast<uint16_t>(restarts_ + num_restarts_ * sizeof(uint32_t));
+  uint8_t entry = data_block_hash_index_->Seek(data_, map_offset, user_key);
 
   if (entry == kNoEntry) {
-    *hash_effective = true;
-    *found = false;  // TODO(fwu): block boundary corner case
-    return;
+    // Even if we cannot find the user_key in this block, the result may
+    // exist in the next block. Consider this exmpale:
+    //
+    // Block N:    [aab@100, ... , app@120]
+    // bounary key: axy@50 (we make minimal assumption about a boundary key)
+    // Block N+1:  [axy@10, ...   ]
+    //
+    // If seek_key = axy@60, the search will starts from Block N.
+    // Even if the user_key is not found in the hash map, the caller still
+    // have to conntinue searching the next block. So we invalidate the
+    // iterator to tell the caller to go on.
+    Invalidate(Status::OK());
+    return true /*may_exist*/;
   }
 
-  if (entry == kCollision) {  // HashSeek not effective
-    *hash_effective = false;
-    *found = false;
-    return;
+  if (entry == kCollision) {
+    // HashSeek not effective, falling back
+    Seek(target);
+    return true /*may_exist*/;
   }
 
   uint32_t restart_index = entry;
@@ -233,43 +243,44 @@ void DataBlockIter::SeekForGet(const Slice& target, bool* hash_effective,
     //
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
-    //
-    // If using hash, we only linear search within the restart inteval.
     if (!ParseNextDataKey(limit) || Compare(key_, target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
   }
 
-  if ((current_ != restarts_) /* valid */ &&
-      // If the user key portion match do we consider key_ matches
-      user_comparator_->Compare(key_.GetUserKey(), user_key) == 0) {
-    // Here we are conservative and only support a limited set of cases
-    ValueType value_type = ExtractValueType(key_.GetKey());
-    if (value_type != ValueType::kTypeValue &&
-        value_type != ValueType::kTypeDeletion) {
-      *hash_effective = false;
-      *found = true;
-      return;  // found, but not supported.
-    }
-
-    // Currently we do not fully support searching a key at specify snapshot.
-    // HashSeek only examine the first matched user_key. If the seqno is
-    // higher than the targe snapshot seqno, we just fall back to BinarySeek,
-    // without search further for the correct seqno.
-    uint64_t target_seqno = GetInternalKeySeqno(target);
-    uint64_t seqno = GetInternalKeySeqno(key_.GetKey());
-    if (target_seqno < seqno) {
-      *hash_effective = false;
-      *found = true;  // TODO(fwu): block boundary corner case
-      return;         // found, but not supported.
-    }
-    *hash_effective = true;
-    *found = true;  // successfully found
-    return;
+  if (current_ == restarts_) {
+    // Search reaches to the end of the block. There are two possibilites;
+    // 1) there is only one user_key match in the block (otherwise collsion).
+    //    the matching user_key resides in the last restart interval.
+    //    it is the last key of the restart interval and of the block too.
+    //    ParseNextDataKey() skiped it as its seqno is newer.
+    //
+    // 2) The seek_key is a false positive and got hashed to the last restart
+    //    interval.
+    //    All existing keys in the restart interval are less than seek_key.
+    //
+    // The result may exist in the next block in either case, so may_exist is
+    // returned as true.
+    return true /*may_exist*/;
   }
-  *hash_effective = true;
-  *found = false;  // not found
+
+  if (user_comparator_->Compare(key_.GetUserKey(), user_key) != 0) {
+    // the key is not in this block and cannot be at the next block either.
+    // return false to tell the caller to break from the top-level for-loop
+    return false /*may_exist*/;
+  }
+
+  // Here we are conservative and only support a limited set of cases
+  ValueType value_type = ExtractValueType(key_.GetKey());
+  if (value_type != ValueType::kTypeValue &&
+      value_type != ValueType::kTypeDeletion) {
+    Seek(target);
+    return true /*may_exist*/;
+  }
+
+  // Result found, and the iter is correctly set.
+  return true /*may_exist*/;
 }
 
 void IndexBlockIter::Seek(const Slice& target) {

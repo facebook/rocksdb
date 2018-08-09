@@ -248,40 +248,27 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   contents.cachable = false;
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
-  auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
-                                                options.comparator);
-
-  bool hash_effective, found;
+  const InternalKeyComparator icmp(BytewiseComparator());
+  auto iter = reader.NewIterator<DataBlockIter>(&icmp, icmp.user_comparator());
+  bool may_exist;
   // search in block for the key just inserted
   {
     InternalKey seek_ikey(ukey, 10, kValueTypeForSeek);
-    iter->SeekForGet(ikey.Encode().ToString(), &hash_effective, &found);
-    ASSERT_TRUE(hash_effective);
-    ASSERT_TRUE(found);
+    may_exist = iter->SeekForGet(seek_ikey.Encode().ToString());
+    ASSERT_TRUE(may_exist);
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(options.comparator->Compare(
                   iter->key(), ikey.Encode().ToString()), 0);
     ASSERT_EQ(iter->value(), value);
   }
 
-  // search in block for a non-existent ukey
-  {
-    std::string non_exist_ukey("squirrel");
-    InternalKey seek_ikey(non_exist_ukey, 10, kValueTypeForSeek);
-    iter->SeekForGet(seek_ikey.Encode().ToString(), &hash_effective, &found);
-    ASSERT_TRUE(hash_effective);
-    ASSERT_FALSE(found);
-    // if not found iter->Valid() is undefined
-  }
-
   // search in block for the existing ukey, but with higher seqno
   {
     InternalKey seek_ikey(ukey, 20, kValueTypeForSeek);
 
-    // searching "gopher@20"
-    iter->SeekForGet(ikey.Encode().ToString(), &hash_effective, &found);
-    ASSERT_TRUE(hash_effective);
-    ASSERT_TRUE(found);
+    // HashIndex should be able to set the iter correctly
+    may_exist = iter->SeekForGet(seek_ikey.Encode().ToString());
+    ASSERT_TRUE(may_exist);
     ASSERT_TRUE(iter->Valid());
 
     // user key should match
@@ -296,16 +283,16 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   }
 
   // Search in block for the existing ukey, but with lower seqno
-  // in this case, seek can find the first occurrence of the user_key, but
+  // in this case, hash can find the only occurrence of the user_key, but
   // ParseNextDataKey() will skip it as it does not have a older seqno.
   // In this case, GetForSeek() is effective to locate the user_key, and
   // iter->Valid() == false indicates that we've reached to the end of
   // the block and the caller should continue searching the next block.
   {
     InternalKey seek_ikey(ukey, 5, kValueTypeForSeek);
-    iter->SeekForGet(seek_ikey.Encode().ToString(), &hash_effective, &found);
-    ASSERT_TRUE(hash_effective);
-    ASSERT_FALSE(iter->Valid());
+    may_exist = iter->SeekForGet(seek_ikey.Encode().ToString());
+    ASSERT_TRUE(may_exist);
+    ASSERT_FALSE(iter->Valid());  // should have reached to the end of block
   }
 
   delete iter;
@@ -314,9 +301,6 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
 TEST(DataBlockHashIndex, BlockTestLarge) {
   Random rnd(1019);
   Options options = Options();
-  std::unique_ptr<InternalKeyComparator> ic;
-  ic.reset(new test::PlainInternalKeyComparator(options.comparator));
-
   std::vector<std::string> keys;
   std::vector<std::string> values;
 
@@ -344,43 +328,64 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   contents.data = rawblock;
   contents.cachable = false;
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  const InternalKeyComparator icmp(BytewiseComparator());
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
-                                                  options.comparator);
+    auto iter =
+        reader.NewIterator<DataBlockIter>(&icmp, icmp.user_comparator());
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
     InternalKey ikey(ukey, 0, kTypeValue);
 
     // search in block for this key
-    bool hash_effective, found;
-    iter->SeekForGet(ikey.Encode().ToString(), &hash_effective, &found);
-    if (hash_effective) {
-      ASSERT_TRUE(found);
-      ASSERT_TRUE(iter->Valid());
-      Slice v = iter->value();
-      ASSERT_EQ(v.ToString().compare(values[index]), 0);
-    }
+    bool may_exist = iter->SeekForGet(ikey.Encode().ToString());
+    ASSERT_TRUE(may_exist);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(values[index], iter->value());
+
     delete iter;
   }
 
-  // random seek non-existent keys
+  // random seek non-existent user keys
+  // In this case A), the user_key cannot be found in HashIndex. The key may
+  // exist in the next block. So the iter is set invalidated to tell the
+  // caller to search the next block. This test case belongs to this case A).
+  //
+  // Note that for non-existent keys, there is possibility of false positive,
+  // i.e. the key is still hashed into some restart interval.
+  // Two additional possible outcome:
+  // B) linear seek the restart interval and not found, the iter stops at the
+  //    starting of the next restart interval. The key does not exist
+  //    anywhere.
+  // C) linear seek the restart interval and not found, the iter stops at the
+  //    the end of the block, i.e. restarts_. The key may exist in the next
+  //    block.
+  // So these combinations are possible when searching non-existent user_key:
+  //
+  // case#    may_exist  iter->Valid()
+  //     A         true          false
+  //     B        false           true
+  //     C         true          false
+
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewIterator<DataBlockIter>(options.comparator,
-                                                  options.comparator);
+    auto iter =
+        reader.NewIterator<DataBlockIter>(&icmp, icmp.user_comparator());
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
-    std::string ukey(keys[index] + "0" /* existing key marker */);
+    std::string ukey(keys[index] + "0" /* non-existing key marker */);
     InternalKey ikey(ukey, 0, kTypeValue);
 
     // search in block for this key
-    bool hash_effective, found;
-    iter->SeekForGet(ikey.Encode().ToString(), &hash_effective, &found);
-    if (hash_effective) {
-      ASSERT_FALSE(found);
+    bool may_exist = iter->SeekForGet(ikey.Encode().ToString());
+    if (!may_exist) {
+      ASSERT_TRUE(iter->Valid());
     }
+    if (!iter->Valid()) {
+      ASSERT_TRUE(may_exist);
+    }
+
     delete iter;
   }
 }
