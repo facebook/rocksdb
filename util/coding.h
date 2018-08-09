@@ -68,8 +68,9 @@ extern Slice GetSliceUntil(Slice* slice, char delimiter);
 constexpr inline uint64_t i64ToZigzag(const int64_t l) {
   return (static_cast<uint64_t>(l) << 1) ^ static_cast<uint64_t>(l >> 63);
 }
-inline int64_t zigzagToI64(uint64_t n) { return (n >> 1) ^ -(n & 1); }
-
+inline int64_t zigzagToI64(uint64_t n) {
+  return (n >> 1) ^ -static_cast<int64_t>(n & 1);
+}
 
 // Pointer-based variants of GetVarint...  These either store a value
 // in *v and return a pointer just past the parsed value, or return
