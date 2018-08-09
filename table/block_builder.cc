@@ -37,7 +37,7 @@
 #include <assert.h>
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
-#include "table/data_block_index_format.h"
+#include "table/data_block_footer.h"
 #include "util/coding.h"
 
 namespace rocksdb {

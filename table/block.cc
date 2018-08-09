@@ -20,7 +20,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "table/block_prefix_index.h"
-#include "table/data_block_index_format.h"
+#include "table/data_block_footer.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
