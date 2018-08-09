@@ -342,9 +342,9 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
-#endif  // ROCKSDB_LITE
   Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
   Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+#endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then

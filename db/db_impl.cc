@@ -3131,8 +3131,6 @@ Status DBImpl::EndTrace() {
   return s;
 }
 
-#endif  // ROCKSDB_LITE
-
 Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
   Status s;
   if (tracer_) {
@@ -3154,5 +3152,7 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key)
   }
   return s;
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -1273,9 +1273,11 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, seq);
 
+#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
   }
+#endif  // ROCKSDB_LITE
 
   if (iterate_lower_bound_ != nullptr &&
       user_comparator_->Compare(saved_key_.GetUserKey(),
@@ -1341,9 +1343,11 @@ void DBIter::SeekForPrev(const Slice& target) {
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
+#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
   }
+#endif  // ROCKSDB_LITE
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
