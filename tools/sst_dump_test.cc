@@ -110,7 +110,7 @@ public:
   template<std::size_t N>
   void PopulateCommandArgs(const std::string& file_path, const char* command,
     char* (&usage)[N]) const {
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < static_cast<int>(N); ++i) {
       usage[i] = new char[optLength];
     }
     snprintf(usage[0], optLength, "./sst_dump");
