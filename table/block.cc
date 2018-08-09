@@ -458,21 +458,21 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // handle.
 void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
   assert(value_delta_encoded_);
-  const char* l = value_.data() + 20;  // limit of two var-size uint64_t
+  const char* limit = value_.data() + 20;  // limit of two var-size uint64_t
   if (shared == 0) {
     uint64_t o, s;
-    auto newp = GetVarint64Ptr(value_.data(), l, &o);
-    newp = GetVarint64Ptr(newp, l, &s);
+    const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
+    newp = GetVarint64Ptr(newp, limit, &s);
     decoded_value_ = BlockHandle(o, s);
-    value_.set_size(newp - value_.data());
+    value_ = Slice(value_.data(), newp - value_.data());
   } else {
     uint64_t next_value_base =
         decoded_value_.offset() + decoded_value_.size() + kBlockTrailerSize;
     int64_t delta;
-    auto newp = GetVarsignedint64Ptr(value_.data(), l, &delta);
+    const char* newp = GetVarsignedint64Ptr(value_.data(), limit, &delta);
     decoded_value_ =
         BlockHandle(next_value_base, decoded_value_.size() + delta);
-    value_.set_size(newp - value_.data());
+    value_ = Slice(value_.data(), newp - value_.data());
   }
 }
 

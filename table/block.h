@@ -165,6 +165,11 @@ class Block {
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
   //
+  // key_includes_seq, default true, means that the keys are in internal key
+  // format.
+  // value_is_full, default ture, means that no delta encoding is
+  // applied to values.
+  //
   // NewIterator<DataBlockIter>
   // Same as above but also updates read_amp_bitmap_ if it is not nullptr.
   //
@@ -418,6 +423,10 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
     assert(Valid());
     return key_.GetKey();
   }
+  // key_includes_seq, default true, means that the keys are in internal key
+  // format.
+  // value_is_full, default ture, means that no delta encoding is
+  // applied to values.
   IndexBlockIter(const Comparator* comparator,
                  const Comparator* user_comparator, const char* data,
                  uint32_t restarts, uint32_t num_restarts,
