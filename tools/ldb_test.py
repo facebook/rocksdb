@@ -76,7 +76,7 @@ class LDBTestCase(unittest.TestCase):
 
             my_check_output("./ldb %s >/dev/null 2>&1 |grep -v \"Created bg \
                 thread\"" % params, shell=True)
-        except Exception, e:
+        except Exception:
             return
         self.fail(
             "Exception should have been raised for command with params: %s" %
@@ -562,7 +562,7 @@ class LDBTestCase(unittest.TestCase):
         dbPath = os.path.join(self.TMP_DIR, "db1")
         self.assertRunOK(
             "batchput --db=%s --create_if_missing x1 y1 x2 y2 x3 y3 x4 y4"
-                % dbPath,
+             % dbPath,
             "OK")
         self.assertRunOK("scan --db=%s" % dbPath,
                          "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
@@ -578,11 +578,11 @@ class LDBTestCase(unittest.TestCase):
         self.assertFalse(
             self.ingestExternSst(
                 "--create_if_missing --allow_global_seqno=false --db=%s"
-                    % dbPath,
+                % dbPath,
                 externSstPath))
         self.assertTrue(self.ingestExternSst(
                             "--create_if_missing --allow_global_seqno --db=%s"
-                                % dbPath,
+                            % dbPath,
                             externSstPath))
         self.assertRunOKFull("scan --db=%s" % dbPath,
                              "x1 : y10\nx2 : y20\nx3 : y30\nx4 : y40")
