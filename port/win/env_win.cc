@@ -716,6 +716,34 @@ Status WinEnvIO::LinkFile(const std::string& src,
   return result;
 }
 
+Status WinEnvIO::NumFileLinks(const std::string& fname, 
+  uint64_t* count) {
+  Status s;
+  HANDLE handle = ::CreateFileA(fname.c_str(), 0,
+    FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS,
+    NULL);
+
+  if (INVALID_HANDLE_VALUE == handle) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError(
+      "NumFileLinks: " + fname, lastError);
+    return s;
+  }
+  UniqueCloseHandlePtr handle_guard(handle, CloseHandleFunc);
+  FILE_STANDARD_INFO standard_info;
+  if (0 != GetFileInformationByHandleEx(handle, FileStandardInfo, 
+                                        &standard_info, sizeof(standard_info))) {
+    *count = standard_info.NumberOfLinks;
+  } else {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError("GetFileInformationByHandleEx: " + fname, lastError);
+  }
+  return s;
+}
+
 Status WinEnvIO::AreFilesSame(const std::string& first,
   const std::string& second, bool* res) {
 // For MinGW builds
@@ -1323,6 +1351,10 @@ Status WinEnv::RenameFile(const std::string& src,
 Status WinEnv::LinkFile(const std::string& src,
   const std::string& target) {
   return winenv_io_.LinkFile(src, target);
+}
+
+Status WinEnv::NumFileLinks(const std::string& fname, uint64_t* count) {
+  return winenv_io_.NumFileLinks(fname, count);
 }
 
 Status WinEnv::AreFilesSame(const std::string& first,
