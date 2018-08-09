@@ -298,8 +298,8 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   // Search in block for the existing ukey, but with lower seqno
   // in this case, seek can find the first occurrence of the user_key, but
   // ParseNextDataKey() will skip it as it does not have a older seqno.
-  // In this case, GetForSeek() is effective to locate the user_key, we
-  // use iter->Valid() == false to indicate we've reached to the end of
+  // In this case, GetForSeek() is effective to locate the user_key, and
+  // iter->Valid() == false indicates that we've reached to the end of
   // the block and the caller should continue searching the next block.
   {
     InternalKey seek_ikey(ukey, 5, kValueTypeForSeek);
