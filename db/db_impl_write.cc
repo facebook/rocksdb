@@ -1234,12 +1234,15 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   FlushRequest flush_req;
   while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
     auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+    bool should_schedule = true;
     if (cfd->Unref()) {
       delete cfd;
-    } else {
-      if (!status.ok()) {
-        return status;
-      }
+      should_schedule = false;
+    }
+    if (!status.ok()) {
+      return status;
+    }
+    if (should_schedule) {
       uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
       flush_req.emplace_back(cfd, flush_memtable_id);
     }

@@ -927,9 +927,12 @@ class DBImpl : public DB {
   // gets flush. Otherwise, wait until the column family don't have any
   // memtable pending flush.
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
-                              const uint64_t* flush_memtable_id = nullptr);
-  Status WaitForFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
-                               const autovector<uint64_t>& flush_memtable_ids);
+                              const uint64_t* flush_memtable_id = nullptr) {
+    return WaitForFlushMemTables({cfd}, {flush_memtable_id});
+  }
+  Status WaitForFlushMemTables(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const uint64_t*>& flush_memtable_ids);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);

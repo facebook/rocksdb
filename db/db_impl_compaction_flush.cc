@@ -1133,10 +1133,10 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
   if (s.ok() && flush_options.wait) {
     autovector<ColumnFamilyData*> cfds;
-    autovector<uint64_t> flush_memtable_ids;
+    autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
       cfds.push_back(iter.first);
-      flush_memtable_ids.push_back(iter.second);
+      flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
@@ -1144,57 +1144,37 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   return s;
 }
 
-Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
-                                    const uint64_t* flush_memtable_id) {
-  Status s;
-  // Wait until the compaction completes
-  InstrumentedMutexLock l(&mutex_);
-  while (cfd->imm()->NumNotFlushed() > 0 && !error_handler_.IsDBStopped() &&
-         (flush_memtable_id == nullptr ||
-          cfd->imm()->GetEarliestMemTableID() <= *flush_memtable_id)) {
-    if (shutting_down_.load(std::memory_order_acquire)) {
-      return Status::ShutdownInProgress();
-    }
-    if (cfd->IsDropped()) {
-      // FlushJob cannot flush a dropped CF, if we did not break here
-      // we will loop forever since cfd->imm()->NumNotFlushed() will never
-      // drop to zero
-      return Status::InvalidArgument("Cannot flush a dropped CF");
-    }
-    bg_cv_.Wait();
-  }
-  if (error_handler_.IsDBStopped()) {
-    s = error_handler_.GetBGError();
-  }
-  return s;
-}
-
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<uint64_t>& flush_memtable_ids) {
-  Status s;
+    const autovector<const uint64_t*>& flush_memtable_ids) {
+  int num = static_cast<int>(cfds.size());
+  // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
   while (!error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
-    bool exit = true;
-    for (int i = 0; i < (int)cfds.size(); i++) {
+    int num_dropped = 0;
+    int num_finished = 0;
+    for (int i = 0; i < num; ++i) {
       if (cfds[i]->IsDropped()) {
-        s = Status::InvalidArgument("Cannot flush a dropped CF");
-        break;
-      }
-      if (cfds[i]->imm()->NumNotFlushed() > 0 &&
-          (cfds[i]->imm()->GetEarliestMemTableID() <= flush_memtable_ids[i])) {
-        exit = false;
-        break;
+        ++num_dropped;
+      } else if (cfds[i]->imm()->NumNotFlushed() == 0 ||
+                 (flush_memtable_ids[i] != nullptr &&
+                  cfds[i]->imm()->GetEarliestMemTableID() >
+                      *flush_memtable_ids[i])) {
+        ++num_finished;
       }
     }
-    if (exit) {
+    if (1 == num_dropped && 1 == num) {
+      return Status::InvalidArgument("Cannot flush a dropped CF");
+    }
+    if (num_dropped + num_finished == num) {
       break;
     }
     bg_cv_.Wait();
   }
+  Status s;
   if (error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
   }
