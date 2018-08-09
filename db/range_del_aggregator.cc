@@ -235,8 +235,7 @@ class CollapsedRangeDelMap : public RangeDelMap {
   }
 
   void AddTombstone(RangeTombstone t) {
-    if (ucmp_->Compare(t.start_key_, t.end_key_) >= 0 ||
-        t.seq_ == 0) {
+    if (ucmp_->Compare(t.start_key_, t.end_key_) >= 0 || t.seq_ == 0) {
       // The tombstone covers no keys. Nothing to do.
       return;
     }
