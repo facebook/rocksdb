@@ -491,6 +491,7 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
  private:
   // Key is in InternalKey format
   bool key_includes_seq_;
+  bool value_delta_encoded_;
   // key_includes_seq_ ? comparator_ : user_comparator_
   const Comparator* active_comparator_;
   BlockPrefixIndex* prefix_index_;
@@ -500,7 +501,6 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
   // offset of delta encoded BlockHandles is computed by adding the size of
   // previous delta encoded values in the same restart interval to the offset of
   // the first value in that restart interval.
-  bool value_delta_encoded_;
   BlockHandle decoded_value_;
 
   bool PrefixSeek(const Slice& target, uint32_t* index);

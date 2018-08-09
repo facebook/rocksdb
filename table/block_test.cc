@@ -68,7 +68,8 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   }
 }
 
-void GenerateRandomKVs(std::vector<std::string> *keys,
+// Same as GenerateRandomKVs but the values are BlockHandle
+void GenerateRandomKBHs(std::vector<std::string> *keys,
                        std::vector<BlockHandle> *values, const int from,
                        const int len, const int step = 1,
                        const int padding_size = 0,
@@ -166,7 +167,7 @@ TEST_F(BlockTest, ValueDeltaEncodingTest) {
   BlockBuilder builder(16, kUseDeltaEncoding, kUseValueDeltaEncoding);
   int num_records = 100;
 
-  GenerateRandomKVs(&keys, &values, 0, num_records);
+  GenerateRandomKBHs(&keys, &values, 0, num_records);
   // add a bunch of records to a block
   BlockHandle last_encoded_handle;
   for (int i = 0; i < num_records; i++) {

@@ -73,8 +73,9 @@ extern const char* GetVarint64Ptr(const char* p,const char* limit, uint64_t* v);
 inline const char* GetVarsignedint64Ptr(const char* p, const char* limit,
                                         int64_t* value) {
   uint64_t u = 0;
-  auto ret = GetVarint64Ptr(p, limit, &u);
-  *value = u % 2 == 0 ? u / 2 : u / 2 * -1;
+  const char* ret = GetVarint64Ptr(p, limit, &u);
+  *value = u % 2 == 0 ? static_cast<int64_t>(u / 2)
+                      : static_cast<int64_t>(u / 2) * -1;
   return ret;
 }
 
@@ -256,7 +257,7 @@ inline char* EncodeVarint64(char* dst, uint64_t v) {
 }
 
 inline void PutVarint64(std::string* dst, uint64_t v) {
-  char buf[10];
+  char buf[kMaxVarint64Length];
   char* ptr = EncodeVarint64(buf, v);
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
