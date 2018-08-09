@@ -117,9 +117,16 @@ void GetSmallestLargestSeqno(const std::vector<FileMetaData*>& files,
 
 // Algorithm that checks to see if there are any overlapping
 // files in the input
-bool UniversalCompactionPicker::IsInputFilesNonOverlapping(Compaction* c) {
+bool UniversalCompactionPicker::IsInputFilesNonOverlapping(
+    Compaction* c, VersionStorageInfo* vstorage) {
   auto comparator = icmp_->user_comparator();
   int first_iter = 1;
+
+  for (auto& level_files : *c->inputs()) {
+    if (vstorage->has_space_amplification(level_files.level)) {
+      return false;
+    }
+  }
 
   InputFileInfo prev, curr, next;
 
@@ -168,7 +175,7 @@ bool UniversalCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
-  if (!vstorage->has_space_amplification()) {
+  if (vstorage->has_space_amplification()) {
     return true;
   }
   return false;
@@ -340,7 +347,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
         }
       }
     }
-  } else {
+  }
+  if (c == nullptr) {
     c = PickGeneralCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
   }
 
@@ -362,7 +370,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
 
   if (c->compaction_reason() != CompactionReason::kUniversalTrivialMove &&
       mutable_cf_options.compaction_options_universal.allow_trivial_move) {
-    c->set_is_trivial_move(IsInputFilesNonOverlapping(c));
+    c->set_is_trivial_move(IsInputFilesNonOverlapping(c, vstorage));
   }
 
 // validate that all the chosen files of L0 are non overlapping in time
@@ -546,8 +554,51 @@ Compaction* UniversalCompactionPicker::PickTrivialMove(
 Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
-  // TODO(zouzhizhang): lazy compaction
-  return nullptr;
+  if (!vstorage->has_space_amplification()) {
+    return nullptr;
+  }
+  CompactionInputFiles inputs;
+  inputs.level = -1;
+  for (int level = vstorage->num_levels() - 1; level > 0; --level) {
+    if (vstorage->has_space_amplification(level) &&
+        !AreFilesInCompaction(vstorage->LevelFiles(level))) {
+      inputs.level = level;
+      inputs.files = vstorage->LevelFiles(level);
+      break;
+    }
+  }
+  if (inputs.level == -1) {
+    return nullptr;
+  }
+  SstVarieties compaction_varieties = kGeneralSst;
+  uint32_t max_subcompactions = 0;
+  uint64_t estimated_total_size = 0;
+  for (auto f : inputs.files) {
+    if (f->sst_variety == kMapSst) {
+      // TODO(zouzhizhang): test
+      compaction_varieties = kLinkSst;
+      max_subcompactions = 1;
+    }
+    estimated_total_size += f->fd.file_size;
+  }
+  uint32_t path_id =
+      GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
+  CompactionReason compaction_reason =
+      CompactionReason::kUniversalSizeAmplification;
+  bool enable_compression = true;
+  return new Compaction(
+      vstorage, ioptions_, mutable_cf_options, {inputs}, inputs.level,
+      MaxFileSizeForLevel(mutable_cf_options, inputs.level,
+                          kCompactionStyleUniversal),
+      LLONG_MAX, path_id,
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                          inputs.level, 1, enable_compression),
+      GetCompressionOptions(ioptions_, vstorage, inputs.level,
+                            enable_compression),
+      max_subcompactions, /* grandparents */ {}, /* is manual */ false,
+      0, false /* deletion_compaction */, compaction_varieties,
+      {} /* input_range */, compaction_reason);
+  // TODO(zouzhizhang): better lazy compaction
 }
 
 

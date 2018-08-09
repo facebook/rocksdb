@@ -1586,7 +1586,6 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableCFOptions& immutable_cf_options,
     const MutableCFOptions& mutable_cf_options) {
-  has_space_amplification_.clear();
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -1654,9 +1653,6 @@ void VersionStorageInfo::ComputeCompactionScore(
       for (auto f : files_[level]) {
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
-        }
-        if (f->sst_variety != 0) {
-          has_space_amplification_.emplace(level);
         }
       }
       score = static_cast<double>(level_bytes_no_compacting) /
@@ -1782,6 +1778,8 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   level_files->push_back(f);
   if (level == num_levels_) {
     depend_files_.emplace(f->fd.GetNumber(), f);
+  } else if (f->sst_variety != 0) {
+    has_space_amplification_.emplace(level);
   }
 }
 

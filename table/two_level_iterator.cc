@@ -327,9 +327,9 @@ class LinkSstIterator final : public InternalIterator {
       bound_ = first_level_iter_->key();
       is_backword_ = false;
     }
-    if (second_level_iter_->key() != bound_) {
-      second_level_iter_->Next();
-      assert(second_level_iter_->Valid());
+    second_level_iter_->Next();
+    if (second_level_iter_->Valid() &&
+        icomp_.Compare(second_level_iter_->key(), bound_) <= 0) {
       return;
     }
     InternalKey where;
@@ -399,7 +399,9 @@ class MapSstIterator final : public InternalIterator {
   bool is_backword_;
   Status status_;
   IteratorCache iterator_cache_;
-  MapSstElement current_map_;
+  Slice smallest_key_;
+  Slice largest_key_;
+  std::vector<uint64_t> link_;
   struct HeapElement {
     InternalIterator* iter;
     Slice key;
@@ -431,18 +433,28 @@ class MapSstIterator final : public InternalIterator {
     if (!first_level_iter_->Valid()) {
       return false;
     }
-    if (!current_map_.Decode(first_level_iter_->key(),
-                             first_level_iter_->value())) {
+    // Manual inline MapSstElement::Decode
+    Slice map_input = first_level_iter_->value();
+    link_.clear();
+    largest_key_ = first_level_iter_->key();
+    uint64_t link_count;
+    if (!GetLengthPrefixedSlice(&map_input, &smallest_key_) ||
+        !GetVarint64(&map_input, &link_count) ||
+        map_input.size() < link_count * sizeof(uint64_t)) {
       status_ = Status::Corruption("Map sst invalid value");
       return false;
+    }
+    link_.resize(link_count);
+    for (uint64_t i = 0; i < link_count; ++i) {
+      GetFixed64(&map_input, &link_[i]);
     }
     return true;
   }
 
   void InitSecondLevelMinHeap(const Slice& target) {
     assert(min_heap_.empty());
-    for (auto link : current_map_.link_) {
-      auto it = iterator_cache_.GetIterator(link.sst_id);
+    for (auto sst_id : link_) {
+      auto it = iterator_cache_.GetIterator(sst_id);
       if (it == nullptr) {
         status_ = Status::Corruption("Map sst depend files missing");
         min_heap_.clear();
@@ -458,8 +470,8 @@ class MapSstIterator final : public InternalIterator {
 
   void InitSecondLevelMaxHeap(const Slice& target) {
     assert(max_heap_.empty());
-    for (auto link : current_map_.link_) {
-      auto it = iterator_cache_.GetIterator(link.sst_id);
+    for (auto sst_id : link_) {
+      auto it = iterator_cache_.GetIterator(sst_id);
       if (it == nullptr) {
         status_ = Status::Corruption("Map sst depend files missing");
         max_heap_.clear();
@@ -493,14 +505,14 @@ class MapSstIterator final : public InternalIterator {
   virtual void SeekToFirst() override {
     first_level_iter_->SeekToFirst();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMinHeap(current_map_.smallest_key_);
+      InitSecondLevelMinHeap(smallest_key_);
       is_backword_ = false;
     }
   }
   virtual void SeekToLast() override {
     first_level_iter_->SeekToLast();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMaxHeap(current_map_.largest_key_);
+      InitSecondLevelMaxHeap(largest_key_);
       is_backword_ = false;
     }
   }
@@ -511,8 +523,8 @@ class MapSstIterator final : public InternalIterator {
     }
     auto& icomp = min_heap_.comparator().icomp();
     Slice seek_target = target;
-    if (icomp.Compare(target, current_map_.smallest_key_) < 0) {
-      seek_target = current_map_.smallest_key_;
+    if (icomp.Compare(target, smallest_key_) < 0) {
+      seek_target = smallest_key_;
     }
     InitSecondLevelMinHeap(seek_target);
     is_backword_ = false;
@@ -520,16 +532,17 @@ class MapSstIterator final : public InternalIterator {
   virtual void SeekForPrev(const Slice& target) override {
     first_level_iter_->Seek(target);
     if (!InitFirstLevelIter()) {
+      MapSstIterator::SeekToLast();
       return;
     }
     auto& icomp = min_heap_.comparator().icomp();
     Slice seek_target = target;
-    if (icomp.Compare(target, current_map_.smallest_key_) < 0) {
+    if (icomp.Compare(target, smallest_key_) < 0) {
       first_level_iter_->Prev();
       if (!InitFirstLevelIter()) {
         return;
       }
-      seek_target = current_map_.largest_key_;
+      seek_target = largest_key_;
     }
     InitSecondLevelMaxHeap(seek_target);
     is_backword_ = true;
@@ -543,20 +556,21 @@ class MapSstIterator final : public InternalIterator {
       is_backword_ = false;
     }
     auto current = min_heap_.top();
-    if (current.key != current_map_.largest_key_) {
-      current.iter->Next();
-      if (current.iter->Valid()) {
-        current.key = current.iter->key();
-        min_heap_.replace_top(current);
-      } else {
-        min_heap_.pop();
-      }
-      assert(!min_heap_.empty());
+    current.iter->Next();
+    if (current.iter->Valid()) {
+      current.key = current.iter->key();
+      min_heap_.replace_top(current);
+    } else {
+      min_heap_.pop();
+    }
+    auto& icomp = min_heap_.comparator().icomp();
+    if (!min_heap_.empty() &&
+        icomp.Compare(min_heap_.top().key, largest_key_) <= 0) {
       return;
     }
     first_level_iter_->Next();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMinHeap(current_map_.smallest_key_);
+      InitSecondLevelMinHeap(smallest_key_);
     }
   }
   virtual void Prev() override {
@@ -568,20 +582,21 @@ class MapSstIterator final : public InternalIterator {
       is_backword_ = true;
     }
     auto current = max_heap_.top();
-    if (current.key != current_map_.smallest_key_) {
-      current.iter->Prev();
-      if (current.iter->Valid()) {
-        current.key = current.iter->key();
-        max_heap_.replace_top(current);
-      } else {
-        max_heap_.pop();
-      }
-      assert(!max_heap_.empty());
+    current.iter->Prev();
+    if (current.iter->Valid()) {
+      current.key = current.iter->key();
+      max_heap_.replace_top(current);
+    } else {
+      max_heap_.pop();
+    }
+    auto& icomp = min_heap_.comparator().icomp();
+    if (!max_heap_.empty() &&
+        icomp.Compare(max_heap_.top().key, smallest_key_) >= 0) {
       return;
     }
     first_level_iter_->Prev();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMaxHeap(current_map_.largest_key_);
+      InitSecondLevelMaxHeap(largest_key_);
     }
   }
   virtual Slice key() const override {

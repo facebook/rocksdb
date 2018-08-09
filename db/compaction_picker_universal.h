@@ -92,7 +92,7 @@ class UniversalCompactionPicker : public CompactionPicker {
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
   // overlapping.
-  bool IsInputFilesNonOverlapping(Compaction* c);
+  bool IsInputFilesNonOverlapping(Compaction* c, VersionStorageInfo* vstorage);
 
   static std::vector<SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,

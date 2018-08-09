@@ -523,6 +523,21 @@ void CompactionJob::GenSubcompactionBoundaries() {
             bounds.emplace_back(flevel->files[i].smallest_key);
           }
         }
+        for (size_t i = 0; i < num_files; i++) {
+          if (flevel->files[i].file_metadata->sst_variety == kMapSst) {
+            auto& depend_files =
+                c->input_version()->storage_info()->depend_files();
+            for (auto sst_id : flevel->files[i].file_metadata->sst_depend) {
+              auto find = depend_files.find(sst_id);
+              if (find == depend_files.end()) {
+                assert(false);
+                continue;
+              }
+              bounds.emplace_back(find->second->smallest.Encode());
+              bounds.emplace_back(find->second->largest.Encode());
+            }
+          }
+        }
       }
     }
   }
@@ -672,7 +687,7 @@ Status CompactionJob::Run() {
         // here because this is a special case after we finish the table building
         // No matter whether use_direct_io_for_flush_and_compaction is true,
         // we will regard this verification as user reads since the goal is
-        // to map it here for further user reads
+        // to cache it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
             *files_meta[file_idx], empty_depend_files,
@@ -1081,11 +1096,12 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       output_file_ended = true;
     }
     const Slice* next_key = nullptr;
-    if (output_file_ended && false) { // test map and link , disable tempory
+    if (output_file_ended) {
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
       }
-      if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
+      if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction &&
+          false) { // test map and link , disable tempory
         if (next_key != nullptr &&
             ExtractUserKey(*next_key) !=
                 sub_compact->outputs.back().meta.largest.user_key()) {
@@ -1389,8 +1405,6 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     std::vector<std::vector<uint64_t>> link_storage;
   };
 
-  // Used for write properties
-  std::vector<uint64_t> sst_depend;
   std::list<LevelMap> level_maps;
 
   MapSstElement map_element;
@@ -1417,15 +1431,12 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
           }
           level.link_storage.emplace_back(std::move(link));
         }
-        sst_depend.insert(sst_depend.end(), f->sst_depend.begin(),
-                          f->sst_depend.end());
       } else {
         get_iterator(f, level_files.level); // load into cache
         level.map.emplace_back(f->smallest.Encode(), true);
         level.map.emplace_back(f->largest.Encode(), true);
         std::vector<uint64_t> link = {f->fd.GetNumber()};
         level.link_storage.emplace_back(std::move(link));
-        sst_depend.push_back(f->fd.GetNumber());
       }
     }
     if (!level.map.empty()) {
@@ -1578,9 +1589,11 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     level_maps.erase(merge_b);
   }
 
+  // Used for write properties
+  std::vector<uint64_t> sst_depend;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
-      new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend));
+      new SSTLinkPropertiesCollectorFactory((uint8_t)kMapSst, &sst_depend));
 
   auto status = OpenCompactionOutputFile(sub_compact, &collectors);
   if (!status.ok()) {
@@ -1593,6 +1606,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
 
   auto& meta = sub_compact->current_output()->meta;
 
+  std::unordered_set<uint64_t> sst_depend_build;
   std::sort(sst_depend.begin(), sst_depend.end());
 
   auto& level_map = level_maps.front();
@@ -1650,6 +1664,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
           item.reader->ApproximateOffsetOf(k_start.Encode());
       uint64_t right_offset =
           item.reader->ApproximateOffsetOf(k_end.Encode());
+      sst_depend_build.emplace(sst_id);
       MapSstElement::LinkTarget link;
       link.sst_id = sst_id;
       link.size = right_offset - left_offset;
@@ -1665,6 +1680,13 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
       sub_compact->num_output_records++;
     }
   }
+  
+  // Prepare sst_depend, IntTblPropCollector::Finish will read it
+  sst_depend.reserve(sst_depend_build.size());
+  sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
+                    sst_depend_build.end());
+  sst_depend_build.clear();
+  std::sort(sst_depend.begin(), sst_depend.end());
 
   CompactionIterationStats range_del_out_stats;
   status = FinishCompactionOutputFile(

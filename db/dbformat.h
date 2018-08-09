@@ -152,6 +152,11 @@ inline ValueType ExtractValueType(const Slice& internal_key) {
   return static_cast<ValueType>(c);
 }
 
+inline SequenceNumber ExtractSequence(const Slice& internal_key) {
+  uint64_t num = ExtractInternalKeyFooter(internal_key);
+  return num >> 8;
+}
+
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
 class InternalKeyComparator
@@ -669,18 +674,17 @@ struct MapSstElement {
     largest_key_ = ikey;
     uint64_t link_count;
     if (!GetLengthPrefixedSlice(&value, &smallest_key_) ||
-        !GetVarint64(&value, &link_count)) {
+        !GetVarint64(&value, &link_count) ||
+        value.size() < link_count * sizeof(uint64_t) * 2) {
       return false;
     }
-    link_.reserve(link_count);
+    link_.resize(link_count);
 
     for (uint64_t i = 0; i < link_count; ++i) {
-      LinkTarget l;
-      if (!GetFixed64(&value, &l.sst_id) ||
-          !GetFixed64(&value, &l.size)) {
-        return false;
-      }
-      link_.emplace_back(l);
+      GetFixed64(&value, &link_[i].sst_id);
+    }
+    for (uint64_t i = 0; i < link_count; ++i) {
+      GetFixed64(&value, &link_[i].size);
     }
     return true;
   }
@@ -694,6 +698,8 @@ struct MapSstElement {
     buffer->reserve(buffer->size() + sizeof(LinkTarget) * link_.size());
     for (auto& l : link_) {
       PutFixed64(buffer, l.sst_id);
+    }
+    for (auto& l : link_) {
       PutFixed64(buffer, l.size);
     }
     return Slice(*buffer);

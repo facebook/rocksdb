@@ -34,7 +34,7 @@ class StringAppendTESTOperator : public MergeOperator {
 
   virtual const char* Name() const override;
 
- private:
+ protected:
   // A version of PartialMerge that actually performs "partial merging".
   // Use this to simulate the exact behaviour of the StringAppendOperator.
   bool _AssocPartialMergeMulti(const Slice& key,

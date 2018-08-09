@@ -115,62 +115,99 @@ InternalIterator* TranslateVarietySstIterator(
 Status GetFromVarietySst(
     const FileMetaData& file_meta, TableReader* table_reader,
     const InternalKeyComparator& icomp, const Slice& k,
-    void* arg, bool(*get_from_sst)(void* arg, const Slice& find_k,
-                                   uint64_t sst_id, Status& status)) {
+    GetContext* get_context, void* arg,
+    bool(*get_from_sst)(void* arg, const Slice& find_k, uint64_t sst_id,
+                        Status& status)) {
   Status s;
   switch (file_meta.sst_variety) {
   case kLinkSst: {
-    auto get_from_link = [&](const Slice& ikey, const Slice& value) {
+    InternalKey smallest_key;
+    auto get_from_link = [&](const Slice& largest_key,
+                             const Slice& link_value) {
       // Manual inline LinkSstElement::Decode
+      Slice link_input = link_value;
       uint64_t sst_id;
-      Slice value_copy = value;
-      if (!GetFixed64(&value_copy, &sst_id)) {
-        s = Status::Corruption("Link sst invalid value");
+      Slice find_k = k;
+
+      if (!GetFixed64(&link_input, &sst_id)) {
+        s = Status::Corruption("Link sst invalid link_value");
         return false;
       }
-      return get_from_sst(arg, k, sst_id, s) &&
-             ExtractUserKey(k) == ExtractUserKey(ikey);
+      if (smallest_key.size() != 0) {
+        assert(icomp.user_comparator()->Compare(
+            ExtractUserKey(k), ExtractUserKey(smallest_key.Encode())) == 0);
+        // shrink to smallest_key
+        find_k = smallest_key.Encode();
+      }
+      if (!get_from_sst(arg, find_k, sst_id, s)) {
+        // error or found
+        return false;
+      }
+      if (icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
+                                           ExtractUserKey(k)) != 0) {
+        // next smallest_key is current largest_key
+        // k less than next link smallest_key
+        return false;
+      }
+      // store largest_key
+      smallest_key.DecodeFrom(largest_key);
+      return true;
     };
     table_reader->RangeScan(&k, &get_from_link,
                             gen_c_style_callback(get_from_link));
     return s;
   }
   case kMapSst: {  
-    auto get_from_map = [&](const Slice& ikey, const Slice& value) {
+    auto get_from_map = [&](const Slice& largest_key,
+                            const Slice& map_value) {
       // Manual inline MapSstElement::Decode
-      const char* error_msg = "Map sst invalid value";
-      Slice value_copy = value;
+      const char* error_msg = "Map sst invalid link_value";
+      Slice map_input = map_value;
       Slice smallest_key;
       uint64_t link_count;
-      uint64_t sst_id, size;
+      uint64_t sst_id;
       Slice find_k = k;
       
-      if (!GetLengthPrefixedSlice(&value_copy, &smallest_key)) {
+      if (!GetLengthPrefixedSlice(&map_input, &smallest_key)) {
         s = Status::Corruption(error_msg);
         return false;
       }
       if (icomp.Compare(k, smallest_key) < 0) {
-        if (ExtractUserKey(k) != ExtractUserKey(smallest_key)) {
+        if (icomp.user_comparator()->Compare(ExtractUserKey(smallest_key),
+                                             ExtractUserKey(k)) != 0) {
+          // less than smallest_key
           return false;
         }
+        assert(ExtractSequence(k) > ExtractSequence(smallest_key));
+        // same user_key, shrink to smallest_key
         find_k = smallest_key;
       }
-      if (!GetVarint64(&value_copy, &link_count)) {
+      if (!GetVarint64(&map_input, &link_count) ||
+          map_input.size() < link_count * sizeof(uint64_t)) {
         s = Status::Corruption(error_msg);
         return false;
       }
 
+      bool is_bound_key =
+          icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
+                                           ExtractUserKey(k)) == 0;
+      SequenceNumber min_seq_backup = get_context->GetMinSequenceNumber();
+      if (is_bound_key) {
+        // shrink seqno to largest_key, make sure can't read greater keys
+        get_context->SetMinSequenceNumber(
+            std::max(min_seq_backup, ExtractSequence(largest_key)));
+      }
+
       for (uint64_t i = 0; i < link_count; ++i) {
-        if (!GetFixed64(&value_copy, &sst_id) ||
-            !GetFixed64(&value_copy, &size)) {
-          s = Status::Corruption(error_msg);
-          return false;
-        }
+        GetFixed64(&map_input, &sst_id);
         if (!get_from_sst(arg, find_k, sst_id, s)) {
+          // error or found, recovery min_seq_backup is unnecessary
           return false;
         }
       }
-      return ExtractUserKey(k) == ExtractUserKey(ikey);
+      // recovery min_seq_backup
+      get_context->SetMinSequenceNumber(min_seq_backup);
+      return is_bound_key;
     };
     table_reader->RangeScan(&k, &get_from_map,
                             gen_c_style_callback(get_from_map));
@@ -374,7 +411,7 @@ InternalIterator* TableCache::NewIterator(
         // DON'T REF THIS OBJECT, DEEP COPY IT !
         struct {
           TableCache* table_cache;
-          const ReadOptions& options;
+          ReadOptions options;  // deep copy
           const EnvOptions& env_options;
           const InternalKeyComparator& icomparator;
           const std::unordered_map<uint64_t, FileMetaData*>& depend_files;
@@ -560,7 +597,7 @@ Status TableCache::Get(
           return status.ok() && !get_context->is_finished();
         };
         s = GetFromVarietySst(file_meta, t, internal_comparator, k,
-                              &get_from_sst,
+                              get_context, &get_from_sst,
                               gen_c_style_callback(get_from_sst));
       }
       get_context->SetReplayLog(nullptr);

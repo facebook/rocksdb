@@ -251,7 +251,7 @@ class VersionStorageInfo {
   int num_levels() const { return num_levels_; }
 
   bool has_space_amplification() const {
-    return has_space_amplification_.empty();
+    return !has_space_amplification_.empty();
   }
 
   bool has_space_amplification(int level) const {

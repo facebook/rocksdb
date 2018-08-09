@@ -144,9 +144,9 @@ const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
 const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
 const std::string SSTVarietiesTablePropertiesNames::kSstVariety =
-    "rocksdb.sst.gene";
+    "rocksdb.sst.variety";
 const std::string SSTVarietiesTablePropertiesNames::kSstDepend =
-    "rocksdb.sst.takeover";
+    "rocksdb.sst.depend";
 
 uint64_t GetDeletedKeys(
     const UserCollectedProperties& props) {
