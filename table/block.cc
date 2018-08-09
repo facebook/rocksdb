@@ -458,7 +458,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // handle.
 void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
   assert(value_delta_encoded_);
-  const char* limit = value_.data() + 20;  // limit of two var-size uint64_t
+  const char* limit = data_ + restarts_;
   if (shared == 0) {
     uint64_t o, s;
     const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
