@@ -209,6 +209,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   if (measure_io_stats_) {
     prev_perf_level = GetPerfLevel();
     SetPerfLevel(PerfLevel::kEnableTime);
+    perf_context.EnablePerLevelPerfContext();
     prev_write_nanos = IOSTATS(write_nanos);
     prev_fsync_nanos = IOSTATS(fsync_nanos);
     prev_range_sync_nanos = IOSTATS(range_sync_nanos);
@@ -264,6 +265,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     stream << "file_fsync_nanos" << (IOSTATS(fsync_nanos) - prev_fsync_nanos);
     stream << "file_prepare_write_nanos"
            << (IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos);
+    perf_context.DisablePerLevelPerfContext();
   }
 
   return s;
