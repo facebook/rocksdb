@@ -16,7 +16,7 @@ namespace rocksdb {
 const int kDataBlockIndexTypeBitShift = 31;
 
 // 0x7FFFFFFF
-const uint32_t kMaxNumRestarts =  (1u << kDataBlockIndexTypeBitShift) - 1u;
+const uint32_t kMaxNumRestarts = (1u << kDataBlockIndexTypeBitShift) - 1u;
 
 // 0x7FFFFFFF
 const uint32_t kNumRestartsMask = (1u << kDataBlockIndexTypeBitShift) - 1u;
@@ -36,11 +36,15 @@ void UnPackIndexTypeAndNumRestarts(
     uint32_t block_footer,
     BlockBasedTableOptions::DataBlockIndexType* index_type,
     uint32_t* num_restarts) {
-  *index_type = static_cast<BlockBasedTableOptions::DataBlockIndexType>(
-      block_footer >> kDataBlockIndexTypeBitShift);
-  *num_restarts =  block_footer & kNumRestartsMask;
+  if (index_type) {
+    *index_type = static_cast<BlockBasedTableOptions::DataBlockIndexType>(
+        block_footer >> kDataBlockIndexTypeBitShift);
+  }
 
-  assert(*num_restarts <= kMaxNumRestarts);
+  if (num_restarts) {
+    *num_restarts = block_footer & kNumRestartsMask;
+    assert(*num_restarts <= kMaxNumRestarts);
+  }
 }
 
 } // namespace rocksdb
