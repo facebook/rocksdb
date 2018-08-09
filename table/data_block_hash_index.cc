@@ -12,59 +12,58 @@
 
 namespace rocksdb {
 
-inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
-  assert(num_buckets > 0);
+void DataBlockHashIndexBuilder::Add(const Slice& key,
+                                    const uint8_t& restart_index) {
+  // TODO(fwu): error handling
+  uint32_t hash_value = GetSliceHash(key);
+  hash_and_restart_pairs_.emplace_back(hash_value, restart_index);
+}
+
+void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
+  uint16_t num_buckets =
+    static_cast<uint16_t>(static_cast<double>(hash_and_restart_pairs_.size()) /
+                          util_ratio_);
+  if (num_buckets == 0) {
+    num_buckets = 1; // sanity check
+  }
+
   // The build-in hash cannot well distribute strings when into different
   // buckets when num_buckets is power of two, resulting in high hash
   // collision.
   // We made the num_buckets to be odd to avoid this issue.
-  if ((num_buckets & 1) == 0) {
-    num_buckets--;
-  }
-  return static_cast<uint16_t>(GetSliceHash(s) % num_buckets);
-}
+  num_buckets |= 1;
 
-void DataBlockHashIndexBuilder::Add(const Slice& key,
-                                    const uint8_t& restart_index) {
-  // TODO(fwu): error handling
-  uint16_t idx = HashToBucket(key, num_buckets_);
-  if (buckets_[idx] == kNoEntry) {
-    buckets_[idx] = restart_index;
-  } else if (buckets_[idx] != kCollision) {
-    buckets_[idx] = kCollision;
-  } // if buckets_[idx] is already kCollision, we do not have to do anything.
-}
-
-void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
+  std::vector<uint8_t> buckets(num_buckets, kNoEntry);
   // write the restart_index array
-  for (uint8_t restart_index: buckets_) {
+  for (auto & entry: hash_and_restart_pairs_) {
+    uint32_t hash_value = entry.first;
+    uint8_t restart_index = entry.second;
+    uint16_t buck_idx = static_cast<uint16_t>(hash_value % num_buckets);
+    if (buckets[buck_idx] == kNoEntry) {
+      buckets[buck_idx] = restart_index;
+    } else if (buckets[buck_idx] != kCollision) {
+      buckets[buck_idx] = kCollision;
+    }
+    // if buckets[buck_idx] is already kCollision, we do not have to do
+    // anything.
+  }
+
+  for (uint8_t restart_index: buckets) {
     buffer.append(const_cast<const char*>(
                       reinterpret_cast<char*>(&restart_index)),
                   sizeof(restart_index));
   }
 
   // write NUM_BUCK
-  PutFixed16(&buffer, num_buckets_);
+  PutFixed16(&buffer, num_buckets);
 
   // Because we use uint16_t address, we only support block less than 64KB
   // TODO(fwu): gracefully handle error
   assert(buffer.size() < (1 << 16));
 }
 
-void DataBlockHashIndexBuilder::Reset(uint16_t estimated_num_keys) {
-  // update the num_bucket using the new estimated_num_keys for this block
-  if (util_ratio_ <= 0) {
-    util_ratio_ = 0.75;  // sanity check
-  }
-  num_buckets_ = static_cast<uint16_t>(static_cast<double>(estimated_num_keys) /
-                                       util_ratio_);
-  if (num_buckets_ == 0) {
-    num_buckets_ = kInitNumBuckets;  // sanity check
-  }
-  buckets_.resize(num_buckets_);
-  std::fill(buckets_.begin(), buckets_.end(), kNoEntry);
-  estimate_ = sizeof(uint16_t) /*num_buckets*/ +
-              num_buckets_ * sizeof(uint8_t) /*n buckets*/;
+void DataBlockHashIndexBuilder::Reset() {
+  hash_and_restart_pairs_.clear();
 }
 
 void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
@@ -78,7 +77,8 @@ void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
 
 uint8_t DataBlockHashIndex::Seek(const char* data, uint16_t map_offset,
                                  const Slice& key) const {
-  uint16_t idx = HashToBucket(key, num_buckets_);
+  uint32_t hash_value = GetSliceHash(key);
+  uint16_t idx = static_cast<uint16_t>(hash_value % num_buckets_);
   const char* bucket_table = data + map_offset;
   return static_cast<uint8_t>(*(bucket_table + idx * sizeof(uint8_t)));
 }

@@ -66,7 +66,6 @@ class BlockBuilder {
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
-  uint16_t num_keys_;  // num of keys added to this block
   std::unique_ptr<DataBlockHashIndexBuilder> data_block_hash_index_builder_;
 };
 

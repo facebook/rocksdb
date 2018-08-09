@@ -50,8 +50,7 @@ BlockBuilder::BlockBuilder(
       use_delta_encoding_(use_delta_encoding),
       restarts_(),
       counter_(0),
-      finished_(false),
-      num_keys_(0) {
+      finished_(false) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
@@ -76,10 +75,8 @@ void BlockBuilder::Reset() {
   finished_ = false;
   last_key_.clear();
   if (data_block_hash_index_builder_) {
-    // use the num_keys_ of current block as an estimate for the next block.
-    data_block_hash_index_builder_->Reset(num_keys_);
+    data_block_hash_index_builder_->Reset();
   }
-  num_keys_ = 0;
 }
 
 size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
@@ -94,6 +91,7 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
   estimate += VarintLength(key.size()); // varint for key length.
   estimate += VarintLength(value.size()); // varint for value length.
 
+  // TODO(fwu): add the delta of the DataBlockHashIndex
   return estimate;
 }
 
@@ -170,7 +168,6 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   counter_++;
-  num_keys_++;
   estimate_ += buffer_.size() - curr_size;
 }
 

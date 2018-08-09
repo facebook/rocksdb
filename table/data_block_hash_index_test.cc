@@ -105,9 +105,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
       uint8_t restart_point = i;
       ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
     }
-    builder.Reset(2 + j);
-    ASSERT_EQ(builder.num_buckets_,
-              static_cast<uint16_t>((static_cast<double>(2 + j) / 0.75)));
+    builder.Reset();
   }
 }
 

@@ -63,26 +63,33 @@ namespace rocksdb {
 
 const uint8_t kNoEntry = 255;
 const uint8_t kCollision = 254;
-const uint16_t kInitNumBuckets = 400;
+const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
  public:
-  explicit DataBlockHashIndexBuilder(double r)
-      : num_buckets_(kInitNumBuckets),
-        util_ratio_(r),
-        buckets_(kInitNumBuckets, kNoEntry),
-        estimate_(sizeof(uint16_t) /*num_bucket*/ +
-                  kInitNumBuckets * sizeof(uint8_t) /*n buckets*/) {}
+  explicit DataBlockHashIndexBuilder(double util_ratio) {
+    if (util_ratio <= 0) {
+      util_ratio = kDefaultUtilRatio; // sanity check
+    }
+    util_ratio_ = util_ratio;
+  }
   void Add(const Slice& key, const uint8_t& restart_index);
   void Finish(std::string& buffer);
-  void Reset(uint16_t estimated_num_keys);
-  inline size_t EstimateSize() { return estimate_; }
+  void Reset();
+  inline size_t EstimateSize() {
+    uint16_t estimated_num_buckets = static_cast<uint16_t>(
+        static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
+
+    // Maching the num_buckets number in DataBlockHashIndexBuilder::Finish.
+    estimated_num_buckets |= 1;
+
+    return sizeof(uint16_t) +
+           static_cast<size_t>(estimated_num_buckets * sizeof(uint8_t));
+  }
 
  private:
-  uint16_t num_buckets_;
   double util_ratio_;
-  std::vector<uint8_t> buckets_;
-  size_t estimate_;
+  std::vector<std::pair<uint32_t, uint8_t>> hash_and_restart_pairs_;
   friend class DataBlockHashIndex_DataBlockHashTestSmall_Test;
 };
 
