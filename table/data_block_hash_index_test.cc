@@ -97,7 +97,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
     Slice s(buffer2);
     DataBlockHashIndex index;
     uint16_t map_offset;
-    index.Initialize(s.data(), s.size(), &map_offset);
+    index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
 
     // the additional hash map should start at the end of the buffer
     ASSERT_EQ(original_size, map_offset);
@@ -135,7 +135,7 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
   Slice s(buffer2);
   DataBlockHashIndex index;
   uint16_t map_offset;
-  index.Initialize(s.data(), s.size(), &map_offset);
+  index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, map_offset);
@@ -171,7 +171,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   Slice s(buffer2);
   DataBlockHashIndex index;
   uint16_t map_offset;
-  index.Initialize(s.data(), s.size(), &map_offset);
+  index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, map_offset);
@@ -211,7 +211,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   Slice s(buffer2);
   DataBlockHashIndex index;
   uint16_t map_offset;
-  index.Initialize(s.data(), s.size(), &map_offset);
+  index.Initialize(s.data(), static_cast<uint16_t>(s.size()), &map_offset);
 
   // the additional hash map should start at the end of the buffer
   ASSERT_EQ(original_size, map_offset);

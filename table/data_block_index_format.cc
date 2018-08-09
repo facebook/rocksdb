@@ -25,7 +25,7 @@ uint32_t PackIndexTypeAndNumRestarts(
     BlockBasedTableOptions::DataBlockIndexType index_type,
     uint32_t num_restarts) {
   if (num_restarts > kMaxNumRestarts) {
-    assert(0); // mute travis "unused" warning
+    assert(0);  // mute travis "unused" warning
   }
 
   return num_restarts |= index_type << kDataBlockIndexTypeBitShift;
