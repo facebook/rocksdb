@@ -238,7 +238,7 @@ InternalIterator* TableCache::NewIterator(
   if (s.ok()) {
     if (options.table_filter &&
         !options.table_filter(*table_reader->GetTableProperties())) {
-      result = NewEmptyInternalIterator(arena);
+      result = NewEmptyInternalIterator<Slice>(arena);
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
                                          skip_filters, for_compaction);
@@ -279,7 +279,7 @@ InternalIterator* TableCache::NewIterator(
   }
   if (!s.ok()) {
     assert(result == nullptr);
-    result = NewErrorInternalIterator(s, arena);
+    result = NewErrorInternalIterator<Slice>(s, arena);
   }
   return result;
 }

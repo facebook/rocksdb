@@ -26,7 +26,6 @@ class Iterator;
 class Logger;
 class MergeOperator;
 class Statistics;
-class InternalIterator;
 
 class MergeHelper {
  public:

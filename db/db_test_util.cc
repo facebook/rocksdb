@@ -449,8 +449,8 @@ Options DBTestBase::GetOptions(
       options.prefix_extractor.reset(NewNoopTransform());
       break;
     }
-    case kBlockBasedTableWithPartitionedIndexFormat3: {
-      table_options.format_version = 3;
+    case kBlockBasedTableWithPartitionedIndexFormat4: {
+      table_options.format_version = 4;
       // Format 3 changes the binary index format. Since partitioned index is a
       // super-set of simple indexes, we are also using kTwoLevelIndexSearch to
       // test this format.
