@@ -770,8 +770,9 @@ static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
 DEFINE_int32(compression_level, rocksdb::CompressionOptions().level,
-             "Compression level. For zlib this should be -1 for the "
-             "default level, or between 0 and 9.");
+             "Compression level. The meaning of this value is library-"
+             "dependent. If unset, we try to use the default for the library "
+             "specified in `--compression_type`");
 
 DEFINE_int32(compression_max_dict_bytes,
              rocksdb::CompressionOptions().max_dict_bytes,
