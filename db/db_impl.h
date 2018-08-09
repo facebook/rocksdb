@@ -1499,10 +1499,6 @@ class DBImpl : public DB {
   std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   const bool preserve_deletes_;
 
-  // If true, all column families in the DB instance must be flushed
-  // atomically.
-  bool atomic_flush_ = false;
-
   // Flag to check whether Close() has been called on this DB
   bool closed_;
 

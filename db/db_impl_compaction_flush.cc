@@ -1109,16 +1109,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-        cached_recoverable_state_empty_.load()) {
-      s = Status::OK();
-    } else {
+    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+        !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
       flush_memtable_id = cfd->imm()->GetLatestMemTableID();
       flush_req.emplace_back(cfd, flush_memtable_id);
     }
 
-    if (s.ok()) {
+    if (s.ok() && !flush_req.empty()) {
       for (auto& elem : flush_req) {
         auto& loop_cfd = elem.first;
         loop_cfd->imm()->FlushRequested();
@@ -2134,6 +2132,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
     const MutableCFOptions& mutable_cf_options,
     FlushReason /* flush_reason */) {
+  // TODO(yanqin) investigate if 'flush_reason' can be removed since it's not
+  // used.
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
