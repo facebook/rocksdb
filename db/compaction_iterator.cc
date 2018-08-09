@@ -512,10 +512,9 @@ void CompactionIterator::NextFromInput() {
       // key
       ParsedInternalKey next_ikey;
       input_->Next();
-      bool isKeyValid = false;
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
-      while (input_Valid() &&
+      while (input_->Valid() &&
 	     ParseInternalKey(input_->key(), &next_ikey) &&
 	     cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
 	     (prev_snapshot == 0 || next_ikey.sequence > prev_snapshot ||
@@ -526,10 +525,10 @@ void CompactionIterator::NextFromInput() {
       }
       // If you find you still need to output a row with this key, we need to output the
       // delete too
-      if (input_Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+      if (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
 	  cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
-	valid = true;
-	at_next = true;
+	valid_ = true;
+	at_next_ = true;
       }
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {
