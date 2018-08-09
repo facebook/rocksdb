@@ -54,7 +54,7 @@ BlockBuilder::BlockBuilder(
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
-    case BlockBasedTableOptions::kDataBlockHashSearch:
+    case BlockBasedTableOptions::kDataBlockBinaryAndHash:
       data_block_hash_index_builder_.Initialize(
           data_block_hash_table_util_ratio);
       break;
@@ -106,7 +106,7 @@ Slice BlockBuilder::Finish() {
     BlockBasedTableOptions::kDataBlockBinarySearch;
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Finish(buffer_);
-    index_type = BlockBasedTableOptions::kDataBlockHashSearch;
+    index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
   }
 
   // footer is a packed format of data_block_index_type and num_restarts

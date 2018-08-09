@@ -648,7 +648,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
             size_ = 0;
           }
           break;
-        case BlockBasedTableOptions::kDataBlockHashSearch:
+        case BlockBasedTableOptions::kDataBlockBinaryAndHash:
           if (size_ < sizeof(uint32_t) /* NUM_RESTARTS*/ +
                           sizeof(uint16_t) * 2 /* NUM_BUCK and MAP_START */) {
             size_ = 0;

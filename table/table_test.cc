@@ -3652,7 +3652,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
 
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.data_block_index_type =
-    BlockBasedTableOptions::kDataBlockHashSearch;
+    BlockBasedTableOptions::kDataBlockBinaryAndHash;
 
   Options options;
   options.comparator = BytewiseComparator();

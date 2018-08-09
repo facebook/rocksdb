@@ -234,7 +234,7 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
 
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockHashSearch);
+                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
 
   std::string ukey("gopher");
   std::string value("gold");
@@ -308,7 +308,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
 
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockHashSearch);
+                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
   int num_records = 500;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);
