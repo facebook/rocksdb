@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.15.2 (8/9/2018)
+### Bug Fixes
+* Return correct usable_size for BlockContents.
+
 ## 5.15.1 (8/1/2018)
 ### Bug Fixes
 * Prevent dereferencing invalid STL iterators when there are range tombstones in ingested files.
