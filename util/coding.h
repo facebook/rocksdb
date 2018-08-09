@@ -263,11 +263,11 @@ inline void PutVarint64(std::string* dst, uint64_t v) {
 }
 
 inline void PutVarsignedint64(std::string* dst, int64_t v) {
-  char buf[10];
+  char buf[kMaxVarint64Length];
   // Shift the absolute number right for one bit. Then use the least significant
   // bit to indicate the sign.
-  char* ptr =
-      v >= 0 ? EncodeVarint64(buf, v * 2) : EncodeVarint64(buf, v * -1 * 2 + 1);
+  char* ptr = EncodeVarint64(buf, v >= 0 ? static_cast<uint64_t>(v) * 2 : 
+      static_cast<uint64_t>(-v) * 2 + 1;
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 

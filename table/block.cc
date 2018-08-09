@@ -446,13 +446,13 @@ bool IndexBlockIter::ParseNextIndexKey() {
 }
 
 // The format:
-// restart_point   0: k, v (off,sz), k, v (delta-sz), ..., k, v (delta-sz)
-// restart_point   1: k, v (off,sz), k, v (delta-sz), ..., k, v (delta-sz)
+// restart_point   0: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
+// restart_point   1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
 // ...
-// restart_point n-1: k, v (off,sz), k, v (delta-sz), ..., k, v (delta-sz)
+// restart_point n-1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
 // where, k is key, v is value, and its encoding is in parenthesis.
 // The format of each key is (shared_size, non_shared_size, shared, non_shared)
-// The format of each value, i.e., block hanlde, is (offset,size) whenever the
+// The format of each value, i.e., block hanlde, is (offset, size) whenever the
 // shared_size is 0, which included the first entry in each restart point.
 // Otherwise the format is delta-size = block handle size - size of last block
 // handle.

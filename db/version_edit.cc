@@ -46,7 +46,7 @@ enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
   // Since Manifest is not entirely currently forward-compatible, and the only
-  // forward-compatbile part is the CutsomtTag of kNewFile, we currently encode
+  // forward-compatible part is the CutsomtTag of kNewFile, we currently encode
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
@@ -274,7 +274,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           break;
         case kMinLogNumberToKeepHack:
           // This is a hack to encode kMinLogNumberToKeep in a
-          // forward-compatbile fashion.
+          // forward-compatible fashion.
           if (!GetFixed64(&field, &min_log_number_to_keep_)) {
             return "deleted log number malformatted";
           }

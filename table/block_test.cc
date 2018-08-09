@@ -79,7 +79,7 @@ void GenerateRandomKBHs(std::vector<std::string> *keys,
 
   // generate different prefix
   for (int i = from; i < from + len; i += step) {
-    // generating keys that shares the prefix
+    // generate keys that shares the prefix
     for (int j = 0; j < keys_share_prefix; ++j) {
       keys->emplace_back(GenerateKey(i, j, padding_size, &rnd));
 

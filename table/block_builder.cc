@@ -133,7 +133,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
   const size_t curr_size = buffer_.size();
 
   if (use_value_delta_encoding_) {
-    // Add "<shared><non_shared><value_size>" to buffer_
+    // Add "<shared><non_shared>" to buffer_
     PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
                         static_cast<uint32_t>(non_shared));
   } else {
