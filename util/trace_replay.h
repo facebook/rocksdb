@@ -15,6 +15,7 @@
 namespace rocksdb {
 
 class ColumnFamilyHandle;
+class ColumnFamilyData;
 class DB;
 class DBImpl;
 class Slice;
@@ -32,6 +33,8 @@ enum TraceType : char {
   kTraceEnd = 2,
   kTraceWrite = 3,
   kTraceGet = 4,
+  kTraceIteratorSeek = 5,
+  kTraceIteratorSeekForPrev = 6,
   kTraceMax,
 };
 
@@ -57,6 +60,8 @@ class Tracer {
 
   Status Write(WriteBatch* write_batch);
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
+  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
+  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
 
   Status Close();
 
