@@ -1243,8 +1243,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
         read_options.fill_cache) {
       size_t charge = block->value->ApproximateMemoryUsage();
       s = block_cache->Insert(block_cache_key, block->value, charge,
-                              &DeleteCachedEntry<Block>,
-                              &(block->cache_handle));
+                              &DeleteCachedEntry<Block>, &(block->cache_handle),
+                              Cache::Priority::LOW,
+                              true /*charge_internal_usage*/);
       block_cache->TEST_mark_as_data_block(block_cache_key, charge);
       if (s.ok()) {
         if (get_context != nullptr) {
@@ -1327,7 +1328,9 @@ Status BlockBasedTable::PutDataBlockToCache(
       raw_block->cachable()) {
     s = block_cache_compressed->Insert(compressed_block_cache_key, raw_block,
                                        raw_block->ApproximateMemoryUsage(),
-                                       &DeleteCachedEntry<Block>);
+                                       &DeleteCachedEntry<Block>,
+                                       nullptr /*handle*/, Cache::Priority::LOW,
+                                       true /*charge_internal_usage*/);
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       raw_block = nullptr;
@@ -1344,7 +1347,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     size_t charge = block->value->ApproximateMemoryUsage();
     s = block_cache->Insert(block_cache_key, block->value, charge,
                             &DeleteCachedEntry<Block>, &(block->cache_handle),
-                            priority);
+                            priority, true /*charge_internal_usage*/);
     block_cache->TEST_mark_as_data_block(block_cache_key, charge);
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
@@ -1518,7 +1521,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
           key, filter, usage, &DeleteCachedFilterEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
               ? Cache::Priority::HIGH
-              : Cache::Priority::LOW);
+              : Cache::Priority::LOW,
+          true /*charge_internal_usage*/);
       if (s.ok()) {
         if (get_context != nullptr) {
           get_context->get_context_stats_.num_cache_add++;
@@ -1609,7 +1613,8 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
           key, index_reader, charge, &DeleteCachedIndexEntry, &cache_handle,
           rep_->table_options.cache_index_and_filter_blocks_with_high_priority
               ? Cache::Priority::HIGH
-              : Cache::Priority::LOW);
+              : Cache::Priority::LOW,
+          true /*charge_internal_usage*/);
     }
 
     if (s.ok()) {
@@ -1741,7 +1746,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
             Slice(cache_key, static_cast<size_t>(end - cache_key));
         s = block_cache->Insert(unique_key, nullptr,
                                 block.value->ApproximateMemoryUsage(), nullptr,
-                                &cache_handle);
+                                &cache_handle, Cache::Priority::LOW,
+                                true /*charge_internal_usage*/);
         if (s.ok()) {
           if (cache_handle != nullptr) {
             iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,

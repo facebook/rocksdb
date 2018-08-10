@@ -126,10 +126,14 @@ class Cache {
   //
   // When the inserted entry is no longer needed, the key and
   // value will be passed to "deleter".
+  //
+  // If charge_internal_usage is true, add size of any memory used by the
+  // cache implementation for the new entry to charge.
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) = 0;
+                        Priority priority = Priority::LOW,
+                        bool charge_internal_usage = false) = 0;
 
   // If the cache has no mapping for "key", returns nullptr.
   //

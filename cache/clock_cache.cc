@@ -35,6 +35,7 @@ std::shared_ptr<Cache> NewClockCache(size_t /*capacity*/, int /*num_shard_bits*/
 #include "tbb/concurrent_hash_map.h"
 
 #include "cache/sharded_cache.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "util/autovector.h"
 #include "util/mutexlock.h"
@@ -248,8 +249,8 @@ class ClockCacheShard : public CacheShard {
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
                         size_t charge,
                         void (*deleter)(const Slice& key, void* value),
-                        Cache::Handle** handle,
-                        Cache::Priority priority) override;
+                        Cache::Handle** handle, Cache::Priority priority,
+                        bool charge_internal_usage) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
   // If the entry in in cache, increase reference count and return true.
   // Return false otherwise.
@@ -321,7 +322,8 @@ class ClockCacheShard : public CacheShard {
   CacheHandle* Insert(const Slice& key, uint32_t hash, void* value,
                       size_t change,
                       void (*deleter)(const Slice& key, void* value),
-                      bool hold_reference, CleanupContext* context);
+                      bool hold_reference, bool charge_internal_usage,
+                      CleanupContext* context);
 
   // Guards list_, head_, and recycle_. In addition, updating table_ also has
   // to hold the mutex, to avoid the cache being in inconsistent state.
@@ -541,7 +543,7 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 CacheHandle* ClockCacheShard::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
-    CleanupContext* context) {
+    bool charge_internal_usage, CleanupContext* context) {
   MutexLock l(&mutex_);
   bool success = EvictFromCache(charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
@@ -567,6 +569,9 @@ CacheHandle* ClockCacheShard::Insert(
   handle->hash = hash;
   handle->value = value;
   handle->charge = charge;
+  if (charge_internal_usage) {
+    handle->charge += sizeof(CacheHandle);
+  }
   handle->deleter = deleter;
   uint32_t flags = hold_reference ? kInCacheBit + kOneRef : kInCacheBit;
   handle->flags.store(flags, std::memory_order_relaxed);
@@ -588,14 +593,23 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                size_t charge,
                                void (*deleter)(const Slice& key, void* value),
                                Cache::Handle** out_handle,
-                               Cache::Priority /*priority*/) {
+                               Cache::Priority /*priority*/,
+                               bool charge_internal_usage) {
   CleanupContext context;
   HashTable::accessor accessor;
   char* key_data = new char[key.size()];
   memcpy(key_data, key.data(), key.size());
   Slice key_copy(key_data, key.size());
-  CacheHandle* handle = Insert(key_copy, hash, value, charge, deleter,
-                               out_handle != nullptr, &context);
+  if (charge_internal_usage) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    charge += malloc_usable_size(static_cast<void*>(key_data));
+#else
+    charge += key.size();
+#endif
+  }
+  CacheHandle* handle =
+      Insert(key_copy, hash, value, charge, deleter, out_handle != nullptr,
+             charge_internal_usage, &context);
   Status s;
   if (out_handle != nullptr) {
     if (handle == nullptr) {

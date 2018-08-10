@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string>
 
+#include "port/malloc.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -338,18 +339,26 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge,
                              void (*deleter)(const Slice& key, void* value),
-                             Cache::Handle** handle, Cache::Priority priority) {
+                             Cache::Handle** handle, Cache::Priority priority,
+                             bool charge_internal_usage) {
   // Allocate the memory here outside of the mutex
   // If the cache is full, we'll have to release it
   // It shouldn't happen very often though.
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      new char[sizeof(LRUHandle) - 1 + key.size()]);
+  size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
+  LRUHandle* e = reinterpret_cast<LRUHandle*>(new char[handle_size]);
   Status s;
   autovector<LRUHandle*> last_reference_list;
 
   e->value = value;
   e->deleter = deleter;
   e->charge = charge;
+  if (charge_internal_usage) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    e->charge += malloc_usable_size(static_cast<void*>(e));
+#else
+    e->charge += handle_size;
+#endif
+  }
   e->key_length = key.size();
   e->flags = 0;
   e->hash = hash;

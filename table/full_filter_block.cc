@@ -5,15 +5,8 @@
 
 #include "table/full_filter_block.h"
 
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
-
 #include "monitoring/perf_context_imp.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"

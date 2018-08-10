@@ -2282,12 +2282,13 @@ class MockCache : public LRUCache {
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) override {
+                        Priority priority = Priority::LOW,
+                        bool charge_internal_usage = false) override {
     // Replace the deleter with our own so that we keep track of data blocks
     // erased from the cache
     deleters_[key.ToString()] = deleter;
     return ShardedCache::Insert(key, value, charge, &MockDeleter, handle,
-                                priority);
+                                priority, charge_internal_usage);
   }
   // This is called by the application right after inserting a data block
   virtual void TEST_mark_as_data_block(const Slice& key,
