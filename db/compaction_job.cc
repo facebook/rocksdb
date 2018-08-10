@@ -131,7 +131,7 @@ struct MapSegment {
   MapSegment() = default;
 };
 
-// Union tow sorted non-overlap segments
+// Union two sorted non-overlap segments
 // l: [ -------- )      [ -------- ]
 // r:       ( -------------- ]
 // o: [ -- ]( -- )[ -- )[ -- ]( -- ]
@@ -278,12 +278,12 @@ struct CompactionJob::SubcompactionState {
   // subcompactions may have overlapping key-ranges.
   // 'start' is inclusive, 'end' is exclusive, and nullptr means unbounded
   const Slice *start, *end;
-  bool include_start;
+  int include_start;
   int include_end;
 
-  // Actual input range (closed interval)
-  InternalKey actual_start;
-  InternalKey actual_end;
+  // actual end for this subcompaction
+  Slice end_slice;
+  InternalKey end_storage;
 
   // The return status of this subcompaction
   Status status;
@@ -334,7 +334,7 @@ struct CompactionJob::SubcompactionState {
       : compaction(c),
         start(range.start),
         end(range.end),
-        include_start(range.include_start),
+        include_start(!!range.include_start),
         include_end(!!range.include_end),
         outfile(nullptr),
         builder(nullptr),
@@ -355,11 +355,15 @@ struct CompactionJob::SubcompactionState {
   SubcompactionState& operator=(SubcompactionState&& o) {
     compaction = std::move(o.compaction);
     start = std::move(o.start);
-    end = std::move(o.end);
+    if (o.end != &o.end_slice) {
+      end = std::move(o.end);
+    } else {
+      end_storage = std::move(o.end_storage);
+      end_slice = end_storage.Encode();
+      end = &end_slice;
+    }
     include_start = std::move(o.include_start);
     include_end = std::move(o.include_end);
-    actual_start = std::move(o.actual_start);
-    actual_end = std::move(o.actual_end);
     status = std::move(o.status);
     outputs = std::move(o.outputs);
     outfile = std::move(o.outfile);
@@ -594,6 +598,7 @@ void CompactionJob::Prepare() {
 
   if (!c->input_range().empty()) {
     auto& input_range = c->input_range();
+    assert(input_range.size() <= c->max_subcompactions());
     boundaries_.resize(input_range.size() * 2);
     for (size_t i = 0; i < input_range.size(); i++) {
       Slice* start = &boundaries_[i * 2];
@@ -1114,11 +1119,14 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       start_iter.SetInternalKey(*start, 0, static_cast<ValueType>(0));
     }
     input->Seek(start_iter.GetInternalKey());
+    if (!sub_compact->include_start &&
+        cfd->user_comparator()->Compare(ExtractUserKey(input->key()),
+                                        *start) == 0) {
+      input->Next();
+    }
   } else {
     input->SeekToFirst();
   }
-  assert(input->Valid());
-  sub_compact->actual_start.DecodeFrom(input->key());
 
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
@@ -1268,10 +1276,15 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction &&
           false) { // test map and link , disable tempory
         if (next_key != nullptr &&
-            ExtractUserKey(*next_key) !=
-                sub_compact->outputs.back().meta.largest.user_key()) {
-          sub_compact->actual_end.SetMinPossibleForUserKey(
+            cfd->user_comparator()->Compare(
+                ExtractUserKey(*next_key),
+                sub_compact->outputs.back().meta.largest.user_key()) != 0) {
+          // set end to actual end
+          sub_compact->end_storage.SetMinPossibleForUserKey(
               ExtractUserKey(*next_key));
+          sub_compact->end_slice = sub_compact->end_storage.Encode();
+          sub_compact->end = &sub_compact->end_slice;
+          sub_compact->include_end = false;
           // TODO(zouzhizhang): check is cover any sst
           break;
         } else {
@@ -1348,21 +1361,6 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       status = s;
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
-  }
-  if (sub_compact->actual_end.size() == 0) {
-    if (end != nullptr) {
-      IterKey end_iter;
-      if (sub_compact->include_end) {
-        end_iter.SetInternalKey(*end, 0, static_cast<ValueType>(0));
-      } else {
-        end_iter.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
-      }
-      input->SeekForPrev(end_iter.GetInternalKey());
-    } else {
-      input->SeekToLast();
-    }
-    assert(input->Valid());
-    sub_compact->actual_end.DecodeFrom(input->key());
   }
 
   if (measure_io_stats_) {
@@ -1480,8 +1478,6 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   // Update metadata
   meta.sst_variety = kLinkSst;
   meta.sst_depend = std::move(sst_depend);
-  sub_compact->actual_start = meta.smallest;
-  sub_compact->actual_end = meta.largest;
 
   if (!status.ok()) {
     sub_compact->status = status;
@@ -1755,8 +1751,6 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   // Update metadata
   meta.sst_variety = kMapSst;
   meta.sst_depend = std::move(sst_depend);
-  sub_compact->actual_start = meta.smallest;
-  sub_compact->actual_end = meta.largest;
 
   if (!status.ok()) {
     sub_compact->status = status;

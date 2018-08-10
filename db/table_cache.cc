@@ -30,19 +30,19 @@ namespace rocksdb {
 
 namespace {
 
-template<class Lambda, class R, class... Args>
-R c_style_callback_impl(void* vlamb, Args... args) {
-  return (*(Lambda*)vlamb)(std::forward<Args>(args)...);
-}
-
 template<class Lambda>
 struct c_style_callback_fetcher {
+  template<class R, class... Args>
+  static R invoke(void* vlamb, Args... args) {
+    return (*(Lambda*)vlamb)(std::forward<Args>(args)...);
+  }
+
   template<class R, class ...Args>
   using target_callback = R(*)(void*, Args...);
 
   template<class R, class ...Args>
-  operator target_callback<R, Args...>() {
-    return &c_style_callback_impl<Lambda, R, Args...>;
+  operator target_callback<R, Args...>() const {
+    return &c_style_callback_fetcher::invoke<R, Args...>;
   }
 };
 
@@ -185,11 +185,11 @@ Status GetFromVarietySst(
         find_k = smallest_key;
       }
 
-      bool is_bound_key =
+      bool is_largest_user_key =
           icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
                                            ExtractUserKey(k)) == 0;
       SequenceNumber min_seq_backup = get_context->GetMinSequenceNumber();
-      if (is_bound_key) {
+      if (is_largest_user_key) {
         // shrink seqno to largest_key, make sure can't read greater keys
         get_context->SetMinSequenceNumber(
             std::max(min_seq_backup, GetInternalKeySeqno(largest_key)));
@@ -204,7 +204,7 @@ Status GetFromVarietySst(
       }
       // recovery min_seq_backup
       get_context->SetMinSequenceNumber(min_seq_backup);
-      return is_bound_key;
+      return is_largest_user_key;
     };
     table_reader->RangeScan(&k, &get_from_map,
                             gen_c_style_callback(get_from_map));

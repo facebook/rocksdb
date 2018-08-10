@@ -122,6 +122,7 @@ bool UniversalCompactionPicker::IsInputFilesNonOverlapping(
   auto comparator = icmp_->user_comparator();
   int first_iter = 1;
 
+  // check level has map or link sst
   for (auto& level_files : *c->inputs()) {
     if (vstorage->has_space_amplification(level_files.level)) {
       return false;

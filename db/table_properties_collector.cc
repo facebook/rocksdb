@@ -6,7 +6,6 @@
 #include "db/table_properties_collector.h"
 
 #include "db/dbformat.h"
-#include "db/version_edit.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
