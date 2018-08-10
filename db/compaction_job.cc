@@ -104,6 +104,171 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
   }
 }
 
+namespace {
+
+struct MapSegment {
+  InternalKey point[2];
+  bool include[2];
+  std::vector<uint64_t> link;
+
+  MapSegment(const MapSstElement& map_element) {
+    point[0].DecodeFrom(map_element.smallest_key_);
+    point[1].DecodeFrom(map_element.largest_key_);
+    include[0] = true;
+    include[1] = true;
+    link.resize(map_element.link_.size());
+    for (size_t i = 0; i < link.size(); ++i) {
+      link[i] = map_element.link_[i].sst_id;
+    }
+  }
+  MapSegment(const FileMetaData* f) {
+    point[0] = f->smallest;
+    point[1] = f->largest;
+    include[0] = true;
+    include[1] = true;
+    link.push_back(f->fd.GetNumber());
+  }
+  MapSegment() = default;
+};
+
+// Union tow sorted non-overlap segments
+// l: [ -------- )      [ -------- ]
+// r:       ( -------------- ]
+// o: [ -- ]( -- )[ -- )[ -- ]( -- ]
+std::vector<MapSegment> MapSegmentUnion(std::vector<MapSegment>& l,
+                                        std::vector<MapSegment>& r,
+                                        const InternalKeyComparator& icomp) {
+  std::vector<MapSegment> output;
+  assert(!l.empty() && !r.empty());
+  auto put_left = [&](const InternalKey& key, bool include) {
+    output.emplace_back();
+    auto& segment = output.back();
+    segment.point[0] = key;
+    segment.include[0] = include;
+  };
+  auto put_right = [&](const InternalKey& key, bool include) {
+    auto& segment = output.back();
+    segment.point[1] = key;
+    segment.include[1] = include;
+  };
+  auto put_link = [&](MapSegment* l, MapSegment* r) {
+    auto& link = output.back().link;
+    if (l != nullptr) {
+      link.insert(link.end(), l->link.begin(), l->link.end());
+    }
+    if (r != nullptr) {
+      link.insert(link.end(), r->link.begin(), r->link.end());
+    }
+    assert(!link.empty());
+  };
+  size_t li = 0, ri = 0;  // segment index
+  size_t lc, rc;          // change
+  size_t lo = 0, ro = 0;  // left or right
+#define CASE(a,b,c,d) (!!(a) | (!!(b) << 1) | (!!(c) << 2) | (!!(d) << 3))
+  do {
+    int c;
+    if (li < l.size() && ri < r.size()) {
+      c = icomp.Compare(l[li].point[lo].Encode(), r[ri].point[ro].Encode());
+      if (c == 0) {
+        switch (CASE(lo, l[li].include[lo], ro, r[ri].include[ro])) {
+        // l: [   [   (   )   )   [
+        // r: (   )   ]   ]   (   ]
+        case CASE(0, 1, 0, 0):
+        case CASE(0, 1, 1, 0):
+        case CASE(0, 0, 1, 1):
+        case CASE(1, 0, 1, 1):
+        case CASE(1, 0, 0, 0):
+        case CASE(0, 1, 1, 1):
+          c = -1;
+          break;
+        // l: (   )   ]   ]   (   ]
+        // r: [   [   (   )   )   [
+        case CASE(0, 0, 0, 1):
+        case CASE(1, 0, 0, 1):
+        case CASE(1, 1, 0, 0):
+        case CASE(1, 1, 1, 0):
+        case CASE(0, 0, 1, 0):
+        case CASE(1, 1, 0, 1):
+          c = 1;
+          break;
+        // l: [   ]   (   )
+        // r: [   ]   (   )
+        default:
+          c = 0;
+          break;
+        }
+      }
+    } else {
+      c = li < l.size() ? -1 : 1;
+    }
+    lc = c <= 0;
+    rc = c >= 0;
+    switch (CASE(lo, ro, lc, rc)) {
+    // out l , out r , enter l
+    case CASE(0, 0, 1, 0):
+      put_left(l[li].point[lo], l[li].include[lo]);
+      put_link(&l[li], nullptr);
+      break;
+    // in l , out r , leave l
+    case CASE(1, 0, 1, 0):
+      put_right(l[li].point[lo], l[li].include[lo]);
+      break;
+    // out l , out r , enter r
+    case CASE(0, 0, 0, 1):
+      put_left(r[ri].point[ro], r[ri].include[ro]);
+      put_link(nullptr, &r[ri]);
+      break;
+    // out l , in r , leave r
+    case CASE(0, 1, 0, 1):
+      put_right(r[ri].point[ro], r[ri].include[ro]);
+      break;
+    // in l , out r , begin r
+    case CASE(1, 0, 0, 1):
+      put_right(r[ri].point[ro], !r[ri].include[ro]);
+      put_left(r[ri].point[ro], r[ri].include[ro]);
+      put_link(&l[li], &r[ri]);
+      break;
+    // in l , in r , leave r
+    case CASE(1, 1, 0, 1):
+      put_right(r[ri].point[ro], r[ri].include[ro]);
+      put_left(r[ri].point[ro], !r[ri].include[ro]);
+      put_link(&l[li], nullptr);
+      break;
+    // out l , in r , begin l
+    case CASE(0, 1, 1, 0):
+      put_right(l[li].point[lo], !l[li].include[lo]);
+      put_left(l[li].point[lo], l[li].include[lo]);
+      put_link(&l[li], &r[ri]);
+      break;
+    // in l , in r , leave l
+    case CASE(1, 1, 1, 0):
+      put_right(l[li].point[lo], l[li].include[lo]);
+      put_left(l[li].point[lo], !l[li].include[lo]);
+      put_link(nullptr, &r[ri]);
+      break;
+    // out l , out r , enter l , enter r
+    case CASE(0, 0, 1, 1):
+      put_left(l[li].point[lo], l[li].include[lo]);
+      put_link(&l[li], &r[ri]);
+      break;
+    // in l , in r , leave l , leave r
+    case CASE(1, 1, 1, 1):
+      put_right(l[li].point[lo], l[li].include[lo]);
+      break;
+    default:
+      assert(false);
+    }
+    li += (lo + lc) / 2;
+    ri += (ro + rc) / 2;
+    lo = (lo + lc) % 2;
+    ro = (ro + rc) % 2;
+  } while (li != l.size() || ri != r.size());
+#undef CASE
+  return output;
+}
+
+}
+
 // Maintains state for each sub-compaction
 struct CompactionJob::SubcompactionState {
   const Compaction* compaction;
@@ -1328,23 +1493,33 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   auto compaction = compact_->compaction;
   auto cfd = compaction->column_family_data();
 
+  struct IteratorAndReader {
+    InternalIterator* iter;
+    TableReader* reader;
+  };
+
+  // used for RAII destruct range_del_agg and iterators
   struct IteratorCache {
-    struct CacheItem {
-      InternalIterator* iter;
-      TableReader* reader;
-    };
-    std::unordered_map<uint64_t, CacheItem> map;
+    std::unordered_map<uint64_t, IteratorAndReader> map;
     Arena arena;
-    std::unique_ptr<RangeDelAggregator> range_del_agg;
+    RangeDelAggregator* range_del_agg;
 
     ~IteratorCache() {
       for (auto pair : map) {
         pair.second.iter->~InternalIterator();
       }
+      range_del_agg->~RangeDelAggregator();
+    }
+
+    void NewRangeDelAgg(const InternalKeyComparator& icmp,
+                        const std::vector<SequenceNumber>& snapshots) {
+      char* buffer = arena.AllocateAligned(sizeof(RangeDelAggregator));
+      range_del_agg = new(buffer) RangeDelAggregator(icmp, snapshots);
     }
   } iterator_cache;
-  iterator_cache.range_del_agg.reset(
-      new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
+
+  iterator_cache.NewRangeDelAgg(cfd->internal_comparator(),
+                                existing_snapshots_);
 
   std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
   auto& delend_files =
@@ -1361,7 +1536,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
                read_options, env_optiosn_for_read_,
                cfd->internal_comparator(), *f,
                f->sst_variety == kMapSst ? empty_delend_files : delend_files,
-               iterator_cache.range_del_agg.get(),
+               iterator_cache.range_del_agg,
                compaction->mutable_cf_options()->prefix_extractor.get(),
                reader, nullptr /* no per level latency histogram */,
                true /* for_compaction */, &iterator_cache.arena,
@@ -1372,7 +1547,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     if (find != iterator_cache.map.end()) {
       return find->second.iter;
     }
-    IteratorCache::CacheItem item;
+    IteratorAndReader item;
     item.iter = new_iterator(f, level, &item.reader);
     iterator_cache.map.emplace(f->fd.GetNumber(), item);
     return item.iter;
@@ -1384,7 +1559,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     }
     auto& depend_files
         = compaction->input_version()->storage_info()->depend_files();
-    IteratorCache::CacheItem item;
+    IteratorAndReader item;
     auto find_f = depend_files.find(sst_id);
     if (find_f == depend_files.end()) {
       item.iter = NewErrorInternalIterator(
@@ -1397,26 +1572,14 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     return item;
   };
 
-  struct Endpoint {
-    InternalKey point;
-    bool include;
-
-    Endpoint(const Slice& _key, bool _include)
-        : include(_include) {
-      point.DecodeFrom(_key);
-    }
-  };
-  struct LevelMap {
-    std::vector<Endpoint> map;
-    std::vector<std::vector<uint64_t>> link_storage;
-  };
-
-  std::list<LevelMap> level_maps;
+  std::list<std::vector<MapSegment>> level_segments;
   MapSstElement map_element;
   InternalKey k_start, k_end;
   SequenceNumber seq_start = kMaxSequenceNumber, seq_end = 0;
+
+  // load input files into segments
   for (auto& level_files : *compaction->inputs()) {
-    LevelMap level;
+    std::vector<MapSegment> segments;
     for (auto f : level_files.files) {
       if (f->sst_variety == kMapSst) {
         auto iter = get_iterator(f, level_files.level);
@@ -1430,25 +1593,15 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
                 Status::Corruption("Map sst invalid key or value");
             return;
           }
-          level.map.emplace_back(map_element.smallest_key_, true);
-          level.map.emplace_back(map_element.largest_key_, true);
-          std::vector<uint64_t> link(map_element.link_.size());
-          for (size_t i = 0; i < link.size(); ++i) {
-            link[i] = map_element.link_[i].sst_id;
-          }
-          level.link_storage.emplace_back(std::move(link));
+          segments.emplace_back(map_element);
         }
       } else {
         get_iterator(f, level_files.level); // load into cache
-        level.map.emplace_back(f->smallest.Encode(), true);
-        level.map.emplace_back(f->largest.Encode(), true);
-        std::vector<uint64_t> link = {f->fd.GetNumber()};
-        level.link_storage.emplace_back(std::move(link));
+        segments.emplace_back(f);
       }
       if (level_files.level == 0) {
-        level_maps.emplace_back(std::move(level));
-        level.map.clear();
-        level.link_storage.clear();
+        level_segments.emplace_back(std::move(segments));
+        segments.clear();
       }
       if (k_start.size() == 0 ||
           cfd->internal_comparator().Compare(f->smallest, k_start) < 0) {
@@ -1461,154 +1614,31 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
       seq_start = std::min(seq_start, f->fd.smallest_seqno);
       seq_end = std::max(seq_end, f->fd.largest_seqno);
     }
-    if (!level.map.empty()) {
-      level_maps.emplace_back(std::move(level));
+    if (!segments.empty()) {
+      level_segments.emplace_back(std::move(segments));
     }
   }
-  auto merge_map = [](LevelMap& l, LevelMap& r,
-                      const InternalKeyComparator& icomp) {
-    LevelMap output;
-    assert(!l.map.empty());
-    assert(!r.map.empty());
-    assert(l.map.size() % 2 == 0);
-    assert(r.map.size() % 2 == 0);
-    auto put_bound = [&](const InternalKey& key, bool include) {
-      output.map.emplace_back(key.Encode(), include);
-    };
-    auto put_link = [&](const std::vector<uint64_t>* link_l,
-                        const std::vector<uint64_t>* link_r) {
-      std::vector<uint64_t> link;
-      if (link_l != nullptr) {
-        link.insert(link.end(), link_l->begin(), link_l->end());
-      }
-      if (link_r != nullptr) {
-        link.insert(link.end(), link_r->begin(), link_r->end());
-      }
-      assert(!link.empty());
-      output.link_storage.push_back(std::move(link));
-    };
-    size_t li = 0, ri = 0;  // index
-    size_t lc, rc;          // change
-#define CASE(a,b,c,d) (int(a) | (int(b) << 1) | (int(c) << 2) | (int(d) << 3))
-    do {
-      int lo = li % 2, ro = ri % 2;
-      int c;
-      if (li < l.map.size() && ri < r.map.size()) {
-        c = icomp.Compare(l.map[li].point.Encode(), r.map[ri].point.Encode());
-        if (c == 0) {
-          switch (CASE(lo, l.map[li].include, ro, r.map[ri].include)) {
-          // l: [   [   (   )   )   [
-          // r: (   )   ]   ]   (   ]
-          case CASE(0, 1, 0, 0):
-          case CASE(0, 1, 1, 0):
-          case CASE(0, 0, 1, 1):
-          case CASE(1, 0, 1, 1):
-          case CASE(1, 0, 0, 0):
-          case CASE(0, 1, 1, 1):
-            c = -1;
-            break;
-          // l: (   )   ]   ]   (   ]
-          // r: [   [   (   )   )   [
-          case CASE(0, 0, 0, 1):
-          case CASE(1, 0, 0, 1):
-          case CASE(1, 1, 0, 0):
-          case CASE(1, 1, 1, 0):
-          case CASE(0, 0, 1, 0):
-          case CASE(1, 1, 0, 1):
-            c = 1;
-            break;
-          // l: [   ]   (   )
-          // r: [   ]   (   )
-          default:
-            c = 0;
-            break;
-          }
-        }
-      } else {
-        c = li < l.map.size() ? -1 : 1;
-      }
-      lc = c <= 0;
-      rc = c >= 0;
-      switch (CASE(lo, ro, lc, rc)) {
-      // out l , out r , enter l
-      case CASE(0, 0, 1, 0):
-        put_bound(l.map[li].point, l.map[li].include);  // left
-        put_link(&l.link_storage[li >> 1], nullptr);
-        break;
-      // in l , out r , leave l
-      case CASE(1, 0, 1, 0):
-        put_bound(l.map[li].point, l.map[li].include);  // right
-        break;
-      // out l , out r , enter r
-      case CASE(0, 0, 0, 1):
-        put_bound(r.map[ri].point, r.map[ri].include);  // left
-        put_link(nullptr, &r.link_storage[ri >> 1]);
-        break;
-      // out l , in r , leave r
-      case CASE(0, 1, 0, 1):
-        put_bound(r.map[ri].point, r.map[ri].include);  // right
-        break;
-      // in l , out r , begin r
-      case CASE(1, 0, 0, 1):
-        put_bound(r.map[ri].point, !r.map[ri].include); // right
-        put_bound(r.map[ri].point, r.map[ri].include);  // left
-        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
-        break;
-      // in l , in r , leave r
-      case CASE(1, 1, 0, 1):
-        put_bound(r.map[ri].point, r.map[ri].include);  // right
-        put_bound(r.map[ri].point, !r.map[ri].include); // left
-        put_link(&l.link_storage[li >> 1], nullptr);
-        break;
-      // out l , in r , begin l
-      case CASE(0, 1, 1, 0):
-        put_bound(l.map[li].point, !l.map[li].include); // right
-        put_bound(l.map[li].point, l.map[li].include);  // left
-        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
-        break;
-      // in l , in r , leave l
-      case CASE(1, 1, 1, 0):
-        put_bound(l.map[li].point, l.map[li].include);  // right
-        put_bound(l.map[li].point, !l.map[li].include); // left
-        put_link(nullptr, &r.link_storage[ri >> 1]);
-        break;
-      // out l , out r , enter l , enter r
-      case CASE(0, 0, 1, 1):
-        put_bound(l.map[li].point, l.map[li].include);  // left
-        put_link(&l.link_storage[li >> 1], &r.link_storage[ri >> 1]);
-        break;
-      // in l , in r , leave l , leave r
-      case CASE(1, 1, 1, 1):
-        put_bound(l.map[li].point, l.map[li].include);  // right
-        break;
-      default:
-        assert(false);
-      }
-      li += lc;
-      ri += rc;
-    } while (li != l.map.size() || ri != r.map.size());
-#undef CASE
-    assert(output.map.size() == output.link_storage.size() * 2);
-    return output;
-  };
-  while (level_maps.size() > 1) {
-    auto merge_a = level_maps.begin();
-    auto merge_b = std::next(merge_a);
-    size_t min_sum =
-        merge_a->link_storage.size() + merge_b->link_storage.size();
-    for (auto next = std::next(merge_b); next != level_maps.end();
-         ++merge_b, ++next) {
-      size_t sum = merge_b->link_storage.size() + next->link_storage.size();
+
+  // union segments
+  // TODO(zouzhizhang): multi way union
+  while (level_segments.size() > 1) {
+    auto union_a = level_segments.begin();
+    auto union_b = std::next(union_a);
+    size_t min_sum = union_a->size() + union_b->size();
+    for (auto next = std::next(union_b); next != level_segments.end();
+         ++union_b, ++next) {
+      size_t sum = union_b->size() + next->size();
       if (sum < min_sum) {
         min_sum = sum;
-        merge_a = merge_b;
+        union_a = union_b;
       }
     }
-    merge_b = std::next(merge_a);
-    level_maps.insert(merge_a, merge_map(*merge_a, *merge_b,
-                                         cfd->internal_comparator()));
-    level_maps.erase(merge_a);
-    level_maps.erase(merge_b);
+    union_b = std::next(union_a);
+    level_segments.insert(
+        union_a, MapSegmentUnion(*union_a, *union_b,
+                                 cfd->internal_comparator()));
+    level_segments.erase(union_a);
+    level_segments.erase(union_b);
   }
 
   // Used for write properties
@@ -1626,6 +1656,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact->start == nullptr);
   assert(sub_compact->end == nullptr);
 
+  // Update boundaries
   auto& meta = sub_compact->current_output()->meta;
   meta.smallest = k_start;
   meta.largest = k_end;
@@ -1635,41 +1666,43 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   std::unordered_set<uint64_t> sst_depend_build;
   std::sort(sst_depend.begin(), sst_depend.end());
 
-  auto& level_map = level_maps.front();
   std::string buffer;
   InternalKey new_start, new_end;
   auto& icomp = cfd->internal_comparator();
-  for (size_t i = 0; i < level_map.map.size(); i += 2) {
-    auto& start = level_map.map[i];
-    auto& end = level_map.map[i + 1];
+
+  // shrink all segmengs
+  for (auto segment : level_segments.front()) {
+    auto& start = segment.point[0];
+    auto& end = segment.point[1];
+    bool include_start = segment.include[0];
+    bool include_end = segment.include[1];
     new_start.Clear();
     new_end.Clear();
     map_element.link_.clear();
-    for (auto sst_id : level_map.link_storage[i >> 1]) {
+
+    for (auto sst_id : segment.link) {
       auto item = get_iterator_and_reader(sst_id);
       auto iter = item.iter;
       if (!iter->status().ok()) {
         sub_compact->status = iter->status();
         return;
       }
-      iter->Seek(start.point.Encode());
+      iter->Seek(start.Encode());
       if (!iter->Valid()) {
         continue;
       }
-      if (!start.include &&
-          icomp.Compare(iter->key(), start.point.Encode()) == 0) {
+      if (!include_start && icomp.Compare(iter->key(), start.Encode()) == 0) {
         iter->Next();
         if (!iter->Valid()) {
           continue;
         }
       }
       k_start.DecodeFrom(iter->key());
-      iter->SeekForPrev(end.point.Encode());
+      iter->SeekForPrev(end.Encode());
       if (!iter->Valid()) {
         continue;
       }
-      if (!end.include &&
-          icomp.Compare(iter->key(), end.point.Encode()) == 0) {
+      if (!include_end && icomp.Compare(iter->key(), end.Encode()) == 0) {
         iter->Prev();
         if (!iter->Valid()) {
           continue;
@@ -1690,12 +1723,15 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
       uint64_t right_offset =
           item.reader->ApproximateOffsetOf(k_end.Encode());
       sst_depend_build.emplace(sst_id);
+
+      // append a link
       MapSstElement::LinkTarget link;
       link.sst_id = sst_id;
       link.size = right_offset - left_offset;
       map_element.link_.emplace_back(link);
     }
     if (!map_element.link_.empty()) {
+      // output map_element
       map_element.smallest_key_ = new_start.Encode();
       map_element.largest_key_ = new_end.Encode();
       sub_compact->builder->Add(map_element.Key(), map_element.Value(&buffer));
@@ -1713,7 +1749,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
 
   CompactionIterationStats range_del_out_stats;
   status = FinishCompactionOutputFile(
-      status, sub_compact, iterator_cache.range_del_agg.get(),
+      status, sub_compact, iterator_cache.range_del_agg,
       &range_del_out_stats);
 
   // Update metadata
