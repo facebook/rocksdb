@@ -59,6 +59,7 @@ class FlushJob {
   FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
            const ImmutableDBOptions& db_options,
            const MutableCFOptions& mutable_cf_options,
+           const uint64_t* memtable_id,
            const EnvOptions env_options, VersionSet* versions,
            InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
            std::vector<SequenceNumber> existing_snapshots,
@@ -66,7 +67,8 @@ class FlushJob {
            SnapshotChecker* snapshot_checker, JobContext* job_context,
            LogBuffer* log_buffer, Directory* db_directory,
            Directory* output_file_directory, CompressionType output_compression,
-           Statistics* stats, EventLogger* event_logger, bool measure_io_stats);
+           Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+           const bool write_manifest);
 
   ~FlushJob();
 
@@ -77,16 +79,19 @@ class FlushJob {
              FileMetaData* file_meta = nullptr);
   void Cancel();
   TableProperties GetTableProperties() const { return table_properties_; }
+  const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
  private:
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+
   const std::string& dbname_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;
+  const uint64_t* memtable_id_;
   const EnvOptions env_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
@@ -103,6 +108,7 @@ class FlushJob {
   EventLogger* event_logger_;
   TableProperties table_properties_;
   bool measure_io_stats_;
+  const bool write_manifest_;
 
   // Variables below are set by PickMemTable():
   FileMetaData meta_;

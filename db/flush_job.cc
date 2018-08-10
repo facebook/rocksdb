@@ -87,6 +87,7 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
+                   const uint64_t* memtable_id,
                    const EnvOptions env_options, VersionSet* versions,
                    InstrumentedMutex* db_mutex,
                    std::atomic<bool>* shutting_down,
@@ -96,11 +97,13 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    LogBuffer* log_buffer, Directory* db_directory,
                    Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
-                   EventLogger* event_logger, bool measure_io_stats)
+                   EventLogger* event_logger, bool measure_io_stats,
+                   const bool write_manifest)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
       mutable_cf_options_(mutable_cf_options),
+      memtable_id_(memtable_id),
       env_options_(env_options),
       versions_(versions),
       db_mutex_(db_mutex),
@@ -116,6 +119,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       stats_(stats),
       event_logger_(event_logger),
       measure_io_stats_(measure_io_stats),
+      write_manifest_(write_manifest),
       edit_(nullptr),
       base_(nullptr),
       pick_memtable_called(false) {
@@ -160,7 +164,7 @@ void FlushJob::PickMemTable() {
   assert(!pick_memtable_called);
   pick_memtable_called = true;
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(&mems_);
+  cfd_->imm()->PickMemtablesToFlush(memtable_id_, &mems_);
   if (mems_.empty()) {
     return;
   }
@@ -224,7 +228,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
 
   if (!s.ok()) {
     cfd_->imm()->RollbackMemtableFlush(mems_, meta_.fd.GetNumber());
-  } else {
+  } else if (write_manifest_) {
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
     s = cfd_->imm()->InstallMemtableFlushResults(

@@ -119,11 +119,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
+      nullptr /* memtable_id */,
       env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
       snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
       job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
-      &event_logger_, mutable_cf_options.report_bg_io_stats);
+      &event_logger_, mutable_cf_options.report_bg_io_stats,
+      true /* write_manifest */);
 
   FileMetaData file_meta;
 
@@ -197,6 +199,140 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
 #endif  // ROCKSDB_LITE
   }
+  return s;
+}
+
+Status DBImpl::AtomicFlushMemTablesToOutputFile(
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<MutableCFOptions>& mutable_cf_options_list,
+    const autovector<uint64_t>& flush_memtable_ids,
+    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
+  mutex_.AssertHeld();
+#ifndef NDEBUG
+  for (const auto cfd : cfds) {
+    assert(cfd->imm()->NumNotFlushed() != 0);
+    assert(cfd->imm()->IsFlushPending());
+  }
+#endif /* !NDEBUG */
+
+  SequenceNumber earliest_write_conflict_snapshot;
+  std::vector<SequenceNumber> snapshot_seqs =
+      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
+  auto snapshot_checker = snapshot_checker_.get();
+  if (use_custom_gc_ && snapshot_checker == nullptr) {
+    snapshot_checker = DisableGCSnapshotChecker::Instance();
+  }
+  autovector<Directory*> output_file_directories;
+  std::vector<FlushJob> jobs;
+  int num_cfs = static_cast<int>(cfds.size());
+  // If we reach here, there must be more than one column family in the flush
+  // request. Therefore, we need more superversion_contexts in job_context.
+  job_context->superversion_contexts.resize(num_cfs);
+  for (int i = 0; i < num_cfs; ++i) {
+    auto cfd = cfds[i];
+    output_file_directories.emplace_back(GetDataDir(cfds[i], 0U));
+    jobs.emplace_back(
+        dbname_, cfds[i], immutable_db_options_,
+        mutable_cf_options_list[i], &flush_memtable_ids[i],
+        env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
+        snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+        job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+        GetCompressionFlush(*cfd->ioptions(), mutable_cf_options_list[i]), stats_,
+        &event_logger_, mutable_cf_options_list[i].report_bg_io_stats,
+        false /* write_manifest */);
+  }
+
+  autovector<FileMetaData> file_meta;
+  Status s;
+  for (int i = 0; i != num_cfs; ++i) {
+    auto& job = jobs[i];
+    job.PickMemTable();
+    file_meta.emplace_back(FileMetaData());
+
+#ifndef ROCKSDB_LITE
+    // may temporarily unlock and lock the mutex.
+    NotifyOnFlushBegin(cfds[i], &file_meta[i],
+                       mutable_cf_options_list[i], job_context->job_id,
+                       job.GetTableProperties());
+#endif /* !ROCKSDB_LITE */
+    if (logfile_number_ > 0 &&
+        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
+      s = SyncClosedLogs(job_context);
+    }
+    if (!s.ok()) {
+      break;
+    }
+    s = job.Run(&logs_with_prep_tracker_, &file_meta[i]);
+    if (!s.ok()) {
+      break;
+    }
+  }
+
+  if (s.ok()) {
+    autovector<autovector<MemTable*>*> mems_list;
+    for (int i = 0; i != num_cfs; ++i) {
+      const auto& mems = jobs[i].GetMemTables();
+      mems_list.emplace_back(&mems);
+    }
+    // TODO(yanqin) populate mems
+    s = MemTableList::InstallMemtableFlushResults(cfds,
+                                                  mutable_cf_options_list,
+                                                  mems_list, &logs_with_prep_tracker_,
+                                                  versions_.get(), &mutex_,
+                                                  file_meta,
+                                                  &job_context->memtables_to_free,
+                                                  directories_.GetDbDir(),
+                                                  log_buffer);
+  }
+
+  if (s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      // TODO (yanqin) populate superversion_contexts
+      InstallSuperVersionAndScheduleWork(cfds[i],
+                                         &job_context->superversion_contexts[i],
+                                         mutable_cf_options_list[i]);
+      VersionStorageInfo::LevelSummaryStorage tmp;
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
+                       cfds[i]->GetName().c_str(),
+                       cfds[i]->current()->storage_info()->LevelSummary(&tmp));
+    }
+    if (made_progress) {
+      *made_progress = 1;
+    }
+#ifndef ROCKSDB_LITE
+    auto sfm = static_cast<SstFileManagerImpl*>(
+        immutable_db_options_.sst_file_manager.get());
+    for (int i = 0; i != num_cfs; ++i) {
+      NotifyOnFlushCompleted(cfds[i], &file_meta[i], mutable_cf_options_list[i],
+                             job_context->job_id, jobs[i].GetTableProperties());
+      if (sfm) {
+        std::string file_path = MakeTableFileName(
+            cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
+        sfm->OnAddFile(file_path);
+        if (sfm->IsMaxAllowedSpaceReached()) {
+          Status new_bg_error = Status::SpaceLimit(
+              "Max allowed space was reached");
+          error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+          break;
+        }
+      }
+    }
+#endif // ROCKSDB_LITE
+  }
+
+  if (!s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      auto& mems = jobs[i].GetMemTables();
+      cfds[i]->imm()->RollbackMemtableFlush(mems, file_meta[i].fd.GetNumber());
+      jobs[i].Cancel();
+    }
+    if (!s.IsShutdownInProgress()) {
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+    }
+  }
+
   return s;
 }
 

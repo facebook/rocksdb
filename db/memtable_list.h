@@ -163,6 +163,15 @@ class MemTableListVersion {
 // write thread.)
 class MemTableList {
  public:
+  static Status InstallMemtableFlushResults(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<autovector<MemTable*>*>& mems_list,
+      LogsWithPrepTracker* prep_tracker, VersionSet* vset,
+      InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
+
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
                         int max_write_buffer_number_to_maintain)
@@ -201,7 +210,8 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
-  void PickMemtablesToFlush(autovector<MemTable*>* mems);
+  void PickMemtablesToFlush(const uint64_t* memtable_id,
+      autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.

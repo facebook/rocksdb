@@ -3083,9 +3083,9 @@ Status VersionSet::ProcessManifestWrites(
 // 'datas' is gramatically incorrect. We still use this notation is to indicate
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
-    const std::vector<ColumnFamilyData*>& column_family_datas,
-    const std::vector<MutableCFOptions>& mutable_cf_options_list,
-    const std::vector<autovector<VersionEdit*>>& edit_lists,
+    const autovector<ColumnFamilyData*>& column_family_datas,
+    const autovector<MutableCFOptions>& mutable_cf_options_list,
+    const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();

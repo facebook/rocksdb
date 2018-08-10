@@ -268,10 +268,80 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
+Status MemTableList::InstallMemtableFlushResults(
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<MutableCFOptions>& mutable_cf_options_list,
+    const autovector<autovector<MemTable*>*>& mems_list,
+    LogsWithPrepTracker* prep_tracker, VersionSet* vset,
+    InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer) {
+  mu->AssertHeld();
+   // Currently unused.
+  (void) prep_tracker;
+  // flush was successful
+  autovector<autovector<VersionEdit*>> edit_lists;
+  uint32_t num_entries = 0;
+  for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
+    autovector<VersionEdit*> edit_list;
+    for (size_t i = 0; i != mems_list[k]->size(); ++i) {
+      assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
+      if (i == 0) {
+        edit_list.push_back((*mems_list[k])[i]->GetEdits());
+        ++num_entries;
+      }
+      (*mems_list[k])[i]->flush_completed_ = true;
+      (*mems_list[k])[i]->file_number_ = file_meta[k].fd.GetNumber();
+    }
+    edit_lists.emplace_back(edit_list);
+  }
+  uint32_t remaining = num_entries;
+  // TODO (yanqin) mark the version edits as in atomic flush
+  assert(0 == remaining);
+   // This can release and re-acquire the mutex.
+  Status s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
+      db_directory);
+  for (auto cfd : cfds) {
+    cfd->imm()->InstallNewVersion();
+  }
+  uint64_t mem_id = 1;
+  if (s.ok()) {
+    for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
+      for (auto m : *mems_list[k]) {
+        ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
+                                     ": memtable #%" PRIu64 " done",
+                         cfds[k]->GetName().c_str(), m->file_number_, mem_id);
+        assert(m->file_number_ > 0);
+        cfds[k]->imm()->current_->Remove(m, to_delete);
+        ++mem_id;
+      }
+    }
+  } else {
+    for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
+      for (int i = 0; i != static_cast<int>(mems_list[k]->size()); ++i) {
+        MemTable* m = (*mems_list[k])[i];
+        // commit failed, and we have to restore the state so that future flush
+        // can retry.
+        ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
+                                     ": memtable #%" PRIu64 " failed",
+                         m->file_number_, mem_id);
+        m->flush_completed_ = false;
+        m->flush_in_progress_ = false;
+        m->edit_.Clear();
+        cfds[k]->imm()->num_flush_not_started_++;
+        m->file_number_ = 0;
+        ++mem_id;
+      }
+      cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
+    }
+  }
+   return s;
+}
+
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
 bool MemTableList::IsFlushPending() const {
-  if ((flush_requested_ && num_flush_not_started_ >= 1) ||
+  if ((flush_requested_ && num_flush_not_started_ > 0) ||
       (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
     assert(imm_flush_needed.load(std::memory_order_relaxed));
     return true;
@@ -280,12 +350,16 @@ bool MemTableList::IsFlushPending() const {
 }
 
 // Returns the memtables that need to be flushed.
-void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
+void MemTableList::PickMemtablesToFlush(const uint64_t* memtable_id,
+                                        autovector<MemTable*>* ret) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
+    if (memtable_id != nullptr && *memtable_id < m->GetID()) {
+      continue;
+    }
     if (!m->flush_in_progress_) {
       assert(!m->flush_completed_);
       num_flush_not_started_--;

@@ -889,6 +889,12 @@ class DBImpl : public DB {
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
 
+  Status AtomicFlushMemTablesToOutputFile(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<uint64_t>& memtable_ids, bool* made_progress,
+      JobContext* job_context, LogBuffer* log_buffer);
+
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only);
