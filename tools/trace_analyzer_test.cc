@@ -161,7 +161,7 @@ TEST_F(TraceAnalyzerTest, Get) {
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
                                     "-output_prefix_cut=1",
-                                    "-output_time_series=10",
+                                    "-output_time_series",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
                                     "-no_key",
@@ -193,7 +193,7 @@ TEST_F(TraceAnalyzerTest, Get) {
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
-  std::vector<std::string> k_prefix = {"0 0 0 0.000000 -nan 0x30",
+  std::vector<std::string> k_prefix = {"0 0 0 0.000000 0.000000 0x30",
                                        "1 1 1 1.000000 1.000000 0x61"};
   file_path = output_path + "/test-get-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);
@@ -244,7 +244,7 @@ TEST_F(TraceAnalyzerTest, Put) {
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
                                     "-output_prefix_cut=1",
-                                    "-output_time_series=10",
+                                    "-output_time_series",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
                                     "-no_key",
@@ -276,7 +276,7 @@ TEST_F(TraceAnalyzerTest, Put) {
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
-  std::vector<std::string> k_prefix = {"0 0 0 0.000000 -nan 0x30"};
+  std::vector<std::string> k_prefix = {"0 0 0 0.000000 0.000000 0x30"};
   file_path = output_path + "/test-put-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);
 
@@ -333,7 +333,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
                                     "-output_prefix_cut=1",
-                                    "-output_time_series=10",
+                                    "-output_time_series",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
                                     "-no_key",
@@ -366,7 +366,7 @@ TEST_F(TraceAnalyzerTest, Delete) {
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
-  std::vector<std::string> k_prefix = {"0 0 0 0.000000 -nan 0x30"};
+  std::vector<std::string> k_prefix = {"0 0 0 0.000000 0.000000 0x30"};
   file_path = output_path + "/test-delete-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);
 
@@ -418,7 +418,7 @@ TEST_F(TraceAnalyzerTest, Merge) {
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
                                     "-output_prefix_cut=1",
-                                    "-output_time_series=10",
+                                    "-output_time_series",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
                                     "-no_key",
@@ -450,7 +450,7 @@ TEST_F(TraceAnalyzerTest, Merge) {
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
-  std::vector<std::string> k_prefix = {"0 0 0 0.000000 -nan 0x30"};
+  std::vector<std::string> k_prefix = {"0 0 0 0.000000 0.000000 0x30"};
   file_path = output_path + "/test-merge-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);
 
@@ -510,7 +510,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
                                     "-output_prefix_cut=1",
-                                    "-output_time_series=10",
+                                    "-output_time_series",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
                                     "-no_key",
@@ -543,7 +543,7 @@ TEST_F(TraceAnalyzerTest, SingleDelete) {
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
-  std::vector<std::string> k_prefix = {"0 0 0 0.000000 -nan 0x30"};
+  std::vector<std::string> k_prefix = {"0 0 0 0.000000 0.000000 0x30"};
   file_path = output_path + "/test-single_delete-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);
 
@@ -598,7 +598,7 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
                                     "-output_access_count_stats",
                                     "-output_prefix=test",
                                     "-output_prefix_cut=1",
-                                    "-output_time_series=10",
+                                    "-output_time_series",
                                     "-output_value_distribution",
                                     "-output_qps_stats",
                                     "-no_key",
@@ -631,7 +631,7 @@ TEST_F(TraceAnalyzerTest, DeleteRange) {
   CheckFileContent(k_sequence, file_path, false);
 
   // Check the prefix
-  std::vector<std::string> k_prefix = {"0 0 0 0.000000 -nan 0x30",
+  std::vector<std::string> k_prefix = {"0 0 0 0.000000 0.000000 0x30",
                                        "1 1 1 1.000000 1.000000 0x65"};
   file_path = output_path + "/test-range_delete-0-accessed_key_prefix_cut.txt";
   CheckFileContent(k_prefix, file_path, true);

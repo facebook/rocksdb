@@ -23,7 +23,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -74,11 +73,11 @@ DEFINE_bool(output_access_count_stats, false,
             "File name:  <prefix>-<query type>-<cf_id>-accessed_"
             "key_count_distribution.txt \n"
             "Format:[access_count number_of_access_count]");
-DEFINE_uint64(output_time_series, 0,
-              "Specify the trace collect time, in microseconds \n"
-              "Output the access time sequence of each key\n"
-              "File name: <prefix>-<query type>-<cf_id>-time_series.txt\n"
-              "Format:[type_id time_in_sec access_keyid].");
+DEFINE_bool(output_time_series, false,
+            "Output the access time in second of each key, "
+            "such that we can have the time series data of the queries \n"
+            "File name: <prefix>-<query type>-<cf_id>-time_series.txt\n"
+            "Format:[type_id time_in_sec access_keyid].");
 DEFINE_int32(output_prefix_cut, 0,
              "The number of bytes as prefix to cut the keys.\n"
              "if it is enabled, it will generate the following:\n"
@@ -203,7 +202,6 @@ AnalyzerOptions::~AnalyzerOptions() {}
 void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
   std::string cur = in_str;
   if (cur.size() == 0) {
-    FLAGS_print_correlation = "";
     return;
   }
   while (!cur.empty()) {
@@ -280,6 +278,7 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   total_writes_ = 0;
   begin_time_ = 0;
   end_time_ = 0;
+  time_series_start_ = 0;
   ta_.resize(kTaTypeNum);
   ta_[0].type_name = "get";
   if (FLAGS_analyze_get) {
@@ -423,8 +422,8 @@ Status TraceAnalyzer::StartProcessing() {
     fprintf(stderr, "Cannot read the header\n");
     return s;
   }
-  if (FLAGS_output_time_series == 0) {
-    FLAGS_output_time_series = header.ts;
+  if (FLAGS_output_time_series) {
+    time_series_start_ = header.ts;
   }
 
   Trace trace;
@@ -634,8 +633,11 @@ Status TraceAnalyzer::MakeStatisticKeyStatsOrPrefix(TraceStats& stats) {
       return Status::IOError("Failed to open accessed_key_stats file.");
     }
     stats.a_succ_count += record.second.succ_count;
-    double succ_ratio = (static_cast<double>(record.second.succ_count)) /
-                        record.second.access_count;
+    double succ_ratio = 0.0;
+    if (record.second.access_count > 0) {
+      succ_ratio = (static_cast<double>(record.second.succ_count)) /
+                   record.second.access_count;
+    }
     ret = sprintf(buffer_, "%u %zu %" PRIu64 " %" PRIu64 " %f\n",
                   record.second.cf_id, record.second.value_size,
                   record.second.key_id, record.second.access_count, succ_ratio);
@@ -659,8 +661,11 @@ Status TraceAnalyzer::MakeStatisticKeyStatsOrPrefix(TraceStats& stats) {
           prefix_ave_access =
               (static_cast<double>(prefix_access)) / prefix_count;
         }
-        double prefix_succ_ratio =
-            (static_cast<double>(prefix_succ_access)) / prefix_access;
+        double prefix_succ_ratio = 0.0;
+        if (prefix_access > 0) {
+          prefix_succ_ratio =
+              (static_cast<double>(prefix_succ_access)) / prefix_access;
+        }
         ret = sprintf(buffer_, "%" PRIu64 " %" PRIu64 " %" PRIu64 " %f %f %s\n",
                       record.second.key_id, prefix_access, prefix_count,
                       prefix_ave_access, prefix_succ_ratio, prefix_out.c_str());
@@ -723,6 +728,10 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
 
   for (int i = 0; i < static_cast<int>(analyzer_opts_.correlation_list.size());
        i++) {
+    if (i >= static_cast<int>(stats.correlation_output.size()) ||
+        i >= static_cast<int>(unit.v_correlation.size())) {
+      break;
+    }
     stats.correlation_output[i].first += unit.v_correlation[i].count;
     stats.correlation_output[i].second += unit.v_correlation[i].total_ts;
   }
@@ -802,7 +811,11 @@ Status TraceAnalyzer::MakeStatisticQPS() {
           }
         }
       }
-      stat.second.a_ave_qps = (static_cast<double>(cf_qps_sum)) / duration;
+      if (duration == 0) {
+        stat.second.a_ave_qps = 0;
+      } else {
+        stat.second.a_ave_qps = (static_cast<double>(cf_qps_sum)) / duration;
+      }
 
       // output the prefix of top k access peak
       if (FLAGS_output_prefix_cut > 0 && stat.second.a_top_qps_prefix_f) {
@@ -870,7 +883,11 @@ Status TraceAnalyzer::MakeStatisticQPS() {
 
   qps_peak_ = qps_peak;
   for (int type = 0; type <= kTaTypeNum; type++) {
-    qps_ave_[type] = (static_cast<double>(qps_sum[type])) / duration;
+    if (duration == 0) {
+      qps_ave_[type] = 0;
+    } else {
+      qps_ave_[type] = (static_cast<double>(qps_sum[type])) / duration;
+    }
   }
 
   return Status::OK();
@@ -887,7 +904,7 @@ Status TraceAnalyzer::ReProcessing() {
     uint32_t cf_id = cf_it.first;
 
     // output the time series;
-    if (FLAGS_output_time_series > 0) {
+    if (FLAGS_output_time_series) {
       for (int type = 0; type < kTaTypeNum; type++) {
         if (!ta_[type].enabled ||
             ta_[type].stats.find(cf_id) == ta_[type].stats.end()) {
@@ -934,7 +951,7 @@ Status TraceAnalyzer::ReProcessing() {
       if (!s.ok()) {
         fprintf(stderr, "Cannot open the whole key space file of CF: %u\n",
                 cf_id);
-        wkey_input_f_.release();
+        wkey_input_f_.reset();
       }
       if (wkey_input_f_) {
         for (cfs_[cf_id].w_count = 0;
@@ -1171,12 +1188,12 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     cfs_[cf_id] = cf_unit;
   }
 
-  if (FLAGS_output_time_series > 0) {
+  if (FLAGS_output_time_series) {
     TraceUnit trace_u;
     trace_u.type = type;
     trace_u.key = key;
     trace_u.value_size = value_size;
-    trace_u.ts = (ts - FLAGS_output_time_series) / 1000000;
+    trace_u.ts = (ts - time_series_start_) / 1000000;
     trace_u.cf_id = cf_id;
     ta_[type].stats[cf_id].time_series.push_back(trace_u);
   }
@@ -1195,6 +1212,10 @@ Status TraceAnalyzer::StatsUnitCorrelationUpdate(StatsUnit& unit,
   }
 
   for (int type_first = 0; type_first < kTaTypeNum; type_first++) {
+    if (type_first >= static_cast<int>(ta_.size()) ||
+        type_first >= static_cast<int>(analyzer_opts_.correlation_map.size())) {
+      break;
+    }
     if (analyzer_opts_.correlation_map[type_first][type_second] < 0 ||
         ta_[type_first].stats.find(unit.cf_id) == ta_[type_first].stats.end() ||
         ta_[type_first].stats[unit.cf_id].a_key_stats.find(key) ==
@@ -1207,6 +1228,10 @@ Status TraceAnalyzer::StatsUnitCorrelationUpdate(StatsUnit& unit,
         analyzer_opts_.correlation_map[type_first][type_second];
 
     // after get the x-y operation time or x, update;
+    if (correlation_id < 0 ||
+        correlation_id >= static_cast<int>(unit.v_correlation.size())) {
+      continue;
+    }
     unit.v_correlation[correlation_id].count++;
     unit.v_correlation[correlation_id].total_ts +=
         (ts - ta_[type_first].stats[unit.cf_id].a_key_stats[key].latest_ts);
@@ -1252,7 +1277,7 @@ Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
     }
   }
 
-  if (FLAGS_output_time_series > 0) {
+  if (FLAGS_output_time_series) {
     s = CreateOutputFile(type, new_stats.cf_name, "time_series.txt",
                          &new_stats.time_series_f);
   }
@@ -1545,16 +1570,22 @@ void TraceAnalyzer::PrintStatistics() {
       }
       TraceStats& stat = stat_it.second;
       uint64_t total_a_keys = static_cast<uint64_t>(stat.a_key_stats.size());
-      double key_size_ave =
-          (static_cast<double>(stat.a_key_size_sum)) / stat.a_count;
-      double value_size_ave =
-          (static_cast<double>(stat.a_value_size_sum)) / stat.a_count;
-      double key_size_vari =
-          sqrt((static_cast<double>(stat.a_key_size_sqsum)) / stat.a_count -
-               key_size_ave * key_size_ave);
-      double value_size_vari =
-          sqrt((static_cast<double>(stat.a_value_size_sqsum)) / stat.a_count -
-               value_size_ave * value_size_ave);
+      double key_size_ave = 0.0;
+      double value_size_ave = 0.0;
+      double key_size_vari = 0.0;
+      double value_size_vari = 0.0;
+      if (stat.a_count > 0) {
+        key_size_ave =
+            (static_cast<double>(stat.a_key_size_sum)) / stat.a_count;
+        value_size_ave =
+            (static_cast<double>(stat.a_value_size_sum)) / stat.a_count;
+        key_size_vari = std::sqrt((static_cast<double>(stat.a_key_size_sqsum)) /
+                                      stat.a_count -
+                                  key_size_ave * key_size_ave);
+        value_size_vari = std::sqrt(
+            (static_cast<double>(stat.a_value_size_sqsum)) / stat.a_count -
+            value_size_ave * value_size_ave);
+      }
       if (value_size_ave == 0.0) {
         stat.a_value_mid = 0;
       }
@@ -1631,10 +1662,13 @@ void TraceAnalyzer::PrintStatistics() {
                   .c_str(),
               taIndexToOpt[analyzer_opts_.correlation_list[correlation].first]
                   .c_str());
-          double correlation_ave =
-              (static_cast<double>(
-                  stat.correlation_output[correlation].second)) /
-              (stat.correlation_output[correlation].first * 1000);
+          double correlation_ave = 0.0;
+          if (stat.correlation_output[correlation].first > 0) {
+            correlation_ave =
+                (static_cast<double>(
+                    stat.correlation_output[correlation].second)) /
+                (stat.correlation_output[correlation].first * 1000);
+          }
           printf(" total numbers: %" PRIu64 " average time: %f(ms)\n",
                  stat.correlation_output[correlation].first, correlation_ave);
         }

@@ -196,6 +196,7 @@ class TraceAnalyzer {
   uint64_t total_writes_;
   uint64_t begin_time_;
   uint64_t end_time_;
+  uint64_t time_series_start_;
   std::unique_ptr<rocksdb::WritableFile> trace_sequence_f_;  // readable trace
   std::unique_ptr<rocksdb::WritableFile> qps_f_;             // overall qps
   std::unique_ptr<rocksdb::SequentialFile> wkey_input_f_;
@@ -234,7 +235,7 @@ class TraceAnalyzer {
 class TraceWriteHandler : public WriteBatch::Handler {
  public:
   TraceWriteHandler() { ta_ptr = nullptr; }
-  TraceWriteHandler(TraceAnalyzer* _ta_ptr) { ta_ptr = _ta_ptr; }
+  explicit TraceWriteHandler(TraceAnalyzer* _ta_ptr) { ta_ptr = _ta_ptr; }
   ~TraceWriteHandler() {}
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
