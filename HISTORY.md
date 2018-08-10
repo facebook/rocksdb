@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.15.3 (8/10/2018)
+### Bug Fixes
+* Fix a bug in misreporting the estimated partition index size in properties block.
+
 ## 5.15.2 (8/9/2018)
 ### Bug Fixes
 * Return correct usable_size for BlockContents.

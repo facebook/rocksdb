@@ -755,7 +755,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.filter_policy_name = rep_->table_options.filter_policy != nullptr
                                       ? rep_->table_options.filter_policy->Name()
                                       : "";
-    rep_->props.index_size = rep_->index_builder->EstimatedSize() + kBlockTrailerSize;
+    rep_->props.index_size =
+        rep_->index_builder->IndexSize() + kBlockTrailerSize;
     rep_->props.comparator_name = rep_->ioptions.user_comparator != nullptr
                                    ? rep_->ioptions.user_comparator->Name()
                                    : "nullptr";
@@ -784,7 +785,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       assert(rep_->p_index_builder_ != nullptr);
       rep_->props.index_partitions = rep_->p_index_builder_->NumPartitions();
       rep_->props.top_level_index_size =
-          rep_->p_index_builder_->EstimateTopLevelIndexSize(rep_->offset);
+          rep_->p_index_builder_->TopLevelIndexSize(rep_->offset);
     }
     rep_->props.index_key_is_user_key =
         !rep_->index_builder->seperator_is_key_plus_seq();
