@@ -361,7 +361,7 @@ Status DBImpl::Recover(
       s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
                                     customized_env);
       if (!s.ok()) {
-        const char* error_msg = s.ToString().c_str();
+        std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_env.use_direct_reads = false;
         s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
@@ -371,7 +371,7 @@ Status DBImpl::Recover(
               "Direct I/O is not supported by the specified DB.");
         } else {
           return Status::InvalidArgument(
-              "Found options incompatible with filesystem", error_msg);
+              "Found options incompatible with filesystem", error_str.c_str());
         }
       }
     }

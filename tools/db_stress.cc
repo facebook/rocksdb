@@ -588,6 +588,11 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   return kSkipList;
 }
 
+#ifdef _MSC_VER
+#pragma warning(push)
+// truncation of constant value on static_cast
+#pragma warning(disable: 4309)
+#endif
 bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
   std::string ret = src.ToString();
   for (int i = static_cast<int>(ret.size()) - 1; i >= 0; i--) {
@@ -604,6 +609,9 @@ bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
   *v = ret;
   return true;
 }
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 }  // namespace
 
 static enum RepFactory FLAGS_rep_factory;
