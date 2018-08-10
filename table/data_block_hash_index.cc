@@ -42,11 +42,10 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
     uint16_t buck_idx = static_cast<uint16_t>(hash_value % num_buckets);
     if (buckets[buck_idx] == kNoEntry) {
       buckets[buck_idx] = restart_index;
-    } else if (buckets[buck_idx] != kCollision) {
+    } else if (buckets[buck_idx] != restart_index) {
+      // same bucket cannot store two different restart_index, mark collision
       buckets[buck_idx] = kCollision;
     }
-    // if buckets[buck_idx] is already kCollision, we do not have to do
-    // anything.
   }
 
   for (uint8_t restart_index : buckets) {
