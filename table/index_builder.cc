@@ -78,6 +78,12 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
                                        use_value_delta_encoding),
       sub_index_builder_(nullptr),
       table_opt_(table_opt),
+      // We start by false. After each partition we revise the value based on
+      // what the sub_index_builder has decided. If the feature is disabled
+      // entirely, this will be set to true after switching the first
+      // sub_index_builder. Otherwise, it could be set to true even one of the
+      // sub_index_builders could not safely exclude seq from the keys, then it
+      // wil be enforced on all sub_index_builders on ::Finish.
       seperator_is_key_plus_seq_(false),
       use_value_delta_encoding_(use_value_delta_encoding) {}
 
@@ -92,7 +98,9 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       table_opt_.format_version, use_value_delta_encoding_);
   flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-      seperator_is_key_plus_seq_
+      // Note: this is sub-optimal since sub_index_builder_ could later reset
+      // seperator_is_key_plus_seq_ but the probability of that is low.
+      sub_index_builder_->seperator_is_key_plus_seq_
           ? sub_index_builder_->index_block_builder_
           : sub_index_builder_->index_block_builder_without_seq_));
   partition_cut_requested_ = false;
