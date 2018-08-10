@@ -13,6 +13,7 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/utilities/convenience.h"
 #include "util/sync_point.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 namespace rocksdb {
 
 // SYNC_POINT is not supported in released Windows mode.
@@ -295,6 +296,122 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   }
 }
 #endif  // ROCKSDB_VALGRIND_RUN
+
+TEST_F(DBCompactionTest, LazyCompactionTest) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_lazy_compaction = true;
+  options.merge_operator.reset(new StringAppendTESTOperator(','));
+
+  DestroyAndReopen(options);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  FlushOptions fo;
+  CompactionOptions co;
+
+  std::vector<const Snapshot*> snapshots;
+
+  dbfull()->Merge(wo, "a", "1");
+  dbfull()->Merge(wo, "b", "1");
+  snapshots.push_back(dbfull()->GetSnapshot());
+  dbfull()->Merge(wo, "a", "2");
+  dbfull()->Merge(wo, "b", "2");
+  snapshots.push_back(dbfull()->GetSnapshot());
+  dbfull()->Flush(fo);
+
+  dbfull()->Merge(wo, "a", "3");
+  dbfull()->Merge(wo, "b", "3");
+  snapshots.push_back(dbfull()->GetSnapshot());
+  dbfull()->Merge(wo, "a", "4");
+  dbfull()->Merge(wo, "b", "4");
+  snapshots.push_back(dbfull()->GetSnapshot());
+  dbfull()->Flush(fo);
+
+  dbfull()->Merge(wo, "a", "5");
+  dbfull()->Merge(wo, "b", "5");
+  snapshots.push_back(dbfull()->GetSnapshot());
+  dbfull()->Merge(wo, "a", "6");
+  dbfull()->Merge(wo, "b", "6");
+  snapshots.push_back(dbfull()->GetSnapshot());
+  dbfull()->Flush(fo);
+
+  std::vector<LiveFileMetaData> level_files;
+
+  dbfull()->GetLiveFilesMetaData(&level_files);
+  co.compaction_varieties = kLinkSst;
+  dbfull()->CompactFiles(co, {
+      level_files[1].name, level_files[2].name
+  }, 1);
+  level_files.clear();
+
+  dbfull()->GetLiveFilesMetaData(&level_files);
+  co.compaction_varieties = kMapSst;
+  dbfull()->CompactFiles(co, {
+      level_files[0].name, level_files[1].name
+  }, 2);
+  level_files.clear();
+
+  std::multimap<std::string,
+                std::tuple<std::string, std::string, const Snapshot*>>
+      verify = {
+    { "a", {"6", "1,2,3,4,5,6", snapshots[5] }},
+    { "a", {"5", "1,2,3,4,5", snapshots[4] }},
+    { "a", {"4", "1,2,3,4", snapshots[3] }},
+    { "a", {"3", "1,2,3", snapshots[2] }},
+    { "a", {"2", "1,2", snapshots[1] }},
+    { "a", {"1", "1", snapshots[0] }},
+    { "b", {"6", "1,2,3,4,5,6", snapshots[5] }},
+    { "b", {"5", "1,2,3,4,5", snapshots[4] }},
+    { "b", {"4", "1,2,3,4", snapshots[3] }},
+    { "b", {"3", "1,2,3", snapshots[2] }},
+    { "b", {"2", "1,2", snapshots[1] }},
+    { "b", {"1", "1", snapshots[0] }},
+  };
+
+  Arena arena;
+  InternalKeyComparator ic(BytewiseComparator());
+  std::vector<SequenceNumber> sv;
+  RangeDelAggregator range_del_agg(ic, sv);
+  std::unique_ptr<InternalIterator, void(*)(InternalIterator*)> iter(
+      dbfull()->NewInternalIterator(&arena, &range_del_agg),
+      [](InternalIterator* iter) {
+        iter->~InternalIterator();
+      });
+  iter->SeekToFirst();
+  for (auto it = verify.begin(); it != verify.end(); ++it) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(ExtractUserKey(iter->key()).ToString(), it->first);
+    ASSERT_EQ(iter->value().ToString(), std::get<0>(it->second));
+    iter->Next();
+  }
+  ASSERT_FALSE(iter->Valid());
+
+  iter->SeekToLast();
+  for (auto it = verify.rbegin(); it != verify.rend(); ++it) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(ExtractUserKey(iter->key()).ToString(), it->first);
+    ASSERT_EQ(iter->value().ToString(), std::get<0>(it->second));
+    iter->Prev();
+  }
+  ASSERT_FALSE(iter->Valid());
+
+  std::string value;
+  for (auto it = verify.rbegin(); it != verify.rend(); ++it) {
+    ro.snapshot = std::get<2>(it->second);
+    ASSERT_OK(dbfull()->Get(ro, it->first, &value));
+    ASSERT_EQ(value, std::get<1>(it->second));
+    std::unique_ptr<Iterator> db_iter(dbfull()->NewIterator(ro));
+    db_iter->Seek(it->first);
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key(), it->first);
+    ASSERT_EQ(db_iter->value(), std::get<1>(it->second));
+    db_iter->SeekForPrev(it->first);
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key(), it->first);
+    ASSERT_EQ(db_iter->value(), std::get<1>(it->second));
+  }
+}
 
 TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
   //  For each options type we test following

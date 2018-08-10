@@ -152,11 +152,6 @@ inline ValueType ExtractValueType(const Slice& internal_key) {
   return static_cast<ValueType>(c);
 }
 
-inline SequenceNumber ExtractSequence(const Slice& internal_key) {
-  uint64_t num = ExtractInternalKeyFooter(internal_key);
-  return num >> 8;
-}
-
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
 class InternalKeyComparator

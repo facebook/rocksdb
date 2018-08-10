@@ -321,7 +321,8 @@ Compaction* CompactionPicker::CompactFiles(
                      mutable_cf_options.max_compaction_bytes, output_path_id,
                      compact_options.compression, ioptions_.compression_opts,
                      compact_options.max_subcompactions,
-                     /* grandparents */ {}, true);
+                     /* grandparents */ {}, true, -1, false,
+                     compact_options.compaction_varieties);
   RegisterCompaction(c);
   return c;
 }

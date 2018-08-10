@@ -134,8 +134,8 @@ Status GetFromVarietySst(
         return false;
       }
       if (smallest_key.size() != 0) {
-        assert(icomp.user_comparator()->Compare(
-            ExtractUserKey(k), ExtractUserKey(smallest_key.Encode())) == 0);
+        assert(icomp.user_comparator()->Compare(smallest_key.user_key(),
+                                                ExtractUserKey(k)) == 0);
         // shrink to smallest_key
         find_k = smallest_key.Encode();
       }
@@ -161,15 +161,16 @@ Status GetFromVarietySst(
     auto get_from_map = [&](const Slice& largest_key,
                             const Slice& map_value) {
       // Manual inline MapSstElement::Decode
-      const char* error_msg = "Map sst invalid link_value";
       Slice map_input = map_value;
       Slice smallest_key;
       uint64_t link_count;
       uint64_t sst_id;
       Slice find_k = k;
       
-      if (!GetLengthPrefixedSlice(&map_input, &smallest_key)) {
-        s = Status::Corruption(error_msg);
+      if (!GetLengthPrefixedSlice(&map_input, &smallest_key) ||
+          !GetVarint64(&map_input, &link_count) ||
+          map_input.size() < link_count * sizeof(uint64_t)) {
+        s = Status::Corruption("Map sst invalid link_value");
         return false;
       }
       if (icomp.Compare(k, smallest_key) < 0) {
@@ -178,14 +179,10 @@ Status GetFromVarietySst(
           // less than smallest_key
           return false;
         }
-        assert(ExtractSequence(k) > ExtractSequence(smallest_key));
+        assert(ExtractInternalKeyFooter(k) >
+                   ExtractInternalKeyFooter(smallest_key));
         // same user_key, shrink to smallest_key
         find_k = smallest_key;
-      }
-      if (!GetVarint64(&map_input, &link_count) ||
-          map_input.size() < link_count * sizeof(uint64_t)) {
-        s = Status::Corruption(error_msg);
-        return false;
       }
 
       bool is_bound_key =
@@ -195,7 +192,7 @@ Status GetFromVarietySst(
       if (is_bound_key) {
         // shrink seqno to largest_key, make sure can't read greater keys
         get_context->SetMinSequenceNumber(
-            std::max(min_seq_backup, ExtractSequence(largest_key)));
+            std::max(min_seq_backup, GetInternalKeySeqno(largest_key)));
       }
 
       for (uint64_t i = 0; i < link_count; ++i) {

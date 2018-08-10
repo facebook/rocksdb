@@ -234,8 +234,8 @@ struct CompactionJob::SubcompactionState {
       }
       assert(grandparent_index + 1 >= grandparents.size() ||
              icmp->Compare(
-                 grandparents[grandparent_index]->largest.Encode(),
-                 grandparents[grandparent_index + 1]->smallest.Encode()) <= 0);
+                 grandparents[grandparent_index]->largest,
+                 grandparents[grandparent_index + 1]->smallest) <= 0);
       grandparent_index++;
     }
     seen_key = true;
@@ -1272,9 +1272,11 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     LinkSstElement link;
     link.largest_key_ = last_key.Encode();
     const FileMetaData* meta = (const FileMetaData*)last_source.data;
+    assert(meta->sst_variety == 0);
     link.sst_id_ = meta->fd.GetNumber();
     sst_depend_build.emplace(link.sst_id_);
     link.key_count_ = key_count;
+    key_count = 0;
 
     sub_compact->builder->Add(link.Key(), link.Value(&buffer));
     sub_compact->current_output_file_size = sub_compact->builder->FileSize();
@@ -1293,7 +1295,6 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     }
     if (input->source() != last_source) {
       put_link_element();
-      key_count = 0;
       last_source = input->source();
     }
     update_key();
@@ -1345,17 +1346,21 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   iterator_cache.range_del_agg.reset(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
 
+  std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
+  auto& delend_files =
+      compaction->input_version()->storage_info()->depend_files();
+
   auto new_iterator = [&](FileMetaData* f, int level,
                           TableReader** reader) {
     ReadOptions read_options;
     read_options.verify_checksums = true;
     read_options.fill_cache = false;
     read_options.total_order_seek = true;
-    std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
 
     return cfd->table_cache()->NewIterator(
                read_options, env_optiosn_for_read_,
-               cfd->internal_comparator(), *f, empty_delend_files,
+               cfd->internal_comparator(), *f,
+               f->sst_variety == kMapSst ? empty_delend_files : delend_files,
                iterator_cache.range_del_agg.get(),
                compaction->mutable_cf_options()->prefix_extractor.get(),
                reader, nullptr /* no per level latency histogram */,
@@ -1393,12 +1398,13 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   };
 
   struct Endpoint {
-    std::string point;
+    InternalKey point;
     bool include;
 
     Endpoint(const Slice& _key, bool _include)
-        : point(_key.data(), _key.size()),
-          include(_include) {}
+        : include(_include) {
+      point.DecodeFrom(_key);
+    }
   };
   struct LevelMap {
     std::vector<Endpoint> map;
@@ -1406,8 +1412,9 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   };
 
   std::list<LevelMap> level_maps;
-
   MapSstElement map_element;
+  InternalKey k_start, k_end;
+  SequenceNumber seq_start = kMaxSequenceNumber, seq_end = 0;
   for (auto& level_files : *compaction->inputs()) {
     LevelMap level;
     for (auto f : level_files.files) {
@@ -1438,6 +1445,21 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
         std::vector<uint64_t> link = {f->fd.GetNumber()};
         level.link_storage.emplace_back(std::move(link));
       }
+      if (level_files.level == 0) {
+        level_maps.emplace_back(std::move(level));
+        level.map.clear();
+        level.link_storage.clear();
+      }
+      if (k_start.size() == 0 ||
+          cfd->internal_comparator().Compare(f->smallest, k_start) < 0) {
+        k_start = f->smallest;
+      }
+      if (k_end.size() == 0 ||
+          cfd->internal_comparator().Compare(f->largest, k_end) > 0) {
+        k_end = f->largest;
+      }
+      seq_start = std::min(seq_start, f->fd.smallest_seqno);
+      seq_end = std::max(seq_end, f->fd.largest_seqno);
     }
     if (!level.map.empty()) {
       level_maps.emplace_back(std::move(level));
@@ -1450,8 +1472,8 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     assert(!r.map.empty());
     assert(l.map.size() % 2 == 0);
     assert(r.map.size() % 2 == 0);
-    auto put_bound = [&](const Slice& key, bool include) {
-      output.map.emplace_back(key, include);
+    auto put_bound = [&](const InternalKey& key, bool include) {
+      output.map.emplace_back(key.Encode(), include);
     };
     auto put_link = [&](const std::vector<uint64_t>* link_l,
                         const std::vector<uint64_t>* link_r) {
@@ -1472,7 +1494,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
       int lo = li % 2, ro = ri % 2;
       int c;
       if (li < l.map.size() && ri < r.map.size()) {
-        c = icomp.Compare(l.map[li].point, r.map[ri].point);
+        c = icomp.Compare(l.map[li].point.Encode(), r.map[ri].point.Encode());
         if (c == 0) {
           switch (CASE(lo, l.map[li].include, ro, r.map[ri].include)) {
           // l: [   [   (   )   )   [
@@ -1605,6 +1627,10 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact->end == nullptr);
 
   auto& meta = sub_compact->current_output()->meta;
+  meta.smallest = k_start;
+  meta.largest = k_end;
+  meta.fd.smallest_seqno = seq_start;
+  meta.fd.largest_seqno = seq_end;
 
   std::unordered_set<uint64_t> sst_depend_build;
   std::sort(sst_depend.begin(), sst_depend.end());
@@ -1612,11 +1638,10 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   auto& level_map = level_maps.front();
   std::string buffer;
   InternalKey new_start, new_end;
-  InternalKey k_start, k_end;
   auto& icomp = cfd->internal_comparator();
   for (size_t i = 0; i < level_map.map.size(); i += 2) {
-    auto start = level_map.map[i];
-    auto end = level_map.map[i + 1];
+    auto& start = level_map.map[i];
+    auto& end = level_map.map[i + 1];
     new_start.Clear();
     new_end.Clear();
     map_element.link_.clear();
@@ -1627,37 +1652,37 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
         sub_compact->status = iter->status();
         return;
       }
-      iter->Seek(start.point);
+      iter->Seek(start.point.Encode());
       if (!iter->Valid()) {
         continue;
       }
-      if (!start.include && iter->key() == start.point) {
+      if (!start.include &&
+          icomp.Compare(iter->key(), start.point.Encode()) == 0) {
         iter->Next();
         if (!iter->Valid()) {
           continue;
         }
       }
       k_start.DecodeFrom(iter->key());
-      iter->SeekForPrev(end.point);
+      iter->SeekForPrev(end.point.Encode());
       if (!iter->Valid()) {
         continue;
       }
-      if (!end.include && iter->key() == end.point) {
+      if (!end.include &&
+          icomp.Compare(iter->key(), end.point.Encode()) == 0) {
         iter->Prev();
         if (!iter->Valid()) {
           continue;
         }
       }
       k_end.DecodeFrom(iter->key());
-      if (icomp.Compare(k_start.Encode(), k_end.Encode()) > 0) {
+      if (icomp.Compare(k_start, k_end) > 0) {
         continue;
       }
-      if (new_start.size() == 0 ||
-          icomp.Compare(k_start.Encode(), new_start.Encode()) < 0) {
+      if (new_start.size() == 0 || icomp.Compare(k_start, new_start) < 0) {
         new_start = k_start;
       }
-      if (new_end.size() == 0 ||
-          icomp.Compare(k_end.Encode(), new_end.Encode()) > 0) {
+      if (new_end.size() == 0 || icomp.Compare(k_end, new_end) > 0) {
         new_end = k_end;
       }
       uint64_t left_offset =
@@ -1673,8 +1698,6 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     if (!map_element.link_.empty()) {
       map_element.smallest_key_ = new_start.Encode();
       map_element.largest_key_ = new_end.Encode();
-      meta.UpdateBoundaries(map_element.Key(),
-                            GetInternalKeySeqno(map_element.Key()));
       sub_compact->builder->Add(map_element.Key(), map_element.Value(&buffer));
       sub_compact->current_output_file_size = sub_compact->builder->FileSize();
       sub_compact->num_output_records++;

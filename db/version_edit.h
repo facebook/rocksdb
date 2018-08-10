@@ -83,12 +83,6 @@ struct FileSampledStats {
   mutable std::atomic<uint64_t> num_reads_sampled;
 };
 
-enum SstVarieties {
-  kGeneralSst,
-  kLinkSst,
-  kMapSst,
-};
-
 struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
