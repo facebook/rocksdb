@@ -51,7 +51,6 @@ struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
 class GetContext;
-class InternalIterator;
 
 using std::unique_ptr;
 
@@ -178,9 +177,9 @@ class BlockBasedTable : public TableReader {
     // to
     // a different object then iter and the callee has the ownership of the
     // returned object.
-    virtual InternalIterator* NewIterator(IndexBlockIter* iter = nullptr,
-                                          bool total_order_seek = true,
-                                          bool fill_cache = true) = 0;
+    virtual InternalIteratorBase<BlockHandle>* NewIterator(
+        IndexBlockIter* iter = nullptr, bool total_order_seek = true,
+        bool fill_cache = true) = 0;
 
     // The size of the index.
     virtual size_t size() const = 0;
@@ -224,14 +223,16 @@ class BlockBasedTable : public TableReader {
   static TBlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
       TBlockIter* input_iter = nullptr, bool is_index = false,
-      bool key_includes_seq = true, GetContext* get_context = nullptr,
+      bool key_includes_seq = true, bool index_key_is_full = true,
+      GetContext* get_context = nullptr,
       FilePrefetchBuffer* prefetch_buffer = nullptr);
   template <typename TBlockIter>
   static TBlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
       TBlockIter* input_iter = nullptr, bool is_index = false,
-      bool key_includes_seq = true, GetContext* get_context = nullptr,
-      Status s = Status(), FilePrefetchBuffer* prefetch_buffer = nullptr);
+      bool key_includes_seq = true, bool index_key_is_full = true,
+      GetContext* get_context = nullptr, Status s = Status(),
+      FilePrefetchBuffer* prefetch_buffer = nullptr);
 
   class PartitionedIndexIteratorState;
 
@@ -284,7 +285,7 @@ class BlockBasedTable : public TableReader {
   //  2. index is not present in block cache.
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
-  InternalIterator* NewIndexIterator(
+  InternalIteratorBase<BlockHandle>* NewIndexIterator(
       const ReadOptions& read_options, bool need_upper_bound_check = false,
       IndexBlockIter* input_iter = nullptr,
       CachableEntry<IndexReader>* index_entry = nullptr,
@@ -353,7 +354,8 @@ class BlockBasedTable : public TableReader {
                               std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
 
-  Status VerifyChecksumInBlocks(InternalIterator* index_iter);
+  Status VerifyChecksumInBlocks(InternalIteratorBase<Slice>* index_iter);
+  Status VerifyChecksumInBlocks(InternalIteratorBase<BlockHandle>* index_iter);
 
   // Create the filter from the filter block.
   virtual FilterBlockReader* ReadFilter(
@@ -390,14 +392,16 @@ class BlockBasedTable::PartitionedIndexIteratorState
   PartitionedIndexIteratorState(
       BlockBasedTable* table,
       std::unordered_map<uint64_t, CachableEntry<Block>>* block_map,
-      const bool index_key_includes_seq);
-  InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
+      const bool index_key_includes_seq, const bool index_key_is_full);
+  InternalIteratorBase<BlockHandle>* NewSecondaryIterator(
+      const BlockHandle& index_value) override;
 
  private:
   // Don't own table_
   BlockBasedTable* table_;
   std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
   bool index_key_includes_seq_;
+  bool index_key_is_full_;
 };
 
 // CachableEntry represents the entries that *may* be fetched from block cache.
@@ -521,16 +525,17 @@ struct BlockBasedTable::Rep {
   const bool immortal_table;
 };
 
-template <class TBlockIter>
-class BlockBasedTableIterator : public InternalIterator {
+template <class TBlockIter, typename TValue = Slice>
+class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
  public:
   BlockBasedTableIterator(BlockBasedTable* table,
                           const ReadOptions& read_options,
                           const InternalKeyComparator& icomp,
-                          InternalIterator* index_iter, bool check_filter,
-                          bool need_upper_bound_check,
+                          InternalIteratorBase<BlockHandle>* index_iter,
+                          bool check_filter, bool need_upper_bound_check,
                           const SliceTransform* prefix_extractor, bool is_index,
                           bool key_includes_seq = true,
+                          bool index_key_is_full = true,
                           bool for_compaction = false)
       : table_(table),
         read_options_(read_options),
@@ -543,6 +548,7 @@ class BlockBasedTableIterator : public InternalIterator {
         prefix_extractor_(prefix_extractor),
         is_index_(is_index),
         key_includes_seq_(key_includes_seq),
+        index_key_is_full_(index_key_is_full),
         for_compaction_(for_compaction) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
@@ -561,7 +567,7 @@ class BlockBasedTableIterator : public InternalIterator {
     assert(Valid());
     return block_iter_.key();
   }
-  Slice value() const override {
+  TValue value() const override {
     assert(Valid());
     return block_iter_.value();
   }
@@ -618,8 +624,7 @@ class BlockBasedTableIterator : public InternalIterator {
     if (block_iter_points_to_real_block_) {
       // Reseek. If they end up with the same data block, we shouldn't re-fetch
       // the same data block.
-      Slice v = index_iter_->value();
-      prev_index_value_.assign(v.data(), v.size());
+      prev_index_value_ = index_iter_->value();
     }
   }
 
@@ -631,7 +636,7 @@ class BlockBasedTableIterator : public InternalIterator {
   BlockBasedTable* table_;
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
-  InternalIterator* index_iter_;
+  InternalIteratorBase<BlockHandle>* index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   TBlockIter block_iter_;
   bool block_iter_points_to_real_block_;
@@ -644,10 +649,10 @@ class BlockBasedTableIterator : public InternalIterator {
   bool is_index_;
   // If the keys in the blocks over which we iterate include 8 byte sequence
   bool key_includes_seq_;
+  bool index_key_is_full_;
   // If this iterator is created for compaction
   bool for_compaction_;
-  // TODO use block offset instead
-  std::string prev_index_value_;
+  BlockHandle prev_index_value_;
 
   static const size_t kInitReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on

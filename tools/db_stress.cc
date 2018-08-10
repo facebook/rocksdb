@@ -540,6 +540,14 @@ DEFINE_string(compression_type, "snappy",
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
+DEFINE_int32(compression_max_dict_bytes, 0,
+             "Maximum size of dictionary used to prime the compression "
+             "library.");
+
+DEFINE_int32(compression_zstd_max_train_bytes, 0,
+             "Maximum size of training data passed to zstd's dictionary "
+             "trainer.");
+
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 static enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 
@@ -580,6 +588,11 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   return kSkipList;
 }
 
+#ifdef _MSC_VER
+#pragma warning(push)
+// truncation of constant value on static_cast
+#pragma warning(disable: 4309)
+#endif
 bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
   std::string ret = src.ToString();
   for (int i = static_cast<int>(ret.size()) - 1; i >= 0; i--) {
@@ -596,6 +609,9 @@ bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
   *v = ret;
   return true;
 }
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 }  // namespace
 
 static enum RepFactory FLAGS_rep_factory;
@@ -2247,6 +2263,10 @@ class StressTest {
       options_.level0_file_num_compaction_trigger =
           FLAGS_level0_file_num_compaction_trigger;
       options_.compression = FLAGS_compression_type_e;
+      options_.compression_opts.max_dict_bytes =
+          FLAGS_compression_max_dict_bytes;
+      options_.compression_opts.zstd_max_train_bytes =
+          FLAGS_compression_zstd_max_train_bytes;
       options_.create_if_missing = true;
       options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
       options_.inplace_update_support = FLAGS_in_place_update;

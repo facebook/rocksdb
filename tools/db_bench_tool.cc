@@ -769,29 +769,20 @@ DEFINE_string(compression_type, "snappy",
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
-DEFINE_int32(compression_level, -1,
-             "Compression level. For zlib this should be -1 for the "
-             "default level, or between 0 and 9.");
+DEFINE_int32(compression_level, rocksdb::CompressionOptions().level,
+             "Compression level. The meaning of this value is library-"
+             "dependent. If unset, we try to use the default for the library "
+             "specified in `--compression_type`");
 
-DEFINE_int32(compression_max_dict_bytes, 0,
+DEFINE_int32(compression_max_dict_bytes,
+             rocksdb::CompressionOptions().max_dict_bytes,
              "Maximum size of dictionary used to prime the compression "
              "library.");
 
-DEFINE_int32(compression_zstd_max_train_bytes, 0,
+DEFINE_int32(compression_zstd_max_train_bytes,
+             rocksdb::CompressionOptions().zstd_max_train_bytes,
              "Maximum size of training data passed to zstd's dictionary "
              "trainer.");
-
-static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
-  if (value < -1 || value > 9) {
-    fprintf(stderr, "Invalid value for --%s: %d, must be between -1 and 9\n",
-            flagname, value);
-    return false;
-  }
-  return true;
-}
-
-static const bool FLAGS_compression_level_dummy __attribute__((__unused__)) =
-    RegisterFlagValidator(&FLAGS_compression_level, &ValidateCompressionLevel);
 
 DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"

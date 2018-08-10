@@ -234,6 +234,7 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
 
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
+                       false /* use_value_delta_encoding */,
                        BlockBasedTableOptions::kDataBlockBinaryAndHash);
 
   std::string ukey("gopher");
@@ -308,6 +309,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
 
   BlockBuilder builder(16 /* block_restart_interval */,
                        true /* use_delta_encoding */,
+                       false /* use_value_delta_encoding */,
                        BlockBasedTableOptions::kDataBlockBinaryAndHash);
   int num_records = 500;
 

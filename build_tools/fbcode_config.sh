@@ -43,11 +43,15 @@ if test -z $PIC_BUILD; then
   LZ4_INCLUDE=" -I $LZ4_BASE/include/"
   LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
-
-  ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
-  CFLAGS+=" -DZSTD"
 fi
+
+ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
+if test -z $PIC_BUILD; then
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
+else
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
+fi
+CFLAGS+=" -DZSTD"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
