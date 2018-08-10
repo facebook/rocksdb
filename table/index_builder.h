@@ -97,13 +97,15 @@ class IndexBuilder {
   virtual Status Finish(IndexBlocks* index_blocks,
                         const BlockHandle& last_partition_block_handle) = 0;
 
-  // Get the estimated size for index block.
-  virtual size_t EstimatedSize() const = 0;
+  // Get the size for index block. Must be called after ::Finish.
+  virtual size_t IndexSize() const = 0;
 
   virtual bool seperator_is_key_plus_seq() { return true; }
 
  protected:
   const InternalKeyComparator* comparator_;
+  // Set after ::Finish is called
+  size_t index_size_ = 0;
 };
 
 // This index builder builds space-efficient index block.
@@ -175,15 +177,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
     }
+    index_size_ = index_blocks->index_block_contents.size();
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const override {
-    if (seperator_is_key_plus_seq_) {
-      return index_block_builder_.CurrentSizeEstimate();
-    } else {
-      return index_block_builder_without_seq_.CurrentSizeEstimate();
-    }
+  virtual size_t IndexSize() const override {
+    return index_size_;
   }
 
   virtual bool seperator_is_key_plus_seq() override {
@@ -286,8 +285,8 @@ class HashIndexBuilder : public IndexBuilder {
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const override {
-    return primary_index_builder_.EstimatedSize() + prefix_block_.size() +
+  virtual size_t IndexSize() const override {
+    return primary_index_builder_.IndexSize() + prefix_block_.size() +
            prefix_meta_block_.size();
   }
 
@@ -354,8 +353,12 @@ class PartitionedIndexBuilder : public IndexBuilder {
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override;
 
-  virtual size_t EstimatedSize() const override;
-  size_t EstimateTopLevelIndexSize(uint64_t) const;
+  virtual size_t IndexSize() const override {
+    return index_size_;
+  }
+  size_t TopLevelIndexSize(uint64_t) const {
+    return top_level_index_size_;
+  }
   size_t NumPartitions() const;
 
   inline bool ShouldCutFilterBlock() {
@@ -380,6 +383,11 @@ class PartitionedIndexBuilder : public IndexBuilder {
   bool get_use_value_delta_encoding() { return use_value_delta_encoding_; }
 
  private:
+  // Set after ::Finish is called
+  size_t top_level_index_size_ = 0;
+  // Set after ::Finish is called
+  size_t partition_cnt_ = 0;
+
   void MakeNewSubIndexBuilder();
 
   struct Entry {
