@@ -4,6 +4,7 @@
 ### New Features
 * Changes the format of index blocks by delta encoding the index values, which are the block handles. This saves the encoding of BlockHandle::offset of the non-head index entries in each restart interval. The feature is backward compatible but not forward compatible. It is disabled by default unless format_version 4 or above is used.
 ### Bug Fixes
+* Fix a bug in misreporting the estimated partition index size in properties block.
 
 ## 5.15.0 (7/17/2018)
 ### Public API Change
