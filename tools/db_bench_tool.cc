@@ -1386,6 +1386,248 @@ struct DBWithColumnFamilies {
   }
 };
 
+struct ExpKeyUnit {
+  int64_t start_access;
+  int64_t start_key;
+  int64_t access_count;
+  int64_t num;
+};
+
+struct PrefixUnit {
+  int64_t prefix_start;
+  int64_t prefix_access;
+  int64_t prefix_keys;
+  std::vector<ExpKeyUnit> access_set;
+};
+
+// Generate the keys according to the two term expe fit
+// given the probability model, you can transfer the random
+// access to such distribution
+// f(x) = a*exp(b*x) + c*exp(d*x)
+// x is the access count of the key
+class GenerateTwoTermExpKeys {
+ public:
+  double a_;
+  double b_;
+  double c_;
+  double d_;
+  int64_t access_num_;
+  int64_t key_num_;
+  int64_t group_num_;
+  bool initiated_;
+  std::vector<ExpKeyUnit> access_set_;
+  std::vector<PrefixUnit> prefix_set_;
+
+  GenerateTwoTermExpKeys() {
+    access_num_ = FLAGS_num;
+    key_num_ = FLAGS_num;
+    group_num_ = 1;
+    a_ = 0.0;
+    b_ = 0.0;
+    c_ = 0.0;
+    d_ = 0.0;
+    initiated_ = false;
+  }
+
+  ~GenerateTwoTermExpKeys() {}
+
+  // Using the number of keys to initiate the distribution
+  Status InitiateExpKey(const int64_t keys, const double a, const double b,
+                        const double c, const double d) {
+    key_num_ = keys;
+    a_ = a;
+    b_ = b;
+    c_ = c;
+    d_ = d;
+    initiated_ = true;
+    double exp_ran, exp_val;
+    int64_t cur_access = 0;
+    int64_t cur_keys = 0;
+
+    for (int64_t x = 1; x <= keys; x++) {
+      exp_val = (a_ * std::exp(b_ * x) + c_ * std::exp(d_ * x)) * keys;
+      if (exp_val < 1.0) {
+        // exp_ran is the number of keys has access count 'x'
+        exp_ran = 1.0;
+      } else {
+        exp_ran = std::floor(exp_val);
+      }
+      int64_t access_num = static_cast<int64_t>(exp_ran);
+      if (access_num == 0) {
+        access_num = 1;
+      }
+      ExpKeyUnit tmp_unit;
+      tmp_unit.start_access = cur_access;
+      tmp_unit.start_key = cur_keys;
+      tmp_unit.access_count = x;
+      tmp_unit.num = access_num;
+      access_set_.push_back(tmp_unit);
+
+      cur_access += tmp_unit.access_count * tmp_unit.num;
+      cur_keys += tmp_unit.num;
+      std::cout << keys << " " << cur_access << " " << cur_keys << " " << x
+                << "\n";
+      if (cur_keys >= keys || cur_access > keys * 8) {
+        break;
+      }
+    }
+    access_num_ = cur_access;
+    key_num_ = cur_keys;
+    return Status::OK();
+  }
+
+  Status InitiateExpAccess(const int64_t access, const double a, const double b,
+                           const double c, const double d,
+                           const double prefix_a, const double prefix_b,
+                           const double prefix_c, const double prefix_d,
+                           const int64_t group_num) {
+    access_num_ = 0;
+    key_num_ = 0;
+    a_ = a;
+    b_ = b;
+    c_ = c;
+    d_ = d;
+    initiated_ = true;
+    int64_t prefix_size = access / group_num;
+    int64_t prefix_total_access;
+    int64_t prefix_start = 0;
+
+    for (int64_t i = 1; i <= group_num; i++) {
+      double prefix_total = (prefix_a * std::exp(prefix_b * i) +
+                             prefix_c * std::exp(prefix_d * i)) *
+                            access;
+      double prefix_ave = prefix_total / prefix_size;
+      if (prefix_total < 1.0) {
+        prefix_total_access = 1;
+      } else {
+        prefix_total_access = static_cast<int64_t>(std::floor(prefix_total));
+      }
+
+      PrefixUnit p_unit;
+      p_unit.prefix_start = prefix_start;
+      p_unit.prefix_access = prefix_total_access;
+      p_unit.prefix_keys = prefix_size;
+
+      int64_t cur_access = 0;
+      int64_t cur_keys = 0;
+      int64_t access_num;
+      double exp_val;
+
+      for (int64_t x = 1; x <= prefix_size; x++) {
+        if (x > 3) {
+          exp_val = (a * std::exp(b * x) + c * std::exp(d * x)) *
+                    p_unit.prefix_keys * prefix_ave;
+        } else {
+          exp_val =
+              (a * std::exp(b * x) + c * std::exp(d * x)) * p_unit.prefix_keys;
+        }
+
+        if (exp_val < 1.0) {
+          access_num = 1;
+        } else {
+          access_num = static_cast<int64_t>(std::floor(exp_val));
+        }
+        ExpKeyUnit tmp_unit;
+        tmp_unit.start_access = cur_access;
+        tmp_unit.start_key = cur_keys;
+        tmp_unit.access_count = x;
+        tmp_unit.num = access_num;
+        p_unit.access_set.push_back(tmp_unit);
+
+        cur_access += tmp_unit.access_count * tmp_unit.num;
+        cur_keys += tmp_unit.num;
+        if (cur_keys >= prefix_size * 2 ||
+            cur_access > prefix_total_access * 3) {
+          break;
+        }
+      }
+      p_unit.prefix_access = cur_access;
+      p_unit.prefix_keys = cur_keys;
+      access_num_ += p_unit.prefix_access;
+      key_num_ += p_unit.prefix_keys;
+      prefix_set_.push_back(p_unit);
+    }
+
+    // shuffle the prefix and recalculate the start;
+    std::random_shuffle(prefix_set_.begin(), prefix_set_.end());
+    int64_t offset = 0;
+    for (auto& p_unit : prefix_set_) {
+      p_unit.prefix_start = offset;
+      offset += p_unit.prefix_access;
+    }
+
+    return Status::OK();
+  }
+
+  // If using the prefix, transfer the access id to key id
+  int64_t PrefixGetKeyID(const int64_t& ini_rand) {
+    if (!initiated_ || prefix_set_.size() == 0 || ini_rand >= access_num_) {
+      return (ini_rand % key_num_);
+    }
+
+    int64_t start = 0, end = static_cast<int64_t>(prefix_set_.size());
+    while (start + 1 < end) {
+      int64_t mid = start + (end - start) / 2;
+      if (ini_rand < prefix_set_[mid].prefix_start) {
+        end = mid;
+      } else {
+        start = mid;
+      }
+    }
+
+    int64_t prefix_id = start;
+    int64_t prefix_offset = ini_rand - prefix_set_[prefix_id].prefix_start;
+    start = 0;
+    end = static_cast<int64_t>(prefix_set_[prefix_id].access_set.size());
+    while (start + 1 < end) {
+      int64_t mid = start + (end - start) / 2;
+      if (prefix_offset < prefix_set_[prefix_id].access_set[mid].start_access) {
+        end = mid;
+      } else {
+        start = mid;
+      }
+    }
+    int64_t diff =
+        prefix_offset - prefix_set_[prefix_id].access_set[start].start_access;
+    int64_t offset =
+        diff / prefix_set_[prefix_id].access_set[start].access_count;
+    int64_t key_offset =
+        prefix_set_[prefix_id].access_set[start].start_key + offset;
+    std::srand(key_offset);
+    int64_t ret =
+        static_cast<int64_t>(std::rand()) % prefix_set_[prefix_id].prefix_keys;
+    return (prefix_set_[prefix_id].prefix_start + ret);
+  }
+
+  // Make sure that ini_rand is [0,access_num_);
+  int64_t DirectKeyID(const int64_t& ini_rand) {
+    uint64_t a = 1103515245;
+    uint64_t b = 12345;
+    if (!initiated_ || access_set_.size() == 0 ||
+        (port::kMaxUint64 - b) / a < static_cast<uint64_t>(ini_rand)) {
+      return (ini_rand % key_num_);
+    }
+
+    if (ini_rand >= access_num_) {
+      return access_set_.back().start_key;
+    }
+
+    int64_t start = 0, end = static_cast<int64_t>(access_set_.size());
+    while (start + 1 < end) {
+      int64_t mid = start + (end - start) / 2;
+      if (ini_rand < access_set_[mid].start_access) {
+        end = mid;
+      } else {
+        start = mid;
+      }
+    }
+    int64_t diff = ini_rand - access_set_[start].start_access;
+    int64_t offset = diff / access_set_[start].access_count;
+    int64_t key_id = access_set_[start].start_key + offset;
+    return key_id;
+  }
+};
+
 // a class that reports stats to CSV file
 class ReporterAgent {
  public:
