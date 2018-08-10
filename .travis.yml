@@ -66,26 +66,6 @@ matrix:
     env: JOB_NAME=cmake-gcc8
   - os : osx
     env: JOB_NAME=cmake-mingw
-  - os: linux
-    env: TEST_GROUP=platform_dependent
-  - os: linux
-    env: TEST_GROUP=2
-  - os: linux
-    env: TEST_GROUP=3
-  - os: linux
-    env: TEST_GROUP=4
-  - os: linux
-    env: JOB_NAME=java_test
-  - os: linux
-    env: JOB_NAME=lite_build
-  - os: linux
-    env: JOB_NAME=examples
-  - os: linux
-    env: JOB_NAME=cmake
-  - os: linux
-    env: JOB_NAME=cmake-gcc8
-  - os : linux
-    env: JOB_NAME=cmake-mingw
   - os : linux
     compiler: clang
   - os : osx
