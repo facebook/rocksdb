@@ -186,9 +186,8 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
   }
 
   if (data_block_hash_index_builder_.Valid()) {
-    assert(restarts_.size() <= kMaxRestartSupportedByHashIndex);
-    data_block_hash_index_builder_.Add(
-        ExtractUserKey(key), static_cast<uint8_t>(restarts_.size()) - 1);
+    data_block_hash_index_builder_.Add(ExtractUserKey(key),
+                                       restarts_.size() - 1);
   }
 
   counter_++;

@@ -68,17 +68,18 @@ const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
  public:
-  DataBlockHashIndexBuilder() : util_ratio_(0) {}
+  DataBlockHashIndexBuilder() : util_ratio_(0), valid_(false) {}
 
   void Initialize(double util_ratio) {
     if (util_ratio <= 0) {
       util_ratio = kDefaultUtilRatio;  // sanity check
     }
     util_ratio_ = util_ratio;
+    valid_ = true;
   }
 
-  bool Valid() const { return util_ratio_ > 0; }
-  void Add(const Slice& key, const uint8_t& restart_index);
+  bool Valid() const { return valid_ && util_ratio_ > 0; }
+  void Add(const Slice key, const size_t restart_index);
   void Finish(std::string& buffer);
   void Reset();
   inline size_t EstimateSize() const {
@@ -94,6 +95,12 @@ class DataBlockHashIndexBuilder {
 
  private:
   double util_ratio_;
+
+  // Now the only usage for `valid_` is to mark false when the inserted
+  // restart_index is larger than supported. In this case HashIndex is not
+  // appended to the block content.
+  bool valid_;
+
   std::vector<std::pair<uint32_t, uint8_t>> hash_and_restart_pairs_;
   friend class DataBlockHashIndex_DataBlockHashTestSmall_Test;
 };

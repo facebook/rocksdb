@@ -12,12 +12,17 @@
 
 namespace rocksdb {
 
-void DataBlockHashIndexBuilder::Add(const Slice& key,
-                                    const uint8_t& restart_index) {
+void DataBlockHashIndexBuilder::Add(const Slice key,
+                                    const size_t restart_index) {
   assert(Valid());
-  // TODO(fwu): error handling
+  if (restart_index > kMaxRestartSupportedByHashIndex) {
+    valid_ = false;
+    return;
+  }
+
   uint32_t hash_value = GetSliceHash(key);
-  hash_and_restart_pairs_.emplace_back(hash_value, restart_index);
+  hash_and_restart_pairs_.emplace_back(hash_value,
+                                       static_cast<uint8_t>(restart_index));
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
@@ -63,8 +68,8 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 }
 
 void DataBlockHashIndexBuilder::Reset() {
-  assert(Valid());
   hash_and_restart_pairs_.clear();
+  valid_ = true;
 }
 
 void DataBlockHashIndex::Initialize(const char* data, uint16_t size,

@@ -229,6 +229,86 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
   }
 }
 
+TEST(DataBlockHashIndex, RestartIndexExceedMax) {
+  DataBlockHashIndexBuilder builder;
+  builder.Initialize(0.75 /*util_ratio*/);
+  std::unordered_map<std::string, uint8_t> m;
+
+  for (uint8_t i = 0; i <= 253; i++) {
+    std::string key = "key" + std::to_string(i);
+    uint8_t restart_point = i;
+    builder.Add(key, restart_point);
+  }
+  ASSERT_TRUE(builder.Valid());
+
+  builder.Reset();
+
+  for (uint8_t i = 0; i <= 254; i++) {
+    std::string key = "key" + std::to_string(i);
+    uint8_t restart_point = i;
+    builder.Add(key, restart_point);
+  }
+
+  ASSERT_FALSE(builder.Valid());
+
+  builder.Reset();
+  ASSERT_TRUE(builder.Valid());
+}
+
+TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
+  Options options = Options();
+
+  BlockBuilder builder(1 /* block_restart_interval */,
+                       true /* use_delta_encoding */,
+                       false /* use_value_delta_encoding */,
+                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
+
+  // #restarts <= 253. HashIndex is valid
+  for (int i = 0; i <= 253; i++) {
+    std::string ukey = "key" + std::to_string(i);
+    InternalKey ikey(ukey, 0, kTypeValue);
+    builder.Add(ikey.Encode().ToString(), "value");
+  }
+
+  {
+    // read serialized contents of the block
+    Slice rawblock = builder.Finish();
+
+    // create block reader
+    BlockContents contents;
+    contents.data = rawblock;
+    contents.cachable = false;
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+
+    ASSERT_EQ(reader.IndexType(),
+              BlockBasedTableOptions::kDataBlockBinaryAndHash);
+  }
+
+
+  builder.Reset();
+
+  // #restarts > 253. HashIndex is not used
+  for (int i = 0; i <= 254; i++) {
+    std::string ukey = "key" + std::to_string(i);
+    InternalKey ikey(ukey, 0, kTypeValue);
+    builder.Add(ikey.Encode().ToString(), "value");
+  }
+
+  {
+    // read serialized contents of the block
+    Slice rawblock = builder.Finish();
+
+    // create block reader
+    BlockContents contents;
+    contents.data = rawblock;
+    contents.cachable = false;
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+
+    ASSERT_EQ(reader.IndexType(),
+              BlockBasedTableOptions::kDataBlockBinarySearch);
+  }
+}
+
 TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Options options = Options();
 
