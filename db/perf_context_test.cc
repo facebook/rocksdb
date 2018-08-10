@@ -469,7 +469,7 @@ void ProfileQueries(bool enabled_time = false) {
     ASSERT_GT(hist_num_memtable_checked.Average(), 0);
     // In read-only mode Get(), no super version operation is needed
     ASSERT_EQ(hist_get_post_process.Average(), 0);
-    ASSERT_EQ(hist_get_snapshot.Average(), 0);
+    ASSERT_GT(hist_get_snapshot.Average(), 0);
 
     ASSERT_GT(hist_mget.Average(), 0);
     ASSERT_GT(hist_mget_snapshot.Average(), 0);
