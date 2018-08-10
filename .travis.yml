@@ -45,8 +45,6 @@ env:
 matrix:
   exclude:
   - os: osx
-    env: TEST_GROUP=platform_dependent
-  - os: osx
     env: TEST_GROUP=1
   - os: osx
     env: TEST_GROUP=2
@@ -54,14 +52,6 @@ matrix:
     env: TEST_GROUP=3
   - os: osx
     env: TEST_GROUP=4
-  - os: osx
-    env: JOB_NAME=java_test
-  - os: osx
-    env: JOB_NAME=lite_build
-  - os: osx
-    env: JOB_NAME=examples
-  - os: osx
-    env: JOB_NAME=cmake
   - os: osx
     env: JOB_NAME=cmake-gcc8
   - os : osx
