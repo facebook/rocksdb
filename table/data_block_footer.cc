@@ -28,7 +28,13 @@ uint32_t PackIndexTypeAndNumRestarts(
     assert(0);  // mute travis "unused" warning
   }
 
-  return num_restarts |= index_type << kDataBlockIndexTypeBitShift;
+  if (index_type == BlockBasedTableOptions::kDataBlockBinaryAndHash) {
+    return num_restarts |= 1 << kDataBlockIndexTypeBitShift;
+  } else if (index_type == BlockBasedTableOptions::kDataBlockBinarySearch) {
+    return num_restarts;
+  } else {
+    assert(0);
+  }
 }
 
 
@@ -37,8 +43,11 @@ void UnPackIndexTypeAndNumRestarts(
     BlockBasedTableOptions::DataBlockIndexType* index_type,
     uint32_t* num_restarts) {
   if (index_type) {
-    *index_type = static_cast<BlockBasedTableOptions::DataBlockIndexType>(
-        block_footer >> kDataBlockIndexTypeBitShift);
+    if (block_footer & 1 << kDataBlockIndexTypeBitShift) {
+      *index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
+    } else {
+      *index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
+    }
   }
 
   if (num_restarts) {
