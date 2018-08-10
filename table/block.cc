@@ -462,7 +462,9 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
   if (shared == 0) {
     uint64_t o, s;
     const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
+    assert(newp);
     newp = GetVarint64Ptr(newp, limit, &s);
+    assert(newp);
     decoded_value_ = BlockHandle(o, s);
     value_ = Slice(value_.data(), newp - value_.data());
   } else {
