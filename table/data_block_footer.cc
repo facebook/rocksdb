@@ -28,13 +28,14 @@ uint32_t PackIndexTypeAndNumRestarts(
     assert(0);  // mute travis "unused" warning
   }
 
+  uint32_t block_footer = num_restarts;
   if (index_type == BlockBasedTableOptions::kDataBlockBinaryAndHash) {
-    return num_restarts |= 1 << kDataBlockIndexTypeBitShift;
-  } else if (index_type == BlockBasedTableOptions::kDataBlockBinarySearch) {
-    return num_restarts;
-  } else {
-    assert(0);
+    block_footer |= 1 << kDataBlockIndexTypeBitShift;
+  } else if (index_type != BlockBasedTableOptions::kDataBlockBinarySearch) {
+      assert(0);
   }
+
+  return block_footer;
 }
 
 
