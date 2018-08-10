@@ -92,7 +92,9 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       table_opt_.format_version, use_value_delta_encoding_);
   flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-      sub_index_builder_->index_block_builder_));
+      seperator_is_key_plus_seq_
+          ? sub_index_builder_->index_block_builder_
+          : sub_index_builder_->index_block_builder_without_seq_));
   partition_cut_requested_ = false;
 }
 
