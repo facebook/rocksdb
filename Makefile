@@ -575,6 +575,8 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
+	db_compaction_test \
+
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
