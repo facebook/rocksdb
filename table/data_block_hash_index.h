@@ -63,6 +63,7 @@ namespace rocksdb {
 
 const uint8_t kNoEntry = 255;
 const uint8_t kCollision = 254;
+const uint8_t kMaxRestartSupportedByHashIndex = 253;
 const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
