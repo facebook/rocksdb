@@ -573,6 +573,7 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump \
 	blob_dump \
+	db_compaction_test \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1062,6 +1063,9 @@ memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
+db_compaction_test: tools/db_compaction_test.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
@@ -1165,9 +1169,6 @@ db_log_iter_test: db/db_log_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHA
 	$(AM_LINK)
 
 db_compaction_filter_test: db/db_compaction_filter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-db_compaction_test: db/db_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_dynamic_level_test: db/db_dynamic_level_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
