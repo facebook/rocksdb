@@ -269,15 +269,17 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
 }
 
 Status MemTableList::InstallMemtableFlushResults(
+    autovector<MemTableList*>& imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<MutableCFOptions>& mutable_cf_options_list,
-    const autovector<autovector<MemTable*>*>& mems_list,
+    const autovector<const autovector<MemTable*>*>& mems_list,
     LogsWithPrepTracker* prep_tracker, VersionSet* vset, InstrumentedMutex* mu,
     const autovector<FileMetaData>& file_meta, autovector<MemTable*>* to_delete,
     Directory* db_directory, LogBuffer* log_buffer) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
-  // Currently unused.
-  (void)prep_tracker;
+
   // flush was successful
   autovector<autovector<VersionEdit*>> edit_lists;
   uint32_t num_entries = 0;
@@ -294,14 +296,28 @@ Status MemTableList::InstallMemtableFlushResults(
     }
     edit_lists.emplace_back(edit_list);
   }
-  uint32_t remaining = num_entries;
+
   // TODO (yanqin) mark the version edits as in atomic flush
-  assert(0 == remaining);
+
+  if (vset->db_options()->allow_2pc) {
+    int num = static_cast<int>(imm_lists.size());
+    assert(num == static_cast<int>(cfds.size()));
+    assert(num == static_cast<int>(mems_list.size()));
+    assert(num == static_cast<int>(edit_lists.size()));
+    for (int i = 0; i != num; ++i) {
+      auto& edit_list = edit_lists[i];
+      auto cfd = cfds[i];
+      auto& mems = mems_list[i];
+      assert(!edit_list.empty());
+      edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
+            vset, *cfd, edit_list, *mems, prep_tracker));
+    }
+  }
   // This can release and re-acquire the mutex.
   Status s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
                                db_directory);
-  for (auto cfd : cfds) {
-    cfd->imm()->InstallNewVersion();
+  for (auto imm : imm_lists) {
+    imm->InstallNewVersion();
   }
   uint64_t mem_id = 1;
   if (s.ok()) {
@@ -312,7 +328,7 @@ Status MemTableList::InstallMemtableFlushResults(
                          ": memtable #%" PRIu64 " done",
                          cfds[k]->GetName().c_str(), m->file_number_, mem_id);
         assert(m->file_number_ > 0);
-        cfds[k]->imm()->current_->Remove(m, to_delete);
+        imm_lists[k]->current_->Remove(m, to_delete);
         ++mem_id;
       }
     }
@@ -329,11 +345,11 @@ Status MemTableList::InstallMemtableFlushResults(
         m->flush_completed_ = false;
         m->flush_in_progress_ = false;
         m->edit_.Clear();
-        cfds[k]->imm()->num_flush_not_started_++;
+        imm_lists[k]->num_flush_not_started_++;
         m->file_number_ = 0;
         ++mem_id;
       }
-      cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
+      imm_lists[k]->imm_flush_needed.store(true, std::memory_order_release);
     }
   }
   return s;

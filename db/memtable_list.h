@@ -164,9 +164,10 @@ class MemTableListVersion {
 class MemTableList {
  public:
   static Status InstallMemtableFlushResults(
+      autovector<MemTableList*>& imm_lists,
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<MutableCFOptions>& mutable_cf_options_list,
-      const autovector<autovector<MemTable*>*>& mems_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
       LogsWithPrepTracker* prep_tracker, VersionSet* vset,
       InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
       autovector<MemTable*>* to_delete, Directory* db_directory,
@@ -290,7 +291,8 @@ class MemTableList {
   // committing in progress
   bool commit_in_progress_;
 
-  // Requested a flush of all memtables to storage
+  // Requested a flush of memtables to storage. It's possible to request that
+  // a subset of memtables be flushed.
   bool flush_requested_;
 
   // The current memory usage.

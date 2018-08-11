@@ -889,7 +889,7 @@ class DBImpl : public DB {
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
 
-  Status AtomicFlushMemTablesToOutputFile(
+  Status AtomicFlushMemTablesToOutputFiles(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<MutableCFOptions>& mutable_cf_options_list,
       const autovector<uint64_t>& memtable_ids, bool* made_progress,

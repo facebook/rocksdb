@@ -125,7 +125,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* write_manifest */);
+      true /* sync_output_directory */, true /* write_manifest */);
 
   FileMetaData file_meta;
 
@@ -202,7 +202,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   return s;
 }
 
-Status DBImpl::AtomicFlushMemTablesToOutputFile(
+/*
+ * Atomically flushes multiple column families.
+ *
+ * For each column family, all memtables with ID smaller than or equal to the
+ * specified ID will be flushed. Only after all column families finish flush
+ * will this function commit to MANIFEST. If any of the column families are not
+ * flushed successfully, this function does not have any side-effect on the
+ * state of the database.
+ */
+Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<MutableCFOptions>& mutable_cf_options_list,
     const autovector<uint64_t>& flush_memtable_ids, bool* made_progress,
@@ -223,28 +232,48 @@ Status DBImpl::AtomicFlushMemTablesToOutputFile(
   if (use_custom_gc_ && snapshot_checker == nullptr) {
     snapshot_checker = DisableGCSnapshotChecker::Instance();
   }
-  autovector<Directory*> output_file_directories;
+  autovector<Directory*> distinct_output_dirs;
   std::vector<FlushJob> jobs;
   int num_cfs = static_cast<int>(cfds.size());
   // If we reach here, there must be more than one column family in the flush
   // request. Therefore, we need more superversion_contexts in job_context.
-  job_context->superversion_contexts.resize(num_cfs);
+  // Since superversion_contexts[0] has already created a new superversion, we
+  // create superversions for other elements in superversion_contexts.
+  for (int i = 1; i != num_cfs; ++i) {
+    job_context->superversion_contexts.emplace_back(SuperVersionContext(true));
+  }
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
-    output_file_directories.emplace_back(GetDataDir(cfds[i], 0U));
+    Directory* data_dir = GetDataDir(cfd, 0U);
+
+    // Add to distinct output directories if eligible. Use linear search. Since
+    // the number of elements in the vector is not large, performance should be
+    // tolerable.
+    bool found = false;
+    for (const auto dir : distinct_output_dirs) {
+      if (dir == data_dir) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      distinct_output_dirs.emplace_back(data_dir);
+    }
+
     jobs.emplace_back(
         dbname_, cfds[i], immutable_db_options_, mutable_cf_options_list[i],
         &flush_memtable_ids[i], env_options_for_compaction_, versions_.get(),
         &mutex_, &shutting_down_, snapshot_seqs,
         earliest_write_conflict_snapshot, snapshot_checker, job_context,
-        log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+        log_buffer, directories_.GetDbDir(), data_dir,
         GetCompressionFlush(*cfd->ioptions(), mutable_cf_options_list[i]),
         stats_, &event_logger_, mutable_cf_options_list[i].report_bg_io_stats,
-        false /* write_manifest */);
+        false /* sync_output_directory */, false /* write_manifest */);
   }
 
   autovector<FileMetaData> file_meta;
   Status s;
+  // TODO (yanqin): parallelize jobs with threads.
   for (int i = 0; i != num_cfs; ++i) {
     auto& job = jobs[i];
     job.PickMemTable();
@@ -269,21 +298,28 @@ Status DBImpl::AtomicFlushMemTablesToOutputFile(
   }
 
   if (s.ok()) {
-    autovector<autovector<MemTable*>*> mems_list;
+    // Sync on all distinct output directories.
+    for (auto dir : distinct_output_dirs) {
+      if (dir != nullptr) {
+        dir->Fsync();
+      }
+    }
+
+    autovector<const autovector<MemTable*>*> mems_list;
+    autovector<MemTableList*> imm_lists;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i].GetMemTables();
       mems_list.emplace_back(&mems);
+      imm_lists.emplace_back(cfds[i]->imm());
     }
-    // TODO(yanqin) populate mems
     s = MemTableList::InstallMemtableFlushResults(
-        cfds, mutable_cf_options_list, mems_list, &logs_with_prep_tracker_,
-        versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
-        directories_.GetDbDir(), log_buffer);
+        imm_lists, cfds, mutable_cf_options_list, mems_list,
+        &logs_with_prep_tracker_, versions_.get(), &mutex_, file_meta,
+        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok()) {
     for (int i = 0; i != num_cfs; ++i) {
-      // TODO (yanqin) populate superversion_contexts
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
                                          mutable_cf_options_list[i]);

@@ -96,7 +96,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats,
-                   const bool write_manifest)
+                   const bool sync_output_directory, const bool write_manifest)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -117,6 +117,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       stats_(stats),
       event_logger_(event_logger),
       measure_io_stats_(measure_io_stats),
+      sync_output_directory_(sync_output_directory),
       write_manifest_(write_manifest),
       edit_(nullptr),
       base_(nullptr),
@@ -373,7 +374,7 @@ Status FlushJob::WriteLevel0Table() {
                    s.ToString().c_str(),
                    meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (output_file_directory_ != nullptr) {
+    if (output_file_directory_ != nullptr && sync_output_directory_) {
       output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");

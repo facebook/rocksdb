@@ -25,9 +25,12 @@ class MemTableListTest : public testing::Test {
   std::string dbname;
   DB* db;
   Options options;
+  std::vector<ColumnFamilyHandle*> handles;
 
   MemTableListTest() : db(nullptr) {
     dbname = test::PerThreadDBPath("memtable_list_test");
+    options.create_if_missing = true;
+    DestroyDB(dbname, options);
   }
 
   // Create a test db if not yet created
@@ -35,15 +38,46 @@ class MemTableListTest : public testing::Test {
     if (db == nullptr) {
       options.create_if_missing = true;
       DestroyDB(dbname, options);
-      Status s = DB::Open(options, dbname, &db);
+      // Open DB only with default column family
+      ColumnFamilyOptions cf_options;
+      std::vector<ColumnFamilyDescriptor> cf_descs;
+      cf_descs.emplace_back(kDefaultColumnFamilyName, cf_options);
+      Status s = DB::Open(options, dbname, cf_descs, &handles, &db);
       EXPECT_OK(s);
+
+      ColumnFamilyOptions cf_opt1, cf_opt2;
+      cf_opt1.cf_paths.emplace_back(dbname + "_one_1",
+                                    std::numeric_limits<uint64_t>::max());
+      cf_opt2.cf_paths.emplace_back(dbname + "_two_1",
+                                    std::numeric_limits<uint64_t>::max());
+      int sz = static_cast<int>(handles.size());
+      handles.resize(sz + 2);
+      s = db->CreateColumnFamily(cf_opt1, "one", &handles[1]);
+      EXPECT_OK(s);
+      s = db->CreateColumnFamily(cf_opt2, "two", &handles[2]);
+      EXPECT_OK(s);
+
+      cf_descs.emplace_back("one", cf_options);
+      cf_descs.emplace_back("two", cf_options);
+
     }
   }
 
   ~MemTableListTest() {
     if (db) {
+      std::vector<ColumnFamilyDescriptor> cf_descs(handles.size());
+      for (int i = 0; i != static_cast<int>(handles.size()); ++i) {
+        handles[i]->GetDescriptor(&cf_descs[i]);
+      }
+      for (auto h : handles) {
+        if (h) {
+          db->DestroyColumnFamilyHandle(h);
+        }
+      }
+      handles.clear();
       delete db;
-      DestroyDB(dbname, options);
+      db = nullptr;
+      DestroyDB(dbname, options, cf_descs);
     }
   }
 
@@ -52,10 +86,28 @@ class MemTableListTest : public testing::Test {
   Status Mock_InstallMemtableFlushResults(
       MemTableList* list, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, autovector<MemTable*>* to_delete) {
+    autovector<MemTableList*> lists;
+    lists.emplace_back(list);
+    autovector<const autovector<MemTable*>*> mems_list;
+    mems_list.emplace_back(&m);
+    return Mock_InstallMemtableFlushResults(lists, {0} /* cf_ids */,
+        {mutable_cf_options}, mems_list, to_delete);
+  }
+
+  // Calls MemTableList::InstallMemtableFlushResults() and sets up all
+  // structures needed to call this function.
+  Status Mock_InstallMemtableFlushResults(
+      autovector<MemTableList*>& lists,
+      const autovector<uint32_t>& cf_ids,
+      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
+      autovector<MemTable*>* to_delete) {
     // Create a mock Logger
     test::NullLogger logger;
     LogBuffer log_buffer(DEBUG_LEVEL, &logger);
 
+
+    CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
     ImmutableDBOptions immutable_db_options(db_options);
@@ -64,28 +116,54 @@ class MemTableListTest : public testing::Test {
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
     WriteController write_controller(10000000u);
 
-    CreateDB();
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller);
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
+    cf_descs.emplace_back("one", ColumnFamilyOptions());
+    cf_descs.emplace_back("two", ColumnFamilyOptions());
+    EXPECT_OK(versions.Recover(cf_descs, false));
+
 
     // Create mock default ColumnFamilyData
-    ColumnFamilyOptions cf_options;
-    std::vector<ColumnFamilyDescriptor> column_families;
-    column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
-    EXPECT_OK(versions.Recover(column_families, false));
 
     auto column_family_set = versions.GetColumnFamilySet();
-    auto cfd = column_family_set->GetColumnFamily(0);
-    EXPECT_TRUE(cfd != nullptr);
 
-    // Create dummy mutex.
+    LogsWithPrepTracker dummy_prep_tracker;
+    if (1 == static_cast<int>(cf_ids.size())) {
+      auto cfd = column_family_set->GetColumnFamily(cf_ids[0]);
+      EXPECT_TRUE(nullptr != cfd);
+      EXPECT_EQ(1, static_cast<int>(lists.size()));
+      MemTableList* list = lists[0];
+      EXPECT_EQ(1, static_cast<int>(mutable_cf_options_list.size()));
+      const MutableCFOptions& mutable_cf_options = mutable_cf_options_list.at(0);
+      const autovector<MemTable*>* mems = mems_list.at(0);
+      EXPECT_TRUE(nullptr != mems);
+
+      // Create dummy mutex.
+      InstrumentedMutex mutex;
+      InstrumentedMutexLock l(&mutex);
+      return list->InstallMemtableFlushResults(
+          cfd, mutable_cf_options, *mems, &dummy_prep_tracker, &versions,
+          &mutex, 1 /* file_number */, to_delete, nullptr, &log_buffer);
+    }
+    autovector<ColumnFamilyData*> cfds;
+    for (int i = 0; i != static_cast<int>(cf_ids.size()); ++i) {
+      cfds.emplace_back(column_family_set->GetColumnFamily(cf_ids[i]));
+      EXPECT_NE(nullptr, cfds[i]);
+    }
+    autovector<FileMetaData> file_meta;
+    for (int i = 0; i != static_cast<int>(cf_ids.size()); ++i) {
+      FileMetaData meta;
+      meta.fd = FileDescriptor(i+1, 0, 0);
+      file_meta.emplace_back(meta);
+    }
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
-    LogsWithPrepTracker dummy_prep_tracker;
-    return list->InstallMemtableFlushResults(
-        cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex, 1,
-        to_delete, nullptr, &log_buffer);
+    return MemTableList::InstallMemtableFlushResults(
+        lists, cfds, mutable_cf_options_list, mems_list, &dummy_prep_tracker,
+        &versions, &mutex, file_meta, to_delete, nullptr, &log_buffer);
   }
 };
 
@@ -396,7 +474,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 }
 
 TEST_F(MemTableListTest, FlushPendingTest) {
-  const int num_tables = 5;
+  const int num_tables = 6;
   SequenceNumber seq = 1;
   Status s;
 
@@ -414,11 +492,13 @@ TEST_F(MemTableListTest, FlushPendingTest) {
                     max_write_buffer_number_to_maintain);
 
   // Create some MemTables
+  uint64_t memtable_id = 0;
   std::vector<MemTable*> tables;
   MutableCFOptions mutable_cf_options(options);
   for (int i = 0; i < num_tables; i++) {
     MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
                                  kMaxSequenceNumber, 0 /* column_family_id */);
+    mem->SetID(memtable_id++);
     mem->Ref();
 
     std::string value;
@@ -547,6 +627,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Pick tables to flush again
   autovector<MemTable*> to_flush3;
+  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush3);
   ASSERT_EQ(0, to_flush3.size());  // nothing not in progress of being flushed
   ASSERT_EQ(5, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
@@ -593,14 +674,157 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   }
   to_delete.clear();
 
+  // Add another table
+  list.Add(tables[5], &to_delete);
+  ASSERT_EQ(1, list.NumNotFlushed());
+  ASSERT_EQ(5, list.GetLatestMemTableID());
+  memtable_id = 4;
+  // Pick tables to flush. The tables to pick must have ID smaller than or
+  // equal to 4. Therefore, no table will be selected in this case.
+  autovector<MemTable*> to_flush4;
+  list.FlushRequested();
+  ASSERT_TRUE(list.HasFlushRequested());
+  list.PickMemtablesToFlush(&memtable_id, &to_flush4);
+  ASSERT_TRUE(to_flush4.empty());
+  ASSERT_EQ(1, list.NumNotFlushed());
+  ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
+  ASSERT_FALSE(list.IsFlushPending());
+  ASSERT_FALSE(list.HasFlushRequested());
+
+  // Pick tables to flush. The tables to pick must have ID smaller than or
+  // equal to 5. Therefore, only tables[5] will be selected.
+  memtable_id = 5;
+  list.FlushRequested();
+  list.PickMemtablesToFlush(&memtable_id, &to_flush4);
+  ASSERT_EQ(1, static_cast<int>(to_flush4.size()));
+  ASSERT_EQ(1, list.NumNotFlushed());
+  ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
+  ASSERT_FALSE(list.IsFlushPending());
+  to_delete.clear();
+
   list.current()->Unref(&to_delete);
-  int to_delete_size = std::min(5, max_write_buffer_number_to_maintain);
+  int to_delete_size = std::min(num_tables, max_write_buffer_number_to_maintain);
   ASSERT_EQ(to_delete_size, to_delete.size());
 
   for (const auto& m : to_delete) {
     // Refcount should be 0 after calling InstallMemtableFlushResults.
     // Verify this, by Ref'ing then UnRef'ing:
     m->Ref();
+    ASSERT_EQ(m, m->Unref());
+    delete m;
+  }
+  to_delete.clear();
+}
+
+TEST_F(MemTableListTest, FlushMultipleCFsTest) {
+  const int num_cfs = 3;
+  const int num_tables_per_cf = 4;
+  SequenceNumber seq = 1;
+  Status s;
+
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableCFOptions ioptions(options);
+  InternalKeyComparator cmp(BytewiseComparator());
+  WriteBufferManager wb(options.db_write_buffer_size);
+  autovector<MemTable*> to_delete;
+
+  // Create MemTableLists
+  int min_write_buffer_number_to_merge = 3;
+  int max_write_buffer_number_to_maintain = 7;
+  autovector<MemTableList*> lists;
+  for (int i = 0; i != num_cfs; ++i) {
+    lists.emplace_back(new MemTableList(min_write_buffer_number_to_merge,
+                                        max_write_buffer_number_to_maintain));
+  }
+
+  autovector<uint32_t> cf_ids;
+  std::vector<std::vector<MemTable*>> tables(num_cfs);
+  autovector<MutableCFOptions> mutable_cf_options_list;
+  uint32_t cf_id = 0;
+  for (auto& elem : tables) {
+    MutableCFOptions mutable_cf_options(options);
+    mutable_cf_options_list.emplace_back(mutable_cf_options);
+    uint64_t memtable_id = 0;
+    for (int i = 0; i != num_tables_per_cf; ++i) {
+      MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                                   kMaxSequenceNumber, cf_id);
+      mem->SetID(memtable_id++);
+      mem->Ref();
+
+      std::string value;
+
+      mem->Add(++seq, kTypeValue, "key1", ToString(i));
+      mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
+      mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
+      mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
+      mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
+
+      elem.push_back(mem);
+    }
+    cf_ids.push_back(cf_id++);
+  }
+
+  std::vector<autovector<MemTable*>> flush_candidates(num_cfs);
+
+  // Nothing to flush
+  for (int i = 0; i != num_cfs; ++i) {
+    auto list = lists[i];
+    ASSERT_FALSE(list->IsFlushPending());
+    ASSERT_FALSE(list->imm_flush_needed.load(std::memory_order_acquire));
+    list->PickMemtablesToFlush(nullptr /* memtable_id */, &flush_candidates[i]);
+    ASSERT_EQ(0, static_cast<int>(flush_candidates[i].size()));
+  }
+
+  // Request flush even though there is nothing to flush
+  for (int i = 0; i != num_cfs; ++i) {
+    auto list = lists[i];
+    ASSERT_FALSE(list->IsFlushPending());
+    ASSERT_FALSE(list->imm_flush_needed.load(std::memory_order_acquire));
+  }
+
+  // Add tables to column families
+  for (int i = 0; i != num_cfs; ++i) {
+    for (int j = 0; j != num_tables_per_cf; ++j) {
+      lists[i]->Add(tables[i][j], &to_delete);
+    }
+    ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
+    ASSERT_TRUE(lists[i]->IsFlushPending());
+    ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
+  }
+
+  // For each column family, determine the memtables to flush
+  autovector<uint64_t> flush_memtable_ids;
+  for (int i = 0; i != num_cfs; ++i) {
+    flush_memtable_ids.push_back(i % num_tables_per_cf);
+  }
+
+  // Pick memtables to flush
+  autovector<const autovector<MemTable*>*> to_flush;
+  for (int i = 0; i != num_cfs; ++i) {
+    lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i], &flush_candidates[i]);
+    ASSERT_EQ(flush_memtable_ids[i] - 0 + 1, flush_candidates[i].size());
+    ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
+    ASSERT_FALSE(lists[i]->HasFlushRequested());
+    if (flush_memtable_ids[i] == static_cast<uint64_t>(num_tables_per_cf)) {
+      ASSERT_FALSE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
+    } else {
+      ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
+    }
+    to_flush.emplace_back(&flush_candidates[i]);
+  }
+
+  s = Mock_InstallMemtableFlushResults(lists, cf_ids, mutable_cf_options_list,
+                                       to_flush, &to_delete);
+  ASSERT_OK(s);
+
+  for (auto list : lists) {
+    delete list;
+  }
+  for (const auto& m : to_delete) {
+    // Refcount should be 0 after calling InstallMemtableFlushResults.
+    // Verify this by Ref'ing and then Unref'ing.
+    m->Unref();
     ASSERT_EQ(m, m->Unref());
     delete m;
   }

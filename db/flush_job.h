@@ -68,7 +68,7 @@ class FlushJob {
            LogBuffer* log_buffer, Directory* db_directory,
            Directory* output_file_directory, CompressionType output_compression,
            Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
-           const bool write_manifest);
+           const bool sync_output_directory, const bool write_manifest);
 
   ~FlushJob();
 
@@ -91,6 +91,11 @@ class FlushJob {
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;
+  // Pointer to a variable storing the largest memtable id to flush in this
+  // flush job. RocksDB uses this variable to select the memtables to flush in
+  // this job. All memtables in this column family with an ID smaller than or
+  // equal to *memtable_id_ will be selected for flush. If null, then all
+  // memtables in the column family will be selected.
   const uint64_t* memtable_id_;
   const EnvOptions env_options_;
   VersionSet* versions_;
@@ -108,6 +113,22 @@ class FlushJob {
   EventLogger* event_logger_;
   TableProperties table_properties_;
   bool measure_io_stats_;
+  // True if this flush job should call fsync on the output directory. False
+  // otherwise.
+  // Usually sync_output_directory_ is true. A flush job needs to call sync on
+  // the output directory before committing to the MANIFEST.
+  // However, an individual flush job does not have to call sync on the output
+  // directory if it is part of an atomic flush. After all flush jobs in the
+  // atomic flush succeed, call sync once on each distinct output directory.
+  const bool sync_output_directory_;
+  // True if this flush job should write to MANIFEST after successfully
+  // flushing memtables. False otherwise.
+  // Usually write_manifest_ is true. A flush job commits to the MANIFEST after
+  // flushing the memtables.
+  // However, an individual flush job cannot rashly write to the MANIFEST
+  // immediately after it finishes the flush if it is part of an atomic flush.
+  // In this case, only after all flush jobs succeed in flush can RocksDB
+  // commit to the MANIFEST.
   const bool write_manifest_;
 
   // Variables below are set by PickMemTable():
