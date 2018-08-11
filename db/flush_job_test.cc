@@ -94,11 +94,12 @@ TEST_F(FlushJobTest, Empty) {
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   EventLogger event_logger(db_options_.info_log.get());
   SnapshotChecker* snapshot_checker = nullptr;  // not relavant
-  FlushJob flush_job(
-      dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
-      *cfd->GetLatestMutableCFOptions(), nullptr, env_options_, versions_.get(), &mutex_,
-      &shutting_down_, {}, kMaxSequenceNumber, snapshot_checker, &job_context,
-      nullptr, nullptr, nullptr, kNoCompression, nullptr, &event_logger, false, true);
+  FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
+                     db_options_, *cfd->GetLatestMutableCFOptions(), nullptr,
+                     env_options_, versions_.get(), &mutex_, &shutting_down_,
+                     {}, kMaxSequenceNumber, snapshot_checker, &job_context,
+                     nullptr, nullptr, nullptr, kNoCompression, nullptr,
+                     &event_logger, false, true);
   {
     InstrumentedMutexLock l(&mutex_);
     flush_job.PickMemTable();

@@ -780,12 +780,13 @@ class VersionSet {
   // The across-multi-cf batch version. If edit_lists contain more than
   // 1 version edits, caller must ensure that no edit in the []list is column
   // family manipulation.
-  Status LogAndApply(const autovector<ColumnFamilyData*>& cfds,
-                     const autovector<MutableCFOptions>& mutable_cf_options_list,
-                     const autovector<autovector<VersionEdit*>>& edit_lists,
-                     InstrumentedMutex* mu, Directory* db_directory = nullptr,
-                     bool new_descriptor_log = false,
-                     const ColumnFamilyOptions* new_cf_options = nullptr);
+  Status LogAndApply(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<autovector<VersionEdit*>>& edit_lists,
+      InstrumentedMutex* mu, Directory* db_directory = nullptr,
+      bool new_descriptor_log = false,
+      const ColumnFamilyOptions* new_cf_options = nullptr);
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families

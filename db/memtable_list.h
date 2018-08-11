@@ -211,7 +211,7 @@ class MemTableList {
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
   void PickMemtablesToFlush(const uint64_t* memtable_id,
-      autovector<MemTable*>* mems);
+                            autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.

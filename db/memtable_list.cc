@@ -272,13 +272,12 @@ Status MemTableList::InstallMemtableFlushResults(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<MutableCFOptions>& mutable_cf_options_list,
     const autovector<autovector<MemTable*>*>& mems_list,
-    LogsWithPrepTracker* prep_tracker, VersionSet* vset,
-    InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
-    autovector<MemTable*>* to_delete, Directory* db_directory,
-    LogBuffer* log_buffer) {
+    LogsWithPrepTracker* prep_tracker, VersionSet* vset, InstrumentedMutex* mu,
+    const autovector<FileMetaData>& file_meta, autovector<MemTable*>* to_delete,
+    Directory* db_directory, LogBuffer* log_buffer) {
   mu->AssertHeld();
-   // Currently unused.
-  (void) prep_tracker;
+  // Currently unused.
+  (void)prep_tracker;
   // flush was successful
   autovector<autovector<VersionEdit*>> edit_lists;
   uint32_t num_entries = 0;
@@ -298,9 +297,9 @@ Status MemTableList::InstallMemtableFlushResults(
   uint32_t remaining = num_entries;
   // TODO (yanqin) mark the version edits as in atomic flush
   assert(0 == remaining);
-   // This can release and re-acquire the mutex.
+  // This can release and re-acquire the mutex.
   Status s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-      db_directory);
+                               db_directory);
   for (auto cfd : cfds) {
     cfd->imm()->InstallNewVersion();
   }
@@ -308,8 +307,9 @@ Status MemTableList::InstallMemtableFlushResults(
   if (s.ok()) {
     for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
       for (auto m : *mems_list[k]) {
-        ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
-                                     ": memtable #%" PRIu64 " done",
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Level-0 commit table #%" PRIu64
+                         ": memtable #%" PRIu64 " done",
                          cfds[k]->GetName().c_str(), m->file_number_, mem_id);
         assert(m->file_number_ > 0);
         cfds[k]->imm()->current_->Remove(m, to_delete);
@@ -322,8 +322,9 @@ Status MemTableList::InstallMemtableFlushResults(
         MemTable* m = (*mems_list[k])[i];
         // commit failed, and we have to restore the state so that future flush
         // can retry.
-        ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
-                                     ": memtable #%" PRIu64 " failed",
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "Level-0 commit table #%" PRIu64 ": memtable #%" PRIu64
+                         " failed",
                          m->file_number_, mem_id);
         m->flush_completed_ = false;
         m->flush_in_progress_ = false;
@@ -335,7 +336,7 @@ Status MemTableList::InstallMemtableFlushResults(
       cfds[k]->imm()->imm_flush_needed.store(true, std::memory_order_release);
     }
   }
-   return s;
+  return s;
 }
 
 // Returns true if there is at least one memtable on which flush has

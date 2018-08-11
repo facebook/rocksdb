@@ -83,13 +83,11 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
   }
 }
 
-
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
-                   const uint64_t* memtable_id,
-                   const EnvOptions env_options, VersionSet* versions,
-                   InstrumentedMutex* db_mutex,
+                   const uint64_t* memtable_id, const EnvOptions env_options,
+                   VersionSet* versions, InstrumentedMutex* db_mutex,
                    std::atomic<bool>* shutting_down,
                    std::vector<SequenceNumber> existing_snapshots,
                    SequenceNumber earliest_write_conflict_snapshot,

@@ -119,10 +119,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      nullptr /* memtable_id */,
-      env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
-      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+      nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
+      &mutex_, &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+      snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+      GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* write_manifest */);
@@ -205,8 +205,8 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::AtomicFlushMemTablesToOutputFile(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<MutableCFOptions>& mutable_cf_options_list,
-    const autovector<uint64_t>& flush_memtable_ids,
-    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
+    const autovector<uint64_t>& flush_memtable_ids, bool* made_progress,
+    JobContext* job_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 #ifndef NDEBUG
   for (const auto cfd : cfds) {
@@ -233,13 +233,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFile(
     auto cfd = cfds[i];
     output_file_directories.emplace_back(GetDataDir(cfds[i], 0U));
     jobs.emplace_back(
-        dbname_, cfds[i], immutable_db_options_,
-        mutable_cf_options_list[i], &flush_memtable_ids[i],
-        env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
-        snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-        job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
-        GetCompressionFlush(*cfd->ioptions(), mutable_cf_options_list[i]), stats_,
-        &event_logger_, mutable_cf_options_list[i].report_bg_io_stats,
+        dbname_, cfds[i], immutable_db_options_, mutable_cf_options_list[i],
+        &flush_memtable_ids[i], env_options_for_compaction_, versions_.get(),
+        &mutex_, &shutting_down_, snapshot_seqs,
+        earliest_write_conflict_snapshot, snapshot_checker, job_context,
+        log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+        GetCompressionFlush(*cfd->ioptions(), mutable_cf_options_list[i]),
+        stats_, &event_logger_, mutable_cf_options_list[i].report_bg_io_stats,
         false /* write_manifest */);
   }
 
@@ -252,9 +252,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFile(
 
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushBegin(cfds[i], &file_meta[i],
-                       mutable_cf_options_list[i], job_context->job_id,
-                       job.GetTableProperties());
+    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options_list[i],
+                       job_context->job_id, job.GetTableProperties());
 #endif /* !ROCKSDB_LITE */
     if (logfile_number_ > 0 &&
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
@@ -276,14 +275,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFile(
       mems_list.emplace_back(&mems);
     }
     // TODO(yanqin) populate mems
-    s = MemTableList::InstallMemtableFlushResults(cfds,
-                                                  mutable_cf_options_list,
-                                                  mems_list, &logs_with_prep_tracker_,
-                                                  versions_.get(), &mutex_,
-                                                  file_meta,
-                                                  &job_context->memtables_to_free,
-                                                  directories_.GetDbDir(),
-                                                  log_buffer);
+    s = MemTableList::InstallMemtableFlushResults(
+        cfds, mutable_cf_options_list, mems_list, &logs_with_prep_tracker_,
+        versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
+        directories_.GetDbDir(), log_buffer);
   }
 
   if (s.ok()) {
@@ -311,14 +306,15 @@ Status DBImpl::AtomicFlushMemTablesToOutputFile(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
         sfm->OnAddFile(file_path);
         if (sfm->IsMaxAllowedSpaceReached()) {
-          Status new_bg_error = Status::SpaceLimit(
-              "Max allowed space was reached");
-          error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+          Status new_bg_error =
+              Status::SpaceLimit("Max allowed space was reached");
+          error_handler_.SetBGError(new_bg_error,
+                                    BackgroundErrorReason::kFlush);
           break;
         }
       }
     }
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
   }
 
   if (!s.ok()) {
