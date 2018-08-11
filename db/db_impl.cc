@@ -3091,7 +3091,6 @@ Status DBImpl::VerifyChecksum() {
 
 void DBImpl::NotifyOnExternalFileIngested(
     ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.empty()) {
     return;
   }
@@ -3107,8 +3106,6 @@ void DBImpl::NotifyOnExternalFileIngested(
       listener->OnExternalFileIngested(this, info);
     }
   }
-
-#endif
 }
 
 void DBImpl::WaitForIngestFile() {
