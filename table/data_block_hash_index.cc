@@ -62,9 +62,7 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
   // write NUM_BUCK
   PutFixed16(&buffer, num_buckets);
 
-  // Because we use uint16_t address, we only support block less than 64KB
-  // TODO(fwu): gracefully handle error
-  assert(buffer.size() < (1 << 16));
+  assert(buffer.size() <= kMaxBlockSizeSupportedByHashIndex);
 }
 
 void DataBlockHashIndexBuilder::Reset() {

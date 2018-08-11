@@ -309,6 +309,64 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
   }
 }
 
+TEST(DataBlockHashIndex, BlockSizeExceedMax) {
+  Options options = Options();
+  std::string ukey(10, 'k');
+  InternalKey ikey(ukey, 0, kTypeValue);
+
+  BlockBuilder builder(1 /* block_restart_interval */,
+                       false /* use_delta_encoding */,
+                       false /* use_value_delta_encoding */,
+                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
+
+  {
+    // insert a large value. The block size plus HashIndex is 65536.
+    std::string value(65502, 'v');
+
+    builder.Add(ikey.Encode().ToString(), value);
+
+    // read serialized contents of the block
+    Slice rawblock = builder.Finish();
+    ASSERT_LE(rawblock.size(), kMaxBlockSizeSupportedByHashIndex);
+    fprintf(stderr, "block size:%ld\n", rawblock.size());
+
+    // create block reader
+    BlockContents contents;
+    contents.data = rawblock;
+    contents.cachable = false;
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+
+    ASSERT_EQ(reader.IndexType(),
+               BlockBasedTableOptions::kDataBlockBinaryAndHash);
+  }
+
+  builder.Reset();
+
+  {
+    // insert a large value. The block size plus HashIndex would be 65537.
+    // This excceed the max block size supported by HashIndex (65536).
+    // So when build finishes HashIndex will not be created for the block.
+    std::string value(65503, 'v');
+
+    builder.Add(ikey.Encode().ToString(), value);
+
+    // read serialized contents of the block
+    Slice rawblock = builder.Finish();
+    ASSERT_LE(rawblock.size(), kMaxBlockSizeSupportedByHashIndex);
+    fprintf(stderr, "block size:%ld\n", rawblock.size());
+
+    // create block reader
+    BlockContents contents;
+    contents.data = rawblock;
+    contents.cachable = false;
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+
+    // the index type have fallen back to binary when build finish.
+    ASSERT_EQ(reader.IndexType(),
+              BlockBasedTableOptions::kDataBlockBinarySearch);
+  }
+}
+
 TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Options options = Options();
 

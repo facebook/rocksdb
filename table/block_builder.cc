@@ -119,7 +119,8 @@ Slice BlockBuilder::Finish() {
   uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
   BlockBasedTableOptions::DataBlockIndexType index_type =
     BlockBasedTableOptions::kDataBlockBinarySearch;
-  if (data_block_hash_index_builder_.Valid()) {
+  if (data_block_hash_index_builder_.Valid() &&
+      CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
     data_block_hash_index_builder_.Finish(buffer_);
     index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
   }
