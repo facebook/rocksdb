@@ -1078,7 +1078,8 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       cfd->imm()->FlushRequested();
     }
   }
-  ScheduleWork(flush_req, FlushReason::kWriteBufferManager);
+  SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+  MaybeScheduleFlushOrCompaction();
   return status;
 }
 
@@ -1135,7 +1136,8 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     flush_req.emplace_back(cfd, flush_memtable_id);
   }
   if (status.ok()) {
-    ScheduleWork(flush_req, FlushReason::kWriteBufferFull);
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    MaybeScheduleFlushOrCompaction();
   }
   return status;
 }
@@ -1247,7 +1249,8 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       flush_req.emplace_back(cfd, flush_memtable_id);
     }
   }
-  ScheduleWork(flush_req, FlushReason::kWriteBufferFull);
+  SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+  MaybeScheduleFlushOrCompaction();
   return Status::OK();
 }
 

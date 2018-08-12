@@ -888,7 +888,9 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
-  Status FlushMemTablesToOutputFile(
+  // Flush the memtables of (multiple) column families to multiple files on
+  // persistent storage.
+  Status FlushMemTablesToOutputFiles(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<MutableCFOptions>& mutable_cf_options_list,
       const autovector<uint64_t>& memtable_ids, bool* made_progress,
@@ -930,6 +932,7 @@ class DBImpl : public DB {
                               const uint64_t* flush_memtable_id = nullptr) {
     return WaitForFlushMemTables({cfd}, {flush_memtable_id});
   }
+  // Wait for memtables to be flushed for multiple column families.
   Status WaitForFlushMemTables(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids);
@@ -989,7 +992,14 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
 
+  // A flush request specifies the column families to flush as well as the
+  // largest memtable id to persist for each column family. Once all the
+  // memtables whose IDs are smaller than or equal to this per-column-family
+  // specified value, this flush request is considered to have completed its
+  // work of flushing this column family. After completing the work for all
+  // column families in this request, this flush is considered complete.
   typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+
   void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
@@ -1432,7 +1442,6 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
       const MutableCFOptions& mutable_cf_options,
       FlushReason flush_reason = FlushReason::kOthers);
-  void ScheduleWork(const FlushRequest& req, FlushReason flush_reason);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;

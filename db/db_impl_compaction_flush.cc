@@ -200,7 +200,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   return s;
 }
 
-Status DBImpl::FlushMemTablesToOutputFile(
+Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<MutableCFOptions>& mutable_cf_options_list,
     const autovector<uint64_t>& memtable_ids, bool* made_progress,
@@ -1121,7 +1121,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         auto& loop_cfd = elem.first;
         loop_cfd->imm()->FlushRequested();
       }
-      ScheduleWork(flush_req, flush_reason);
+      SchedulePendingFlush(flush_req, flush_reason);
+      MaybeScheduleFlushOrCompaction();
     }
 
     if (!writes_stopped) {
@@ -1142,6 +1143,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   return s;
 }
 
+// Wait for memtables to be flushed for multiple column families.
+// let N = cfds.size()
+// for i in [0, N),
+//  1) if flush_memtable_ids[i] is not null, then the memtables with lower IDs
+//     have to be flushed for THIS column family;
+//  2) if flush_memtable_ids[i] is null, then all memtables in THIS column
+//     family have to be flushed.
+// Finish waiting when ALL column families finish flushing memtables.
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids) {
@@ -1152,7 +1161,9 @@ Status DBImpl::WaitForFlushMemTables(
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
+    // Number of column families that have been dropped.
     int num_dropped = 0;
+    // Number of column families that have finished flush.
     int num_finished = 0;
     for (int i = 0; i < num; ++i) {
       if (cfds[i]->IsDropped()) {
@@ -1167,6 +1178,8 @@ Status DBImpl::WaitForFlushMemTables(
     if (1 == num_dropped && 1 == num) {
       return Status::InvalidArgument("Cannot flush a dropped CF");
     }
+    // Column families involved in this flush request have either been dropped
+    // or finished flush. Then it's time to finish waiting.
     if (num_dropped + num_finished == num) {
       break;
     }
@@ -1211,7 +1224,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-    assert(!flush_queue_.empty());
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
@@ -1222,7 +1234,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     while (unscheduled_flushes_ > 0 &&
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_job_limits.max_flushes) {
-      assert(!flush_queue_.empty());
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
@@ -1445,7 +1456,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
           bg_compaction_scheduled_);
     }
     status =
-        FlushMemTablesToOutputFile(cfds, mutable_cf_options_list, memtable_ids,
+        FlushMemTablesToOutputFiles(cfds, mutable_cf_options_list, memtable_ids,
                                    made_progress, job_context, log_buffer);
     for (auto cfd : cfds) {
       if (cfd->Unref()) {
@@ -2159,15 +2170,6 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +
                                mutable_cf_options.write_buffer_size *
                                    mutable_cf_options.max_write_buffer_number;
-}
-
-void DBImpl::ScheduleWork(const FlushRequest& req, FlushReason flush_reason) {
-  SchedulePendingFlush(req, flush_reason);
-  for (const auto& elem : req) {
-    auto cfd = elem.first;
-    SchedulePendingCompaction(cfd);
-  }
-  MaybeScheduleFlushOrCompaction();
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,
