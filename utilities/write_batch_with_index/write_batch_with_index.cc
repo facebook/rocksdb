@@ -594,6 +594,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeLogData:
       case kTypeBeginPrepareXID:
       case kTypeBeginPersistedPrepareXID:
+      case kTypeBeginUnprepareXID:
       case kTypeEndPrepareXID:
       case kTypeCommitXID:
       case kTypeRollbackXID:
@@ -935,6 +936,10 @@ Status WriteBatchWithIndex::PopSavePoint() {
 
 void WriteBatchWithIndex::SetMaxBytes(size_t max_bytes) {
   rep->write_batch.SetMaxBytes(max_bytes);
+}
+
+size_t WriteBatchWithIndex::GetDataSize() const {
+  return rep->write_batch.GetDataSize();
 }
 
 }  // namespace rocksdb

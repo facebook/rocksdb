@@ -694,13 +694,15 @@ class DBTestBase : public testing::Test {
     kConcurrentSkipList = 29,
     kPipelinedWrite = 30,
     kConcurrentWALWrites = 31,
-    kEnd = 32,
-    kDirectIO = 33,
-    kLevelSubcompactions = 34,
-    kUniversalSubcompactions = 35,
-    kBlockBasedTableWithIndexRestartInterval = 36,
-    kBlockBasedTableWithPartitionedIndex = 37,
-    kPartitionedFilterWithNewTableReaderForCompactions = 38,
+    kDirectIO,
+    kLevelSubcompactions,
+    kBlockBasedTableWithIndexRestartInterval,
+    kBlockBasedTableWithPartitionedIndex,
+    kBlockBasedTableWithPartitionedIndexFormat4,
+    kPartitionedFilterWithNewTableReaderForCompactions,
+    kUniversalSubcompactions,
+    // This must be the last line
+    kEnd,
   };
 
  public:
@@ -730,6 +732,13 @@ class DBTestBase : public testing::Test {
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
   };
+
+  const int kRangeDelSkipConfigs =
+      // Plain tables do not support range deletions.
+      kSkipPlainTable |
+      // MmapReads disables the iterator pinning that RangeDelAggregator
+      // requires.
+      kSkipMmapReads;
 
   explicit DBTestBase(const std::string path);
 

@@ -75,6 +75,10 @@ class SstFileManager {
   // Update trash/DB size ratio where new files will be deleted immediately
   // thread-safe
   virtual void SetMaxTrashDBRatio(double ratio) = 0;
+
+  // Return the total size of trash files
+  // thread-safe
+  virtual uint64_t GetTotalTrashSize() = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
@@ -96,9 +100,13 @@ class SstFileManager {
 // @param max_trash_db_ratio: If the trash size constitutes for more than this
 //    fraction of the total DB size we will start deleting new files passed to
 //    DeleteScheduler immediately
-// @param bytes_max_delete_chunk: if a single file is larger than delete chunk,
-//    ftruncate the file by this size each time, rather than dropping the whole
-//    file. 0 means to always delete the whole file.
+// @param bytes_max_delete_chunk: if a file to delete is larger than delete
+//    chunk, ftruncate the file by this size each time, rather than dropping the
+//    whole file. 0 means to always delete the whole file. If the file has more
+//    than one linked names, the file will be deleted as a whole. Either way,
+//    `rate_bytes_per_sec` will be appreciated. NOTE that with this option,
+//    files already renamed as a trash may be partial, so users should not
+//    directly recover them without checking.
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,

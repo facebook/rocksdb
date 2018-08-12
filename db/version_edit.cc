@@ -46,7 +46,7 @@ enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
   // Since Manifest is not entirely currently forward-compatible, and the only
-  // forward-compatbile part is the CutsomtTag of kNewFile, we currently encode
+  // forward-compatible part is the CutsomtTag of kNewFile, we currently encode
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
@@ -135,7 +135,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, f.fd.GetFileSize());
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
-    PutVarint64Varint64(dst, f.smallest_seqno, f.largest_seqno);
+    PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
     if (has_customized_fields) {
       // Customized fields' format:
       // +-----------------------------+
@@ -233,14 +233,16 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   uint64_t number;
   uint32_t path_id = 0;
   uint64_t file_size;
+  SequenceNumber smallest_seqno;
+  SequenceNumber largest_seqno;
   // Since this is the only forward-compatible part of the code, we hack new
   // extension into this record. When we do, we set this boolean to distinguish
   // the record from the normal NewFile records.
   if (GetLevel(input, &level, &msg) && GetVarint64(input, &number) &&
       GetVarint64(input, &file_size) && GetInternalKey(input, &f.smallest) &&
       GetInternalKey(input, &f.largest) &&
-      GetVarint64(input, &f.smallest_seqno) &&
-      GetVarint64(input, &f.largest_seqno)) {
+      GetVarint64(input, &smallest_seqno) &&
+      GetVarint64(input, &largest_seqno)) {
     // See comments in VersionEdit::EncodeTo() for format of customized fields
     while (true) {
       uint32_t custom_tag;
@@ -272,7 +274,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           break;
         case kMinLogNumberToKeepHack:
           // This is a hack to encode kMinLogNumberToKeep in a
-          // forward-compatbile fashion.
+          // forward-compatible fashion.
           if (!GetFixed64(&field, &min_log_number_to_keep_)) {
             return "deleted log number malformatted";
           }
@@ -289,7 +291,8 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   } else {
     return "new-file4 entry";
   }
-  f.fd = FileDescriptor(number, path_id, file_size);
+  f.fd =
+      FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
   new_files_.push_back(std::make_pair(level, f));
   return nullptr;
 }
@@ -409,13 +412,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kNewFile2: {
         uint64_t number;
         uint64_t file_size;
+        SequenceNumber smallest_seqno;
+        SequenceNumber largest_seqno;
         if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
             GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
-            GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno)) {
-          f.fd = FileDescriptor(number, 0, file_size);
+            GetVarint64(&input, &smallest_seqno) &&
+            GetVarint64(&input, &largest_seqno)) {
+          f.fd = FileDescriptor(number, 0, file_size, smallest_seqno,
+                                largest_seqno);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -429,13 +435,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         uint64_t number;
         uint32_t path_id;
         uint64_t file_size;
+        SequenceNumber smallest_seqno;
+        SequenceNumber largest_seqno;
         if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
             GetVarint32(&input, &path_id) && GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
-            GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno)) {
-          f.fd = FileDescriptor(number, path_id, file_size);
+            GetVarint64(&input, &smallest_seqno) &&
+            GetVarint64(&input, &largest_seqno)) {
+          f.fd = FileDescriptor(number, path_id, file_size, smallest_seqno,
+                                largest_seqno);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {

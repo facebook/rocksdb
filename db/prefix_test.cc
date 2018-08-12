@@ -53,7 +53,7 @@ DEFINE_int32(value_size, 40, "");
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 // Path to the database on file system
-const std::string kDbName = rocksdb::test::TmpDir() + "/prefix_test";
+const std::string kDbName = rocksdb::test::PerThreadDBPath("prefix_test");
 
 namespace rocksdb {
 
@@ -211,6 +211,10 @@ class SamePrefixTransform : public SliceTransform {
 
   virtual bool InRange(const Slice& dst) const override {
     return dst == prefix_;
+  }
+
+  virtual bool FullLengthEnabled(size_t* /*len*/) const override {
+    return false;
   }
 };
 

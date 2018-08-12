@@ -20,7 +20,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
@@ -49,6 +49,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
+#include "util/compression_context_cache.h"
 #include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -82,28 +83,7 @@ inline mode_t GetDBFileMode(bool allow_non_owner_access) {
 static std::set<std::string> lockedFiles;
 static port::Mutex mutex_lockedFiles;
 
-static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
-  mutex_lockedFiles.Lock();
-  if (lock) {
-    // If it already exists in the lockedFiles set, then it is already locked,
-    // and fail this lock attempt. Otherwise, insert it into lockedFiles.
-    // This check is needed because fcntl() does not detect lock conflict
-    // if the fcntl is issued by the same thread that earlier acquired
-    // this lock.
-    if (lockedFiles.insert(fname).second == false) {
-      mutex_lockedFiles.Unlock();
-      errno = ENOLCK;
-      return -1;
-    }
-  } else {
-    // If we are unlocking, then verify that we had locked it earlier,
-    // it should already exist in lockedFiles. Remove it from lockedFiles.
-    if (lockedFiles.erase(fname) != 1) {
-      mutex_lockedFiles.Unlock();
-      errno = ENOLCK;
-      return -1;
-    }
-  }
+static int LockOrUnlock(int fd, bool lock) {
   errno = 0;
   struct flock f;
   memset(&f, 0, sizeof(f));
@@ -112,11 +92,7 @@ static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
   f.l_start = 0;
   f.l_len = 0;        // Lock/unlock entire file
   int value = fcntl(fd, F_SETLK, &f);
-  if (value == -1 && lock) {
-    // if there is an error in locking, then remove the pathname from lockedfiles
-    lockedFiles.erase(fname);
-  }
-  mutex_lockedFiles.Unlock();
+
   return value;
 }
 
@@ -637,6 +613,15 @@ class PosixEnv : public Env {
     return result;
   }
 
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override {
+    struct stat s;
+    if (stat(fname.c_str(), &s) != 0) {
+      return IOError("while stat a file for num file links", fname, errno);
+    }
+    *count = static_cast<uint64_t>(s.st_nlink);
+    return Status::OK();
+  }
+
   virtual Status AreFilesSame(const std::string& first,
                               const std::string& second, bool* res) override {
     struct stat statbuf[2];
@@ -660,6 +645,23 @@ class PosixEnv : public Env {
   virtual Status LockFile(const std::string& fname, FileLock** lock) override {
     *lock = nullptr;
     Status result;
+
+    mutex_lockedFiles.Lock();
+    // If it already exists in the lockedFiles set, then it is already locked,
+    // and fail this lock attempt. Otherwise, insert it into lockedFiles.
+    // This check is needed because fcntl() does not detect lock conflict
+    // if the fcntl is issued by the same thread that earlier acquired
+    // this lock.
+    // We must do this check *before* opening the file:
+    // Otherwise, we will open a new file descriptor. Locks are associated with
+    // a process, not a file descriptor and when *any* file descriptor is closed,
+    // all locks the process holds for that *file* are released
+    if (lockedFiles.insert(fname).second == false) {
+      mutex_lockedFiles.Unlock();
+      errno = ENOLCK;
+      return IOError("lock ", fname, errno);
+    }
+
     int fd;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
@@ -667,7 +669,9 @@ class PosixEnv : public Env {
     }
     if (fd < 0) {
       result = IOError("while open a file for lock", fname, errno);
-    } else if (LockOrUnlock(fname, fd, true) == -1) {
+    } else if (LockOrUnlock(fd, true) == -1) {
+      // if there is an error in locking, then remove the pathname from lockedfiles
+      lockedFiles.erase(fname);
       result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
@@ -677,17 +681,26 @@ class PosixEnv : public Env {
       my_lock->filename = fname;
       *lock = my_lock;
     }
+
+    mutex_lockedFiles.Unlock();
     return result;
   }
 
   virtual Status UnlockFile(FileLock* lock) override {
     PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
     Status result;
-    if (LockOrUnlock(my_lock->filename, my_lock->fd_, false) == -1) {
+    mutex_lockedFiles.Lock();
+    // If we are unlocking, then verify that we had locked it earlier,
+    // it should already exist in lockedFiles. Remove it from lockedFiles.
+    if (lockedFiles.erase(my_lock->filename) != 1) {
+      errno = ENOLCK;
+      result = IOError("unlock", my_lock->filename, errno);
+    } else if (LockOrUnlock(my_lock->fd_, false) == -1) {
       result = IOError("unlock", my_lock->filename, errno);
     }
     close(my_lock->fd_);
     delete my_lock;
+    mutex_lockedFiles.Unlock();
     return result;
   }
 
@@ -1057,6 +1070,8 @@ Env* Env::Default() {
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
   ThreadLocalPtr::InitSingletons();
+  CompressionContextCache::InitSingleton();
+  INIT_SYNC_POINT_SINGLETONS();
   static PosixEnv default_env;
   return &default_env;
 }

@@ -45,21 +45,34 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED)));
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+INSTANTIATE_TEST_CASE_P(
+    DBAsBaseDB, TransactionStressTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_PREPARED)));
+                      std::make_tuple(true, true, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_UNPREPARED)));
+
+// MySQLStyleTransactionTest takes far too long for valgrind to run.
+#ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
-                      std::make_tuple(true, false, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED)));
+                      std::make_tuple(false, false, WRITE_UNPREPARED),
+                      std::make_tuple(false, true, WRITE_UNPREPARED)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -87,6 +100,7 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
   delete txn0;
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
+  assert(db != nullptr);
   txn0 = db->GetTransactionByName("xid2");
   ASSERT_OK(txn0->Commit());
   delete txn0;
@@ -134,6 +148,7 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
     ReadOptions read_options;
     std::string value;
 
+    assert(db != nullptr);
     Transaction* txn1 =
         db->BeginTransaction(write_options, TransactionOptions());
     ASSERT_TRUE(txn1);
@@ -452,6 +467,14 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     ASSERT_EQ(dlock_buffer.size(), curr_dlock_buffer_len_);
     auto dlock_entry = dlock_buffer[0].path;
     ASSERT_EQ(dlock_entry.size(), kInitialMaxDeadlocks);
+    int64_t pre_deadlock_time = dlock_buffer[0].deadlock_time;
+    int64_t cur_deadlock_time = 0;
+    for (auto const& dl_path_rec : dlock_buffer) {
+      cur_deadlock_time = dl_path_rec.deadlock_time;
+      ASSERT_NE(cur_deadlock_time, 0);
+      ASSERT_TRUE(cur_deadlock_time <= pre_deadlock_time);
+      pre_deadlock_time = cur_deadlock_time;
+    }
 
     int64_t curr_waiting_key = 0;
 
@@ -583,7 +606,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 }
 
-TEST_P(TransactionTest, DeadlockCycle) {
+TEST_P(TransactionStressTest, DeadlockCycle) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
@@ -657,6 +680,15 @@ TEST_P(TransactionTest, DeadlockCycle) {
     ASSERT_EQ(dlock_entry.size(), check_len);
     ASSERT_EQ(dlock_buffer[0].limit_exceeded, check_limit_flag);
 
+    int64_t pre_deadlock_time = dlock_buffer[0].deadlock_time;
+    int64_t cur_deadlock_time = 0;
+    for (auto const& dl_path_rec : dlock_buffer) {
+      cur_deadlock_time = dl_path_rec.deadlock_time;
+      ASSERT_NE(cur_deadlock_time, 0);
+      ASSERT_TRUE(cur_deadlock_time <= pre_deadlock_time);
+      pre_deadlock_time = cur_deadlock_time;
+    }
+
     // Iterates backwards over path verifying decreasing txn_ids.
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
       auto dl_node = *it;
@@ -682,7 +714,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
   }
 }
 
-TEST_P(TransactionTest, DeadlockStress) {
+TEST_P(TransactionStressTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
   const uint32_t NUM_ITERS = 10000;
@@ -924,6 +956,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
       // kill and reopen to trigger recovery
       s = ReOpenNoDelete();
       ASSERT_OK(s);
+      assert(db != nullptr);
       s = db->Get(read_options, "gtid", &value);
       ASSERT_OK(s);
       ASSERT_EQ(value, "dogs");
@@ -1054,6 +1087,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
         // kill and reopen to trigger recovery
         s = ReOpenNoDelete();
         ASSERT_OK(s);
+        assert(db != nullptr);
         s = db->Get(read_options, "foo", &value);
         ASSERT_OK(s);
         ASSERT_EQ(value, "bar");
@@ -1062,7 +1096,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   }
 }
 
-TEST_P(TransactionTest, TwoPhaseExpirationTest) {
+TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
   Status s;
 
   WriteOptions write_options;
@@ -1381,7 +1415,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   }
 }
 
-TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
+TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   WriteOptions write_options;
   write_options.sync = true;
   write_options.disableWAL = false;
@@ -1408,6 +1442,7 @@ TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
   for (int i = 0; i < 1000; i++) {
     std::string key(i, 'k');
     std::string val(1000, 'v');
+    assert(db != nullptr);
     s = db->Put(write_options, key, val);
     ASSERT_OK(s);
 
@@ -1483,6 +1518,7 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   // kill and reopen
   env->SetFilesystemActive(false);
   ReOpenNoDelete();
+  assert(db != nullptr);
 
   // value is now available
   s = db->Get(read_options, "foo4", &value);
@@ -1549,6 +1585,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   // kill and reopen
   env->SetFilesystemActive(false);
   ReOpenNoDelete();
+  assert(db != nullptr);
 
   // value is now available
   s = db->Get(read_options, "foo", &value);
@@ -1775,10 +1812,10 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
       ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
       break;
     case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
       // This cf is not flushed yet and should ref the log that has its data
       ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
       break;
-    case WRITE_UNPREPARED:
     default:
       assert(false);
   }
@@ -1901,6 +1938,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   env->SetFilesystemActive(false);
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
+  assert(db != nullptr);
 
   s = db->Get(read_options, "first", &value);
   ASSERT_OK(s);
@@ -2169,6 +2207,7 @@ TEST_P(TransactionTest, FlushTest2) {
 
     Status s = ReOpen();
     ASSERT_OK(s);
+    assert(db != nullptr);
 
     WriteOptions write_options;
     ReadOptions read_options, snapshot_read_options;
@@ -2619,7 +2658,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   string value;
   Status s;
 
@@ -3173,7 +3211,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   ASSERT_OK(s);
 
   // Create a txn and verify we can only lock up to 3 keys
-  Transaction* txn = db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   s = txn->Put("X", "x");
@@ -3206,7 +3244,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   s = txn->Get(read_options, "W", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn2);
 
   // "X" currently locked
@@ -3265,7 +3303,6 @@ TEST_P(TransactionTest, LockLimitTest) {
 TEST_P(TransactionTest, IteratorTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   std::string value;
   Status s;
 
@@ -3446,7 +3483,6 @@ TEST_P(TransactionTest, DisableIndexingTest) {
 TEST_P(TransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
   std::string value;
   Status s;
 
@@ -4701,7 +4737,6 @@ TEST_P(TransactionTest, ClearSnapshotTest) {
 TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   Status s;
 
-  TransactionOptions txn_options;
   ColumnFamilyHandle *cfa, *cfb;
   ColumnFamilyOptions cf_options;
 
@@ -4757,7 +4792,7 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   }
 }
 
-TEST_P(TransactionTest, ExpiredTransactionDataRace1) {
+TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   // In this test, txn1 should succeed committing,
   // as the callback is called after txn1 starts committing.
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
@@ -4803,6 +4838,7 @@ TEST_P(TransactionTest, ExpiredTransactionDataRace1) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 namespace {
 Status TransactionStressTestInserter(TransactionDB* db,
                                      const size_t num_transactions,
@@ -4890,6 +4926,7 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
                                                !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(TransactionTest, MemoryLimitTest) {
   TransactionOptions txn_options;
@@ -4913,8 +4950,16 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   ASSERT_EQ(2, txn->GetNumPuts());
 
   s = txn->Put(Slice("b"), Slice("...."));
-  ASSERT_TRUE(s.IsMemoryLimit());
-  ASSERT_EQ(2, txn->GetNumPuts());
+  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+  // For write unprepared, write batches exceeding max_write_batch_size will
+  // just flush to DB instead of returning a memory limit error.
+  if (pdb->GetTxnDBOptions().write_policy != WRITE_UNPREPARED) {
+    ASSERT_TRUE(s.IsMemoryLimit());
+    ASSERT_EQ(2, txn->GetNumPuts());
+  } else {
+    ASSERT_OK(s);
+    ASSERT_EQ(3, txn->GetNumPuts());
+  }
 
   txn->Rollback();
   delete txn;
@@ -4924,7 +4969,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
-TEST_P(TransactionTest, SeqAdvanceTest) {
+TEST_P(TransactionStressTest, SeqAdvanceTest) {
   // TODO(myabandeh): must be test with false before new releases
   const bool short_test = true;
   WriteOptions wopts;
@@ -5247,10 +5292,6 @@ TEST_P(TransactionTest, DuplicateKeys) {
           }
           s = txn0->Commit();
           ASSERT_OK(s);
-        }
-        if (!do_prepare && !do_rollback) {
-          auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-          pdb->UnregisterTransaction(txn0);
         }
         delete txn0;
         ReadOptions ropt;

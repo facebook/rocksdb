@@ -128,7 +128,8 @@ Status PlainTableReader::Open(
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props);
+                               ioptions, &props,
+                               true /* compression_type_missing */);
   if (!s.ok()) {
     return s;
   }
@@ -190,7 +191,7 @@ void PlainTableReader::SetupForCompaction() {
 
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
-    Arena* arena, bool /*skip_filters*/) {
+    Arena* arena, bool /*skip_filters*/, bool /*for_compaction*/) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
@@ -293,7 +294,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                            file_size_, kPlainTableMagicNumber, ioptions_,
                            PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           &index_block_contents);
+                           &index_block_contents,
+                           true /* compression_type_missing */);
 
   bool index_in_file = s.ok();
 
@@ -303,7 +305,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   if (index_in_file) {
     s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                       file_size_, kPlainTableMagicNumber, ioptions_,
-                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
+                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents,
+                      true /* compression_type_missing */);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 

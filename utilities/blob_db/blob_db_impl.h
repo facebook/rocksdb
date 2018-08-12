@@ -64,7 +64,12 @@ class BlobReconcileWalFilter : public WalFilter {
 
 // Comparator to sort "TTL" aware Blob files based on the lower value of
 // TTL range.
-struct blobf_compare_ttl {
+struct BlobFileComparatorTTL {
+  bool operator()(const std::shared_ptr<BlobFile>& lhs,
+                  const std::shared_ptr<BlobFile>& rhs) const;
+};
+
+struct BlobFileComparator {
   bool operator()(const std::shared_ptr<BlobFile>& lhs,
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
@@ -124,6 +129,10 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::Get;
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
+
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             uint64_t* expiration) override;
 
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
@@ -210,10 +219,10 @@ class BlobDBImpl : public BlobDB {
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value);
+                 PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
-                      PinnableSlice* value);
+                      PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -229,9 +238,6 @@ class BlobDBImpl : public BlobDB {
   // REQUIRED: hold write lock of mutex_ or during DB open.
   void ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
                         SequenceNumber obsolete_seq, bool update_size);
-
-  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
-                             Slice* value_slice, std::string* new_value);
 
   Status PutBlobValue(const WriteOptions& options, const Slice& key,
                       const Slice& value, uint64_t expiration,
@@ -315,9 +321,7 @@ class BlobDBImpl : public BlobDB {
   bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
   bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
 
-  void CopyBlobFiles(
-      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
-      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
+  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
 
@@ -334,7 +338,6 @@ class BlobDBImpl : public BlobDB {
   // the base DB
   DBImpl* db_impl_;
   Env* env_;
-  TTLExtractor* ttl_extractor_;
 
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;
@@ -373,7 +376,7 @@ class BlobDBImpl : public BlobDB {
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
+  std::set<std::shared_ptr<BlobFile>, BlobFileComparatorTTL> open_ttl_files_;
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;

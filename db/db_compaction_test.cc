@@ -251,6 +251,7 @@ const SstFileMetaData* PickFileRandomly(
 }
 }  // anonymous namespace
 
+#ifndef ROCKSDB_VALGRIND_RUN
 // All the TEST_P tests run once with sub_compactions disabled (i.e.
 // options.max_subcompactions = 1) and once with it enabled
 TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
@@ -293,6 +294,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
     ASSERT_GT(db_size[0] / 3, db_size[1]);
   }
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
   //  For each options type we test following
@@ -3374,14 +3376,13 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
     }
     Flush();
   }
-  Flush();
   dbfull()->TEST_WaitForCompact();
   MoveFilesToLevel(3);
   ASSERT_EQ("0,0,0,2", FilesPerLevel());
 
+  // Delete previously written keys.
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
-      // Overwrite previous keys with smaller, but predictable, values.
       ASSERT_OK(Delete(Key(i * kNumKeysPerFile + j)));
     }
     Flush();
@@ -3394,7 +3395,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   env_->addon_time_.fetch_add(36 * 60 * 60);  // 36 hours
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
-  // Just do a siimple write + flush so that the Ttl expired files get
+  // Just do a simple write + flush so that the Ttl expired files get
   // compacted.
   ASSERT_OK(Put("a", "1"));
   Flush();
@@ -3404,6 +3405,57 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
         ASSERT_TRUE(compaction->compaction_reason() == CompactionReason::kTtl);
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  dbfull()->TEST_WaitForCompact();
+  // All non-L0 files are deleted, as they contained only deleted data.
+  ASSERT_EQ("1", FilesPerLevel());
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Test dynamically changing ttl.
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+  MoveFilesToLevel(3);
+  ASSERT_EQ("0,0,0,2", FilesPerLevel());
+
+  // Delete previously written keys.
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Delete(Key(i * kNumKeysPerFile + j)));
+    }
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("2,0,0,2", FilesPerLevel());
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,2,0,2", FilesPerLevel());
+
+  // Move time forward by 12 hours, and make sure that compaction still doesn't
+  // trigger as ttl is set to 24 hours.
+  env_->addon_time_.fetch_add(12 * 60 * 60);
+  ASSERT_OK(Put("a", "1"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("1,2,0,2", FilesPerLevel());
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->compaction_reason() == CompactionReason::kTtl);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Dynamically change ttl to 10 hours.
+  // This should trigger a ttl compaction, as 12 hours have already passed.
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "36000"}}));
   dbfull()->TEST_WaitForCompact();
   // All non-L0 files are deleted, as they contained only deleted data.
   ASSERT_EQ("1", FilesPerLevel());
@@ -3700,6 +3752,68 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   ColumnFamilyData* cfd = cfh->cfd();
 
   VerifyCompactionStats(*cfd, *collector);
+}
+
+TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {
+  // LSM setup:
+  // L1:      [ba bz]
+  // L2: [a b]       [c d]
+  // L3: [a b]       [c d]
+  //
+  // Thread 1:                        Thread 2:
+  // Begin compacting all L2->L3
+  //                                  Compact [ba bz] L1->L3
+  // End compacting all L2->L3
+  //
+  // The compaction operation in thread 2 should be disallowed because the range
+  // overlaps with the compaction in thread 1, which also covers that range in
+  // L3.
+  Options options = CurrentOptions();
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+  Reopen(options);
+
+  for (int level = 3; level >= 2; --level) {
+    ASSERT_OK(Put("a", "val"));
+    ASSERT_OK(Put("b", "val"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("c", "val"));
+    ASSERT_OK(Put("d", "val"));
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(level);
+  }
+  ASSERT_OK(Put("ba", "val"));
+  ASSERT_OK(Put("bz", "val"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"CompactFilesImpl:0",
+       "DBCompactionTest::CompactFilesOutputRangeConflict:Thread2Begin"},
+      {"DBCompactionTest::CompactFilesOutputRangeConflict:Thread2End",
+       "CompactFilesImpl:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto bg_thread = port::Thread([&]() {
+    // Thread 1
+    std::vector<std::string> filenames = collector->GetFlushedFiles();
+    filenames.pop_back();
+    ASSERT_OK(db_->CompactFiles(CompactionOptions(), filenames,
+                                3 /* output_level */));
+  });
+
+  // Thread 2
+  TEST_SYNC_POINT(
+      "DBCompactionTest::CompactFilesOutputRangeConflict:Thread2Begin");
+  std::string filename = collector->GetFlushedFiles().back();
+  ASSERT_FALSE(
+      db_->CompactFiles(CompactionOptions(), {filename}, 3 /* output_level */)
+          .ok());
+  TEST_SYNC_POINT(
+      "DBCompactionTest::CompactFilesOutputRangeConflict:Thread2End");
+
+  bg_thread.join();
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,

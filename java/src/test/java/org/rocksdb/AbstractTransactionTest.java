@@ -686,13 +686,12 @@ public abstract class AbstractTransactionTest {
   @Test
   public void elapsedTime() throws RocksDBException, InterruptedException {
     final long preStartTxnTime = System.currentTimeMillis();
-    try(final DBContainer dbContainer = startDb();
-        final Transaction txn = dbContainer.beginTransaction()) {
-      Thread.sleep(1);
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      Thread.sleep(2);
 
       final long txnElapsedTime = txn.getElapsedTime();
-      assertThat(txnElapsedTime).isLessThan(System.currentTimeMillis()
-          - preStartTxnTime);
+      assertThat(txnElapsedTime).isLessThan(System.currentTimeMillis() - preStartTxnTime);
       assertThat(txnElapsedTime).isGreaterThan(0);
     }
   }

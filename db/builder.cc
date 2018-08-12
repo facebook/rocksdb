@@ -28,6 +28,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based_table_builder.h"
+#include "table/format.h"
 #include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
@@ -101,7 +102,7 @@ Status BuildTable(
 #endif  // !ROCKSDB_LITE
   TableProperties tp;
 
-  if (iter->Valid() || range_del_agg->ShouldAddTombstones()) {
+  if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     unique_ptr<WritableFileWriter> file_writer;
     {
@@ -139,6 +140,7 @@ Status BuildTable(
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
+        ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -154,12 +156,18 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
     }
-    // nullptr for table_{min,max} so all range tombstones will be flushed
-    range_del_agg->AddToBuilder(builder, nullptr /* lower_bound */,
-                                nullptr /* upper_bound */, meta);
+
+    for (auto it = range_del_agg->NewIterator(); it->Valid(); it->Next()) {
+      auto tombstone = it->Tombstone();
+      auto kv = tombstone.Serialize();
+      builder->Add(kv.first.Encode(), kv.second);
+      meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
+                                     tombstone.seq_, internal_comparator);
+    }
 
     // Finish and check for builder errors
-    bool empty = builder->NumEntries() == 0;
+    tp = builder->GetTableProperties();
+    bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
     s = c_iter.status();
     if (!s.ok() || empty) {
       builder->Abandon();
@@ -172,7 +180,7 @@ Status BuildTable(
       meta->fd.file_size = file_size;
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
-      tp = builder->GetTableProperties();
+      tp = builder->GetTableProperties(); // refresh now that builder is finished
       if (table_properties) {
         *table_properties = tp;
       }
@@ -196,7 +204,7 @@ Status BuildTable(
       // we will regrad this verification as user reads since the goal is
       // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          ReadOptions(), env_options, internal_comparator, meta->fd,
+          ReadOptions(), env_options, internal_comparator, *meta,
           nullptr /* range_del_agg */,
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr

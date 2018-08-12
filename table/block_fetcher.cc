@@ -163,13 +163,14 @@ inline
 void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
-    *contents_ = BlockContents(Slice(slice_.data(), block_size_), false,
-                               compression_type);
+    *contents_ = BlockContents(Slice(slice_.data(), block_size_),
+                               immortal_source_, compression_type);
   } else {
-    // page is uncompressed, the buffer either stack or heap provided
+    // page can be either uncompressed or compressed, the buffer either stack
+    // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      heap_buf_.reset(new char[block_size_]);
-      memcpy(heap_buf_.get(), used_buf_, block_size_);
+      heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
+      memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }
     *contents_ = BlockContents(std::move(heap_buf_), block_size_, true,
                                compression_type);
@@ -225,9 +226,10 @@ Status BlockFetcher::ReadBlockContents() {
 
   if (do_uncompress_ && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
-    status_ = UncompressBlockContents(slice_.data(), block_size_, contents_,
-                                      footer_.version(), compression_dict_,
-                                      ioptions_);
+    UncompressionContext uncompression_ctx(compression_type, compression_dict_);
+    status_ =
+        UncompressBlockContents(uncompression_ctx, slice_.data(), block_size_,
+                                contents_, footer_.version(), ioptions_);
   } else {
     GetBlockContents();
   }

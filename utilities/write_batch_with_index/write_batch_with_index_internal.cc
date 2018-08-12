@@ -72,6 +72,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     case kTypeNoop:
     case kTypeBeginPrepareXID:
     case kTypeBeginPersistedPrepareXID:
+    case kTypeBeginUnprepareXID:
     case kTypeEndPrepareXID:
     case kTypeCommitXID:
     case kTypeRollbackXID:

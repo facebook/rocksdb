@@ -14,7 +14,7 @@ extern PerfContext perf_context;
 #else
 #if defined(OS_SOLARIS)
 extern __thread PerfContext perf_context_;
-#define perf_context (*get_perf_context());
+#define perf_context (*get_perf_context())
 #else
 extern __thread PerfContext perf_context;
 #endif

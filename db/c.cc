@@ -93,6 +93,7 @@ using rocksdb::BackupInfo;
 using rocksdb::BackupID;
 using rocksdb::RestoreOptions;
 using rocksdb::CompactRangeOptions;
+using rocksdb::BottommostLevelCompaction;
 using rocksdb::RateLimiter;
 using rocksdb::NewGenericRateLimiter;
 using rocksdb::PinnableSlice;
@@ -1984,6 +1985,11 @@ void rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
   options->rep.pin_l0_filter_and_index_blocks_in_cache = v;
 }
 
+void rocksdb_block_based_options_set_pin_top_level_index_and_filter(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.pin_top_level_index_and_filter = v;
+}
+
 void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt,
     rocksdb_block_based_table_options_t* table_options) {
@@ -2260,6 +2266,18 @@ void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
     opt->rep.compression_per_level[i] =
       static_cast<CompressionType>(level_values[i]);
   }
+}
+
+void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
+                                                        int w_bits, int level,
+                                                        int strategy,
+                                                        int max_dict_bytes,
+                                                        bool enabled) {
+  opt->rep.bottommost_compression_opts.window_bits = w_bits;
+  opt->rep.bottommost_compression_opts.level = level;
+  opt->rep.bottommost_compression_opts.strategy = strategy;
+  opt->rep.bottommost_compression_opts.max_dict_bytes = max_dict_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
 void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
@@ -3109,6 +3127,11 @@ void rocksdb_compactoptions_destroy(rocksdb_compactoptions_t* opt) {
   delete opt;
 }
 
+void rocksdb_compactoptions_set_bottommost_level_compaction(
+    rocksdb_compactoptions_t* opt, unsigned char v) {
+  opt->rep.bottommost_level_compaction = static_cast<BottommostLevelCompaction>(v);
+}
+
 void rocksdb_compactoptions_set_exclusive_manual_compaction(
     rocksdb_compactoptions_t* opt, unsigned char v) {
   opt->rep.exclusive_manual_compaction = v;
@@ -3256,6 +3279,11 @@ void rocksdb_sstfilewriter_delete(rocksdb_sstfilewriter_t* writer,
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
                                   char** errptr) {
   SaveError(errptr, writer->rep->Finish(nullptr));
+}
+
+void rocksdb_sstfilewriter_file_size(rocksdb_sstfilewriter_t* writer,
+                                  uint64_t* file_size) {
+  *file_size = writer->rep->FileSize();
 }
 
 void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {

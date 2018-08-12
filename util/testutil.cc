@@ -19,6 +19,9 @@
 namespace rocksdb {
 namespace test {
 
+const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
+const uint32_t kLatestFormatVersion = 4u;
+
 Slice RandomString(Random* rnd, int len, std::string* dst) {
   dst->resize(len);
   for (int i = 0; i < len; i++) {
@@ -116,14 +119,9 @@ class Uint64ComparatorImpl : public Comparator {
 };
 }  // namespace
 
-static port::OnceType once;
-static const Comparator* uint64comp;
-
-static void InitModule() { uint64comp = new Uint64ComparatorImpl; }
-
 const Comparator* Uint64Comparator() {
-  port::InitOnce(&once, InitModule);
-  return uint64comp;
+  static Uint64ComparatorImpl uint64comp;
+  return &uint64comp;
 }
 
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
@@ -137,9 +135,10 @@ RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
                                     "[test RandomAccessFileReader]");
 }
 
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
+SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
+                                              const std::string& fname) {
   unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(std::move(file));
+  return new SequentialFileReader(std::move(file), fname);
 }
 
 void CorruptKeyType(InternalKey* ikey) {
@@ -196,6 +195,7 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
   BlockBasedTableOptions opt;
   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
   opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
+  opt.pin_top_level_index_and_filter = rnd->Uniform(2);
   opt.index_type = rnd->Uniform(2) ? BlockBasedTableOptions::kBinarySearch
                                    : BlockBasedTableOptions::kHashSearch;
   opt.hash_index_allow_collision = rnd->Uniform(2);

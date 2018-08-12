@@ -341,7 +341,7 @@ class Repairer {
       return status;
     }
     unique_ptr<SequentialFileReader> lfile_reader(
-        new SequentialFileReader(std::move(lfile)));
+        new SequentialFileReader(std::move(lfile), logname));
 
     // Create the log reader.
     LogReporter reporter;
@@ -500,7 +500,7 @@ class Repairer {
     }
     if (status.ok()) {
       InternalIterator* iter = table_cache_->NewIterator(
-          ReadOptions(), env_options_, cfd->internal_comparator(), t->meta.fd,
+          ReadOptions(), env_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
       bool empty = true;

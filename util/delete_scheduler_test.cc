@@ -31,9 +31,9 @@ class DeleteSchedulerTest : public testing::Test {
     const int kNumDataDirs = 3;
     dummy_files_dirs_.reserve(kNumDataDirs);
     for (size_t i = 0; i < kNumDataDirs; ++i) {
-      dummy_files_dirs_.emplace_back(test::TmpDir(env_) +
-                                     "/delete_scheduler_dummy_data_dir" +
-                                     ToString(i));
+      dummy_files_dirs_.emplace_back(
+          test::PerThreadDBPath(env_, "delete_scheduler_dummy_data_dir") +
+          ToString(i));
       DestroyAndCreateDir(dummy_files_dirs_.back());
     }
   }
@@ -477,6 +477,40 @@ TEST_F(DeleteSchedulerTest, DeletePartialFile) {
   ASSERT_EQ(4, bg_fsync);
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 }
+
+#ifdef OS_LINUX
+TEST_F(DeleteSchedulerTest, NoPartialDeleteWithLink) {
+  int bg_delete_file = 0;
+  int bg_fsync = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
+      [&](void*) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:Fsync", [&](void*) { bg_fsync++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
+  NewDeleteScheduler();
+
+  std::string file1 = NewDummyFile("data_1", 500 * 1024);
+  std::string file2 = NewDummyFile("data_2", 100 * 1024);
+
+  ASSERT_OK(env_->LinkFile(file1, dummy_files_dirs_[0] + "/data_1b"));
+  ASSERT_OK(env_->LinkFile(file2, dummy_files_dirs_[0] + "/data_2b"));
+
+  // Should delete in 4 batch if there is no hardlink
+  ASSERT_OK(delete_scheduler_->DeleteFile(file1, ""));
+  ASSERT_OK(delete_scheduler_->DeleteFile(file2, ""));
+
+  delete_scheduler_->WaitForEmptyTrash();
+
+  auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+  ASSERT_EQ(bg_errors.size(), 0);
+  ASSERT_EQ(2, bg_delete_file);
+  ASSERT_EQ(0, bg_fsync);
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+}
+#endif
 
 // 1- Create a DeleteScheduler with very slow rate limit (1 Byte / sec)
 // 2- Delete 100 files using DeleteScheduler

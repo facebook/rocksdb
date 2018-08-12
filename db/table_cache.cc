@@ -65,7 +65,10 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const EnvOptions& env_options, Cache* const cache)
-    : ioptions_(ioptions), env_options_(env_options), cache_(cache) {
+    : ioptions_(ioptions),
+      env_options_(env_options),
+      cache_(cache),
+      immortal_tables_(false) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -116,7 +119,8 @@ Status TableCache::GetTableReader(
             file_read_hist, ioptions_.rate_limiter, for_compaction));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
-                           internal_comparator, skip_filters, level),
+                           internal_comparator, skip_filters, immortal_tables_,
+                           level, fd.largest_seqno),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -176,7 +180,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
-    const InternalKeyComparator& icomparator, const FileDescriptor& fd,
+    const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
     RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level) {
@@ -207,6 +211,7 @@ InternalIterator* TableCache::NewIterator(
     create_new_table_reader = readahead > 0;
   }
 
+  auto& fd = file_meta.fd;
   if (create_new_table_reader) {
     unique_ptr<TableReader> table_reader_unique_ptr;
     s = GetTableReader(
@@ -233,10 +238,10 @@ InternalIterator* TableCache::NewIterator(
   if (s.ok()) {
     if (options.table_filter &&
         !options.table_filter(*table_reader->GetTableProperties())) {
-      result = NewEmptyInternalIterator(arena);
+      result = NewEmptyInternalIterator<Slice>(arena);
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
-                                         skip_filters);
+                                         skip_filters, for_compaction);
     }
     if (create_new_table_reader) {
       assert(handle == nullptr);
@@ -261,7 +266,10 @@ InternalIterator* TableCache::NewIterator(
         s = range_del_iter->status();
       }
       if (s.ok()) {
-        s = range_del_agg->AddTombstones(std::move(range_del_iter));
+        s = range_del_agg->AddTombstones(
+            std::move(range_del_iter),
+            &file_meta.smallest,
+            &file_meta.largest);
       }
     }
   }
@@ -271,56 +279,19 @@ InternalIterator* TableCache::NewIterator(
   }
   if (!s.ok()) {
     assert(result == nullptr);
-    result = NewErrorInternalIterator(s, arena);
-  }
-  return result;
-}
-
-InternalIterator* TableCache::NewRangeTombstoneIterator(
-    const ReadOptions& options, const EnvOptions& env_options,
-    const InternalKeyComparator& icomparator, const FileDescriptor& fd,
-    HistogramImpl* file_read_hist, bool skip_filters, int level,
-    const SliceTransform* prefix_extractor) {
-  Status s;
-  Cache::Handle* handle = nullptr;
-  TableReader* table_reader = fd.table_reader;
-  if (table_reader == nullptr) {
-    s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
-                  options.read_tier == kBlockCacheTier /* no_io */,
-                  true /* record read_stats */, file_read_hist, skip_filters,
-                  level);
-    if (s.ok()) {
-      table_reader = GetTableReaderFromHandle(handle);
-    }
-  }
-  InternalIterator* result = nullptr;
-  if (s.ok()) {
-    result = table_reader->NewRangeTombstoneIterator(options);
-    if (result != nullptr) {
-      if (handle != nullptr) {
-        result->RegisterCleanup(&UnrefEntry, cache_, handle);
-      }
-    }
-  }
-  if (result == nullptr && handle != nullptr) {
-    // the range deletion block didn't exist, or there was a failure between
-    // getting handle and getting iterator.
-    ReleaseHandle(handle);
-  }
-  if (!s.ok()) {
-    assert(result == nullptr);
-    result = NewErrorInternalIterator(s);
+    result = NewErrorInternalIterator<Slice>(s, arena);
   }
   return result;
 }
 
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
-                       const FileDescriptor& fd, const Slice& k,
+                       const FileMetaData& file_meta, const Slice& k,
                        GetContext* get_context,
                        const SliceTransform* prefix_extractor,
                        HistogramImpl* file_read_hist, bool skip_filters,
                        int level) {
+  auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
 #ifndef ROCKSDB_LITE
@@ -401,7 +372,9 @@ Status TableCache::Get(const ReadOptions& options,
       }
       if (s.ok()) {
         s = get_context->range_del_agg()->AddTombstones(
-            std::move(range_del_iter));
+            std::move(range_del_iter),
+            &file_meta.smallest,
+            &file_meta.largest);
       }
     }
     if (s.ok()) {

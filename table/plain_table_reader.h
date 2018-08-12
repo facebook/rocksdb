@@ -38,7 +38,6 @@ class TableReader;
 class InternalKeyComparator;
 class PlainTableKeyDecoder;
 class GetContext;
-class InternalIterator;
 
 using std::unique_ptr;
 using std::unordered_map;
@@ -82,7 +81,8 @@ class PlainTableReader: public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena = nullptr,
-                                bool skip_filters = false) override;
+                                bool skip_filters = false,
+                                bool for_compaction = false) override;
 
   void Prepare(const Slice& target) override;
 

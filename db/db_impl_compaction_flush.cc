@@ -14,6 +14,7 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
+#include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
@@ -93,14 +94,7 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
-      Status new_bg_error = s;
-      // may temporarily unlock and lock the mutex.
-      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                            BackgroundErrorReason::kFlush,
-                                            &new_bg_error, &mutex_);
-      if (!new_bg_error.ok()) {
-        bg_error_ = new_bg_error;
-      }
+      error_handler_.SetBGError(s, BackgroundErrorReason::kFlush);
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
@@ -166,8 +160,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
-                                       mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(
+        cfd, &job_context->superversion_contexts[0], mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -177,18 +171,9 @@ Status DBImpl::FlushMemTableToOutputFile(
                      cfd->current()->storage_info()->LevelSummary(&tmp));
   }
 
-  if (!s.ok() && !s.IsShutdownInProgress() &&
-      immutable_db_options_.paranoid_checks && bg_error_.ok()) {
+  if (!s.ok() && !s.IsShutdownInProgress()) {
     Status new_bg_error = s;
-    // may temporarily unlock and lock the mutex.
-    EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                          BackgroundErrorReason::kFlush,
-                                          &new_bg_error, &mutex_);
-    if (!new_bg_error.ok()) {
-      // if a bad error happened (not ShutdownInProgress), paranoid_checks is
-      // true, and the error isn't handled by callback, mark DB read-only
-      bg_error_ = new_bg_error;
-    }
+    error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
@@ -202,18 +187,12 @@ Status DBImpl::FlushMemTableToOutputFile(
       std::string file_path = MakeTableFileName(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
-      if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
-        Status new_bg_error = Status::NoSpace("Max allowed space was reached");
+      if (sfm->IsMaxAllowedSpaceReached()) {
+        Status new_bg_error = Status::SpaceLimit("Max allowed space was reached");
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
-        // may temporarily unlock and lock the mutex.
-        EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                              BackgroundErrorReason::kFlush,
-                                              &new_bg_error, &mutex_);
-        if (!new_bg_error.ok()) {
-          bg_error_ = new_bg_error;
-        }
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
       }
     }
 #endif  // ROCKSDB_LITE
@@ -251,8 +230,8 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->smallest_seqno;
-    info.largest_seqno = file_meta->largest_seqno;
+    info.smallest_seqno = file_meta->fd.smallest_seqno;
+    info.largest_seqno = file_meta->fd.largest_seqno;
     info.table_properties = prop;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
@@ -302,8 +281,8 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->smallest_seqno;
-    info.largest_seqno = file_meta->largest_seqno;
+    info.smallest_seqno = file_meta->fd.smallest_seqno;
+    info.largest_seqno = file_meta->fd.largest_seqno;
     info.table_properties = prop;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
@@ -674,7 +653,7 @@ Status DBImpl::CompactFilesImpl(
       env_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
       GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
-      &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+      &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
@@ -712,7 +691,7 @@ Status DBImpl::CompactFilesImpl(
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kManualCompaction);
   }
   c->ReleaseCompactionFiles(s);
@@ -736,16 +715,7 @@ Status DBImpl::CompactFilesImpl(
                    "[%s] [JOB %d] Compaction error: %s",
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id, status.ToString().c_str());
-    if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-      Status new_bg_error = status;
-      // may temporarily unlock and lock the mutex.
-      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                            BackgroundErrorReason::kCompaction,
-                                            &new_bg_error, &mutex_);
-      if (!new_bg_error.ok()) {
-        bg_error_ = new_bg_error;
-      }
-    }
+    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
   }
 
   if (output_file_names != nullptr) {
@@ -915,7 +885,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
-                   f->smallest_seqno, f->largest_seqno,
+                   f->fd.smallest_seqno, f->fd.largest_seqno,
                    f->marked_for_compaction);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -1141,6 +1111,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     // Wait until the compaction completes
     s = WaitForFlushMemTable(cfd, &flush_memtable_id);
   }
+  TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
 }
 
@@ -1149,7 +1120,7 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
   Status s;
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (cfd->imm()->NumNotFlushed() > 0 && bg_error_.ok() &&
+  while (cfd->imm()->NumNotFlushed() > 0 && !error_handler_.IsDBStopped() &&
          (flush_memtable_id == nullptr ||
           cfd->imm()->GetEarliestMemTableID() <= *flush_memtable_id)) {
     if (shutting_down_.load(std::memory_order_acquire)) {
@@ -1163,8 +1134,8 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
     }
     bg_cv_.Wait();
   }
-  if (!bg_error_.ok()) {
-    s = bg_error_;
+  if (error_handler_.IsDBStopped()) {
+    s = error_handler_.GetBGError();
   }
   return s;
 }
@@ -1383,9 +1354,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
                                LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
-  Status status = bg_error_;
-  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
-    status = Status::ShutdownInProgress();
+  Status status;
+  if (!error_handler_.IsBGWorkStopped()) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      status = Status::ShutdownInProgress();
+    }
+  } else {
+    status = error_handler_.GetBGError();
   }
 
   if (!status.ok()) {
@@ -1631,9 +1606,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       is_manual && manual_compaction->disallow_trivial_move;
 
   CompactionJobStats compaction_job_stats;
-  Status status = bg_error_;
-  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
-    status = Status::ShutdownInProgress();
+  Status status;
+  if (!error_handler_.IsBGWorkStopped()) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      status = Status::ShutdownInProgress();
+    }
+  } else {
+    status = error_handler_.GetBGError();
   }
 
   if (!status.ok()) {
@@ -1796,7 +1775,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
@@ -1825,8 +1804,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
-                           f->largest, f->smallest_seqno, f->largest_seqno,
-                           f->marked_for_compaction);
+                           f->largest, f->fd.smallest_seqno,
+                           f->fd.largest_seqno, f->marked_for_compaction);
 
         ROCKS_LOG_BUFFER(
             log_buffer,
@@ -1843,7 +1822,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), &job_context->superversion_context,
+        c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
@@ -1905,7 +1884,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
-        &mutex_, &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+        &mutex_, &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
@@ -1920,7 +1899,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          c->column_family_data(), &job_context->superversion_context,
+          c->column_family_data(), &job_context->superversion_contexts[0],
           *c->mutable_cf_options(), FlushReason::kAutoCompaction);
     }
     *made_progress = true;
@@ -1951,16 +1930,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
                    status.ToString().c_str());
-    if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-      Status new_bg_error = status;
-      // may temporarily unlock and lock the mutex.
-      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
-                                            BackgroundErrorReason::kCompaction,
-                                            &new_bg_error, &mutex_);
-      if (!new_bg_error.ok()) {
-        bg_error_ = new_bg_error;
-      }
-    }
+    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
   }
 
   if (is_manual) {
@@ -2121,7 +2091,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
                         old_sv->mutable_cf_options.max_write_buffer_number;
   }
 
-  if (sv_context->new_superversion == nullptr) {
+  // this branch is unlikely to step in
+  if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);

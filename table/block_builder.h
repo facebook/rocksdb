@@ -21,14 +21,16 @@ class BlockBuilder {
   void operator=(const BlockBuilder&) = delete;
 
   explicit BlockBuilder(int block_restart_interval,
-                        bool use_delta_encoding = true);
+                        bool use_delta_encoding = true,
+                        bool use_value_delta_encoding = false);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
-  void Add(const Slice& key, const Slice& value);
+  void Add(const Slice& key, const Slice& value,
+           const Slice* const delta_value = nullptr);
 
   // Finish building the block and return a slice that refers to the
   // block contents.  The returned slice will remain valid for the
@@ -49,7 +51,10 @@ class BlockBuilder {
 
  private:
   const int          block_restart_interval_;
+  //TODO(myabandeh): put it into a separate IndexBlockBuilder
   const bool         use_delta_encoding_;
+  // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values
+  const bool use_value_delta_encoding_;
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points

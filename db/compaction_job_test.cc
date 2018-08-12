@@ -12,6 +12,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction_job.h"
+#include "db/error_handler.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -67,7 +68,7 @@ class CompactionJobTest : public testing::Test {
  public:
   CompactionJobTest()
       : env_(Env::Default()),
-        dbname_(test::TmpDir() + "/compaction_job_test"),
+        dbname_(test::PerThreadDBPath("compaction_job_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
@@ -77,7 +78,8 @@ class CompactionJobTest : public testing::Test {
                                  &write_controller_)),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
-        mock_table_factory_(new mock::MockTableFactory()) {
+        mock_table_factory_(new mock::MockTableFactory()),
+        error_handler_(db_options_, &mutex_) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
@@ -246,7 +248,8 @@ class CompactionJobTest : public testing::Test {
     Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
                           *cfd->GetLatestMutableCFOptions(),
                           compaction_input_files, 1, 1024 * 1024,
-                          10 * 1024 * 1024, 0, kNoCompression, 0, {}, true);
+                          10 * 1024 * 1024, 0, kNoCompression,
+                          cfd->ioptions()->compression_opts, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -254,13 +257,12 @@ class CompactionJobTest : public testing::Test {
     EventLogger event_logger(db_options_.info_log.get());
     // TODO(yiwu) add a mock snapshot checker and add test for it.
     SnapshotChecker* snapshot_checker = nullptr;
-    CompactionJob compaction_job(0, &compaction, db_options_, env_options_,
-                                 versions_.get(), &shutting_down_,
-                                 preserve_deletes_seqnum_, &log_buffer,
-                                 nullptr, nullptr, nullptr, &mutex_, &bg_error_,
-                                 snapshots, earliest_write_conflict_snapshot,
-                                 snapshot_checker, table_cache_, &event_logger,
-                                 false, false, dbname_, &compaction_job_stats_);
+    CompactionJob compaction_job(
+        0, &compaction, db_options_, env_options_, versions_.get(),
+        &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
+        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
+        &event_logger, false, false, dbname_, &compaction_job_stats_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -302,7 +304,7 @@ class CompactionJobTest : public testing::Test {
   ColumnFamilyData* cfd_;
   std::unique_ptr<CompactionFilter> compaction_filter_;
   std::shared_ptr<MergeOperator> merge_op_;
-  Status bg_error_;
+  ErrorHandler error_handler_;
 };
 
 TEST_F(CompactionJobTest, Simple) {

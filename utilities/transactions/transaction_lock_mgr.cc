@@ -372,7 +372,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
       if (wait_ids.size() != 0) {
         if (txn->IsDeadlockDetect()) {
           if (IncrementWaiters(txn, wait_ids, key, column_family_id,
-                               lock_info.exclusive)) {
+                               lock_info.exclusive, env)) {
             result = Status::Busy(Status::SubCode::kDeadlock);
             stripe->stripe_mutex->UnLock();
             return result;
@@ -444,7 +444,7 @@ void TransactionLockMgr::DecrementWaitersImpl(
 bool TransactionLockMgr::IncrementWaiters(
     const PessimisticTransaction* txn,
     const autovector<TransactionID>& wait_ids, const std::string& key,
-    const uint32_t& cf_id, const bool& exclusive) {
+    const uint32_t& cf_id, const bool& exclusive, Env* const env) {
   auto id = txn->GetID();
   std::vector<int> queue_parents(txn->GetDeadlockDetectDepth());
   std::vector<TransactionID> queue_values(txn->GetDeadlockDetectDepth());
@@ -468,6 +468,7 @@ bool TransactionLockMgr::IncrementWaiters(
 
   const auto* next_ids = &wait_ids;
   int parent = -1;
+  int64_t deadlock_time = 0;
   for (int tail = 0, head = 0; head < txn->GetDeadlockDetectDepth(); head++) {
     int i = 0;
     if (next_ids) {
@@ -497,8 +498,10 @@ bool TransactionLockMgr::IncrementWaiters(
                         extracted_info.m_exclusive});
         head = queue_parents[head];
       }
+      env->GetCurrentTime(&deadlock_time);
       std::reverse(path.begin(), path.end());
-      dlock_buffer_.AddNewPath(DeadlockPath(path));
+      dlock_buffer_.AddNewPath(DeadlockPath(path, deadlock_time));
+      deadlock_time = 0;
       DecrementWaitersImpl(txn, wait_ids);
       return true;
     } else if (!wait_txn_map_.Contains(next)) {
@@ -511,7 +514,8 @@ bool TransactionLockMgr::IncrementWaiters(
   }
 
   // Wait cycle too big, just assume deadlock.
-  dlock_buffer_.AddNewPath(DeadlockPath(true));
+  env->GetCurrentTime(&deadlock_time);
+  dlock_buffer_.AddNewPath(DeadlockPath(deadlock_time, true));
   DecrementWaitersImpl(txn, wait_ids);
   return true;
 }

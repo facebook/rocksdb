@@ -47,6 +47,7 @@
 namespace rocksdb {
 
 class Arena;
+class ErrorHandler;
 class MemTable;
 class SnapshotChecker;
 class TableCache;
@@ -64,7 +65,7 @@ class CompactionJob {
                 LogBuffer* log_buffer,
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats, InstrumentedMutex* db_mutex,
-                Status* db_bg_error,
+                ErrorHandler* db_error_handler,
                 std::vector<SequenceNumber> existing_snapshots,
                 SequenceNumber earliest_write_conflict_snapshot,
                 const SnapshotChecker* snapshot_checker,
@@ -145,7 +146,7 @@ class CompactionJob {
   Directory* output_directory_;
   Statistics* stats_;
   InstrumentedMutex* db_mutex_;
-  Status* db_bg_error_;
+  ErrorHandler* db_error_handler_;
   // If there were two snapshots with seq numbers s1 and
   // s2 and s1 < s2, and if we find two instances of a key k1 then lies
   // entirely within s1 and s2, then the earlier version of k1 can be safely

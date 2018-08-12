@@ -221,6 +221,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
 
+  // different options for compression algorithms used by bottommost_compression
+  // if it is enabled. To enable it, please see the definition of
+  // CompressionOptions.
+  CompressionOptions bottommost_compression_opts;
+
   // different options for compression algorithms
   CompressionOptions compression_opts;
 
@@ -425,6 +430,8 @@ struct DBOptions {
   // (i.e. the ones that are causing all the space amplification). If set to 0
   // (default), we will dynamically choose the WAL size limit to be
   // [sum of all write_buffer_size * max_write_buffer_number] * 4
+  // This option takes effect only when there are more than one column family as
+  // otherwise the wal size is dictated by the write_buffer_size.
   // Default: 0
   uint64_t max_total_wal_size = 0;
 
@@ -1015,7 +1022,7 @@ struct ReadOptions {
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry.  If iterator_extractor is not null, the Seek target
-  // and iterator_upper_bound need to have the same prefix.
+  // and iterate_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
   //
   // Default: nullptr
@@ -1059,11 +1066,8 @@ struct ReadOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
-  // Specify to create a managed iterator -- a special iterator that
-  // uses less resources by having the ability to free its underlying
-  // resources on request.
-  // Default: false
-  // Not supported in ROCKSDB_LITE mode!
+  // This options is not used anymore. It was to turn on a functionality that
+  // has been removed.
   bool managed;
 
   // Enable a total order seek regardless of index format (e.g. hash index)
@@ -1263,7 +1267,21 @@ struct IngestExternalFileOptions {
   // with allow_ingest_behind=true since the dawn of time.
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
+  // Set to true if you would like to write global_seqno to a given offset in
+  // the external SST file for backward compatibility. Older versions of
+  // RocksDB writes a global_seqno to a given offset within ingested SST files,
+  // and new versions of RocksDB do not. If you ingest an external SST using
+  // new version of RocksDB and would like to be able to downgrade to an
+  // older version of RocksDB, you should set 'write_global_seqno' to true. If
+  // your service is just starting to use the new RocksDB, we recommend that
+  // you set this option to false, which brings two benefits:
+  // 1. No extra random write for global_seqno during ingestion.
+  // 2. Without writing external SST file, it's possible to do checksum.
+  // We have a plan to set this option to false by default in the future.
+  bool write_global_seqno = true;
 };
+
+struct TraceOptions {};
 
 }  // namespace rocksdb
 

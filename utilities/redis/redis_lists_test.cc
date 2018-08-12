@@ -39,7 +39,7 @@ class RedisListsTest : public testing::Test {
 };
 
 const std::string RedisListsTest::kDefaultDbName =
-    test::TmpDir() + "/redis_lists_test";
+    test::PerThreadDBPath("redis_lists_test");
 Options RedisListsTest::options = Options();
 
 // operator== and operator<< are defined below for vectors (lists)

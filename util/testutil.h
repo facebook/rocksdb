@@ -32,6 +32,9 @@ class SequentialFileReader;
 
 namespace test {
 
+extern const uint32_t kDefaultFormatVersion;
+extern const uint32_t kLatestFormatVersion;
+
 // Store in *dst a random string of length "len" and return a Slice that
 // references the generated data.
 extern Slice RandomString(Random* rnd, int len, std::string* dst);
@@ -184,7 +187,8 @@ extern WritableFileWriter* GetWritableFileWriter(WritableFile* wf);
 
 extern RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf);
 
-extern SequentialFileReader* GetSequentialFileReader(SequentialFile* se);
+extern SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
+                                                     const std::string& fname);
 
 class StringSink: public WritableFile {
  public:

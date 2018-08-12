@@ -53,7 +53,7 @@ class SliceTransformDBTest : public testing::Test {
 
  public:
   SliceTransformDBTest() : env_(Env::Default()), db_(nullptr) {
-    dbname_ = test::TmpDir() + "/slice_transform_db_test";
+    dbname_ = test::PerThreadDBPath("slice_transform_db_test");
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 

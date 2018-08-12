@@ -57,8 +57,7 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
   std::unique_ptr<TableReader> table_reader;
   options_.table_factory->NewTableReader(
       TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
-                         internal_comparator_,
-                         /*skip_filters=*/false),
+                         internal_comparator_),
       std::move(file_), file_size, &table_reader, /*enable_prefetch=*/false);
 
   table_reader_.reset(static_cast_with_check<BlockBasedTable, TableReader>(
@@ -84,16 +83,16 @@ void ColumnAwareEncodingReader::DecodeBlocks(
 
     auto& slice_final_with_bit = block;
     uint32_t format_version = 2;
-    Slice compression_dict;
     BlockContents contents;
     const char* content_ptr;
 
     CompressionType type =
         (CompressionType)slice_final_with_bit[slice_final_with_bit.size() - 1];
     if (type != kNoCompression) {
-      UncompressBlockContents(slice_final_with_bit.c_str(),
+      UncompressionContext uncompression_ctx(type);
+      UncompressBlockContents(uncompression_ctx, slice_final_with_bit.c_str(),
                               slice_final_with_bit.size() - 1, &contents,
-                              format_version, compression_dict, ioptions);
+                              format_version, ioptions);
       content_ptr = contents.data.data();
     } else {
       content_ptr = slice_final_with_bit.data();
@@ -166,16 +165,16 @@ void ColumnAwareEncodingReader::DecodeBlocksFromRowFormat(
   for (auto& block : *blocks) {
     auto& slice_final_with_bit = block;
     uint32_t format_version = 2;
-    Slice compression_dict;
     BlockContents contents;
     std::string decoded_content;
 
     CompressionType type =
         (CompressionType)slice_final_with_bit[slice_final_with_bit.size() - 1];
     if (type != kNoCompression) {
-      UncompressBlockContents(slice_final_with_bit.c_str(),
+      UncompressionContext uncompression_ctx(type);
+      UncompressBlockContents(uncompression_ctx, slice_final_with_bit.c_str(),
                               slice_final_with_bit.size() - 1, &contents,
-                              format_version, compression_dict, ioptions);
+                              format_version, ioptions);
       decoded_content = std::string(contents.data.data(), contents.data.size());
     } else {
       decoded_content = std::move(slice_final_with_bit);
@@ -244,12 +243,10 @@ namespace {
 
 void CompressDataBlock(const std::string& output_content, Slice* slice_final,
                        CompressionType* type, std::string* compressed_output) {
-  CompressionOptions compression_opts;
+  CompressionContext compression_ctx(*type);
   uint32_t format_version = 2;  // hard-coded version
-  Slice compression_dict;
-  *slice_final =
-      CompressBlock(output_content, compression_opts, type, format_version,
-                    compression_dict, compressed_output);
+  *slice_final = CompressBlock(output_content, compression_ctx, type,
+                               format_version, compressed_output);
 }
 
 }  // namespace

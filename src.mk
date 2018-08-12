@@ -25,6 +25,7 @@ LIB_SOURCES =                                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
+  db/error_handler.cc						\
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
@@ -37,7 +38,6 @@ LIB_SOURCES =                                                   \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
   db/malloc_stats.cc                                            \
-  db/managed_iterator.cc                                        \
   db/memtable.cc                                                \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
@@ -103,6 +103,7 @@ LIB_SOURCES =                                                   \
   table/cuckoo_table_builder.cc                                 \
   table/cuckoo_table_factory.cc                                 \
   table/cuckoo_table_reader.cc                                  \
+  table/data_block_hash_index.cc                                \
   table/flush_block_policy.cc                                   \
   table/format.cc                                               \
   table/full_filter_block.cc                                    \
@@ -129,6 +130,7 @@ LIB_SOURCES =                                                   \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
+  util/compression_context_cache.cc                             \
   util/concurrent_arena.cc                                      \
   util/crc32c.cc                                                \
   util/delete_scheduler.cc                                      \
@@ -146,12 +148,12 @@ LIB_SOURCES =                                                   \
   util/slice.cc                                                 \
   util/sst_file_manager_impl.cc                                 \
   util/status.cc                                                \
-  util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
   util/sync_point_impl.cc                                       \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
+  util/trace_replay.cc                                          \
   util/transaction_test_util.cc                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
@@ -162,7 +164,6 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_log_format.cc                          \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
-  utilities/blob_db/ttl_extractor.cc                            \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
@@ -197,6 +198,7 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
+  utilities/trace/file_trace_reader_writer.cc                   \
   utilities/transactions/optimistic_transaction.cc              \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
@@ -208,6 +210,8 @@ LIB_SOURCES =                                                   \
   utilities/transactions/transaction_util.cc                    \
   utilities/transactions/write_prepared_txn.cc                  \
   utilities/transactions/write_prepared_txn_db.cc               \
+  utilities/transactions/write_unprepared_txn.cc                \
+  utilities/transactions/write_unprepared_txn_db.cc             \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
@@ -290,6 +294,7 @@ MAIN_SOURCES =                                                          \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
+  db/error_handler_test.cc                                        	\
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -343,6 +348,7 @@ MAIN_SOURCES =                                                          \
   table/cleanable_test.cc                                               \
   table/cuckoo_table_builder_test.cc                                    \
   table/cuckoo_table_reader_test.cc                                     \
+  table/data_block_hash_index_test.cc                                   \
   table/full_filter_block_test.cc                                       \
   table/merger_test.cc                                                  \
   table/table_reader_bench.cc                                           \
@@ -395,6 +401,7 @@ MAIN_SOURCES =                                                          \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/write_prepared_transaction_test.cc             \
+  utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 

@@ -23,6 +23,8 @@
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/error_handler.h"
+#include "db/event_helpers.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -44,6 +46,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
@@ -52,6 +55,7 @@
 #include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/trace_replay.h"
 
 namespace rocksdb {
 
@@ -70,8 +74,11 @@ struct MemTableInfo;
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false);
+         const bool seq_per_batch = false, const bool batch_per_txn = true);
   virtual ~DBImpl();
+
+  using DB::Resume;
+  virtual Status Resume() override;
 
   // Implementations of the DB interface
   using DB::Put;
@@ -328,6 +335,15 @@ class DBImpl : public DB {
 
   virtual Status VerifyChecksum() override;
 
+  using DB::StartTrace;
+  virtual Status StartTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  using DB::EndTrace;
+  virtual Status EndTrace() override;
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -556,25 +572,50 @@ class DBImpl : public DB {
   // these will then be passed to TransactionDB so that
   // locks can be reacquired before writing can resume.
   struct RecoveredTransaction {
-    uint64_t log_number_;
     std::string name_;
-    WriteBatch* batch_;
-    // The seq number of the first key in the batch
-    SequenceNumber seq_;
-    // Number of sub-batched. A new sub-batch is created if we txn attempts to
-    // inserts a duplicate key,seq to memtable. This is currently used in
-    // WritePrparedTxn
-    size_t batch_cnt_;
+    bool unprepared_;
+
+    struct BatchInfo {
+      uint64_t log_number_;
+      // TODO(lth): For unprepared, the memory usage here can be big for
+      // unprepared transactions. This is only useful for rollbacks, and we
+      // can in theory just keep keyset for that.
+      WriteBatch* batch_;
+      // Number of sub-batches. A new sub-batch is created if txn attempts to
+      // insert a duplicate key,seq to memtable. This is currently used in
+      // WritePreparedTxn/WriteUnpreparedTxn.
+      size_t batch_cnt_;
+    };
+
+    // This maps the seq of the first key in the batch to BatchInfo, which
+    // contains WriteBatch and other information relevant to the batch.
+    //
+    // For WriteUnprepared, batches_ can have size greater than 1, but for
+    // other write policies, it must be of size 1.
+    std::map<SequenceNumber, BatchInfo> batches_;
+
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
-                                  size_t batch_cnt)
-        : log_number_(log),
-          name_(name),
-          batch_(batch),
-          seq_(seq),
-          batch_cnt_(batch_cnt) {}
+                                  size_t batch_cnt, bool unprepared)
+        : name_(name), unprepared_(unprepared) {
+      batches_[seq] = {log, batch, batch_cnt};
+    }
 
-    ~RecoveredTransaction() { delete batch_; }
+    ~RecoveredTransaction() {
+      for (auto& it : batches_) {
+        delete it.second.batch_;
+      }
+    }
+
+    void AddBatch(SequenceNumber seq, uint64_t log_number, WriteBatch* batch,
+                  size_t batch_cnt, bool unprepared) {
+      assert(batches_.count(seq) == 0);
+      batches_[seq] = {log_number, batch, batch_cnt};
+      // Prior state must be unprepared, since the prepare batch must be the
+      // last batch.
+      assert(unprepared_);
+      unprepared_ = unprepared;
+    }
   };
 
   bool allow_2pc() const { return immutable_db_options_.allow_2pc; }
@@ -595,9 +636,19 @@ class DBImpl : public DB {
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
-                                  size_t batch_cnt) {
-    recovered_transactions_[name] =
-        new RecoveredTransaction(log, name, batch, seq, batch_cnt);
+                                  size_t batch_cnt, bool unprepared_batch) {
+    // For WriteUnpreparedTxn, InsertRecoveredTransaction is called multiple
+    // times for every unprepared batch encountered during recovery.
+    //
+    // If the transaction is prepared, then the last call to
+    // InsertRecoveredTransaction will have unprepared_batch = false.
+    auto rtxn = recovered_transactions_.find(name);
+    if (rtxn == recovered_transactions_.end()) {
+      recovered_transactions_[name] = new RecoveredTransaction(
+          log, name, batch, seq, batch_cnt, unprepared_batch);
+    } else {
+      rtxn->second->AddBatch(seq, log, batch, batch_cnt, unprepared_batch);
+    }
     logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }
 
@@ -606,7 +657,10 @@ class DBImpl : public DB {
     assert(it != recovered_transactions_.end());
     auto* trx = it->second;
     recovered_transactions_.erase(it);
-    logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(trx->log_number_);
+    for (const auto& info : trx->batches_) {
+      logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(
+          info.second.log_number_);
+    }
     delete trx;
   }
 
@@ -635,7 +689,7 @@ class DBImpl : public DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                     const bool seq_per_batch);
+                     const bool seq_per_batch, const bool batch_per_txn);
 
   virtual Status Close() override;
 
@@ -654,6 +708,8 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
+  std::unique_ptr<Tracer> tracer_;
+  InstrumentedMutex trace_mutex_;
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
@@ -746,6 +802,9 @@ class DBImpl : public DB {
   friend class WritePreparedTxn;
   friend class WritePreparedTxnDB;
   friend class WriteBatchWithIndex;
+  friend class WriteUnpreparedTxnDB;
+  friend class WriteUnpreparedTxn;
+
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
@@ -757,6 +816,7 @@ class DBImpl : public DB {
   friend class WriteCallbackTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
+  friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
 #endif
   struct CompactionState;
 
@@ -1265,9 +1325,6 @@ class DBImpl : public DB {
     PrepickedCompaction* prepicked_compaction;
   };
 
-  // Have we encountered a background error in paranoid mode?
-  Status bg_error_;
-
   // shall we disable deletion of obsolete files
   // if 0 the deletion is enabled.
   // if non-zero, files will not be getting deleted
@@ -1379,6 +1436,7 @@ class DBImpl : public DB {
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
                               bool is_locked, uint64_t* value);
+  bool GetPropertyHandleOptionsStatistics(std::string* value);
 
   bool HasPendingManualCompaction();
   bool HasExclusiveManualCompaction();
@@ -1407,6 +1465,13 @@ class DBImpl : public DB {
   //
   // Default: false
   const bool seq_per_batch_;
+  // This determines during recovery whether we expect one writebatch per
+  // recovered transaction, or potentially multiple writebatches per
+  // transaction. For WriteUnprepared, this is set to false, since multiple
+  // batches can exist per transaction.
+  //
+  // Default: true
+  const bool batch_per_txn_;
   // LastSequence also indicates last published sequence visibile to the
   // readers. Otherwise LastPublishedSequence should be used.
   const bool last_seq_same_as_publish_seq_;
@@ -1424,6 +1489,8 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
+
+  ErrorHandler error_handler_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

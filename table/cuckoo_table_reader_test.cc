@@ -215,7 +215,7 @@ class CuckooReaderTest : public testing::Test {
 
 TEST_F(CuckooReaderTest, WhenKeyExists) {
   SetUp(kNumHashFunc);
-  fname = test::TmpDir() + "/CuckooReader_WhenKeyExists";
+  fname = test::PerThreadDBPath("CuckooReader_WhenKeyExists");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i] = "key" + NumToStr(i);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
@@ -242,7 +242,7 @@ TEST_F(CuckooReaderTest, WhenKeyExists) {
 
 TEST_F(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
   SetUp(kNumHashFunc);
-  fname = test::TmpDir() + "/CuckooReaderUint64_WhenKeyExists";
+  fname = test::PerThreadDBPath("CuckooReaderUint64_WhenKeyExists");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i].resize(8);
     memcpy(&user_keys[i][0], static_cast<void*>(&i), 8);
@@ -270,7 +270,7 @@ TEST_F(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
 
 TEST_F(CuckooReaderTest, CheckIterator) {
   SetUp(2*kNumHashFunc);
-  fname = test::TmpDir() + "/CuckooReader_CheckIterator";
+  fname = test::PerThreadDBPath("CuckooReader_CheckIterator");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i] = "key" + NumToStr(i);
     ParsedInternalKey ikey(user_keys[i], 1000, kTypeValue);
@@ -289,7 +289,7 @@ TEST_F(CuckooReaderTest, CheckIterator) {
 
 TEST_F(CuckooReaderTest, CheckIteratorUint64) {
   SetUp(2*kNumHashFunc);
-  fname = test::TmpDir() + "/CuckooReader_CheckIterator";
+  fname = test::PerThreadDBPath("CuckooReader_CheckIterator");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i].resize(8);
     memcpy(&user_keys[i][0], static_cast<void*>(&i), 8);
@@ -310,7 +310,7 @@ TEST_F(CuckooReaderTest, CheckIteratorUint64) {
 TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   // Add keys with colliding hash values.
   SetUp(kNumHashFunc);
-  fname = test::TmpDir() + "/CuckooReader_WhenKeyNotFound";
+  fname = test::PerThreadDBPath("CuckooReader_WhenKeyNotFound");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i] = "key" + NumToStr(i);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
@@ -395,8 +395,8 @@ std::string GetFileName(uint64_t num) {
   if (FLAGS_file_dir.empty()) {
     FLAGS_file_dir = test::TmpDir();
   }
-  return FLAGS_file_dir + "/cuckoo_read_benchmark" +
-    ToString(num/1000000) + "Mkeys";
+  return test::PerThreadDBPath(FLAGS_file_dir, "cuckoo_read_benchmark") +
+         ToString(num / 1000000) + "Mkeys";
 }
 
 // Create last level file as we are interested in measuring performance of

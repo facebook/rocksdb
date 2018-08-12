@@ -19,6 +19,7 @@
 #include "rocksdb/env.h"
 #include "table/format.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -31,6 +32,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
                          DisplayType show_blob,
                          DisplayType show_uncompressed_blob,
                          bool show_summary) {
+  constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
   Status s;
   Env* env = Env::Default();
   s = env->FileExists(filename);
@@ -47,6 +49,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (!s.ok()) {
     return s;
   }
+  file = NewReadaheadRandomAccessFile(std::move(file), kReadaheadSize);
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
@@ -205,10 +208,10 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   if (compression != kNoCompression &&
       (show_uncompressed_blob != DisplayType::kNone || show_summary)) {
     BlockContents contents;
+    UncompressionContext uncompression_ctx(compression);
     s = UncompressBlockContentsForCompressionType(
-        slice.data() + key_size, value_size, &contents,
-        2 /*compress_format_version*/, Slice(), compression,
-        ImmutableCFOptions(Options()));
+        uncompression_ctx, slice.data() + key_size, value_size, &contents,
+        2 /*compress_format_version*/, ImmutableCFOptions(Options()));
     if (!s.ok()) {
       return s;
     }
