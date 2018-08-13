@@ -19,7 +19,7 @@ namespace rocksdb {
 bool SearchForOffset(DataBlockHashIndex& index, const char* data,
                      uint16_t map_offset, const Slice& key,
                      uint8_t& restart_point) {
-  uint8_t entry = index.Seek(data, map_offset, key);
+  uint8_t entry = index.Lookup(data, map_offset, key);
   if (entry == kCollision) {
     return true;
   }

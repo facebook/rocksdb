@@ -80,7 +80,7 @@ void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
                                       num_buckets_ * sizeof(uint8_t));
 }
 
-uint8_t DataBlockHashIndex::Seek(const char* data, uint16_t map_offset,
+uint8_t DataBlockHashIndex::Lookup(const char* data, uint16_t map_offset,
                                  const Slice& key) const {
   uint32_t hash_value = GetSliceHash(key);
   uint16_t idx = static_cast<uint16_t>(hash_value % num_buckets_);

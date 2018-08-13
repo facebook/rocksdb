@@ -253,7 +253,7 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
   Slice user_key = ExtractUserKey(target);
   uint16_t map_offset =
       static_cast<uint16_t>(restarts_ + num_restarts_ * sizeof(uint32_t));
-  uint8_t entry = data_block_hash_index_->Seek(data_, map_offset, user_key);
+  uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
 
   if (entry == kNoEntry) {
     // Even if we cannot find the user_key in this block, the result may

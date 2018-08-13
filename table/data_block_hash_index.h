@@ -114,7 +114,7 @@ class DataBlockHashIndex {
 
   void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
 
-  uint8_t Seek(const char* data, uint16_t map_offset, const Slice& key) const;
+  uint8_t Lookup(const char* data, uint16_t map_offset, const Slice& key) const;
 
   inline bool Valid() { return num_buckets_ != 0; }
 
