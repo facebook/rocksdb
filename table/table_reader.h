@@ -21,7 +21,6 @@ class Arena;
 struct ReadOptions;
 struct TableProperties;
 class GetContext;
-class InternalIterator;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
@@ -39,10 +38,11 @@ class TableReader {
   //        all the states but those allocated in arena.
   // skip_filters: disables checking the bloom filters even if they exist. This
   //               option is effective only for block-based table format.
-  virtual SourceInternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor,
-      Arena* arena = nullptr, bool skip_filters = false,
-      bool for_compaction = false) = 0;
+  virtual InternalIterator* NewIterator(const ReadOptions&,
+                                        const SliceTransform* prefix_extractor,
+                                        Arena* arena = nullptr,
+                                        bool skip_filters = false,
+                                        bool for_compaction = false) = 0;
 
   virtual InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
@@ -90,7 +90,7 @@ class TableReader {
   virtual void RangeScan(const Slice* begin, void* arg,
                          bool (*callback_func)(void* arg, const Slice& ikey,
                                                const Slice& value)) {
-    std::unique_ptr<SourceInternalIterator> iter(
+    std::unique_ptr<InternalIterator> iter(
         NewIterator(ReadOptions(), nullptr));
     for (begin == nullptr ? iter->SeekToFirst() : iter->Seek(*begin);
          iter->Valid() && callback_func(arg, iter->key(), iter->value());

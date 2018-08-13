@@ -2509,6 +2509,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   EnvOptions env_opts;
   CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
+  Iterator* single_iter = nullptr;
 
   std::string trace_filename = dbname_ + "/rocksdb.trace";
   std::unique_ptr<TraceWriter> trace_writer;
@@ -2528,6 +2529,11 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(batch.SingleDelete("i"));
   ASSERT_OK(batch.DeleteRange("j", "k"));
   ASSERT_OK(db_->Write(wo, &batch));
+
+  single_iter = db_->NewIterator(ro);
+  single_iter->Seek("f");
+  single_iter->SeekForPrev("g");
+  delete single_iter;
 
   ASSERT_EQ("1", Get(0, "a"));
   ASSERT_EQ("12", Get(0, "g"));

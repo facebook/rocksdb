@@ -10,6 +10,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
+#include "table/format.h"
 
 namespace rocksdb {
 
@@ -26,16 +27,16 @@ struct IteratorSource {
   uintptr_t data;
 
   IteratorSource()
-    : type(kUnknow),
-      data(0) {}
+      : type(kUnknow),
+        data(0) {}
 
   IteratorSource(const void* ptr)
-    : type(kUnknow),
-      data((uintptr_t)ptr) {}
+      : type(kUnknow),
+        data((uintptr_t)ptr) {}
 
   IteratorSource(SourceType _type, uintptr_t _data)
-    : type(_type),
-      data(_data) {}
+      : type(_type),
+        data(_data) {}
 
   bool operator==(const IteratorSource& other) {
     return type == other.type && data == other.data;
@@ -45,10 +46,11 @@ struct IteratorSource {
   }
 };
 
-class InternalIterator : public Cleanable {
+template <class TValue>
+class InternalIteratorBase : public Cleanable {
  public:
-  InternalIterator() {}
-  virtual ~InternalIterator() {}
+  InternalIteratorBase() {}
+  virtual ~InternalIteratorBase() {}
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
@@ -96,7 +98,7 @@ class InternalIterator : public Cleanable {
   // the returned slice is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
-  virtual Slice value() const = 0;
+  virtual TValue value() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be
@@ -137,6 +139,11 @@ class InternalIterator : public Cleanable {
     return Status::NotSupported("");
   }
 
+  // Set source of current internal iterator
+  virtual Status SetSource(const IteratorSource& /*source*/) {
+    return Status::NotSupported("");
+  }
+
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
     Seek(target);
@@ -150,30 +157,48 @@ class InternalIterator : public Cleanable {
 
  private:
   // No copying allowed
-  InternalIterator(const InternalIterator&) = delete;
-  InternalIterator& operator=(const InternalIterator&) = delete;
+  InternalIteratorBase(const InternalIteratorBase&) = delete;
+  InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
 };
 
-class SourceInternalIterator : public InternalIterator {
+template <class TValue>
+class SourceInternalIteratorBase : public InternalIteratorBase<TValue> {
  public:
-  SourceInternalIterator()
-    : source_(InternalIterator::source()) {}
+  SourceInternalIteratorBase()
+      : source_(InternalIteratorBase<TValue>::source()) {}
 
-  SourceInternalIterator(const IteratorSource& _source)
-    : source_(_source) {}
+  SourceInternalIteratorBase(const IteratorSource& _source)
+      : source_(_source) {}
 
   virtual IteratorSource source() const override { return source_; }
 
-  void SetSource(const IteratorSource& _source) { source_ = _source; }
+  virtual Status SetSource(const IteratorSource& _source) override {
+    source_ = _source;
+    return Status::OK();
+  }
 
  private:
   IteratorSource source_;
 };
 
+using InternalIterator = InternalIteratorBase<Slice>;
+using SourceInternalIterator = SourceInternalIteratorBase<Slice>;
+
 // Return an empty iterator (yields nothing).
-extern SourceInternalIterator* NewEmptyInternalIterator();
+// allocated arena if not nullptr.
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewEmptyInternalIterator(
+    Arena* arena = nullptr);
+
+// Return an wrapper iterator support SetSource
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewSourceInternalIterator(
+    InternalIteratorBase<TValue>* inner, Arena* arena = nullptr);
 
 // Return an empty iterator with the specified status.
-extern SourceInternalIterator* NewErrorInternalIterator(const Status& status);
+// allocated arena  if not nullptr.
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
+    const Status& status, Arena* arena = nullptr);
 
 }  // namespace rocksdb

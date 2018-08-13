@@ -189,7 +189,7 @@ Status PlainTableReader::Open(
 void PlainTableReader::SetupForCompaction() {
 }
 
-SourceInternalIterator* PlainTableReader::NewIterator(
+InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
     Arena* arena, bool /*skip_filters*/, bool /*for_compaction*/) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;

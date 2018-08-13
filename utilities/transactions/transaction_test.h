@@ -406,7 +406,7 @@ class TransactionTestBase : public ::testing::Test {
     if (empty_wal) {
       ASSERT_OK(s);
     } else {
-      // Test that we can detect the WAL that is produced by an incompatbile
+      // Test that we can detect the WAL that is produced by an incompatible
       // WritePolicy and fail fast before mis-interpreting the WAL.
       ASSERT_TRUE(s.IsNotSupported());
       return;

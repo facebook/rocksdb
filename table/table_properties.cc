@@ -94,8 +94,9 @@ std::string TableProperties::ToString(
   AppendProperty(result, "data block size", data_size, prop_delim, kv_delim);
   char index_block_size_str[80];
   snprintf(index_block_size_str, sizeof(index_block_size_str),
-           "index block size (user-key? %d)",
-           static_cast<int>(index_key_is_user_key));
+           "index block size (user-key? %d, delta-value? %d)",
+           static_cast<int>(index_key_is_user_key),
+           static_cast<int>(index_value_is_delta_encoded));
   AppendProperty(result, index_block_size_str, index_size, prop_delim,
                  kv_delim);
   if (index_partitions != 0) {
@@ -163,6 +164,7 @@ void TableProperties::Add(const TableProperties& tp) {
   index_partitions += tp.index_partitions;
   top_level_index_size += tp.top_level_index_size;
   index_key_is_user_key += tp.index_key_is_user_key;
+  index_value_is_delta_encoded += tp.index_value_is_delta_encoded;
   filter_size += tp.filter_size;
   raw_key_size += tp.raw_key_size;
   raw_value_size += tp.raw_value_size;
@@ -181,6 +183,8 @@ const std::string TablePropertiesNames::kTopLevelIndexSize =
     "rocksdb.top-level.index.size";
 const std::string TablePropertiesNames::kIndexKeyIsUserKey =
     "rocksdb.index.key.is.user.key";
+const std::string TablePropertiesNames::kIndexValueIsDeltaEncoded =
+    "rocksdb.index.value.is.delta.encoded";
 const std::string TablePropertiesNames::kFilterSize =
     "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize =

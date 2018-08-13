@@ -394,15 +394,15 @@ InternalIterator* TableCache::NewIterator(
   if (s.ok()) {
     if (options.table_filter &&
         !options.table_filter(*table_reader->GetTableProperties())) {
-      result = NewEmptyInternalIterator(arena);
+      result = NewEmptyInternalIterator<Slice>(arena);
     } else {
-      SourceInternalIterator* source_result;
-      source_result = table_reader->NewIterator(options, prefix_extractor,
-                                                arena, skip_filters,
-                                                for_compaction);
-      source_result->SetSource(
-          IteratorSource(IteratorSource::kSST, (uintptr_t)&file_meta));
-      result = source_result;
+      result = table_reader->NewIterator(options, prefix_extractor, arena,
+                                         skip_filters, for_compaction);
+      auto source = IteratorSource(IteratorSource::kSST, (uintptr_t)&file_meta);
+      if (result->SetSource(source).IsNotSupported()) {
+        result = NewSourceInternalIterator(result, arena);
+        result->SetSource(source);
+      }
       if (file_meta.sst_variety != 0 && !depend_files.empty()) {
         // Store params for create depend table iterator in future
         // DON'T REF THIS OBJECT, DEEP COPY IT !
@@ -472,7 +472,7 @@ InternalIterator* TableCache::NewIterator(
   }
   if (!s.ok()) {
     assert(result == nullptr);
-    result = NewErrorInternalIterator(s, arena);
+    result = NewErrorInternalIterator<Slice>(s, arena);
   }
   return result;
 }
