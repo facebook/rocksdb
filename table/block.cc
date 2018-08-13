@@ -285,6 +285,8 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
   const char* limit = nullptr;
   if (restart_index_ + 1 < num_restarts_) {
     limit = data_ + GetRestartPoint(restart_index_ + 1);
+  } else {
+    limit = data_ + restarts_;
   }
 
   while (true) {
