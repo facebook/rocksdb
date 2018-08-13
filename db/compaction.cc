@@ -157,6 +157,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
       deletion_compaction_(_deletion_compaction),
+      compaction_varieties_(_compaction_varieties),
+      input_range_(_input_range),
       inputs_(std::move(_inputs)),
       grandparents_(std::move(_grandparents)),
       score_(_score),
@@ -164,8 +166,6 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
-      compaction_varieties_(_compaction_varieties),
-      input_range_(_input_range),
       compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {

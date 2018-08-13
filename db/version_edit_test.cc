@@ -35,7 +35,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
     edit.AddFile(3, kBig + 300 + i, kBig32Bit + 400 + i, 0,
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
-                 kBig + 500 + i, kBig + 600 + i, false);
+                 kBig + 500 + i, kBig + 600 + i, false, 1, {2U, 3U});
     edit.DeleteFile(4, kBig + 700 + i);
   }
 
@@ -52,13 +52,13 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   VersionEdit edit;
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
-               kBig + 600, true);
+               kBig + 600, true, 0, {});
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
-               kBig + 601, false);
+               kBig + 601, false, 1, {1U});
   edit.AddFile(5, 302, 0, 100, InternalKey("foo", kBig + 502, kTypeValue),
                InternalKey("zoo", kBig + 602, kTypeDeletion), kBig + 502,
-               kBig + 602, true);
+               kBig + 602, true, 2, {2U, 3U});
 
   edit.DeleteFile(4, 700);
 
@@ -80,6 +80,12 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_EQ(3, new_files[0].second.fd.GetPathId());
   ASSERT_EQ(3, new_files[1].second.fd.GetPathId());
   ASSERT_EQ(0, new_files[2].second.fd.GetPathId());
+  ASSERT_EQ(0, new_files[0].second.sst_variety);
+  ASSERT_EQ(1, new_files[1].second.sst_variety);
+  ASSERT_EQ(2, new_files[2].second.sst_variety);
+  ASSERT_EQ(std::vector<uint64_t>(), new_files[0].second.sst_depend);
+  ASSERT_EQ(std::vector<uint64_t>({1U}), new_files[1].second.sst_depend);
+  ASSERT_EQ(std::vector<uint64_t>({2U, 3U}), new_files[2].second.sst_depend);
 }
 
 TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
@@ -87,10 +93,10 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   VersionEdit edit;
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
-               kBig + 600, true);
+               kBig + 600, true, 0, {});
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
-               kBig + 601, false);
+               kBig + 601, false, 0, {});
   edit.DeleteFile(4, 700);
 
   edit.SetComparatorName("foo");
@@ -136,7 +142,7 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
   VersionEdit edit;
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
-               kBig + 600, true);
+               kBig + 600, true, 0, {});
 
   edit.SetComparatorName("foo");
   edit.SetLogNumber(kBig + 100);
@@ -163,7 +169,7 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
 
 TEST_F(VersionEditTest, EncodeEmptyFile) {
   VersionEdit edit;
-  edit.AddFile(0, 0, 0, 0, InternalKey(), InternalKey(), 0, 0, false);
+  edit.AddFile(0, 0, 0, 0, InternalKey(), InternalKey(), 0, 0, false, 0, {});
   std::string buffer;
   ASSERT_TRUE(!edit.EncodeTo(&buffer));
 }

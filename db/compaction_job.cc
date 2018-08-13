@@ -151,13 +151,13 @@ std::vector<MapSegment> MapSegmentUnion(std::vector<MapSegment>& l,
     segment.point[1] = key;
     segment.include[1] = include;
   };
-  auto put_link = [&](MapSegment* l, MapSegment* r) {
+  auto put_link = [&](MapSegment* ll, MapSegment* rl) {
     auto& link = output.back().link;
-    if (l != nullptr) {
-      link.insert(link.end(), l->link.begin(), l->link.end());
+    if (ll != nullptr) {
+      link.insert(link.end(), ll->link.begin(), ll->link.end());
     }
-    if (r != nullptr) {
-      link.insert(link.end(), r->link.begin(), r->link.end());
+    if (rl != nullptr) {
+      link.insert(link.end(), rl->link.begin(), rl->link.end());
     }
     assert(!link.empty());
   };
@@ -1434,9 +1434,9 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   auto put_link_element = [&] {
     LinkSstElement link;
     link.largest_key_ = last_key.Encode();
-    const FileMetaData* meta = (const FileMetaData*)last_source.data;
-    assert(meta->sst_variety == 0);
-    link.sst_id_ = meta->fd.GetNumber();
+    const FileMetaData* source_meta = (const FileMetaData*)last_source.data;
+    assert(source_meta->sst_variety == 0);
+    link.sst_id_ = source_meta->fd.GetNumber();
     sst_depend_build.emplace(link.sst_id_);
     link.key_count_ = key_count;
     key_count = 0;

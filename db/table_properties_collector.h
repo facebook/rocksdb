@@ -96,8 +96,8 @@ class SstVarietyPropertiesCollector final : public IntTblPropCollector {
       : sst_variety_(_sst_variety),
         sst_depend_(_sst_depend) {}
 
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override {
+  virtual Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
+                             uint64_t /*file_size*/) override {
     return Status::OK();
   }
 

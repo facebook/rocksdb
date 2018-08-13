@@ -425,8 +425,8 @@ class MapSstIterator final : public InternalIterator {
    private:
     const InternalKeyComparator& c_;
   };
+  typedef std::vector<HeapElement> HeapVectorType;
   union {
-    typedef std::vector<HeapElement> HeapVectorType;
     // They have same layout, but we only use one of them at same time
     BinaryHeap<HeapElement, HeapComparator<0>, HeapVectorType> min_heap_;
     BinaryHeap<HeapElement, HeapComparator<1>, HeapVectorType> max_heap_;

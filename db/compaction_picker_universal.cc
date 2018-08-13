@@ -458,8 +458,8 @@ uint32_t UniversalCompactionPicker::GetPathId(
 }
 
 Compaction* UniversalCompactionPicker::PickTrivialMove(
-    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    const std::string& /*cf_name*/, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* /*log_buffer*/) {
   if (!mutable_cf_options.compaction_options_universal.allow_trivial_move) {
     return nullptr;
   }
@@ -553,8 +553,8 @@ Compaction* UniversalCompactionPicker::PickTrivialMove(
 }
 
 Compaction* UniversalCompactionPicker::PickGeneralCompaction(
-    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    const std::string& /*cf_name*/, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* /*log_buffer*/) {
   if (!vstorage->has_space_amplification()) {
     return nullptr;
   }

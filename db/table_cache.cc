@@ -101,12 +101,12 @@ InternalIterator* TranslateVarietySstIterator(
     return variety_sst_iter;
   }
   result->RegisterCleanup([](void* arg1, void* arg2) {
-    auto iter = (InternalIterator*)arg1;
-    auto arena = (Arena*)arg2;
-    if (arena == nullptr) {
-      delete iter;
+    auto param_iter = (InternalIterator*)arg1;
+    auto param_arena = (Arena*)arg2;
+    if (param_arena == nullptr) {
+      delete param_iter;
     } else {
-      iter->~InternalIterator();
+      param_iter->~InternalIterator();
     }
   }, variety_sst_iter, arena);
   return result;
@@ -164,7 +164,7 @@ Status GetFromVarietySst(
       Slice map_input = map_value;
       Slice smallest_key;
       uint64_t link_count;
-      uint64_t sst_id;
+      uint64_t sst_id = uint64_t(-1);
       Slice find_k = k;
       
       if (!GetLengthPrefixedSlice(&map_input, &smallest_key) ||

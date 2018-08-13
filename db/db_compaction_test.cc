@@ -352,22 +352,20 @@ TEST_F(DBCompactionTest, LazyCompactionTest) {
   }, 2);
   level_files.clear();
 
-  std::multimap<std::string,
-                std::tuple<std::string, std::string, const Snapshot*>>
-      verify = {
-    { "a", {"6", "1,2,3,4,5,6", snapshots[5] }},
-    { "a", {"5", "1,2,3,4,5", snapshots[4] }},
-    { "a", {"4", "1,2,3,4", snapshots[3] }},
-    { "a", {"3", "1,2,3", snapshots[2] }},
-    { "a", {"2", "1,2", snapshots[1] }},
-    { "a", {"1", "1", snapshots[0] }},
-    { "b", {"6", "1,2,3,4,5,6", snapshots[5] }},
-    { "b", {"5", "1,2,3,4,5", snapshots[4] }},
-    { "b", {"4", "1,2,3,4", snapshots[3] }},
-    { "b", {"3", "1,2,3", snapshots[2] }},
-    { "b", {"2", "1,2", snapshots[1] }},
-    { "b", {"1", "1", snapshots[0] }},
-  };
+  std::vector<std::tuple<std::string, std::string, std::string,
+                         const Snapshot*>> verify;
+  verify.emplace_back("a", "6", "1,2,3,4,5,6", snapshots[5]);
+  verify.emplace_back("a", "5", "1,2,3,4,5", snapshots[4]);
+  verify.emplace_back("a", "4", "1,2,3,4", snapshots[3]);
+  verify.emplace_back("a", "3", "1,2,3", snapshots[2]);
+  verify.emplace_back("a", "2", "1,2", snapshots[1]);
+  verify.emplace_back("a", "1", "1", snapshots[0]);
+  verify.emplace_back("b", "6", "1,2,3,4,5,6", snapshots[5]);
+  verify.emplace_back("b", "5", "1,2,3,4,5", snapshots[4]);
+  verify.emplace_back("b", "4", "1,2,3,4", snapshots[3]);
+  verify.emplace_back("b", "3", "1,2,3", snapshots[2]);
+  verify.emplace_back("b", "2", "1,2", snapshots[1]);
+  verify.emplace_back("b", "1", "1", snapshots[0]);
 
   Arena arena;
   InternalKeyComparator ic(BytewiseComparator());
@@ -375,14 +373,14 @@ TEST_F(DBCompactionTest, LazyCompactionTest) {
   RangeDelAggregator range_del_agg(ic, sv);
   std::unique_ptr<InternalIterator, void(*)(InternalIterator*)> iter(
       dbfull()->NewInternalIterator(&arena, &range_del_agg),
-      [](InternalIterator* iter) {
-        iter->~InternalIterator();
+      [](InternalIterator* arena_iter) {
+        arena_iter->~InternalIterator();
       });
   iter->SeekToFirst();
   for (auto it = verify.begin(); it != verify.end(); ++it) {
     ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(ExtractUserKey(iter->key()).ToString(), it->first);
-    ASSERT_EQ(iter->value().ToString(), std::get<0>(it->second));
+    ASSERT_EQ(ExtractUserKey(iter->key()).ToString(), std::get<0>(*it));
+    ASSERT_EQ(iter->value().ToString(), std::get<1>(*it));
     iter->Next();
   }
   ASSERT_FALSE(iter->Valid());
@@ -390,26 +388,26 @@ TEST_F(DBCompactionTest, LazyCompactionTest) {
   iter->SeekToLast();
   for (auto it = verify.rbegin(); it != verify.rend(); ++it) {
     ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(ExtractUserKey(iter->key()).ToString(), it->first);
-    ASSERT_EQ(iter->value().ToString(), std::get<0>(it->second));
+    ASSERT_EQ(ExtractUserKey(iter->key()).ToString(), std::get<0>(*it));
+    ASSERT_EQ(iter->value().ToString(), std::get<1>(*it));
     iter->Prev();
   }
   ASSERT_FALSE(iter->Valid());
 
   std::string value;
-  for (auto it = verify.rbegin(); it != verify.rend(); ++it) {
-    ro.snapshot = std::get<2>(it->second);
-    ASSERT_OK(dbfull()->Get(ro, it->first, &value));
-    ASSERT_EQ(value, std::get<1>(it->second));
+  for (auto it = verify.begin(); it != verify.end(); ++it) {
+    ro.snapshot = std::get<3>(*it);
+    ASSERT_OK(dbfull()->Get(ro, std::get<0>(*it), &value));
+    ASSERT_EQ(value, std::get<2>(*it));
     std::unique_ptr<Iterator> db_iter(dbfull()->NewIterator(ro));
-    db_iter->Seek(it->first);
+    db_iter->Seek(std::get<0>(*it));
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key(), it->first);
-    ASSERT_EQ(db_iter->value(), std::get<1>(it->second));
-    db_iter->SeekForPrev(it->first);
+    ASSERT_EQ(db_iter->key(), std::get<0>(*it));
+    ASSERT_EQ(db_iter->value(), std::get<2>(*it));
+    db_iter->SeekForPrev(std::get<0>(*it));
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key(), it->first);
-    ASSERT_EQ(db_iter->value(), std::get<1>(it->second));
+    ASSERT_EQ(db_iter->key(), std::get<0>(*it));
+    ASSERT_EQ(db_iter->value(), std::get<2>(*it));
   }
 }
 
