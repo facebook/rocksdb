@@ -2612,7 +2612,7 @@ TEST_F(DBTest2, IteratorPinnedMemory) {
   bbto.block_cache->SetCapacity(0);
   bbto.block_cache->SetCapacity(100000);
 
-  // Verify compaction input iterators don'thold more than one data blocks at
+  // Verify compaction input iterators don't hold more than one data blocks at
   // one time.
   std::atomic<bool> finished(false);
   std::atomic<int> block_newed(0);
