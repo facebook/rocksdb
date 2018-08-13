@@ -74,6 +74,11 @@ class Comparator {
                                               const Slice& /*t*/) const {
     return false;
   }
+
+  // return true if the comparator equity infers hash equity.
+  // The major use case is to determine if DataBlockHashIndex is compatible
+  // with the customized comparator.
+  virtual bool ComparatorEquityInfersHashEquity() const { return false; }
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise
