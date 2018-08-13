@@ -267,7 +267,7 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
     // Even if the user_key is not found in the hash map, the caller still
     // have to conntinue searching the next block. So we invalidate the
     // iterator to tell the caller to go on.
-    Invalidate(Status::OK());
+    current_ = restarts_; // Invalidate the iter
     return true;
   }
 
