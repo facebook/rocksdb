@@ -33,6 +33,8 @@ enum TraceType : char {
   kTraceEnd = 2,
   kTraceWrite = 3,
   kTraceGet = 4,
+  kTraceIteratorSeek = 5,
+  kTraceIteratorSeekForPrev = 6,
   kTraceMax,
 };
 
