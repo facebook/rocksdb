@@ -33,15 +33,16 @@ namespace rocksdb {
 //
 // The format of the data-block hash index is as follows:
 //
-// HASH_IDX: [B B B ... B NUM_BUCK MAP_START]
+// HASH_IDX: [B B B ... B NUM_BUCK]
 //
 // B:         bucket, an array of restart index. Each buckets is uint8_t.
 // NUM_BUCK:  Number of buckets, which is the length of the bucket array.
-// MAP_START: the starting offset of the data-block hash index.
 //
 // We reserve two special flag:
 //    kNoEntry=255,
 //    kCollision=254.
+//
+// Therefore, the max number of restarts this hash index can supoport is 253.
 //
 // Buckets are initialized to be kNoEntry.
 //
@@ -62,48 +63,69 @@ namespace rocksdb {
 
 const uint8_t kNoEntry = 255;
 const uint8_t kCollision = 254;
+const uint8_t kMaxRestartSupportedByHashIndex = 253;
+
+// Because we use uint16_t address, we only support block no more than 64KB
+const size_t kMaxBlockSizeSupportedByHashIndex = 1 << 16;
+const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
  public:
-  explicit DataBlockHashIndexBuilder(uint16_t n)
-      : num_buckets_(n),
-        buckets_(n, kNoEntry),
-        estimate_(2 * sizeof(uint16_t) /*num_buck and maps_start*/ +
-                  n * sizeof(uint8_t) /*n buckets*/) {}
-  void Add(const Slice& key, const uint8_t& restart_index);
+  DataBlockHashIndexBuilder() : util_ratio_(0), valid_(false) {}
+
+  void Initialize(double util_ratio) {
+    if (util_ratio <= 0) {
+      util_ratio = kDefaultUtilRatio;  // sanity check
+    }
+    util_ratio_ = util_ratio;
+    valid_ = true;
+  }
+
+  bool Valid() const { return valid_ && util_ratio_ > 0; }
+  void Add(const Slice key, const size_t restart_index);
   void Finish(std::string& buffer);
   void Reset();
-  inline size_t EstimateSize() { return estimate_; }
+  inline size_t EstimateSize() const {
+    uint16_t estimated_num_buckets = static_cast<uint16_t>(
+        static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
+
+    // Maching the num_buckets number in DataBlockHashIndexBuilder::Finish.
+    estimated_num_buckets |= 1;
+
+    return sizeof(uint16_t) +
+           static_cast<size_t>(estimated_num_buckets * sizeof(uint8_t));
+  }
 
  private:
-  uint16_t num_buckets_;
-  std::vector<uint8_t> buckets_;
-  size_t estimate_;
+  double util_ratio_;
+
+  // Now the only usage for `valid_` is to mark false when the inserted
+  // restart_index is larger than supported. In this case HashIndex is not
+  // appended to the block content.
+  bool valid_;
+
+  std::vector<std::pair<uint32_t, uint8_t>> hash_and_restart_pairs_;
+  friend class DataBlockHashIndex_DataBlockHashTestSmall_Test;
 };
 
 class DataBlockHashIndex {
  public:
-  DataBlockHashIndex():size_(0), num_buckets_(0) {}
+  DataBlockHashIndex() : num_buckets_(0) {}
 
-  void Initialize(Slice block_content);
-  inline uint16_t DataBlockHashMapStart() const {
-    return static_cast<uint16_t>(map_start_ - data_);
-  }
-  bool Valid() const {return size_ != 0;}
-  uint8_t Seek(const Slice& key) const;
+  void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
+
+  uint8_t Seek(const char* data, uint16_t map_offset, const Slice& key) const;
+
+  inline bool Valid() { return num_buckets_ != 0; }
 
  private:
-  const char *data_;
   // To make the serialized hash index compact and to save the space overhead,
   // here all the data fields persisted in the block are in uint16 format.
   // We find that a uint16 is large enough to index every offset of a 64KiB
   // block.
   // So in other words, DataBlockHashIndex does not support block size equal
   // or greater then 64KiB.
-  uint16_t size_;
   uint16_t num_buckets_;
-  const char *map_start_;    // start of the map
-  const char *bucket_table_; // start offset of the bucket index table
 };
 
 }  // namespace rocksdb

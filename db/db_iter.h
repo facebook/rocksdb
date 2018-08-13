@@ -23,7 +23,6 @@ namespace rocksdb {
 
 class Arena;
 class DBIter;
-class InternalIterator;
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number

@@ -1754,7 +1754,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
 
-    // +1 to accomodate newline character
+    // +1 to accommodate newline character
     size_t hex_meta_strlen = kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
     if (hex_meta_strlen >= buf_size) {
       return Status::Corruption("Buffer too small to fit backup metadata");

@@ -19,12 +19,13 @@ namespace rocksdb {
 
 namespace {
 
-class TwoLevelIterator : public InternalIterator {
+class TwoLevelIndexIterator : public InternalIteratorBase<BlockHandle> {
  public:
-  explicit TwoLevelIterator(TwoLevelIteratorState* state,
-                            InternalIterator* first_level_iter);
+  explicit TwoLevelIndexIterator(
+      TwoLevelIteratorState* state,
+      InternalIteratorBase<BlockHandle>* first_level_iter);
 
-  virtual ~TwoLevelIterator() {
+  virtual ~TwoLevelIndexIterator() {
     first_level_iter_.DeleteIter(false /* is_arena_mode */);
     second_level_iter_.DeleteIter(false /* is_arena_mode */);
     delete state_;
@@ -42,7 +43,7 @@ class TwoLevelIterator : public InternalIterator {
     assert(Valid());
     return second_level_iter_.key();
   }
-  virtual Slice value() const override {
+  virtual BlockHandle value() const override {
     assert(Valid());
     return second_level_iter_.value();
   }
@@ -68,23 +69,24 @@ class TwoLevelIterator : public InternalIterator {
   }
   void SkipEmptyDataBlocksForward();
   void SkipEmptyDataBlocksBackward();
-  void SetSecondLevelIterator(InternalIterator* iter);
+  void SetSecondLevelIterator(InternalIteratorBase<BlockHandle>* iter);
   void InitDataBlock();
 
   TwoLevelIteratorState* state_;
-  IteratorWrapper first_level_iter_;
-  IteratorWrapper second_level_iter_;  // May be nullptr
+  IteratorWrapperBase<BlockHandle> first_level_iter_;
+  IteratorWrapperBase<BlockHandle> second_level_iter_;  // May be nullptr
   Status status_;
   // If second_level_iter is non-nullptr, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the second_level_iter.
-  std::string data_block_handle_;
+  BlockHandle data_block_handle_;
 };
 
-TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,
-                                   InternalIterator* first_level_iter)
+TwoLevelIndexIterator::TwoLevelIndexIterator(
+    TwoLevelIteratorState* state,
+    InternalIteratorBase<BlockHandle>* first_level_iter)
     : state_(state), first_level_iter_(first_level_iter) {}
 
-void TwoLevelIterator::Seek(const Slice& target) {
+void TwoLevelIndexIterator::Seek(const Slice& target) {
   first_level_iter_.Seek(target);
 
   InitDataBlock();
@@ -94,7 +96,7 @@ void TwoLevelIterator::Seek(const Slice& target) {
   SkipEmptyDataBlocksForward();
 }
 
-void TwoLevelIterator::SeekForPrev(const Slice& target) {
+void TwoLevelIndexIterator::SeekForPrev(const Slice& target) {
   first_level_iter_.Seek(target);
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
@@ -112,7 +114,7 @@ void TwoLevelIterator::SeekForPrev(const Slice& target) {
   }
 }
 
-void TwoLevelIterator::SeekToFirst() {
+void TwoLevelIndexIterator::SeekToFirst() {
   first_level_iter_.SeekToFirst();
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
@@ -121,7 +123,7 @@ void TwoLevelIterator::SeekToFirst() {
   SkipEmptyDataBlocksForward();
 }
 
-void TwoLevelIterator::SeekToLast() {
+void TwoLevelIndexIterator::SeekToLast() {
   first_level_iter_.SeekToLast();
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
@@ -130,19 +132,19 @@ void TwoLevelIterator::SeekToLast() {
   SkipEmptyDataBlocksBackward();
 }
 
-void TwoLevelIterator::Next() {
+void TwoLevelIndexIterator::Next() {
   assert(Valid());
   second_level_iter_.Next();
   SkipEmptyDataBlocksForward();
 }
 
-void TwoLevelIterator::Prev() {
+void TwoLevelIndexIterator::Prev() {
   assert(Valid());
   second_level_iter_.Prev();
   SkipEmptyDataBlocksBackward();
 }
 
-void TwoLevelIterator::SkipEmptyDataBlocksForward() {
+void TwoLevelIndexIterator::SkipEmptyDataBlocksForward() {
   while (second_level_iter_.iter() == nullptr ||
          (!second_level_iter_.Valid() && second_level_iter_.status().ok())) {
     // Move to next block
@@ -158,7 +160,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
   }
 }
 
-void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
+void TwoLevelIndexIterator::SkipEmptyDataBlocksBackward() {
   while (second_level_iter_.iter() == nullptr ||
          (!second_level_iter_.Valid() && second_level_iter_.status().ok())) {
     // Move to next block
@@ -174,24 +176,26 @@ void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
   }
 }
 
-void TwoLevelIterator::SetSecondLevelIterator(InternalIterator* iter) {
-  InternalIterator* old_iter = second_level_iter_.Set(iter);
+void TwoLevelIndexIterator::SetSecondLevelIterator(
+    InternalIteratorBase<BlockHandle>* iter) {
+  InternalIteratorBase<BlockHandle>* old_iter = second_level_iter_.Set(iter);
   delete old_iter;
 }
 
-void TwoLevelIterator::InitDataBlock() {
+void TwoLevelIndexIterator::InitDataBlock() {
   if (!first_level_iter_.Valid()) {
     SetSecondLevelIterator(nullptr);
   } else {
-    Slice handle = first_level_iter_.value();
+    BlockHandle handle = first_level_iter_.value();
     if (second_level_iter_.iter() != nullptr &&
         !second_level_iter_.status().IsIncomplete() &&
-        handle.compare(data_block_handle_) == 0) {
+        handle.offset() == data_block_handle_.offset()) {
       // second_level_iter is already constructed with this iterator, so
       // no need to change anything
     } else {
-      InternalIterator* iter = state_->NewSecondaryIterator(handle);
-      data_block_handle_.assign(handle.data(), handle.size());
+      InternalIteratorBase<BlockHandle>* iter =
+          state_->NewSecondaryIterator(handle);
+      data_block_handle_ = handle;
       SetSecondLevelIterator(iter);
     }
   }
@@ -199,8 +203,9 @@ void TwoLevelIterator::InitDataBlock() {
 
 }  // namespace
 
-InternalIterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
-                                      InternalIterator* first_level_iter) {
-  return new TwoLevelIterator(state, first_level_iter);
+InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
+    TwoLevelIteratorState* state,
+    InternalIteratorBase<BlockHandle>* first_level_iter) {
+  return new TwoLevelIndexIterator(state, first_level_iter);
 }
 }  // namespace rocksdb

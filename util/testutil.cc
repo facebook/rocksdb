@@ -20,7 +20,7 @@ namespace rocksdb {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
-const uint32_t kLatestFormatVersion = 3u;
+const uint32_t kLatestFormatVersion = 4u;
 
 Slice RandomString(Random* rnd, int len, std::string* dst) {
   dst->resize(len);

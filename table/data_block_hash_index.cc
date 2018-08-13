@@ -8,78 +8,84 @@
 #include "rocksdb/slice.h"
 #include "table/data_block_hash_index.h"
 #include "util/coding.h"
-#include "util/xxhash.h"
+#include "util/hash.h"
 
 namespace rocksdb {
 
-const uint32_t kSeed = 2018;
+void DataBlockHashIndexBuilder::Add(const Slice key,
+                                    const size_t restart_index) {
+  assert(Valid());
+  if (restart_index > kMaxRestartSupportedByHashIndex) {
+    valid_ = false;
+    return;
+  }
 
-inline uint16_t HashToBucket(const Slice& s, uint16_t num_buckets) {
-  return static_cast<uint16_t>(
-      rocksdb::XXH32(s.data(), static_cast<int>(s.size()), kSeed) % num_buckets);
-}
-
-void DataBlockHashIndexBuilder::Add(const Slice& key,
-                                    const uint8_t& restart_index) {
-  uint16_t idx = HashToBucket(key, num_buckets_);
-  if (buckets_[idx] == kNoEntry) {
-    buckets_[idx] = restart_index;
-  } else if (buckets_[idx] != kCollision) {
-    buckets_[idx] = kCollision;
-  } // if buckets_[idx] is already kCollision, we do not have to do anything.
+  uint32_t hash_value = GetSliceHash(key);
+  hash_and_restart_pairs_.emplace_back(hash_value,
+                                       static_cast<uint8_t>(restart_index));
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
-  // offset is the byte offset within the buffer
-  uint16_t map_start = static_cast<uint16_t>(buffer.size());
+  assert(Valid());
+  uint16_t num_buckets = static_cast<uint16_t>(
+      static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
+  if (num_buckets == 0) {
+    num_buckets = 1;  // sanity check
+  }
 
+  // The build-in hash cannot well distribute strings when into different
+  // buckets when num_buckets is power of two, resulting in high hash
+  // collision.
+  // We made the num_buckets to be odd to avoid this issue.
+  num_buckets |= 1;
+
+  std::vector<uint8_t> buckets(num_buckets, kNoEntry);
   // write the restart_index array
-//  for (uint16_t i = 0; i < num_buckets_; i++) {
-  for (uint8_t restart_index: buckets_) {
+  for (auto& entry : hash_and_restart_pairs_) {
+    uint32_t hash_value = entry.first;
+    uint8_t restart_index = entry.second;
+    uint16_t buck_idx = static_cast<uint16_t>(hash_value % num_buckets);
+    if (buckets[buck_idx] == kNoEntry) {
+      buckets[buck_idx] = restart_index;
+    } else if (buckets[buck_idx] != restart_index) {
+      // same bucket cannot store two different restart_index, mark collision
+      buckets[buck_idx] = kCollision;
+    }
+  }
+
+  for (uint8_t restart_index : buckets) {
     buffer.append(const_cast<const char*>(
                       reinterpret_cast<char*>(&restart_index)),
                   sizeof(restart_index));
   }
 
   // write NUM_BUCK
-  PutFixed16(&buffer, num_buckets_);
+  PutFixed16(&buffer, num_buckets);
 
-  // write MAP_START
-  PutFixed16(&buffer, map_start);
-
-  // Because we use uint16_t address, we only support block less than 64KB
-  assert(buffer.size() < (1 << 16));
+  assert(buffer.size() <= kMaxBlockSizeSupportedByHashIndex);
 }
 
 void DataBlockHashIndexBuilder::Reset() {
-  std::fill(buckets_.begin(), buckets_.end(), kNoEntry);
-  estimate_ = 2 * sizeof(uint16_t) /*num_buck and maps_start*/+
-    num_buckets_ * sizeof(uint8_t) /*n buckets*/;
+  hash_and_restart_pairs_.clear();
+  valid_ = true;
 }
 
-void DataBlockHashIndex::Initialize(Slice block_content) {
-  assert(block_content.size() >=
-         2 * sizeof(uint16_t));  // NUM_BUCK and MAP_START
-
-  data_ = block_content.data();
-  size_ = static_cast<uint16_t>(block_content.size());
-
-  map_start_ = data_ + DecodeFixed16(data_ + size_ - sizeof(uint16_t));
-  assert(map_start_ < data_ + size_);
-
-  num_buckets_ = DecodeFixed16(data_ + size_ - 2 * sizeof(uint16_t));
+void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
+                                    uint16_t* map_offset) {
+  assert(size >= sizeof(uint16_t));  // NUM_BUCKETS
+  num_buckets_ = DecodeFixed16(data + size - sizeof(uint16_t));
   assert(num_buckets_ > 0);
-
-  assert(size_ >= 2 * sizeof(uint16_t) + num_buckets_ * sizeof(uint8_t));
-  bucket_table_ = data_ + size_ - 2 * sizeof(uint16_t)
-    - num_buckets_ * sizeof(uint8_t);
-
-  assert(map_start_ <=  bucket_table_);
+  assert(size > num_buckets_ * sizeof(uint8_t));
+  *map_offset = static_cast<uint16_t>(size - sizeof(uint16_t) -
+                                      num_buckets_ * sizeof(uint8_t));
 }
 
-uint8_t DataBlockHashIndex::Seek(const Slice& key) const {
-  uint16_t idx = HashToBucket(key, num_buckets_);
-  return static_cast<uint8_t>(*(bucket_table_ + idx * sizeof(uint8_t)));
+uint8_t DataBlockHashIndex::Seek(const char* data, uint16_t map_offset,
+                                 const Slice& key) const {
+  uint32_t hash_value = GetSliceHash(key);
+  uint16_t idx = static_cast<uint16_t>(hash_value % num_buckets_);
+  const char* bucket_table = data + map_offset;
+  return static_cast<uint8_t>(*(bucket_table + idx * sizeof(uint8_t)));
 }
 
 }  // namespace rocksdb

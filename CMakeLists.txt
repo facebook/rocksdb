@@ -550,6 +550,7 @@ set(SOURCES
         table/cuckoo_table_factory.cc
         table/cuckoo_table_reader.cc
         table/data_block_hash_index.cc
+        table/data_block_footer.cc
         table/flush_block_policy.cc
         table/format.cc
         table/full_filter_block.cc
@@ -615,7 +616,6 @@ set(SOURCES
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
         utilities/blob_db/blob_log_format.cc
-        utilities/blob_db/ttl_extractor.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc

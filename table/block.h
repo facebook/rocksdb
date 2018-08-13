@@ -37,6 +37,7 @@ namespace rocksdb {
 
 struct BlockContents;
 class Comparator;
+template <class TValue>
 class BlockIter;
 class DataBlockIter;
 class IndexBlockIter;
@@ -156,7 +157,7 @@ class Block {
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const;
-  uint32_t IndexType() const;
+  BlockBasedTableOptions::DataBlockIndexType IndexType() const;
   CompressionType compression_type() const {
     return contents_.compression_type;
   }
@@ -166,6 +167,11 @@ class Block {
   //
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
+  //
+  // key_includes_seq, default true, means that the keys are in internal key
+  // format.
+  // value_is_full, default ture, means that no delta encoding is
+  // applied to values.
   //
   // NewIterator<DataBlockIter>
   // Same as above but also updates read_amp_bitmap_ if it is not nullptr.
@@ -178,21 +184,16 @@ class Block {
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
   template <typename TBlockIter>
-  TBlockIter* NewIterator(const Comparator* comparator,
-                          const Comparator* user_comparator,
-                          TBlockIter* iter = nullptr,
-                          Statistics* stats = nullptr,
-                          bool total_order_seek = true,
-                          bool key_includes_seq = true,
-                          BlockPrefixIndex* prefix_index = nullptr,
-                          bool is_data_block_point_lookup = false);
+  TBlockIter* NewIterator(
+      const Comparator* comparator, const Comparator* user_comparator,
+      TBlockIter* iter = nullptr, Statistics* stats = nullptr,
+      bool total_order_seek = true, bool key_includes_seq = true,
+      bool value_is_full = true, BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
 
   SequenceNumber global_seqno() const { return global_seqno_; }
-
-  bool UseDataBlockHashIndex() const { return data_block_hash_index_.Valid();}
 
  private:
   BlockContents contents_;
@@ -212,7 +213,8 @@ class Block {
   void operator=(const Block&) = delete;
 };
 
-class BlockIter : public InternalIterator {
+template <class TValue>
+class BlockIter : public InternalIteratorBase<TValue> {
  public:
   void InitializeBase(const Comparator* comparator, const char* data,
                       uint32_t restarts, uint32_t num_restarts,
@@ -251,10 +253,6 @@ class BlockIter : public InternalIterator {
     assert(Valid());
     return key_.GetKey();
   }
-  virtual Slice value() const override {
-    assert(Valid());
-    return value_;
-  }
 
 #ifndef NDEBUG
   virtual ~BlockIter() {
@@ -288,7 +286,8 @@ class BlockIter : public InternalIterator {
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
-  uint32_t restart_index_;  // Index of restart block in which current_ falls
+  // Index of restart block in which current_ or current_-1 falls
+  uint32_t restart_index_;
   uint32_t restarts_;       // Offset of restart array (list of fixed32)
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
@@ -324,11 +323,12 @@ class BlockIter : public InternalIterator {
 
   void CorruptionError();
 
-  bool BinarySeek(const Slice& target, uint32_t left, uint32_t right,
-                  uint32_t* index, const Comparator* comp);
+  template <typename DecodeKeyFunc>
+  inline bool BinarySeek(const Slice& target, uint32_t left, uint32_t right,
+                         uint32_t* index, const Comparator* comp);
 };
 
-class DataBlockIter final : public BlockIter {
+class DataBlockIter final : public BlockIter<Slice> {
  public:
   DataBlockIter()
       : BlockIter(), read_amp_bitmap_(nullptr), last_bitmap_offset_(0) {}
@@ -371,6 +371,8 @@ class DataBlockIter final : public BlockIter {
 
   virtual void Seek(const Slice& target) override;
 
+  bool SeekForGet(const Slice& target);
+
   virtual void SeekForPrev(const Slice& target) override;
 
   virtual void Prev() override;
@@ -382,14 +384,6 @@ class DataBlockIter final : public BlockIter {
   virtual void SeekToLast() override;
 
   void Invalidate(Status s) {
-    if (s.IsNotSupported()) {
-      // the iterator is invalidated due to HashSeek fallback
-      status_ = Status::OK();
-      // falling back to BinarySeek
-      data_block_hash_index_ = nullptr;
-      // We do not clear the iterator, but only clear the hash index.
-      return;
-    }
     InvalidateBase(s);
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
@@ -429,16 +423,15 @@ class DataBlockIter final : public BlockIter {
   DataBlockHashIndex* data_block_hash_index_;
   const Comparator* user_comparator_;
 
-  bool ParseNextDataKey(bool within_restart_interval = false);
+  inline bool ParseNextDataKey(const char* limit = nullptr);
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
 
-  void HashSeek(const Slice& target);
 };
 
-class IndexBlockIter final : public BlockIter {
+class IndexBlockIter final : public BlockIter<BlockHandle> {
  public:
   IndexBlockIter() : BlockIter(), prefix_index_(nullptr) {}
 
@@ -446,22 +439,26 @@ class IndexBlockIter final : public BlockIter {
     assert(Valid());
     return key_.GetKey();
   }
+  // key_includes_seq, default true, means that the keys are in internal key
+  // format.
+  // value_is_full, default ture, means that no delta encoding is
+  // applied to values.
   IndexBlockIter(const Comparator* comparator,
                  const Comparator* user_comparator, const char* data,
                  uint32_t restarts, uint32_t num_restarts,
                  BlockPrefixIndex* prefix_index, bool key_includes_seq,
-                 bool block_contents_pinned)
+                 bool value_is_full, bool block_contents_pinned)
       : IndexBlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
                prefix_index, key_includes_seq, block_contents_pinned,
-               nullptr /* data_block_hash_index */);
+               value_is_full, nullptr /* data_block_hash_index */);
   }
 
   void Initialize(const Comparator* comparator,
                   const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, bool key_includes_seq,
-                  bool block_contents_pinned,
+                  bool value_is_full, bool block_contents_pinned,
                   DataBlockHashIndex* /*data_block_hash_index*/) {
     InitializeBase(comparator, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
@@ -469,6 +466,20 @@ class IndexBlockIter final : public BlockIter {
     active_comparator_ = key_includes_seq_ ? comparator_ : user_comparator;
     key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
+    value_delta_encoded_ = !value_is_full;
+  }
+
+  virtual BlockHandle value() const override {
+    assert(Valid());
+    if (value_delta_encoded_) {
+      return decoded_value_;
+    } else {
+      BlockHandle handle;
+      Slice v = value_;
+      Status decode_s __attribute__((__unused__)) = handle.DecodeFrom(&v);
+      assert(decode_s.ok());
+      return handle;
+    }
   }
 
   virtual void Seek(const Slice& target) override;
@@ -495,11 +506,25 @@ class IndexBlockIter final : public BlockIter {
   void Invalidate(Status s) { InvalidateBase(s); }
 
  private:
+  // Key is in InternalKey format
+  bool key_includes_seq_;
+  bool value_delta_encoded_;
+  // key_includes_seq_ ? comparator_ : user_comparator_
+  const Comparator* active_comparator_;
+  BlockPrefixIndex* prefix_index_;
+  // Whether the value is delta encoded. In that case the value is assumed to be
+  // BlockHandle. The first value in each restart interval is the full encoded
+  // BlockHandle; the restart of encoded size part of the BlockHandle. The
+  // offset of delta encoded BlockHandles is computed by adding the size of
+  // previous delta encoded values in the same restart interval to the offset of
+  // the first value in that restart interval.
+  BlockHandle decoded_value_;
+
   bool PrefixSeek(const Slice& target, uint32_t* index);
   bool BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
                             uint32_t left, uint32_t right,
                             uint32_t* index);
-  int CompareBlockKey(uint32_t block_index, const Slice& target);
+  inline int CompareBlockKey(uint32_t block_index, const Slice& target);
 
   inline int Compare(const Slice& a, const Slice& b) const {
     return active_comparator_->Compare(a, b);
@@ -509,13 +534,11 @@ class IndexBlockIter final : public BlockIter {
     return active_comparator_->Compare(ikey.GetKey(), b);
   }
 
-  bool ParseNextIndexKey();
+  inline bool ParseNextIndexKey();
 
-  // Key is in InternalKey format
-  bool key_includes_seq_;
-  // key_includes_seq_ ? comparator_ : user_comparator_
-  const Comparator* active_comparator_;
-  BlockPrefixIndex* prefix_index_;
+  // When value_delta_encoded_ is enabled it decodes the value which is assumed
+  // to be BlockHandle and put it to decoded_value_
+  inline void DecodeCurrentValue(uint32_t shared);
 };
 
 }  // namespace rocksdb
