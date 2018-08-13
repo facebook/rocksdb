@@ -327,7 +327,9 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
   // Here we are conservative and only support a limited set of cases
   ValueType value_type = ExtractValueType(key_.GetKey());
   if (value_type != ValueType::kTypeValue &&
-      value_type != ValueType::kTypeDeletion) {
+      value_type != ValueType::kTypeDeletion &&
+      value_type != ValueType::kTypeSingleDeletion &&
+      value_type != ValueType::kTypeBlobIndex) {
     Seek(target);
     return true;
   }
