@@ -12,9 +12,10 @@
 
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of
-// point-lookup within a data-block. It is not used in per-table index-blocks.
-// It supports Get(), but not Seek() or Scan(). If the key does not exist,
-// the iterator is set to invalid.
+// point-lookup within a data-block. It is only used in data blocks, and not
+// in meta-data blocks or per-table index blocks.
+//
+// It only used to support BlockBasedTable::Get().
 //
 // A serialized hash index is appended to the data-block. The new block data
 // format is as follows:
