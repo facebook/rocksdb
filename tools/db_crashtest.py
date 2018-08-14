@@ -54,7 +54,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
-    "format_version": lambda: random.randint(2, 3),
+    "format_version": lambda: random.randint(2, 4),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
