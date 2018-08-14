@@ -225,7 +225,13 @@ void DataBlockIter::Seek(const Slice& target) {
 }
 
 // Optimized Seek for point lookup for an internal key `target`
-// target = "seek_user_key @ seqno".
+// target = "seek_user_key @ type | seqno".
+//
+// For any type other than kTypeValue, kTypeDeletion, kTypeSingleDeletion,
+// or kTypeBlobIndex, this function behaves identically as Seek().
+//
+// For any type in kTypeValue, kTypeDeletion, kTypeSingleDeletion,
+// or kTypeBlobIndex:
 //
 // If the return value is FALSE, iter location is undefined, and it means:
 // 1) there is no key in this block falling into the range:
