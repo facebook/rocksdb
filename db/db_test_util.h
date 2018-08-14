@@ -698,7 +698,7 @@ class DBTestBase : public testing::Test {
     kLevelSubcompactions,
     kBlockBasedTableWithIndexRestartInterval,
     kBlockBasedTableWithPartitionedIndex,
-    kBlockBasedTableWithPartitionedIndexFormat3,
+    kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     // This must be the last line

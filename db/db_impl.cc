@@ -1047,7 +1047,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   } else {
     CleanupSuperVersion(super_version);
   }
-  return NewErrorInternalIterator(s, arena);
+  return NewErrorInternalIterator<Slice>(s, arena);
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
@@ -1070,6 +1070,15 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(column_family, key);
+    }
+  }
 
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
@@ -1609,8 +1618,8 @@ if (read_options.tailing) {
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        read_callback);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
+        this, cfd);
 #endif
   } else {
     // Note: no need to consider the special case of
@@ -1677,9 +1686,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback,
-      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob,
-      allow_refresh);
+      sv->version_number, read_callback, this, cfd, allow_blob,
+      ((read_options.snapshot != nullptr) ? false : allow_refresh));
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1716,7 +1724,7 @@ Status DBImpl::NewIterators(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          read_callback));
+          read_callback, this, cfd));
     }
 #endif
   } else {
@@ -2227,9 +2235,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
-                                         *cfd->GetLatestMutableCFOptions(),
-                                         FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_contexts[0],
+          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2312,9 +2320,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
-                                         *cfd->GetLatestMutableCFOptions(),
-                                         FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_contexts[0],
+          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2928,6 +2936,8 @@ Status DBImpl::IngestExternalFile(
   }
   dummy_sv_ctx.Clean();
   if (!status.ok()) {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
@@ -3080,7 +3090,6 @@ Status DBImpl::VerifyChecksum() {
 
 void DBImpl::NotifyOnExternalFileIngested(
     ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.empty()) {
     return;
   }
@@ -3096,8 +3105,6 @@ void DBImpl::NotifyOnExternalFileIngested(
       listener->OnExternalFileIngested(this, info);
     }
   }
-
-#endif
 }
 
 void DBImpl::WaitForIngestFile() {
@@ -3107,5 +3114,42 @@ void DBImpl::WaitForIngestFile() {
   }
 }
 
+Status DBImpl::StartTrace(const TraceOptions& /* options */,
+                          std::unique_ptr<TraceWriter>&& trace_writer) {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+  return Status::OK();
+}
+
+Status DBImpl::EndTrace() {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  Status s = tracer_->Close();
+  tracer_.reset();
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorSeek(cf_id, key);
+    }
+  }
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorSeekForPrev(cf_id, key);
+    }
+  }
+  return s;
+}
+
 #endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb

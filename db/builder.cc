@@ -230,11 +230,9 @@ Status BuildTable(
   }
 
   // Output to event logger and fire events.
-  if (!s.ok() || meta->fd.GetFileSize() > 0) {
-    EventHelpers::LogAndNotifyTableFileCreationFinished(
-        event_logger, ioptions.listeners, dbname, column_family_name, fname,
-        job_id, meta->fd, tp, reason, s);
-  }
+  EventHelpers::LogAndNotifyTableFileCreationFinished(
+      event_logger, ioptions.listeners, dbname, column_family_name, fname,
+      job_id, meta->fd, tp, reason, s);
 
   return s;
 }

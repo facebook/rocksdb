@@ -162,6 +162,10 @@ void SstFileManagerImpl::SetMaxTrashDBRatio(double r) {
   return delete_scheduler_.SetMaxTrashDBRatio(r);
 }
 
+uint64_t SstFileManagerImpl::GetTotalTrashSize() {
+  return delete_scheduler_.GetTotalTrashSize();
+}
+
 Status SstFileManagerImpl::ScheduleFileDeletion(
     const std::string& file_path, const std::string& path_to_sync) {
   return delete_scheduler_.DeleteFile(file_path, path_to_sync);

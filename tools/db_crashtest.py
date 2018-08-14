@@ -23,6 +23,8 @@ default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
+    "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
+    "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -122,6 +124,9 @@ whitebox_simple_default_params = {}
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
+    if dest_params.get("compression_type") != "zstd" or \
+            dest_params.get("compression_max_dict_bytes") == 0:
+        dest_params["compression_zstd_max_train_bytes"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
     if dest_params["mmap_read"] == 1 or not is_direct_io_supported(

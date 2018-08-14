@@ -573,6 +573,7 @@ set(SOURCES
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
+        tools/trace_analyzer_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
         util/bloom.cc
@@ -603,6 +604,7 @@ set(SOURCES
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/trace_replay.cc
         util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
@@ -614,7 +616,6 @@ set(SOURCES
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
         utilities/blob_db/blob_log_format.cc
-        utilities/blob_db/ttl_extractor.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
@@ -651,6 +652,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
+        utilities/trace/file_trace_reader_writer.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -921,6 +923,7 @@ if(WITH_TESTS)
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
+        tools/trace_analyzer_test.cc
         util/arena_test.cc
         util/auto_roll_logger_test.cc
         util/autovector_test.cc

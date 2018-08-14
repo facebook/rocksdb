@@ -34,6 +34,7 @@ struct TablePropertiesNames {
   static const std::string kIndexPartitions;
   static const std::string kTopLevelIndexSize;
   static const std::string kIndexKeyIsUserKey;
+  static const std::string kIndexValueIsDeltaEncoded;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
@@ -139,6 +140,8 @@ struct TableProperties {
   // Whether the index key is user key. Otherwise it includes 8 byte of sequence
   // number added by internal key format.
   uint64_t index_key_is_user_key = 0;
+  // Whether delta encoding is used to encode the index values.
+  uint64_t index_value_is_delta_encoded = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw key size
