@@ -336,8 +336,7 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 // Delete files in a lot of ranges one at a time can be slow, use this API for
 // better performance in that case.
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
-                           const RangePtr* ranges, size_t n,
-                           bool include_end = true);
+                           const RangePtr* ranges, size_t n);
 
 // Verify the checksum of file
 Status VerifySstFileChecksum(const Options& options,

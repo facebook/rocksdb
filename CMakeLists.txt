@@ -593,6 +593,7 @@ set(SOURCES
         util/log_buffer.cc
         util/murmurhash.cc
         util/random.cc
+        util/range_partition.cc
         util/rate_limiter.cc
         util/slice.cc
         util/sst_file_manager_impl.cc

@@ -2253,8 +2253,7 @@ Status DBImpl::DeleteFile(std::string name) {
 }
 
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
-                                   const RangePtr* ranges, size_t n,
-                                   bool include_end) {
+                                   const RangePtr* ranges, size_t n) {
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
@@ -2267,7 +2266,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
 
     auto* vstorage = input_version->storage_info();
     for (size_t r = 0; r < n; r++) {
-      auto begin = ranges[r].start, end = ranges[r].limit;
+      auto begin = ranges[r].start_ptr(), end = ranges[r].limit_ptr();
+      auto include_begin = ranges[r].include_start();
+      auto include_end = ranges[r].include_limit();
       for (int i = 1; i < cfd->NumberLevels(); i++) {
         if (vstorage->LevelFiles(i).empty() ||
             !vstorage->OverlapInLevel(i, begin, end)) {
@@ -2298,6 +2299,11 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
             continue;
           }
           if (deleted_files.find(level_file) != deleted_files.end()) {
+            continue;
+          }
+          if (!include_begin && begin != nullptr &&
+              cfd->user_comparator()->Compare(level_file->smallest.user_key(),
+                                              *begin) == 0) {
             continue;
           }
           if (!include_end && end != nullptr &&
