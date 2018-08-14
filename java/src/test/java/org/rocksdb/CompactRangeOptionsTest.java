@@ -15,9 +15,6 @@ public class CompactRangeOptionsTest {
     RocksDB.loadLibrary();
   }
 
-  private native void setMaxSubcompactions(long nativeHandle_, int /* uint32_t */ maxSubcompactions);
-  private native int maxSubcompactions(long nativeHandle_);
-
   @Test
   public void exclusiveManualCompaction() {
     CompactRangeOptions opt = new CompactRangeOptions();

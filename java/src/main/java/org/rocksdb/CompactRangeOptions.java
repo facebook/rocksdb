@@ -17,30 +17,37 @@ public class CompactRangeOptions extends RocksObject {
     /**
      * Skip bottommost level compaction
      */
-    kSkip,
+    kSkip((byte)0x0),
     /**
      * Only compact bottommost level if there is a compaction filter. This is the default option
      */
-    kIfHaveCompactionFilter,
+    kIfHaveCompactionFilter((byte)0x1),
     /**
      * Always compact bottommost level
      */
-    kForce,;
+    kForce((byte)0x2);
+
+    private final byte value;
+
+    BottommostLevelCompaction(final byte value) {
+      this.value = value;
+    }
 
     /**
-     * Returns the native C++ rocks enum value
-     * @return the native C++ rocks enum value
+     * <p>Returns the byte value of the enumerations value.</p>
+     *
+     * @return byte representation
      */
-    public int rocksId() {
-      return this.ordinal(); // identical with the C++ layer
+    public byte getValue() {
+      return value;
     }
 
     /**
      * Returns the BottommostLevelCompaction for the given C++ rocks enum value.
-     * @param bottommostLevelCompaction
+     * @param bottommostLevelCompaction The value of the BottommostLevelCompaction
      * @return BottommostLevelCompaction instance, or null if none matches
      */
-    public static BottommostLevelCompaction fromRocksId(int bottommostLevelCompaction) {
+    public static BottommostLevelCompaction fromRocksId(final int bottommostLevelCompaction) {
       switch (bottommostLevelCompaction) {
         case 0: return kSkip;
         case 1: return kIfHaveCompactionFilter;
@@ -73,19 +80,30 @@ public class CompactRangeOptions extends RocksObject {
    * Sets whether the compaction is exclusive or other compaction are allowed run concurrently at the same time.
    *
    * @param exclusiveCompaction true if compaction should be exclusive
+   * @return This CompactRangeOptions
    */
-  public CompactRangeOptions setExclusiveManualCompaction(boolean exclusiveCompaction) {
+  public CompactRangeOptions setExclusiveManualCompaction(final boolean exclusiveCompaction) {
     setExclusiveManualCompaction(nativeHandle_, exclusiveCompaction);
     return this;
   }
 
 
+  /**
+   * Returns the policy for compacting the bottommost level
+   * @return The BottommostLevelCompaction policy
+   */
   public BottommostLevelCompaction bottommostLevelCompaction() {
     return BottommostLevelCompaction.fromRocksId(bottommostLevelCompaction(nativeHandle_));
   }
 
-  public CompactRangeOptions setBottommostLevelCompaction(BottommostLevelCompaction bottommostLevelCompaction) {
-    setBottommostLevelCompaction(nativeHandle_, bottommostLevelCompaction.rocksId());
+  /**
+   * Sets the policy for compacting the bottommost level
+   *
+   * @param bottommostLevelCompaction The policy for compacting the bottommost level
+   * @return This CompactRangeOptions
+   */
+  public CompactRangeOptions setBottommostLevelCompaction(final BottommostLevelCompaction bottommostLevelCompaction) {
+    setBottommostLevelCompaction(nativeHandle_, bottommostLevelCompaction.getValue());
     return this;
   }
 
@@ -101,14 +119,18 @@ public class CompactRangeOptions extends RocksObject {
   /**
    * Whether compacted files will be moved to the minimum level capable of holding the data or given level
    * (specified non-negative target_level).
+   *
    * @param changeLevel If true, compacted files will be moved to the minimum level
+   * @return This CompactRangeOptions
    */
-  public void setChangeLevel(boolean changeLevel) {
+  public CompactRangeOptions setChangeLevel(final boolean changeLevel) {
     setChangeLevel(nativeHandle_, changeLevel);
+    return this;
   }
 
   /**
    * If change_level is true and target_level have non-negative value, compacted files will be moved to target_level.
+   * @return The target level for the compacted files
    */
   public int targetLevel() {
     return targetLevel(nativeHandle_);
@@ -117,9 +139,13 @@ public class CompactRangeOptions extends RocksObject {
 
   /**
    * If change_level is true and target_level have non-negative value, compacted files will be moved to target_level.
+   *
+   * @param targetLevel target level for the compacted files
+   * @return This CompactRangeOptions
    */
-  public void setTargetLevel(int targetLevel) {
+  public CompactRangeOptions setTargetLevel(final int targetLevel) {
     setTargetLevel(nativeHandle_, targetLevel);
+    return this;
   }
 
   /**
@@ -136,14 +162,16 @@ public class CompactRangeOptions extends RocksObject {
    * out of range.
    *
    * @param targetPathId target path id
+   * @return This CompactRangeOptions
    */
-  public void setTargetPathId(int targetPathId) {
+  public CompactRangeOptions setTargetPathId(final int targetPathId) {
     setTargetPathId(nativeHandle_, targetPathId);
+    return this;
   }
 
   /**
    * If true, compaction will execute immediately even if doing so would cause the DB to
-   // enter write stall mode. Otherwise, it'll sleep until load is low enough.
+   * enter write stall mode. Otherwise, it'll sleep until load is low enough.
    * @return true if compaction will execute immediately
    */
   public boolean allowWriteStall() {
@@ -153,12 +181,14 @@ public class CompactRangeOptions extends RocksObject {
 
   /**
    * If true, compaction will execute immediately even if doing so would cause the DB to
-   // enter write stall mode. Otherwise, it'll sleep until load is low enough.
-
+   * enter write stall mode. Otherwise, it'll sleep until load is low enough.
+   *
+   * @return This CompactRangeOptions
    * @param allowWriteStall true if compaction should execute immediately
    */
-  public void setAllowWriteStall(boolean allowWriteStall) {
+  public CompactRangeOptions setAllowWriteStall(final boolean allowWriteStall) {
     setAllowWriteStall(nativeHandle_, allowWriteStall);
+    return this;
   }
 
   /**
@@ -171,27 +201,30 @@ public class CompactRangeOptions extends RocksObject {
 
   /**
    * If &gt; 0, it will replace the option in the DBOptions for this compaction
+   *
    * @param maxSubcompactions number of subcompactions
+   * @return This CompactRangeOptions
    */
-  public void setMaxSubcompactions(int maxSubcompactions) {
+  public CompactRangeOptions setMaxSubcompactions(final int maxSubcompactions) {
     setMaxSubcompactions(nativeHandle_, maxSubcompactions);
+    return this;
   }
 
   private native static long newCompactRangeOptions();
   private native boolean exclusiveManualCompaction(final long handle);
-  private native void setExclusiveManualCompaction(final long handle, boolean exclusive_manual_compaction);
+  private native void setExclusiveManualCompaction(final long handle, final boolean exclusive_manual_compaction);
   private native int bottommostLevelCompaction(final long handle);
-  private native void setBottommostLevelCompaction(final long handle, int bottommostLevelCompaction);
+  private native void setBottommostLevelCompaction(final long handle, final int bottommostLevelCompaction);
   private native boolean changeLevel(final long handle);
-  private native void setChangeLevel(final long handle, boolean changeLevel);
-  private native int targetLevel(long nativeHandle_);
-  private native void setTargetLevel(long nativeHandle_, int targetLevel);
-  private native int targetPathId(long nativeHandle_);
-  private native void setTargetPathId(long nativeHandle_, int /* uint32_t */ targetPathId);
-  private native boolean allowWriteStall(long nativeHandle_);
-  private native void setAllowWriteStall(long nativeHandle_, boolean allowWriteStall);
-  private native void setMaxSubcompactions(long nativeHandle_, int /* uint32_t */ maxSubcompactions);
-  private native int maxSubcompactions(long nativeHandle_);
+  private native void setChangeLevel(final long handle, final boolean changeLevel);
+  private native int targetLevel(final long handle);
+  private native void setTargetLevel(final long handle, final int targetLevel);
+  private native int targetPathId(final long handle);
+  private native void setTargetPathId(final long handle, final int /* uint32_t */ targetPathId);
+  private native boolean allowWriteStall(final long handle);
+  private native void setAllowWriteStall(final long handle, final boolean allowWriteStall);
+  private native void setMaxSubcompactions(final long handle, final int /* uint32_t */ maxSubcompactions);
+  private native int maxSubcompactions(final long handle);
 
   @Override
   protected final native void disposeInternal(final long handle);
