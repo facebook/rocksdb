@@ -3656,7 +3656,7 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
 TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   table_options.data_block_index_type =
-    BlockBasedTableOptions::kDataBlockBinaryAndHash;
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
   table_options.block_restart_interval = 1;
   table_options.block_size = 4096;
 
@@ -3675,14 +3675,13 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
   // insert "aab"@100
   std::string k_aab("aab");
   InternalKey k_aab_100(k_aab, 100, kTypeValue);
-  std::string v_aab_100(4100, 'a'); // large value
+  std::string v_aab_100(4100, 'a');  // large value
   c.Add(k_aab_100.Encode().ToString(), v_aab_100);
-
 
   // insert "axy"@100
   std::string k_axy("axy");
   InternalKey k_axy_10(k_axy, 10, kTypeValue);
-  std::string v_axy_10(4100, 'x'); // large value
+  std::string v_axy_10(4100, 'x');  // large value
   c.Add(k_axy_10.Encode().ToString(), v_axy_10);
 
   std::vector<std::string> keys;
@@ -3693,7 +3692,6 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
 
-
   auto reader = c.GetTableReader();
 
   // Search using Get()
@@ -3702,8 +3700,8 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
     PinnableSlice value;
     InternalKey k_axy_60(k_axy, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                           GetContext::kNotFound, k_axy,
-                           &value, nullptr, nullptr, nullptr, nullptr);
+                           GetContext::kNotFound, k_axy, &value, nullptr,
+                           nullptr, nullptr, nullptr);
     ASSERT_OK(reader->Get(ro, k_axy_60.Encode().ToString(), &get_context,
                           moptions.prefix_extractor.get()));
     ASSERT_EQ(get_context.State(), GetContext::kFound);

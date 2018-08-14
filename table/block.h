@@ -371,7 +371,14 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   virtual void Seek(const Slice& target) override;
 
-  bool SeekForGet(const Slice& target);
+  inline bool SeekForGet(const Slice& target) {
+    if (!data_block_hash_index_) {
+      Seek(target);
+      return true;
+    }
+
+    return SeekForGetImpl(target);
+  }
 
   virtual void SeekForPrev(const Slice& target) override;
 
@@ -428,6 +435,8 @@ class DataBlockIter final : public BlockIter<Slice> {
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
+
+  bool SeekForGetImpl(const Slice& target);
 
 };
 

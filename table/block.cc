@@ -238,18 +238,7 @@ void DataBlockIter::Seek(const Slice& target) {
 //    matching user_key with a seqno no greater than the seeking seqno.
 // 2) If the iter is invalid, it means either the block has no such user_key,
 //    or the block ends with a matching user_key but with a larger seqno.
-bool DataBlockIter::SeekForGet(const Slice& target) {
-  if (!data_block_hash_index_) {
-    Seek(target);
-    return true;
-  }
-
-  if (!data_block_hash_index_->Valid()) {
-    // if the block content does not contain hash map, fall back
-    Seek(target);
-    return true;
-  }
-
+bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   Slice user_key = ExtractUserKey(target);
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
   uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
@@ -835,9 +824,10 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         global_seqno_, read_amp_bitmap_.get(), cachable(),
-                         &data_block_hash_index_);
+    ret_iter->Initialize(
+        cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno_,
+        read_amp_bitmap_.get(), cachable(),
+        data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_

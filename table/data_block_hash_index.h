@@ -81,7 +81,7 @@ class DataBlockHashIndexBuilder {
     valid_ = true;
   }
 
-  bool Valid() const { return valid_ && util_ratio_ > 0; }
+  inline bool Valid() const { return valid_ && util_ratio_ > 0; }
   void Add(const Slice key, const size_t restart_index);
   void Finish(std::string& buffer);
   void Reset();
