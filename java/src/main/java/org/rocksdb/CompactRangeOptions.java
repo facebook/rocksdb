@@ -57,9 +57,6 @@ public class CompactRangeOptions extends RocksObject {
     }
   }
 
-  ;
-
-
   /**
    * Construct CompactRangeOptions.
    */
