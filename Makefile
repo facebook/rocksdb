@@ -530,6 +530,7 @@ TESTS = \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 	db_universal_compaction_test \
+	trace_analyzer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -573,6 +574,7 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump \
 	blob_dump \
+	trace_analyzer \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1455,6 +1457,12 @@ options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHAR
 	$(AM_LINK)
 
 db_bench_tool_test: tools/db_bench_tool_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+trace_analyzer: tools/trace_analyzer.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+trace_analyzer_test: tools/trace_analyzer_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)

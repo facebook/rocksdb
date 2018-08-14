@@ -575,7 +575,9 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
   if (shared == 0) {
     uint64_t o, s;
     const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
+    assert(newp);
     newp = GetVarint64Ptr(newp, limit, &s);
+    assert(newp);
     decoded_value_ = BlockHandle(o, s);
     value_ = Slice(value_.data(), newp - value_.data());
   } else {
@@ -749,6 +751,8 @@ BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
   return index_type;
 }
 
+Block::~Block() { TEST_SYNC_POINT("Block::~Block"); }
+
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
              size_t read_amp_bytes_per_bit, Statistics* statistics)
     : contents_(std::move(contents)),
@@ -757,6 +761,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       restart_offset_(0),
       num_restarts_(0),
       global_seqno_(_global_seqno) {
+  TEST_SYNC_POINT("Block::Block:0");
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
