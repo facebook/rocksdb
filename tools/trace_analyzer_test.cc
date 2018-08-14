@@ -55,8 +55,6 @@ class TraceAnalyzerTest : public testing::Test {
   void GenerateTrace(std::string trace_path) {
     Options options;
     options.create_if_missing = true;
-    options.IncreaseParallelism();
-    options.OptimizeLevelStyleCompaction();
     options.merge_operator = MergeOperators::CreatePutOperator();
     ReadOptions ro;
     WriteOptions wo;

@@ -740,7 +740,7 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
 
 // Process the statistics of QPS
 Status TraceAnalyzer::MakeStatisticQPS() {
-  uint32_t duration = (end_time_ - begin_time_) / 1000000;
+  uint32_t duration = static_cast<uint32_t>((end_time_ - begin_time_) / 1000000);
   int ret;
   Status s;
   std::vector<std::vector<uint32_t>> type_qps(
@@ -1098,7 +1098,7 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
   if (ts < begin_time_) {
     time_in_sec = 0;
   } else {
-    time_in_sec = (ts - begin_time_) / 1000000;
+    time_in_sec = static_cast<uint32_t>((ts - begin_time_) / 1000000);
   }
 
   uint64_t dist_value_size = value_size / FLAGS_value_interval;
