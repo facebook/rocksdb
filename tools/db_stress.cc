@@ -1251,7 +1251,7 @@ class DbStressListener : public EventListener {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
-    if (info.status.ok()) {
+    if (info.status.ok() && info.file_size > 0) {
       assert(info.table_properties.data_size > 0);
       assert(info.table_properties.raw_key_size > 0);
       assert(info.table_properties.num_entries > 0);
