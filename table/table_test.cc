@@ -3653,6 +3653,63 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 
+TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
+  table_options.block_restart_interval = 1;
+  table_options.block_size = 4096;
+
+  Options options;
+  options.comparator = BytewiseComparator();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  TableConstructor c(options.comparator);
+
+  static Random rnd(1048);
+
+  // insert two large k/v pair. Given that the block_size is 4096, one k/v pair
+  // will take up one block.
+
+  // insert "aab"@100
+  std::string k_aab("aab");
+  InternalKey k_aab_100(k_aab, 100, kTypeValue);
+  std::string v_aab_100(4100, 'a');  // large value
+  c.Add(k_aab_100.Encode().ToString(), v_aab_100);
+
+  // insert "axy"@100
+  std::string k_axy("axy");
+  InternalKey k_axy_10(k_axy, 10, kTypeValue);
+  std::string v_axy_10(4100, 'x');  // large value
+  c.Add(k_axy_10.Encode().ToString(), v_axy_10);
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+
+  auto reader = c.GetTableReader();
+
+  // Search using Get()
+  {
+    ReadOptions ro;
+    PinnableSlice value;
+    InternalKey k_axy_60(k_axy, 60, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, k_axy, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+    ASSERT_OK(reader->Get(ro, k_axy_60.Encode().ToString(), &get_context,
+                          moptions.prefix_extractor.get()));
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value, v_axy_10);
+    value.Reset();
+  }
+}
+
 TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   const int kNumKeys = 500;
   const int kKeySize = 8;
