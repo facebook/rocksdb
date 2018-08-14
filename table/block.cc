@@ -235,7 +235,8 @@ void DataBlockIter::Seek(const Slice& target) {
 //
 // If the return value is FALSE, iter location is undefined, and it means:
 // 1) there is no key in this block falling into the range:
-//    ["seek_user_key @ seqno", "seek_user_key @ 0"], inclusive; AND
+//    ["seek_user_key @ type | seqno", "seek_user_key @ type |  0"],
+//    inclusive; AND
 // 2) the last key of this block has a greater user_key from seek_user_key
 //
 // If the return value is TRUE, iter location has two possibilies:
