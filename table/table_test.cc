@@ -3669,8 +3669,8 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
 
   static Random rnd(1048);
 
-  // insert two large k/v pair. Given that the block_size is 4096, one k/v pair
-  // will take up one block.
+  // insert two large k/v pair. Given that the block_size is 4096, one k/v
+  // pair will take up one block.
 
   // insert "aab"@100
   std::string k_aab("aab");
@@ -3678,7 +3678,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
   std::string v_aab_100(4100, 'a');  // large value
   c.Add(k_aab_100.Encode().ToString(), v_aab_100);
 
-  // insert "axy"@100
+  // insert "axy"@10
   std::string k_axy("axy");
   InternalKey k_axy_10(k_axy, 10, kTypeValue);
   std::string v_axy_10(4100, 'x');  // large value
