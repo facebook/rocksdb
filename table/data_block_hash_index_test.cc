@@ -328,7 +328,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // read serialized contents of the block
     Slice rawblock = builder.Finish();
     ASSERT_LE(rawblock.size(), kMaxBlockSizeSupportedByHashIndex);
-    fprintf(stderr, "block size:%lu\n", rawblock.size());
+    std::cerr << "block size: " << rawblock.size() << std::endl;
 
     // create block reader
     BlockContents contents;
@@ -353,7 +353,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // read serialized contents of the block
     Slice rawblock = builder.Finish();
     ASSERT_LE(rawblock.size(), kMaxBlockSizeSupportedByHashIndex);
-    fprintf(stderr, "block size:%lu\n", rawblock.size());
+    std::cerr << "block size: " << rawblock.size() << std::endl;
 
     // create block reader
     BlockContents contents;
