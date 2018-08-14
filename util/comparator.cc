@@ -125,8 +125,8 @@ class BytewiseComparatorImpl : public Comparator {
     }
   }
 
-  virtual bool ComparatorEquityInfersHashEquity() const override {
-    return true;
+  virtual bool CanKeysWithDifferentByteContentsEqual() const override {
+    return false;
   }
 };
 
@@ -193,8 +193,8 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     // Don't do anything for simplicity.
   }
 
-  virtual bool ComparatorEquityInfersHashEquity() const override {
-    return true;
+  virtual bool CanKeysWithDifferentByteContentsEqual() const override {
+    return false;
   }
 };
 }// namespace

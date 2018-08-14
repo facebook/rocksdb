@@ -75,10 +75,11 @@ class Comparator {
     return false;
   }
 
-  // return true if the comparator equity infers hash equity.
+  // return true if two keys with different byte sequences can be regarded
+  // as equal by this comparator.
   // The major use case is to determine if DataBlockHashIndex is compatible
   // with the customized comparator.
-  virtual bool ComparatorEquityInfersHashEquity() const { return false; }
+  virtual bool CanKeysWithDifferentByteContentsEqual() const { return true; }
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise
