@@ -104,7 +104,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
     for (uint8_t i = 0; i < 2; i++) {
       std::string key("key" + std::to_string(i));
       uint8_t restart_point = i;
-      ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+      ASSERT_TRUE(
+          SearchForOffset(index, s.data(), map_offset, key, restart_point));
     }
     builder.Reset();
   }
@@ -142,7 +143,8 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+    ASSERT_TRUE(
+        SearchForOffset(index, s.data(), map_offset, key, restart_point));
   }
 }
 
@@ -178,7 +180,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+    ASSERT_TRUE(
+        SearchForOffset(index, s.data(), map_offset, key, restart_point));
   }
 }
 
@@ -220,7 +223,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
     uint8_t restart_point = i;
     if (m.count(key)) {
       ASSERT_TRUE(m[key] == restart_point);
-      ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+      ASSERT_TRUE(
+          SearchForOffset(index, s.data(), map_offset, key, restart_point));
     } else {
       // we allow false positve, so don't test the nonexisting keys.
       // when false positive happens, the search will continue to the
