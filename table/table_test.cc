@@ -3653,8 +3653,77 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 
+void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
+                  std::string& v2, InternalKey& seek_ikey,
+                  GetContext& get_context, Options& options) {
+  uint64_t uniq_id_;
+  unique_ptr<WritableFileWriter> file_writer_;
+  unique_ptr<RandomAccessFileReader> file_reader_;
+  unique_ptr<TableReader> table_reader_;
+  int level_ = -1;
+  static uint64_t cur_uniq_id_;
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+
+  EnvOptions soptions;
+
+  soptions.use_mmap_reads = ioptions.allow_mmap_reads;
+  file_writer_.reset(test::GetWritableFileWriter(new test::StringSink()));
+  unique_ptr<TableBuilder> builder;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::string column_family_name;
+  builder.reset(ioptions.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, internal_comparator,
+                          &int_tbl_prop_collector_factories,
+                          options.compression, CompressionOptions(),
+                          nullptr /* compression_dict */,
+                          false /* skip_filters */, column_family_name, level_),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      file_writer_.get()));
+
+  builder->Add(ik1.Encode().ToString(), v1);
+  builder->Add(ik2.Encode().ToString(), v2);
+  EXPECT_TRUE(builder->status().ok());
+
+  Status s = builder->Finish();
+  file_writer_->Flush();
+  EXPECT_TRUE(s.ok()) << s.ToString();
+
+  EXPECT_EQ(static_cast<test::StringSink*>(file_writer_->writable_file())
+                ->contents()
+                .size(),
+            builder->FileSize());
+
+  // Open the table
+  uniq_id_ = cur_uniq_id_++;
+  file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
+      static_cast<test::StringSink*>(file_writer_->writable_file())->contents(),
+      uniq_id_, ioptions.allow_mmap_reads)));
+  const bool kSkipFilters = true;
+  const bool kImmortal = true;
+  ioptions.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
+                         internal_comparator, !kSkipFilters, !kImmortal,
+                         level_),
+      std::move(file_reader_),
+      static_cast<test::StringSink*>(file_writer_->writable_file())
+          ->contents()
+          .size(),
+      &table_reader_);
+  // Search using Get()
+  ReadOptions ro;
+
+  ASSERT_OK(table_reader_->Get(ro, seek_ikey.Encode().ToString(), &get_context,
+                               moptions.prefix_extractor.get()));
+}
+
 TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  BlockBasedTableOptions table_options;
   table_options.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   table_options.block_restart_interval = 1;
@@ -3665,47 +3734,107 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndexBlockBoundary) {
 
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  TableConstructor c(options.comparator);
-
-  static Random rnd(1048);
-
   // insert two large k/v pair. Given that the block_size is 4096, one k/v
   // pair will take up one block.
+  // [    k1/v1   ][    k2/v2  ]
+  // [   Block N  ][ Block N+1 ]
 
-  // insert "aab"@100
-  std::string k_aab("aab");
-  InternalKey k_aab_100(k_aab, 100, kTypeValue);
-  std::string v_aab_100(4100, 'a');  // large value
-  c.Add(k_aab_100.Encode().ToString(), v_aab_100);
-
-  // insert "axy"@10
-  std::string k_axy("axy");
-  InternalKey k_axy_10(k_axy, 10, kTypeValue);
-  std::string v_axy_10(4100, 'x');  // large value
-  c.Add(k_axy_10.Encode().ToString(), v_axy_10);
-
-  std::vector<std::string> keys;
-  stl_wrappers::KVMap kvmap;
-  const ImmutableCFOptions ioptions(options);
-  const MutableCFOptions moptions(options);
-  const InternalKeyComparator internal_comparator(options.comparator);
-  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
-           &keys, &kvmap);
-
-  auto reader = c.GetTableReader();
-
-  // Search using Get()
   {
-    ReadOptions ro;
+    // [ "aab"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@60
+    std::string uk1("aab");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
     PinnableSlice value;
-    InternalKey k_axy_60(k_axy, 60, kTypeValue);
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                           GetContext::kNotFound, k_axy, &value, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
                            nullptr, nullptr, nullptr);
-    ASSERT_OK(reader->Get(ro, k_axy_60.Encode().ToString(), &get_context,
-                          moptions.prefix_extractor.get()));
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
-    ASSERT_EQ(value, v_axy_10);
+    ASSERT_EQ(value, v2);
+    value.Reset();
+  }
+
+  {
+    // [ "axy"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@60
+    std::string uk1("axy");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value, v2);
+    value.Reset();
+  }
+
+  {
+    // [ "axy"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@120
+    std::string uk1("axy");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 120, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value, v1);
+    value.Reset();
+  }
+
+  {
+    // [ "axy"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@5
+    std::string uk1("axy");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 5, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kNotFound);
     value.Reset();
   }
 }
