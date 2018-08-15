@@ -3041,8 +3041,6 @@ Status DBImpl::IngestExternalFile(
 
 Status DBImpl::VerifyChecksum() {
   Status s;
-  Options options;
-  EnvOptions env_options;
   std::vector<ColumnFamilyData*> cfd_list;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -3066,7 +3064,7 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(options, env_options, fname);
+        s = rocksdb::VerifySstFileChecksum(GetOptions(), env_options_, fname);
       }
     }
     if (!s.ok()) {
