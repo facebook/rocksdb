@@ -10,7 +10,7 @@ endif
 
 .PHONY: clean librocksdb
 
-all: cloud_durable_example clone_example
+all: cloud_durable_example clone_example cloud_dump
 
 cloud_durable_example: librocksdb cloud_durable_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o $@ ../../librocksdb.a -I../../include $(OPT) -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
@@ -18,8 +18,11 @@ cloud_durable_example: librocksdb cloud_durable_example.cc
 clone_example: librocksdb clone_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o $@ ../../librocksdb.a -I../../include $(OPT) -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
+cloud_dump: librocksdb cloud_dump.cc
+	$(CXX) $(CXXFLAGS) $@.cc -o $@ ../../librocksdb.a -I../../include $(OPT) -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+
 clean:
-	rm -rf ./cloud_durable_example  ./clone_example
+	rm -rf ./cloud_durable_example  ./clone_example ./cloud_dump
 
 librocksdb:
 	cd ../.. && $(MAKE) static_lib
