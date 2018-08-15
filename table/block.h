@@ -147,7 +147,7 @@ class Block {
                  size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
 
-  ~Block() = default;
+  ~Block();
 
   size_t size() const { return size_; }
   const char* data() const { return data_; }
