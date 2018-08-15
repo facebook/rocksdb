@@ -87,10 +87,10 @@ enum class CompactionReason : int {
   kFlush,
   // Compaction caused by external sst file ingestion
   kExternalSstIngestion,
+  // Reduce size or read amplification in variety sst
+  kVarietiesAmplification,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
-  // [Universal] trivial move files
-  kUniversalTrivialMove,
 };
 
 enum class FlushReason : int {

@@ -433,6 +433,10 @@ class Repairer {
   }
 
   void ExtractMetaData() {
+    std::unordered_map<uint64_t, FileMetaData*> file_meta_map;
+    std::map<uint64_t, TableInfo*> variety_set;
+    // make sure tables_ enouth, so we can hold ptr of elements
+    tables_.reserve(table_fds_.size());
     for (size_t i = 0; i < table_fds_.size(); i++) {
       TableInfo t;
       t.meta.fd = table_fds_[i];
@@ -448,8 +452,87 @@ class Repairer {
         ArchiveFile(fname);
       } else {
         tables_.push_back(t);
+        file_meta_map.emplace(t.meta.fd.GetNumber(), &tables_.back().meta);
+        if (t.meta.sst_variety != 0) {
+          variety_set.emplace(t.meta.fd.GetNumber(), &tables_.back());
+        }
       }
     }
+    // recover variety sst meta data
+    while (!variety_set.empty()) {
+      size_t variety_set_count = variety_set.size();
+      for (auto it = variety_set.begin(); it != variety_set.end(); ) {
+        auto& t = *it->second;
+        auto cfd =
+            vset_.GetColumnFamilySet()->GetColumnFamily(t.column_family_id);
+        InternalKey smallest, largest;
+        SequenceNumber min_sequence = kMaxSequenceNumber, max_sequence = 0;
+        enum {
+          kOK, kError, kRetry,
+        } result = kOK;
+        for (auto sst_id : t.meta.sst_depend) {
+          auto find = file_meta_map.find(sst_id);
+          if (find == file_meta_map.end()) {
+            result = kError;
+            break;
+          }
+          if (variety_set.count(sst_id) > 0) {
+            // depend file is variety sst, retry next loop
+            assert(sst_id != t.meta.fd.GetNumber());
+            result = kRetry;
+            break;
+          }
+          auto f = find->second;
+          if (smallest.size() == 0 ||
+              cfd->internal_comparator().Compare(f->smallest, smallest) < 0) {
+            smallest = f->smallest;
+          }
+          if (largest.size() == 0 ||
+              cfd->internal_comparator().Compare(f->largest, largest) > 0) {
+            largest = f->largest;
+          }
+          min_sequence = std::min(min_sequence, f->fd.smallest_seqno);
+          max_sequence = std::max(max_sequence, f->fd.largest_seqno);
+        }
+        if (result == kOK) {
+          t.meta.smallest = smallest;
+          t.meta.largest = largest;
+          t.min_sequence = min_sequence;
+          t.max_sequence = max_sequence;
+        }
+        if (result == kError) {
+          char file_num_buf[kFormatFileNumberBufSize];
+          FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
+                           file_num_buf, sizeof(file_num_buf));
+          ROCKS_LOG_WARN(db_options_.info_log, "Table #%s: ignoring %s",
+                         file_num_buf, "missing depend files");
+          t.column_family_id = uint32_t(-1);  // mark to delete
+        }
+        if (result == kRetry) {
+          ++it;
+        } else {
+          variety_set.erase(it++);
+        }
+      }
+      if (variety_set_count == variety_set.size()) {
+        // cyclic depend files ???
+        char file_num_buf[kFormatFileNumberBufSize];
+        for (auto& pair : variety_set) {
+          auto& t = *pair.second;
+          FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
+                           file_num_buf, sizeof(file_num_buf));
+          ROCKS_LOG_WARN(db_options_.info_log, "Table #%s: ignoring %s",
+                         file_num_buf, "cyclic depend files");
+          t.column_family_id = uint32_t(-1);  // mark to delete
+        }
+        break;
+      }
+    }
+    auto new_end = std::remove_if(tables_.begin(), tables_.end(),
+                                  [](TableInfo& t) {
+                                    return t.column_family_id == uint32_t(-1);
+                                  });
+    tables_.erase(new_end, tables_.end());
   }
 
   Status ScanTable(TableInfo* t) {
@@ -498,6 +581,10 @@ class Repairer {
         status = Status::Corruption(dbname_, "inconsistent column family name");
       }
     }
+
+    t->meta.sst_variety = GetSstVariety(props->user_collected_properties);
+    t->meta.sst_depend = GetSstDepend(props->user_collected_properties);
+
     if (status.ok()) {
       // Use empty depend files to disable map or link sst forward calls.
       // P.S. depend files in VersionStorage has not build yet ...
@@ -537,9 +624,6 @@ class Repairer {
         status = iter->status();
       }
       delete iter;
-
-      t->meta.sst_variety = GetSstVariety(props->user_collected_properties);
-      t->meta.sst_depend = GetSstDepend(props->user_collected_properties);
 
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,

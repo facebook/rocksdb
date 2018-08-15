@@ -60,11 +60,6 @@ class UniversalCompactionPicker : public CompactionPicker {
     bool being_compacted;
   };
 
-  // Pick universal trivial move for push sst to bottom level
-  Compaction* PickTrivialMove(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, LogBuffer* log_buffer);
-
   // Pick compaction which level has map or link sst
   Compaction* PickGeneralCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
@@ -92,7 +87,7 @@ class UniversalCompactionPicker : public CompactionPicker {
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
   // overlapping.
-  bool IsInputFilesNonOverlapping(Compaction* c, VersionStorageInfo* vstorage);
+  bool IsInputFilesNonOverlapping(Compaction* c);
 
   static std::vector<SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,

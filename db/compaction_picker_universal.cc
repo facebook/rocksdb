@@ -117,17 +117,9 @@ void GetSmallestLargestSeqno(const std::vector<FileMetaData*>& files,
 
 // Algorithm that checks to see if there are any overlapping
 // files in the input
-bool UniversalCompactionPicker::IsInputFilesNonOverlapping(
-    Compaction* c, VersionStorageInfo* vstorage) {
+bool UniversalCompactionPicker::IsInputFilesNonOverlapping(Compaction* c) {
   auto comparator = icmp_->user_comparator();
   int first_iter = 1;
-
-  // check level has map or link sst
-  for (auto& level_files : *c->inputs()) {
-    if (vstorage->has_space_amplification(level_files.level)) {
-      return false;
-    }
-  }
 
   InputFileInfo prev, curr, next;
 
@@ -291,12 +283,9 @@ Compaction* UniversalCompactionPicker::PickCompaction(
 
   // Check for size amplification first.
   Compaction* c = nullptr;
-  if ((c = PickTrivialMove(cf_name, mutable_cf_options,
-                           vstorage, log_buffer)) != nullptr) {
-    // universal trivial move;
-  } else if (sorted_runs.size() >=
-             static_cast<size_t>(
-                 mutable_cf_options.level0_file_num_compaction_trigger)) {
+  if (sorted_runs.size() >=
+      static_cast<size_t>(
+          mutable_cf_options.level0_file_num_compaction_trigger)) {
     if ((c = PickCompactionToReduceSizeAmp(cf_name, mutable_cf_options,
                                            vstorage, score, sorted_runs,
                                            log_buffer)) != nullptr) {
@@ -369,9 +358,19 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
 
-  if (c->compaction_reason() != CompactionReason::kUniversalTrivialMove &&
-      mutable_cf_options.compaction_options_universal.allow_trivial_move) {
-    c->set_is_trivial_move(IsInputFilesNonOverlapping(c, vstorage));
+  bool allow_trivial_move
+      = mutable_cf_options.compaction_options_universal.allow_trivial_move;
+  if (allow_trivial_move) {
+    // check level has map or link sst
+    for (auto& level_files : *c->inputs()) {
+      if (vstorage->has_space_amplification(level_files.level)) {
+        allow_trivial_move = false;
+        break;
+      }
+    }
+  }
+  if (allow_trivial_move) {
+    c->set_is_trivial_move(IsInputFilesNonOverlapping(c));
   }
 
 // validate that all the chosen files of L0 are non overlapping in time
@@ -456,102 +455,7 @@ uint32_t UniversalCompactionPicker::GetPathId(
   }
   return p;
 }
-
-Compaction* UniversalCompactionPicker::PickTrivialMove(
-    const std::string& /*cf_name*/, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* /*log_buffer*/) {
-  if (!mutable_cf_options.compaction_options_universal.allow_trivial_move) {
-    return nullptr;
-  }
-  int output_level = vstorage->num_levels() - 1;
-  // last level is reserved for the files ingested behind
-  if (ioptions_.allow_ingest_behind) {
-    --output_level;
-  }
-  int start_level = 0;
-  while (true) {
-    // found an empty level
-    for (; output_level >= 1; --output_level) {
-      if (!vstorage->LevelFiles(output_level).empty()) {
-        continue;
-      }
-      bool invalid = false;
-      for (auto c : compactions_in_progress_) {
-        if (c->output_level() == output_level) {
-          invalid = true;
-          break;
-        }
-      }
-      if (invalid) {
-        continue;
-      }
-      break;
-    }
-    if (output_level < 1) {
-      return nullptr;
-    }
-    bool invalid = false;
-    // found an non empty level
-    for (start_level = output_level - 1; start_level > 0; --start_level) {
-      invalid = false;
-      for (auto c : compactions_in_progress_) {
-        if (c->output_level() == start_level) {
-          invalid = true;
-          break;
-        }
-      }
-      if (!invalid && vstorage->LevelFiles(start_level).empty()) {
-        continue;
-      }
-      break;
-    }
-    if (!invalid) {
-      // will move lv0 last sst
-      if (start_level == 0) {
-        break;
-      }
-      auto& files = vstorage->LevelFiles(start_level);
-      for (size_t i = 0; i < files.size(); i++) {
-        if (files[i]->being_compacted) {
-          invalid = true;
-        }
-      }
-      if (!invalid) {
-        break;
-      }
-    }
-    output_level = start_level - 1;
-  }
-  CompactionInputFiles inputs;
-  inputs.level = start_level;
-  uint32_t path_id = 0;
-  if (start_level == 0) {
-    auto& level0_files = vstorage->LevelFiles(0);
-    if (level0_files.empty() || level0_files.back()->being_compacted) {
-      return nullptr;
-    }
-    FileMetaData* meta = level0_files.back();
-    inputs.files = {meta};
-    path_id = meta->fd.GetPathId();
-  } else {
-    inputs.files = vstorage->LevelFiles(start_level);
-    path_id = inputs.files.front()->fd.GetPathId();
-  }
-  assert(!AreFilesInCompaction(inputs.files));
-  auto c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, {std::move(inputs)},
-      output_level,
-      MaxFileSizeForLevel(mutable_cf_options, output_level,
-                          kCompactionStyleUniversal),
-      LLONG_MAX, path_id, kNoCompression,
-      GetCompressionOptions(ioptions_, vstorage, output_level), 0,
-      /* grandparents */ {}, /* is manual */ false, 0,
-      false /* deletion_compaction */, kGeneralSst, {},
-      CompactionReason::kUniversalTrivialMove);
-  c->set_is_trivial_move(true);
-  return c;
-}
-
+ 
 Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     const std::string& /*cf_name*/, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* /*log_buffer*/) {
@@ -584,8 +488,6 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   }
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
-  CompactionReason compaction_reason =
-      CompactionReason::kUniversalSizeAmplification;
   bool enable_compression = true;
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, {inputs}, inputs.level,
@@ -598,7 +500,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
                             enable_compression),
       max_subcompactions, /* grandparents */ {}, /* is manual */ false,
       0, false /* deletion_compaction */, compaction_varieties,
-      {} /* input_range */, compaction_reason);
+      {} /* input_range */, CompactionReason::kVarietiesAmplification);
   // TODO(zouzhizhang): better lazy compaction
 }
 

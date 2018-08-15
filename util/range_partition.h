@@ -5,13 +5,16 @@
 #pragma once
 
 #include <vector>
+#include <unordered_set>
 
 #include "db/dbformat.h"
+#include "table/internal_iterator.h"
 #include "rocksdb/db.h"
 
 namespace rocksdb {
 
 struct FileMetaData;
+class IteratorCache;
 struct MapSstElement;
 class VersionStorageInfo;
 
@@ -24,6 +27,25 @@ struct RangeWithDepend {
   RangeWithDepend(const FileMetaData*);
   RangeWithDepend(const MapSstElement&);
 };
+
+struct FileMetaDataBoundBuilder {
+  const InternalKeyComparator& icomp;
+  InternalKey smallest, largest;
+  SequenceNumber smallest_seqno;
+  SequenceNumber largest_seqno;
+
+  FileMetaDataBoundBuilder(const InternalKeyComparator& _icomp)
+      : icomp(_icomp),
+        smallest_seqno(kMaxSequenceNumber),
+        largest_seqno(0) {}
+
+  void Update(const FileMetaData* f);
+};
+
+Status LoadRangeWithDepend(std::vector<RangeWithDepend>& ranges,
+                           FileMetaDataBoundBuilder& bound_builder,
+                           IteratorCache& iterator_cache,
+                           const FileMetaData* const* file_meta, size_t n);
 
 // Merge two sorted non-overlap range vector
 // a: [ -------- )      [ -------- ]
@@ -42,5 +64,11 @@ std::vector<RangeWithDepend> DeleteRangeWithDepend(
     const std::vector<RangeWithDepend>& range_e,
     const std::vector<RangePtr>& range_d,
     const InternalKeyComparator& icomp);
+
+InternalIterator* NewShrinkRangeWithDependIterator(
+    const std::vector<RangeWithDepend>& ranges,
+    std::unordered_set<uint64_t>& sst_depend_build,
+    IteratorCache& iterator_cache, const InternalKeyComparator& icomp,
+    Arena* arena = nullptr);
 
 }

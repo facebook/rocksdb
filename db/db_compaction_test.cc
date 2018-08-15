@@ -1789,11 +1789,11 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
     std::vector<RangePtr> ranges;
-    ranges.push_back(RangePtr(&begin1, &end1));
-    ranges.push_back(RangePtr(&begin2, &end2));
-    ranges.push_back(RangePtr(&begin3, &end3));
+    ranges.push_back(RangePtr(&begin1, &end1, true, false));
+    ranges.push_back(RangePtr(&begin2, &end2, true, false));
+    ranges.push_back(RangePtr(&begin3, &end3, true, false));
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
-                                  ranges.data(), ranges.size(), false));
+                                  ranges.data(), ranges.size()));
     ASSERT_EQ("0,1,4", FilesPerLevel(0));
 
     // Keys [600, 900) should not exist.

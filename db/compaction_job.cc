@@ -1360,49 +1360,33 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
 
   std::list<std::vector<RangeWithDepend>> level_ranges;
   MapSstElement map_element;
-  InternalKey k_start, k_end;
-  SequenceNumber seq_start = kMaxSequenceNumber, seq_end = 0;
+  FileMetaDataBoundBuilder bound_builder(cfd->internal_comparator());
 
   // load input files into segments
   for (auto& level_files : *compaction->inputs()) {
-    std::vector<RangeWithDepend> segments;
-    for (auto f : level_files.files) {
-      if (f->sst_variety == kMapSst) {
-        auto iter = iterator_cache.GetIterator(f);
-        assert(iter != nullptr);
-        if (!iter->status().ok()) {
-          sub_compact->status = iter->status();
+    if (level_files.files.empty()) {
+      continue;
+    }
+    if (level_files.level == 0) {
+      for (auto f : level_files.files) {
+        std::vector<RangeWithDepend> ranges;
+        sub_compact->status =
+            LoadRangeWithDepend(ranges, bound_builder, iterator_cache, &f, 1);
+        if (!sub_compact->status.ok()) {
           return;
         }
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-          if (!map_element.Decode(iter->key(), iter->value())) {
-            sub_compact->status =
-                Status::Corruption("Map sst invalid key or value");
-            return;
-          }
-          segments.emplace_back(map_element);
-        }
-      } else {
-        iterator_cache.GetIterator(f); // load into cache
-        segments.emplace_back(f);
+        level_ranges.emplace_back(std::move(ranges));
       }
-      if (level_files.level == 0) {
-        level_ranges.emplace_back(std::move(segments));
-        segments.clear();
+    } else {
+      std::vector<RangeWithDepend> ranges;
+      sub_compact->status = LoadRangeWithDepend(ranges, bound_builder,
+                                                iterator_cache,
+                                                level_files.files.data(),
+                                                level_files.files.size());
+      if (!sub_compact->status.ok()) {
+        return;
       }
-      if (k_start.size() == 0 ||
-          cfd->internal_comparator().Compare(f->smallest, k_start) < 0) {
-        k_start = f->smallest;
-      }
-      if (k_end.size() == 0 ||
-          cfd->internal_comparator().Compare(f->largest, k_end) > 0) {
-        k_end = f->largest;
-      }
-      seq_start = std::min(seq_start, f->fd.smallest_seqno);
-      seq_end = std::max(seq_end, f->fd.largest_seqno);
-    }
-    if (!segments.empty()) {
-      level_ranges.emplace_back(std::move(segments));
+      level_ranges.emplace_back(std::move(ranges));
     }
   }
 
@@ -1445,88 +1429,27 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
 
   // Update boundaries
   auto& meta = sub_compact->current_output()->meta;
-  meta.smallest = k_start;
-  meta.largest = k_end;
-  meta.fd.smallest_seqno = seq_start;
-  meta.fd.largest_seqno = seq_end;
+  meta.smallest = bound_builder.smallest;
+  meta.largest = bound_builder.largest;
+  meta.fd.smallest_seqno = bound_builder.smallest_seqno;
+  meta.fd.largest_seqno = bound_builder.largest_seqno;
 
   std::unordered_set<uint64_t> sst_depend_build;
-  std::sort(sst_depend.begin(), sst_depend.end());
-
-  std::string buffer;
-  InternalKey new_start, new_end;
-  auto& icomp = cfd->internal_comparator();
-
-  // shrink all ranges
-  for (auto range_with_depend : level_ranges.front()) {
-    auto& start = range_with_depend.point[0];
-    auto& end = range_with_depend.point[1];
-    bool include_start = range_with_depend.include[0];
-    bool include_end = range_with_depend.include[1];
-    new_start.Clear();
-    new_end.Clear();
-    map_element.link_.clear();
-
-    for (auto sst_id : range_with_depend.depend) {
-      TableReader* reader;
-      auto iter = iterator_cache.GetIterator(sst_id, &reader);
-      if (!iter->status().ok()) {
-        sub_compact->status = iter->status();
-        return;
-      }
-      iter->Seek(start.Encode());
-      if (!iter->Valid()) {
-        continue;
-      }
-      if (!include_start && icomp.Compare(iter->key(), start.Encode()) == 0) {
-        iter->Next();
-        if (!iter->Valid()) {
-          continue;
-        }
-      }
-      k_start.DecodeFrom(iter->key());
-      iter->SeekForPrev(end.Encode());
-      if (!iter->Valid()) {
-        continue;
-      }
-      if (!include_end && icomp.Compare(iter->key(), end.Encode()) == 0) {
-        iter->Prev();
-        if (!iter->Valid()) {
-          continue;
-        }
-      }
-      k_end.DecodeFrom(iter->key());
-      if (icomp.Compare(k_start, k_end) > 0) {
-        continue;
-      }
-      if (new_start.size() == 0 || icomp.Compare(k_start, new_start) < 0) {
-        new_start = k_start;
-      }
-      if (new_end.size() == 0 || icomp.Compare(k_end, new_end) > 0) {
-        new_end = k_end;
-      }
-      uint64_t left_offset =
-          reader->ApproximateOffsetOf(k_start.Encode());
-      uint64_t right_offset =
-          reader->ApproximateOffsetOf(k_end.Encode());
-      sst_depend_build.emplace(sst_id);
-
-      // append a link
-      MapSstElement::LinkTarget link;
-      link.sst_id = sst_id;
-      link.size = right_offset - left_offset;
-      map_element.link_.emplace_back(link);
-    }
-    if (!map_element.link_.empty()) {
-      // output map_element
-      map_element.smallest_key_ = new_start.Encode();
-      map_element.largest_key_ = new_end.Encode();
-      sub_compact->builder->Add(map_element.Key(), map_element.Value(&buffer));
-      sub_compact->current_output_file_size = sub_compact->builder->FileSize();
-      sub_compact->num_output_records++;
-    }
+  ScopedArenaIterator output_iter(
+      NewShrinkRangeWithDependIterator(level_ranges.front(), sst_depend_build,
+                                       iterator_cache,
+                                       cfd->internal_comparator(),
+                                       iterator_cache.GetArena()));
+  for (output_iter->SeekToFirst(); output_iter->Valid(); output_iter->Next()) {
+    sub_compact->builder->Add(output_iter->key(), output_iter->value());
+    sub_compact->current_output_file_size = sub_compact->builder->FileSize();
+    sub_compact->num_output_records++;
   }
-  
+  if (!output_iter->status().ok()) {
+    sub_compact->status = status;
+    return;
+  }
+
   // Prepare sst_depend, IntTblPropCollector::Finish will read it
   sst_depend.reserve(sst_depend_build.size());
   sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),

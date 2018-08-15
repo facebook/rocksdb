@@ -38,6 +38,8 @@ class IteratorCache {
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr);
 
+  Arena* GetArena() { return &arena_; }
+
   RangeDelAggregator* GetRangeDelAggregator() const {
     return range_del_agg_;
   }
@@ -52,7 +54,7 @@ class IteratorCache {
     InternalIterator* iter;
     TableReader* reader;
   };
-  std::unordered_map<uint64_t, CacheItem> iterator_cache_;
+  std::unordered_map<uint64_t, CacheItem> iterator_map_;
 };
 
 }
