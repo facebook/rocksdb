@@ -145,7 +145,7 @@ public:
     const std::string& target);
 
   virtual Status NumFileLinks(const std::string& /*fname*/,
-    uint64_t* /*count*/);
+                              uint64_t* /*count*/);
 
   virtual Status AreFilesSame(const std::string& first,
     const std::string& second, bool* res);
@@ -271,8 +271,7 @@ public:
   Status LinkFile(const std::string& src,
     const std::string& target) override;
 
-  Status NumFileLinks(const std::string& fname,
-    uint64_t* count) override;
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override;
 
   Status AreFilesSame(const std::string& first,
     const std::string& second, bool* res) override;
