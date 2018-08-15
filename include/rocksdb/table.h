@@ -101,13 +101,17 @@ struct BlockBasedTableOptions {
   IndexType index_type = kBinarySearch;
 
   // The index type that will be used for the data block.
-  // The kDataBlockHashSearch index type is not yet implemented.
   enum DataBlockIndexType : char {
     kDataBlockBinarySearch = 0,  // traditional block type
-    kDataBlockHashSearch = 1,     // additional hash index appended to the end.
+    kDataBlockBinaryAndHash = 1, // additional hash index
   };
 
   DataBlockIndexType data_block_index_type = kDataBlockBinarySearch;
+
+  // #entries/#buckets. It is valid only when data_block_hash_index_type is
+  // kDataBlockBinaryAndHash.
+  double data_block_hash_table_util_ratio = 0.75;
+
 
   // This option is now deprecated. No matter what value it is set to,
   // it will behave as if hash_index_allow_collision=true.

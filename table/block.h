@@ -22,14 +22,16 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "format.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/table.h"
 #include "table/block_prefix_index.h"
+#include "table/data_block_hash_index.h"
 #include "table/internal_iterator.h"
 #include "util/random.h"
 #include "util/sync_point.h"
-#include "format.h"
 
 namespace rocksdb {
 
@@ -155,6 +157,7 @@ class Block {
   // The additional memory space taken by the block data.
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const;
+  BlockBasedTableOptions::DataBlockIndexType IndexType() const;
   CompressionType compression_type() const {
     return contents_.compression_type;
   }
@@ -202,6 +205,8 @@ class Block {
   // All keys in the block will have seqno = global_seqno_, regardless of
   // the encoded value (kDisableGlobalSequenceNumber means disabled)
   const SequenceNumber global_seqno_;
+
+  DataBlockHashIndex data_block_hash_index_;
 
   // No copying allowed
   Block(const Block&) = delete;
@@ -330,22 +335,27 @@ class DataBlockIter final : public BlockIter<Slice> {
   DataBlockIter(const Comparator* comparator, const Comparator* user_comparator,
                 const char* data, uint32_t restarts, uint32_t num_restarts,
                 SequenceNumber global_seqno,
-                BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned)
+                BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
+                DataBlockHashIndex* data_block_hash_index)
       : DataBlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
-               global_seqno, read_amp_bitmap, block_contents_pinned);
+               global_seqno, read_amp_bitmap, block_contents_pinned,
+               data_block_hash_index);
   }
   void Initialize(const Comparator* comparator,
-                  const Comparator* /*user_comparator*/, const char* data,
+                  const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
-                  bool block_contents_pinned) {
+                  bool block_contents_pinned,
+                  DataBlockHashIndex* data_block_hash_index) {
     InitializeBase(comparator, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
+    user_comparator_ = user_comparator;
     key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
+    data_block_hash_index_ = data_block_hash_index;
   }
 
   virtual Slice value() const override {
@@ -360,6 +370,15 @@ class DataBlockIter final : public BlockIter<Slice> {
   }
 
   virtual void Seek(const Slice& target) override;
+
+  inline bool SeekForGet(const Slice& target) {
+    if (!data_block_hash_index_) {
+      Seek(target);
+      return true;
+    }
+
+    return SeekForGetImpl(target);
+  }
 
   virtual void SeekForPrev(const Slice& target) override;
 
@@ -408,11 +427,16 @@ class DataBlockIter final : public BlockIter<Slice> {
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_ = -1;
 
-  inline bool ParseNextDataKey();
+  DataBlockHashIndex* data_block_hash_index_;
+  const Comparator* user_comparator_;
+
+  inline bool ParseNextDataKey(const char* limit = nullptr);
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
     return comparator_->Compare(ikey.GetInternalKey(), b);
   }
+
+  bool SeekForGetImpl(const Slice& target);
 };
 
 class IndexBlockIter final : public BlockIter<BlockHandle> {
@@ -435,14 +459,15 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
       : IndexBlockIter() {
     Initialize(comparator, user_comparator, data, restarts, num_restarts,
                prefix_index, key_includes_seq, block_contents_pinned,
-               value_is_full);
+               value_is_full, nullptr /* data_block_hash_index */);
   }
 
   void Initialize(const Comparator* comparator,
                   const Comparator* user_comparator, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   BlockPrefixIndex* prefix_index, bool key_includes_seq,
-                  bool value_is_full, bool block_contents_pinned) {
+                  bool value_is_full, bool block_contents_pinned,
+                  DataBlockHashIndex* /*data_block_hash_index*/) {
     InitializeBase(comparator, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
