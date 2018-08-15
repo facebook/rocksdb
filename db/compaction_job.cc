@@ -600,6 +600,8 @@ Status CompactionJob::Run() {
   compaction_stats_.micros = env_->NowMicros() - start_micros;
   MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
 
+  TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
+
   // Check if any thread encountered an error during execution
   Status status;
   for (const auto& state : compact_->sub_compact_states) {

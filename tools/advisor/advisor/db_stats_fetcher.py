@@ -5,7 +5,6 @@
 
 from advisor.db_log_parser import Log
 from advisor.db_timeseries_parser import TimeSeriesData, NO_ENTITY
-from advisor.rule_parser import Condition, TimeSeriesCondition
 import copy
 import glob
 import re
@@ -123,7 +122,7 @@ class LogStatsParser(TimeSeriesData):
 class DatabasePerfContext(TimeSeriesData):
     # TODO(poojam23): check if any benchrunner provides PerfContext sampled at
     # regular intervals
-    def __init__(self, perf_context_ts, stats_freq_sec=0, cumulative=True):
+    def __init__(self, perf_context_ts, stats_freq_sec, cumulative):
         '''
         perf_context_ts is expected to be in the following format:
         Dict[metric, Dict[timestamp, value]], where for
@@ -175,7 +174,6 @@ class OdsStatsFetcher(TimeSeriesData):
     OUTPUT_FILE = 'temp/stats_out.tmp'
     ERROR_FILE = 'temp/stats_err.tmp'
     RAPIDO_COMMAND = "%s --entity=%s --key=%s --tstart=%s --tend=%s --showtime"
-    ODS_COMMAND = '%s %s %s'  # client, entities, keys
 
     # static methods
     @staticmethod
@@ -192,16 +190,23 @@ class OdsStatsFetcher(TimeSeriesData):
         second = float(pair[1].strip())
         return [first, second]
 
-    def __init__(self, client, entities, key_prefix=None):
+    @staticmethod
+    def _get_ods_cli_stime(start_time):
+        diff = int(time.time() - int(start_time))
+        stime = str(diff) + '_s'
+        return stime
+
+    def __init__(
+        self, client, entities, start_time, end_time, key_prefix=None
+    ):
         super().__init__()
         self.client = client
         self.entities = entities
+        self.start_time = start_time
+        self.end_time = end_time
         self.key_prefix = key_prefix
         self.stats_freq_sec = 60
         self.duration_sec = 60
-        # Fetch last 3 hours data by default
-        self.end_time = int(time.time())
-        self.start_time = self.end_time - (3 * 60 * 60)
 
     def execute_script(self, command):
         print('executing...')
@@ -266,9 +271,10 @@ class OdsStatsFetcher(TimeSeriesData):
             # Parse output and populate the 'keys_ts' map
             self.parse_rapido_output()
         elif re.search('ods', self.client, re.IGNORECASE):
-            command = self.ODS_COMMAND % (
-                self.client,
-                self._get_string_in_quotes(self.entities),
+            command = (
+                self.client + ' ' +
+                '--stime=' + self._get_ods_cli_stime(self.start_time) + ' ' +
+                self._get_string_in_quotes(self.entities) + ' ' +
                 self._get_string_in_quotes(','.join(statistics))
             )
             # Run the tool and fetch the time-series data
@@ -305,117 +311,28 @@ class OdsStatsFetcher(TimeSeriesData):
             transform_desc = transform_desc + ",%)"
         else:
             transform_desc = transform_desc + ")"
-
-        command = self.RAPIDO_COMMAND + " --transform=%s --url=%s"
-        command = command % (
-            self.client,
-            self._get_string_in_quotes(','.join(entities)),
-            self._get_string_in_quotes(','.join(keys)),
-            self._get_string_in_quotes(self.start_time),
-            self._get_string_in_quotes(self.end_time),
-            self._get_string_in_quotes(transform_desc),
-            self._get_string_in_quotes(display)
-        )
+        if re.search('rapido', self.client, re.IGNORECASE):
+            command = self.RAPIDO_COMMAND + " --transform=%s --url=%s"
+            command = command % (
+                self.client,
+                self._get_string_in_quotes(','.join(entities)),
+                self._get_string_in_quotes(','.join(keys)),
+                self._get_string_in_quotes(self.start_time),
+                self._get_string_in_quotes(self.end_time),
+                self._get_string_in_quotes(transform_desc),
+                self._get_string_in_quotes(display)
+            )
+        elif re.search('ods', self.client, re.IGNORECASE):
+            command = (
+                self.client + ' ' +
+                '--stime=' + self._get_ods_cli_stime(self.start_time) + ' ' +
+                '--fburlonly ' +
+                self._get_string_in_quotes(entities) + ' ' +
+                self._get_string_in_quotes(','.join(keys)) + ' ' +
+                self._get_string_in_quotes(transform_desc)
+            )
         self.execute_script(command)
         url = ""
         with open(self.OUTPUT_FILE, 'r') as fp:
             url = fp.readline()
         return url
-
-
-# TODO(poojam23): remove these blocks once the unittests for LogStatsParser are
-# in place
-def main():
-    # populating the statistics
-    log_stats = LogStatsParser('temp/db_stats_fetcher_main_LOG.tmp', 20)
-    print(log_stats.type)
-    print(log_stats.keys_ts)
-    print(log_stats.logs_file_prefix)
-    print(log_stats.stats_freq_sec)
-    print(log_stats.duration_sec)
-    statistics = [
-        'rocksdb.number.rate_limiter.drains.count',
-        'rocksdb.number.block.decompressed.count',
-        'rocksdb.db.get.micros.p50',
-        'rocksdb.manifest.file.sync.micros.p99',
-        'rocksdb.db.get.micros.p99'
-    ]
-    log_stats.fetch_timeseries(statistics)
-    print()
-    print(log_stats.keys_ts)
-    # aggregated statistics
-    print()
-    print(log_stats.fetch_aggregated_values(
-        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.latest
-    ))
-    print(log_stats.fetch_aggregated_values(
-        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.oldest
-    ))
-    print(log_stats.fetch_aggregated_values(
-        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.max
-    ))
-    print(log_stats.fetch_aggregated_values(
-        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.min
-    ))
-    print(log_stats.fetch_aggregated_values(
-        NO_ENTITY, statistics, TimeSeriesData.AggregationOperator.avg
-    ))
-    # condition 'evaluate_expression' that evaluates to true
-    cond1 = Condition('cond-1')
-    cond1 = TimeSeriesCondition.create(cond1)
-    cond1.set_parameter('keys', statistics)
-    cond1.set_parameter('behavior', 'evaluate_expression')
-    cond1.set_parameter('evaluate', 'keys[3]-keys[2]>=0')
-    cond1.set_parameter('aggregation_op', 'avg')
-    # condition 'evaluate_expression' that evaluates to false
-    cond2 = Condition('cond-2')
-    cond2 = TimeSeriesCondition.create(cond2)
-    cond2.set_parameter('keys', statistics)
-    cond2.set_parameter('behavior', 'evaluate_expression')
-    cond2.set_parameter('evaluate', '((keys[1]-(2*keys[0]))/100)<3000')
-    cond2.set_parameter('aggregation_op', 'latest')
-    # condition 'evaluate_expression' that evaluates to true; no aggregation_op
-    cond3 = Condition('cond-3')
-    cond3 = TimeSeriesCondition.create(cond3)
-    cond3.set_parameter('keys', [statistics[2], statistics[3]])
-    cond3.set_parameter('behavior', 'evaluate_expression')
-    cond3.set_parameter('evaluate', '(keys[1]/keys[0])>23')
-    # check remaining methods
-    conditions = [cond1, cond2, cond3]
-    print()
-    print(log_stats.get_keys_from_conditions(conditions))
-    log_stats.check_and_trigger_conditions(conditions)
-    print()
-    print(cond1.get_trigger())
-    print(cond2.get_trigger())
-    print(cond3.get_trigger())
-
-
-# TODO(poojam23): shift this code to the unit tests for DatabasePerfContext
-def check_perf_context_code():
-    string = (
-        " user_key_comparison_count = 675903942, " +
-        "block_cache_hit_count = 830086, " +
-        "get_from_output_files_time = 85088293818, " +
-        "seek_on_memtable_time = 0,"
-    )
-    token_list = string.split(',')
-    perf_context = {
-        token.split('=')[0].strip(): int(token.split('=')[1].strip())
-        for token in token_list
-        if token
-    }
-    timestamp = int(time.time())
-    perf_ts = {}
-    for key in perf_context:
-        perf_ts[key] = {}
-        start_val = perf_context[key]
-        for ix in range(5):
-            perf_ts[key][timestamp+(ix*10)] = start_val + (2 * ix)
-    db_perf_context = DatabasePerfContext(perf_ts, 10, True)
-    print(db_perf_context.keys_ts)
-
-
-if __name__ == '__main__':
-    main()
-    check_perf_context_code()

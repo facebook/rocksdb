@@ -76,6 +76,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Write(my_batch);
+    }
+  }
   if (write_options.sync && write_options.disableWAL) {
     return Status::InvalidArgument("Sync writes has to enable WAL.");
   }
@@ -567,7 +573,6 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
-  WriteContext write_context;
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
   nonmem_write_thread_.EnterAsBatchGroupLeader(&w, &write_group);

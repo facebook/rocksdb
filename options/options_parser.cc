@@ -200,45 +200,6 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
   return Status::OK();
 }
 
-namespace {
-bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
-                 std::string* output, bool* has_data, Status* result) {
-  const int kBufferSize = 8192;
-  char buffer[kBufferSize + 1];
-  Slice input_slice;
-
-  std::string line;
-  bool has_complete_line = false;
-  while (!has_complete_line) {
-    if (std::getline(*iss, line)) {
-      has_complete_line = !iss->eof();
-    } else {
-      has_complete_line = false;
-    }
-    if (!has_complete_line) {
-      // if we're not sure whether we have a complete line,
-      // further read from the file.
-      if (*has_data) {
-        *result = seq_file->Read(kBufferSize, &input_slice, buffer);
-      }
-      if (input_slice.size() == 0) {
-        // meaning we have read all the data
-        *has_data = false;
-        break;
-      } else {
-        iss->str(line + input_slice.ToString());
-        // reset the internal state of iss so that we can keep reading it.
-        iss->clear();
-        *has_data = (input_slice.size() == kBufferSize);
-        continue;
-      }
-    }
-  }
-  *output = line;
-  return *has_data || has_complete_line;
-}
-}  // namespace
-
 Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env,
                                    bool ignore_unknown_options) {
   Reset();

@@ -100,7 +100,9 @@ class PartitionedFilterBlockTest : public testing::Test {
   }
 
   PartitionedIndexBuilder* NewIndexBuilder() {
-    return PartitionedIndexBuilder::CreateIndexBuilder(&icomp, table_options_);
+    const bool kValueDeltaEncoded = true;
+    return PartitionedIndexBuilder::CreateIndexBuilder(
+        &icomp, !kValueDeltaEncoded, table_options_);
   }
 
   PartitionedFilterBlockBuilder* NewBuilder(
@@ -113,11 +115,12 @@ class PartitionedFilterBlockTest : public testing::Test {
               99) /
              100);
     partition_size = std::max(partition_size, static_cast<uint32_t>(1));
+    const bool kValueDeltaEncoded = true;
     return new PartitionedFilterBlockBuilder(
         prefix_extractor, table_options_.whole_key_filtering,
         table_options_.filter_policy->GetFilterBitsBuilder(),
-        table_options_.index_block_restart_interval, p_index_builder,
-        partition_size);
+        table_options_.index_block_restart_interval, !kValueDeltaEncoded,
+        p_index_builder, partition_size);
   }
 
   std::unique_ptr<MockedBlockBasedTable> table;
@@ -143,7 +146,8 @@ class PartitionedFilterBlockTest : public testing::Test {
                                  !kSkipFilters, !kImmortal)));
     auto reader = new PartitionedFilterBlockReader(
         prefix_extractor, true, BlockContents(slice, false, kNoCompression),
-        nullptr, nullptr, icomp, table.get(), pib->seperator_is_key_plus_seq());
+        nullptr, nullptr, icomp, table.get(), pib->seperator_is_key_plus_seq(),
+        !pib->get_use_value_delta_encoding());
     return reader;
   }
 

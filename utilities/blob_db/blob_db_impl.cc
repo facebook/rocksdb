@@ -79,7 +79,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       dbname_(dbname),
       db_impl_(nullptr),
       env_(db_options.env),
-      ttl_extractor_(blob_db_options.ttl_extractor.get()),
       bdb_options_(blob_db_options),
       db_options_(db_options),
       cf_options_(cf_options),
@@ -563,12 +562,8 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
-    std::string new_value;
-    Slice value_slice;
-    uint64_t expiration =
-        blob_db_impl_->ExtractExpiration(key, value, &value_slice, &new_value);
-    Status s = blob_db_impl_->PutBlobValue(options_, key, value_slice,
-                                           expiration, &batch_);
+    Status s = blob_db_impl_->PutBlobValue(options_, key, value,
+                                           kNoExpiration, &batch_);
     return s;
   }
 
@@ -661,10 +656,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 
 Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
-  std::string new_value;
-  Slice value_slice;
-  uint64_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
-  return PutUntil(options, key, value_slice, expiration);
+  return PutUntil(options, key, value, kNoExpiration);
 }
 
 Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
@@ -784,20 +776,6 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressBlock(raw, compression_ctx, &ct, kBlockBasedTableVersionFormat,
                 compression_output);
   return *compression_output;
-}
-
-uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
-                                       Slice* value_slice,
-                                       std::string* new_value) {
-  uint64_t expiration = kNoExpiration;
-  bool has_expiration = false;
-  bool value_changed = false;
-  if (ttl_extractor_ != nullptr) {
-    has_expiration = ttl_extractor_->ExtractExpiration(
-        key, value, EpochNow(), &expiration, new_value, &value_changed);
-  }
-  *value_slice = value_changed ? Slice(*new_value) : value;
-  return has_expiration ? expiration : kNoExpiration;
 }
 
 void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
@@ -990,7 +968,7 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
 }
 
 Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
-                                PinnableSlice* value) {
+                                PinnableSlice* value, uint64_t* expiration) {
   assert(value != nullptr);
   BlobIndex blob_index;
   Status s = blob_index.DecodeFrom(index_entry);
@@ -999,6 +977,13 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
   if (blob_index.HasTTL() && blob_index.expiration() <= EpochNow()) {
     return Status::NotFound("Key expired");
+  }
+  if (expiration != nullptr) {
+    if (blob_index.HasTTL()) {
+      *expiration = blob_index.expiration();
+    } else {
+      *expiration = kNoExpiration;
+    }
   }
   if (blob_index.IsInlined()) {
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
@@ -1135,14 +1120,20 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
+  return Get(read_options, column_family, key, value, nullptr /*expiration*/);
+}
+
+Status BlobDBImpl::Get(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, uint64_t* expiration) {
   StopWatch get_sw(env_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value, expiration);
 }
 
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* value) {
+                           PinnableSlice* value, uint64_t* expiration) {
   if (column_family != DefaultColumnFamily()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
@@ -1160,10 +1151,13 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
+  if (expiration != nullptr) {
+    *expiration = kNoExpiration;
+  }
   if (s.ok() && is_blob_index) {
     std::string index_entry = value->ToString();
     value->Reset();
-    s = GetBlobValue(key, index_entry, value);
+    s = GetBlobValue(key, index_entry, value, expiration);
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
@@ -1276,11 +1270,11 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
   // [earliest_sequence, obsolete_sequence). But doing so will make the
   // implementation more complicated.
   SequenceNumber obsolete_sequence = bfile->GetObsoleteSequence();
-  SequenceNumber oldest_snapshot = 0;
+  SequenceNumber oldest_snapshot = kMaxSequenceNumber;
   {
     // Need to lock DBImpl mutex before access snapshot list.
     InstrumentedMutexLock l(db_impl_->mutex());
-    auto snapshots = db_impl_->snapshots();
+    auto& snapshots = db_impl_->snapshots();
     if (!snapshots.empty()) {
       oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
     }
