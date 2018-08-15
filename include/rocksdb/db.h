@@ -113,66 +113,24 @@ using Range = RangeBase<Slice>;
 using RangeStorage = RangeBase<std::string>;
 
 // A range of keys, support infinite bound
-template<class TValue>
-class RangePtrBase {
- private:
-  TValue start_;
-  TValue limit_;
-  bool include_start_;
-  bool include_limit_;
-  bool infinite_start_;
-  bool infinite_limit_;
+struct RangePtr {
+  const Slice* start;
+  const Slice* limit;
+  bool include_start;
+  bool include_limit;
 
- public:
-  const TValue* start_ptr() const { return infinite_start_ ? nullptr : &start_; }
-  const TValue* limit_ptr() const { return infinite_limit_ ? nullptr : &limit_; }
-
-  const TValue& start() const { assert(!infinite_start_); return start_; }
-  const TValue& limit() const { assert(!infinite_limit_); return limit_; }
-
-  bool infinite_start() const { return infinite_start_; }
-  bool infinite_limit() const { return infinite_limit_; }
-
-  bool include_start() const { return include_start_; }
-  bool include_limit() const { return include_limit_; }
-
-  void set_start(const Slice* _start) {
-    infinite_start_ = _start == nullptr;
-    if (!infinite_start_) {
-      start_ = TValue(_start->data(), _start->size());
-    }
-  }
-  void set_limit(const Slice* _limit) {
-    infinite_limit_ = _limit == nullptr;
-    if (!infinite_limit_) {
-      limit_ = TValue(_limit->data(), _limit->size());
-    }
-  }
-
-  bool& include_start() { return include_start_; }
-  bool& include_limit() { return include_limit_; }
-
-  RangePtrBase()
-      : include_start_(true),
-        include_limit_(true),
-        infinite_start_(true),
-        infinite_limit_(true) {}
-  RangePtrBase(const Slice* _start, const Slice* _limit,
-               bool _include_start = true, bool _include_limit = true)
-      : infinite_start_(_start == nullptr),
-        infinite_limit_(_start == nullptr),
-        include_start_(_include_start),
-        include_limit_(_include_limit) {
-    if (!infinite_start_) {
-      start_ = TValue(_start->data(), _start->size());
-    }
-    if (!infinite_limit_) {
-      limit_ = TValue(_limit->data(), _limit->size());
-    }
-  }
+  RangePtr()
+      : start(nullptr),
+        limit(nullptr),
+        include_start(true),
+        include_limit(true) {}
+  RangePtr(const Slice* _start, const Slice* _limit,
+           bool _include_start = true, bool _include_limit = true)
+      : start(_start),
+        limit(_limit),
+        include_start(_include_start),
+        include_limit(_include_limit) {}
 };
-using RangePtr = RangePtrBase<Slice>;
-using RangePtrStorage = RangePtrBase<std::string>;
 
 // A collections of table properties objects, where
 //  key: is the table's file name.

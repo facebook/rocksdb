@@ -11,6 +11,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
 #include "table/iterator_wrapper.h"
+#include "util/iterator_cache.h"
 
 namespace rocksdb {
 
@@ -44,13 +45,13 @@ extern InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
 extern InternalIterator* NewLinkSstIterator(
     InternalIterator* link_sst_iter,
     const InternalKeyComparator& icomp,
-    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena = nullptr);
 
 extern InternalIterator* NewMapSstIterator(
     InternalIterator* map_sst_iter,
     const InternalKeyComparator& icomp,
-    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena = nullptr);
 
 }  // namespace rocksdb

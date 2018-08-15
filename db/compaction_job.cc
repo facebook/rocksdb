@@ -53,6 +53,7 @@
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
+#include "util/iterator_cache.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -168,10 +169,10 @@ struct CompactionJob::SubcompactionState {
   SubcompactionState(Compaction* c, const RangePtr& range,
                      uint64_t size = 0)
       : compaction(c),
-        start(range.start_ptr()),
-        end(range.limit_ptr()),
-        include_start(!!range.include_start()),
-        include_end(!!range.include_limit()),
+        start(range.start),
+        end(range.limit),
+        include_start(!!range.include_start),
+        include_end(!!range.include_limit),
         outfile(nullptr),
         builder(nullptr),
         current_output_file_size(0),
@@ -439,18 +440,10 @@ void CompactionJob::Prepare() {
     for (size_t i = 0; i < input_range.size(); i++) {
       Slice* start = &boundaries_[i * 2];
       Slice* end = &boundaries_[i * 2 + 1];
-      if (!input_range[i].infinite_start()) {
-        *start = input_range[i].start();
-      } else {
-        start = nullptr;
-      }
-      if (!input_range[i].infinite_limit()) {
-        *end = input_range[i].limit();
-      } else {
-        end = nullptr;
-      }
-      RangePtr range_ptr(start, end, input_range[i].include_start(),
-                         input_range[i].include_limit());
+      *start = input_range[i].start;
+      *end = input_range[i].limit;
+      RangePtr range_ptr(start, end, input_range[i].include_start,
+                         input_range[i].include_limit);
       compact_->sub_compact_states.emplace_back(c, range_ptr);
     }
   } else if (c->ShouldFormSubcompactions()) {
@@ -1324,40 +1317,25 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   auto compaction = compact_->compaction;
   auto cfd = compaction->column_family_data();
 
-  struct IteratorAndReader {
-    InternalIterator* iter;
-    TableReader* reader;
-  };
-
-  // used for RAII destruct range_del_agg and iterators
-  struct IteratorCache {
-    std::unordered_map<uint64_t, IteratorAndReader> map;
-    Arena arena;
-    RangeDelAggregator* range_del_agg;
-
-    ~IteratorCache() {
-      for (auto pair : map) {
-        pair.second.iter->~InternalIterator();
-      }
-      range_del_agg->~RangeDelAggregator();
-    }
-
-    void NewRangeDelAgg(const InternalKeyComparator& icmp,
-                        const std::vector<SequenceNumber>& snapshots) {
-      char* buffer = arena.AllocateAligned(sizeof(RangeDelAggregator));
-      range_del_agg = new(buffer) RangeDelAggregator(icmp, snapshots);
-    }
-  } iterator_cache;
-
-  iterator_cache.NewRangeDelAgg(cfd->internal_comparator(),
-                                existing_snapshots_);
-
   std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
-  auto& delend_files =
+  auto& depend_files =
       compaction->input_version()->storage_info()->depend_files();
 
-  auto new_iterator = [&](FileMetaData* f, int level,
-                          TableReader** reader) {
+  auto create_iterator = [&](const FileMetaData* f, uint64_t sst_id,
+                             Arena* arena, RangeDelAggregator* range_del_agg,
+                             TableReader** reader_ptr)->InternalIterator* {
+    
+    if (f == nullptr) {
+      auto find = depend_files.find(sst_id);
+      if (find == depend_files.end()) {
+        if (reader_ptr != nullptr) {
+          *reader_ptr = nullptr;
+        }
+        auto s = Status::Corruption("Variety sst depend files missing");
+        return NewErrorInternalIterator<Slice>(s, arena);
+      }
+      f = find->second;
+    }
     ReadOptions read_options;
     read_options.verify_checksums = true;
     read_options.fill_cache = false;
@@ -1366,42 +1344,18 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     return cfd->table_cache()->NewIterator(
                read_options, env_optiosn_for_read_,
                cfd->internal_comparator(), *f,
-               f->sst_variety == kMapSst ? empty_delend_files : delend_files,
-               iterator_cache.range_del_agg,
+               f->sst_variety == kMapSst ? empty_delend_files : depend_files,
+               range_del_agg,
                compaction->mutable_cf_options()->prefix_extractor.get(),
-               reader, nullptr /* no per level latency histogram */,
-               true /* for_compaction */, &iterator_cache.arena,
-               false /* skip_filters */, level);
+               reader_ptr, nullptr /* no per level latency histogram */,
+               true /* for_compaction */, arena,
+               false /* skip_filters */, -1);
   };
-  auto get_iterator = [&](FileMetaData* f, int level) {
-    auto find = iterator_cache.map.find(f->fd.GetNumber());
-    if (find != iterator_cache.map.end()) {
-      return find->second.iter;
-    }
-    IteratorAndReader item;
-    item.iter = new_iterator(f, level, &item.reader);
-    iterator_cache.map.emplace(f->fd.GetNumber(), item);
-    return item.iter;
-  };
-  auto get_iterator_and_reader = [&](uint64_t sst_id) {
-    auto find = iterator_cache.map.find(sst_id);
-    if (find != iterator_cache.map.end()) {
-      return find->second;
-    }
-    auto& depend_files
-        = compaction->input_version()->storage_info()->depend_files();
-    IteratorAndReader item;
-    auto find_f = depend_files.find(sst_id);
-    if (find_f == depend_files.end()) {
-      item.iter = NewErrorInternalIterator(
-                      Status::Corruption("Map sst depend files missing"));
-      item.reader = nullptr;
-    } else {
-      item.iter = new_iterator(find_f->second, -1, &item.reader);
-    }
-    iterator_cache.map.emplace(sst_id, item);
-    return item;
-  };
+
+  IteratorCache iterator_cache(std::ref(create_iterator));
+  iterator_cache.NewRangeDelAgg(cfd->internal_comparator(),
+                                existing_snapshots_);
+
   std::list<std::vector<RangeWithDepend>> level_ranges;
   MapSstElement map_element;
   InternalKey k_start, k_end;
@@ -1412,7 +1366,8 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     std::vector<RangeWithDepend> segments;
     for (auto f : level_files.files) {
       if (f->sst_variety == kMapSst) {
-        auto iter = get_iterator(f, level_files.level);
+        auto iter = iterator_cache.GetIterator(f);
+        assert(iter != nullptr);
         if (!iter->status().ok()) {
           sub_compact->status = iter->status();
           return;
@@ -1426,7 +1381,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
           segments.emplace_back(map_element);
         }
       } else {
-        get_iterator(f, level_files.level); // load into cache
+        iterator_cache.GetIterator(f); // load into cache
         segments.emplace_back(f);
       }
       if (level_files.level == 0) {
@@ -1511,8 +1466,8 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
     map_element.link_.clear();
 
     for (auto sst_id : range_with_depend.depend) {
-      auto item = get_iterator_and_reader(sst_id);
-      auto iter = item.iter;
+      TableReader* reader;
+      auto iter = iterator_cache.GetIterator(sst_id, &reader);
       if (!iter->status().ok()) {
         sub_compact->status = iter->status();
         return;
@@ -1549,9 +1504,9 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
         new_end = k_end;
       }
       uint64_t left_offset =
-          item.reader->ApproximateOffsetOf(k_start.Encode());
+          reader->ApproximateOffsetOf(k_start.Encode());
       uint64_t right_offset =
-          item.reader->ApproximateOffsetOf(k_end.Encode());
+          reader->ApproximateOffsetOf(k_end.Encode());
       sst_depend_build.emplace(sst_id);
 
       // append a link
@@ -1579,7 +1534,7 @@ void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
 
   CompactionIterationStats range_del_out_stats;
   status = FinishCompactionOutputFile(
-      status, sub_compact, iterator_cache.range_del_agg,
+      status, sub_compact, iterator_cache.GetRangeDelAggregator(),
       &range_del_out_stats);
 
   // Update metadata

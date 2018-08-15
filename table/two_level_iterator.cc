@@ -202,44 +202,6 @@ void TwoLevelIndexIterator::InitDataBlock() {
   }
 }
 
-struct IteratorCache {
-  std::function<InternalIterator*(uint64_t, Arena*)> create_iterator_;
-  Arena arena_;
-  PinnedIteratorsManager* pinned_iters_mgr_;
-  std::unordered_map<uint64_t, InternalIterator*> iterator_cache_;
-
-  IteratorCache(
-      std::function<InternalIterator*(uint64_t, Arena*)> create_iterator)
-      : create_iterator_(create_iterator),
-        pinned_iters_mgr_(nullptr) {}
-
-  ~IteratorCache() {
-    for (auto pair : iterator_cache_) {
-      pair.second->~InternalIterator();
-    }
-  }
-
-  InternalIterator* GetIterator(uint64_t sst_id) {
-    auto find = iterator_cache_.find(sst_id);
-    if (find != iterator_cache_.end()) {
-      return find->second;
-    }
-    auto iter = create_iterator_(sst_id, &arena_);
-    if (iter != nullptr) {
-      iter->SetPinnedItersMgr(pinned_iters_mgr_);
-      iterator_cache_.emplace(sst_id, iter);
-    }
-    return iter;
-  }
-
-  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
-    pinned_iters_mgr_ = pinned_iters_mgr;
-    for (auto pair : iterator_cache_) {
-      pair.second->SetPinnedItersMgr(pinned_iters_mgr);
-    }
-  }
-};
-
 class LinkSstIterator final : public InternalIterator {
  private:
   InternalIterator* first_level_iter_;
@@ -281,7 +243,7 @@ class LinkSstIterator final : public InternalIterator {
   LinkSstIterator(
       InternalIterator* iter,
       const InternalKeyComparator& icomp,
-      const std::function<InternalIterator*(uint64_t, Arena*)>& create)
+      const IteratorCache::CreateIterCallback& create)
       : first_level_iter_(iter),
         second_level_iter_(nullptr),
         has_bound_(false),
@@ -493,7 +455,7 @@ class MapSstIterator final : public InternalIterator {
   MapSstIterator(
       InternalIterator* iter,
       const InternalKeyComparator& icomp,
-      const std::function<InternalIterator*(uint64_t, Arena*)>& create)
+      const IteratorCache::CreateIterCallback& create)
       : first_level_iter_(iter),
         is_backword_(false),
         iterator_cache_(create),
@@ -633,7 +595,7 @@ template<class IteratorType>
 InternalIterator* NewVarietySstIterator(
     InternalIterator* link_sst_iter,
     const InternalKeyComparator& icomp,
-    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   if (arena == nullptr) {
     return new IteratorType(link_sst_iter, icomp, create_iter);
@@ -654,7 +616,7 @@ InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
 InternalIterator* NewLinkSstIterator(
     InternalIterator* link_sst_iter,
     const InternalKeyComparator& icomp,
-    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   return NewVarietySstIterator<LinkSstIterator>(link_sst_iter, icomp,
                                                 create_iter, arena);
@@ -664,7 +626,7 @@ InternalIterator* NewLinkSstIterator(
 InternalIterator* NewMapSstIterator(
     InternalIterator* link_sst_iter,
     const InternalKeyComparator& icomp,
-    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   return NewVarietySstIterator<MapSstIterator>(link_sst_iter, icomp,
                                                create_iter, arena);

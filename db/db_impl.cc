@@ -2266,9 +2266,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
 
     auto* vstorage = input_version->storage_info();
     for (size_t r = 0; r < n; r++) {
-      auto begin = ranges[r].start_ptr(), end = ranges[r].limit_ptr();
-      auto include_begin = ranges[r].include_start();
-      auto include_end = ranges[r].include_limit();
+      auto begin = ranges[r].start, end = ranges[r].limit;
+      auto include_begin = ranges[r].include_start;
+      auto include_end = ranges[r].include_limit;
       for (int i = 1; i < cfd->NumberLevels(); i++) {
         if (vstorage->LevelFiles(i).empty() ||
             !vstorage->OverlapInLevel(i, begin, end)) {

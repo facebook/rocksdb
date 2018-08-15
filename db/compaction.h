@@ -46,7 +46,7 @@ class Compaction {
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
              SstVarieties compaction_varieties = kGeneralSst,
-             const std::vector<RangePtrStorage>& input_range = {},
+             const std::vector<RangeStorage>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
 
   // No copying allowed
@@ -143,7 +143,7 @@ class Compaction {
   }
 
   // Range limit for inputs
-  const std::vector<RangePtrStorage>& input_range() const {
+  const std::vector<RangeStorage>& input_range() const {
     return input_range_;
   };
 
@@ -309,7 +309,7 @@ class Compaction {
   const SstVarieties compaction_varieties_;
 
   // Range limit for inputs
-  const std::vector<RangePtrStorage> input_range_;
+  const std::vector<RangeStorage> input_range_;
 
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;

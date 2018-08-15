@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#pragma once
 
 #include "util/range_partition.h"
 
@@ -13,24 +12,24 @@ namespace rocksdb {
 namespace {
   
 const Slice& RangePoint(const RangePtr& r, size_t i) {
-  return i == 0 ? r.start() : r.limit();
+  return i == 0 ? *r.start : *r.limit;
 }
 bool RangeInclude(const RangePtr& r, size_t i) {
-  return i == 0 ? r.include_start() : r.include_limit();
+  return i == 0 ? r.include_start : r.include_limit;
 }
 
 int CompRange(const InternalKeyComparator& icomp, const RangeWithDepend& a,
               size_t ao, const RangePtr& b, size_t bo) {
   if (bo == 0) {
-    if (b.infinite_start()) {
+    if (b.start == nullptr) {
       return 1;
     }
-    return icomp.Compare(a.point[ao].Encode(), b.start());
+    return icomp.Compare(a.point[ao].Encode(), *b.start);
   } else {
-    if (b.include_limit()) {
+    if (b.limit == nullptr) {
       return -1;
     }
-    return icomp.Compare(a.point[ao].Encode(), b.limit());
+    return icomp.Compare(a.point[ao].Encode(), *b.limit);
   }
 }
 

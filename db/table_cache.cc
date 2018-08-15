@@ -86,7 +86,7 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 InternalIterator* TranslateVarietySstIterator(
     const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
     const InternalKeyComparator& icomp,
-    const std::function<InternalIterator*(uint64_t, Arena*)>& create_iter,
+    const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   InternalIterator* result;
   switch (file_meta.sst_variety) {
@@ -417,16 +417,25 @@ InternalIterator* TableCache::NewIterator(
           bool skip_filters;
           int level;
 
-          InternalIterator* operator()(uint64_t sst_id, Arena* iter_arena) {
-            auto find = depend_files.find(sst_id);
-            if (find == depend_files.end()) {
-              return nullptr;
+          InternalIterator* operator()(
+              const FileMetaData* in_f, uint64_t sst_id, Arena* in_arena,
+              RangeDelAggregator* in_range_del_agg, TableReader** reader_ptr) {
+            if (in_f == nullptr) {
+              auto find = depend_files.find(sst_id);
+              if (find == depend_files.end()) {
+                if (reader_ptr != nullptr) {
+                  *reader_ptr = nullptr;
+                }
+                auto s =
+                    Status::Corruption("Variety sst depend files missing");
+                return NewErrorInternalIterator<Slice>(s, in_arena);
+              }
+              in_f = find->second;
             }
             return table_cache->NewIterator(
-                       options, env_options, icomparator, *find->second,
-                       depend_files, nullptr, prefix_extractor, nullptr,
-                       nullptr, for_compaction, iter_arena, skip_filters,
-                       level);
+                       options, env_options, icomparator, *in_f, depend_files,
+                       in_range_del_agg, prefix_extractor, reader_ptr,
+                       nullptr, for_compaction, in_arena, skip_filters, level);
           }
         } create_iterator {
           this, options, env_options, icomparator, depend_files,
