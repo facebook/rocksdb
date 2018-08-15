@@ -306,7 +306,7 @@ struct BlockBasedTableBuilder::Rep {
                    table_options.use_delta_encoding,
                    false /* use_value_delta_encoding */,
                    icomparator.user_comparator()
-                           ->CanKeysWithDifferentByteContentsEqual()
+                           ->CanKeysWithDifferentByteContentsBeEqual()
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio),

@@ -79,7 +79,7 @@ class Comparator {
   // as equal by this comparator.
   // The major use case is to determine if DataBlockHashIndex is compatible
   // with the customized comparator.
-  virtual bool CanKeysWithDifferentByteContentsEqual() const { return true; }
+  virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise

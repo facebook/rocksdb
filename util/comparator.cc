@@ -125,7 +125,7 @@ class BytewiseComparatorImpl : public Comparator {
     }
   }
 
-  virtual bool CanKeysWithDifferentByteContentsEqual() const override {
+  virtual bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }
 };
@@ -193,7 +193,7 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     // Don't do anything for simplicity.
   }
 
-  virtual bool CanKeysWithDifferentByteContentsEqual() const override {
+  virtual bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }
 };
