@@ -75,8 +75,10 @@ TEST_F(DocumentDBTest, SimpleQueryTest) {
   ASSERT_OK(DocumentDB::Open(options, dbname_, {}, &db_));
   CreateIndexes({index});
   delete db_;
+  db_ = nullptr;
   // now there is index present
   ASSERT_OK(DocumentDB::Open(options, dbname_, {index}, &db_));
+  assert(db_ != nullptr);
   delete index.description;
 
   std::vector<std::string> json_objects = {
