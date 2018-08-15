@@ -8,11 +8,14 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/slice.h"
+
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of
-// point-lookup within a data-block. It is not used in per-table index-blocks.
-// It supports Get(), but not Seek() or Scan(). If the key does not exist,
-// the iterator is set to invalid.
+// point-lookup within a data-block. It is only used in data blocks, and not
+// in meta-data blocks or per-table index blocks.
+//
+// It only used to support BlockBasedTable::Get().
 //
 // A serialized hash index is appended to the data-block. The new block data
 // format is as follows:
@@ -25,114 +28,105 @@ namespace rocksdb {
 // FOOTER:   A 32bit block footer, which is the NUM_RESTARTS with the MSB as
 //           the flag indicating if this hash index is in use. Note that
 //           given a data block < 32KB, the MSB is never used. So we can
-//           borrow the MSB as the hash index flag. Besides, this format is
-//           compatible with the legacy data-blocks < 32KB, as the MSB is 0.
+//           borrow the MSB as the hash index flag. Therefore, this format is
+//           compatible with the legacy data-blocks with num_restarts < 32768,
+//           as the MSB is 0.
 //
-// If we zoom in the HASH_IDX, the format of the data-block hash index is as
-// follows:
+// The format of the data-block hash index is as follows:
 //
-// HASH_IDX: [B B B ... B IDX NUM_BUCK MAP_START]
+// HASH_IDX: [B B B ... B NUM_BUCK]
 //
-// B:        B = bucket, an array of pairs <TAG, restart index>.
-//           TAG is the second hash value of the string. It is used to flag a
-//           matching entry among different keys that are hashed to the same
-//           bucket. A similar tagging idea is used in [Lim et. al, SOSP'11].
-//           However we have a differnet hash design that is not based on cuckoo
-//           hashing as Lim's paper is.
-//           We do not have to store the length of individual buckets, as they
-//           are delimited by the next bucket offset.
-// IDX:      Array of offsets of the index hash bucket (relative to MAP_START)
-// NUM_BUCK: Number of buckets, which is the length of the IDX array.
-// MAP_START: the starting offset of the data-block hash index.
+// B:         bucket, an array of restart index. Each buckets is uint8_t.
+// NUM_BUCK:  Number of buckets, which is the length of the bucket array.
 //
-// Each bucket B has the following structure:
-// [TAG RESTART_INDEX][TAG RESTART_INDEX]...[TAG RESTART_INDEX]
-// where TAG is the hash value of the second hash funtion.
+// We reserve two special flag:
+//    kNoEntry=255,
+//    kCollision=254.
 //
-// pairs of <key, restart index> are inserted to the hash index. Queries will
-// first lookup this hash index to find the restart index, then go to the
-// corresponding restart interval to search linearly for the key.
+// Therefore, the max number of restarts this hash index can supoport is 253.
 //
-// For a point-lookup for a key K:
+// Buckets are initialized to be kNoEntry.
 //
-//        Hash1()
-// 1) K ===========> bucket_id
+// When storing a key in the hash index, the key is first hashed to a bucket.
+// If there the bucket is empty (kNoEntry), the restart index is stored in
+// the bucket. If there is already a restart index there, we will update the
+// existing restart index to a collision marker (kCollision). If the
+// the bucket is already marked as collision, we do not store the restart
+// index either.
 //
-// 2) Look up this bucket_id in the IDX table to find the offset of the bucket
+// During query process, a key is first hashed to a bucket. Then we examine if
+// the buckets store nothing (kNoEntry) or the bucket had a collision
+// (kCollision). If either of those happens, we get the restart index of
+// the key and will directly go to the restart interval to search the key.
 //
-//        Hash2()
-// 3) K ============> TAG
-// 3) examine the first field (which is TAG) of each entry within this bucket,
-//    skip those without a matching TAG.
-// 4) for the entries matching the TAG, get the restart interval index from the
-//    second field.
-//
-// (following step are implemented in block.cc)
-// 5) lookup the restart index table (refer to the traditional block format),
-//    use the restart interval index to find the offset of the restart interval.
-// 6) linearly search the restart interval for the key.
-//
+// Note that we only support blocks with #restart_interval < 254. If a block
+// has more restart interval than that, hash index will not be create for it.
+
+const uint8_t kNoEntry = 255;
+const uint8_t kCollision = 254;
+const uint8_t kMaxRestartSupportedByHashIndex = 253;
+
+// Because we use uint16_t address, we only support block no more than 64KB
+const size_t kMaxBlockSizeSupportedByHashIndex = 1u << 16;
+const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
  public:
-  explicit DataBlockHashIndexBuilder(uint16_t n)
-      : num_buckets_(n),
-        buckets_(n),
-        estimate_((n + 2) *
-                  sizeof(uint16_t) /* n buckets, 2 num at the end */) {}
-  void Add(const Slice& key, const uint16_t& restart_index);
+  DataBlockHashIndexBuilder() : util_ratio_(0), valid_(false) {}
+
+  void Initialize(double util_ratio) {
+    if (util_ratio <= 0) {
+      util_ratio = kDefaultUtilRatio;  // sanity check
+    }
+    util_ratio_ = util_ratio;
+    valid_ = true;
+  }
+
+  inline bool Valid() const { return valid_ && util_ratio_ > 0; }
+  void Add(const Slice& key, const size_t restart_index);
   void Finish(std::string& buffer);
   void Reset();
-  inline size_t EstimateSize() { return estimate_; }
+  inline size_t EstimateSize() const {
+    uint16_t estimated_num_buckets = static_cast<uint16_t>(
+        static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
+
+    // Maching the num_buckets number in DataBlockHashIndexBuilder::Finish.
+    estimated_num_buckets |= 1;
+
+    return sizeof(uint16_t) +
+           static_cast<size_t>(estimated_num_buckets * sizeof(uint8_t));
+  }
 
  private:
-  uint16_t num_buckets_;
-  std::vector<std::vector<uint16_t>> buckets_;
-  size_t estimate_;
-};
+  double util_ratio_;
 
-class DataBlockHashIndexIterator;
+  // Now the only usage for `valid_` is to mark false when the inserted
+  // restart_index is larger than supported. In this case HashIndex is not
+  // appended to the block content.
+  bool valid_;
+
+  std::vector<std::pair<uint32_t, uint8_t>> hash_and_restart_pairs_;
+  friend class DataBlockHashIndex_DataBlockHashTestSmall_Test;
+};
 
 class DataBlockHashIndex {
  public:
-  explicit DataBlockHashIndex(Slice  block_content);
+  DataBlockHashIndex() : num_buckets_(0) {}
 
-  inline uint16_t DataBlockHashMapStart() const {
-    return static_cast<uint16_t>(map_start_ - data_);
-  }
+  void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
 
-  DataBlockHashIndexIterator* NewIterator(const Slice& key) const;
+  uint8_t Lookup(const char* data, uint32_t map_offset, const Slice& key) const;
+
+  inline bool Valid() { return num_buckets_ != 0; }
 
  private:
-  const char *data_;
   // To make the serialized hash index compact and to save the space overhead,
   // here all the data fields persisted in the block are in uint16 format.
   // We find that a uint16 is large enough to index every offset of a 64KiB
   // block.
   // So in other words, DataBlockHashIndex does not support block size equal
   // or greater then 64KiB.
-  uint16_t size_;
   uint16_t num_buckets_;
-  const char *map_start_;    // start of the map
-  const char *bucket_table_; // start offset of the bucket index table
-};
-
-class DataBlockHashIndexIterator {
- public:
-  DataBlockHashIndexIterator(const char* start, const char* end,
-                             const uint16_t tag)
-      : end_(end), tag_(tag) {
-    current_ = start - 2 * sizeof(uint16_t);
-    Next();
-  }
-  bool Valid();
-  void Next();
-  uint16_t Value();
-
- private:
-  const char* end_; // the end of the bucket
-  const uint16_t tag_;  // the fingerprint (2nd hash value) of the searching key
-  const char* current_;
 };
 
 }  // namespace rocksdb
