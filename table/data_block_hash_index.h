@@ -67,7 +67,7 @@ const uint8_t kCollision = 254;
 const uint8_t kMaxRestartSupportedByHashIndex = 253;
 
 // Because we use uint16_t address, we only support block no more than 64KB
-const size_t kMaxBlockSizeSupportedByHashIndex = 1 << 16;
+const size_t kMaxBlockSizeSupportedByHashIndex = 1u << 16;
 const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
