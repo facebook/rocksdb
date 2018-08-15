@@ -437,6 +437,7 @@ TESTS = \
 	table_properties_collector_test \
 	arena_test \
 	block_test \
+	data_block_hash_index_test \
 	cache_test \
 	corruption_test \
 	slice_transform_test \
@@ -529,6 +530,7 @@ TESTS = \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 	db_universal_compaction_test \
+	trace_analyzer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -572,6 +574,7 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump \
 	blob_dump \
+	trace_analyzer \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -665,7 +668,7 @@ $(SHARED4): $(shared_all_libobjects)
 endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
-	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
+	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib
 
@@ -1018,6 +1021,13 @@ tags:
 	cscope -b `$(FIND) . -name '*.cc'` `$(FIND) . -name '*.h'` `$(FIND) . -name '*.c'`
 	ctags -e -R -o etags *
 
+tags0:
+	ctags -R .
+	cscope -b `$(FIND) . -name '*.cc' -and ! -name '*_test.cc'` \
+		  `$(FIND) . -name '*.c' -and ! -name '*_test.c'` \
+		  `$(FIND) . -name '*.h' -and ! -name '*_test.h'`
+	ctags -e -R -o etags *
+
 format:
 	build_tools/format-diff.sh
 
@@ -1350,6 +1360,9 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+data_block_hash_index_test: table/data_block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1444,6 +1457,12 @@ options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHAR
 	$(AM_LINK)
 
 db_bench_tool_test: tools/db_bench_tool_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+trace_analyzer: tools/trace_analyzer.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+trace_analyzer_test: tools/trace_analyzer_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1760,20 +1779,26 @@ rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 
-rocksdbjavastaticreleasedocker: rocksdbjavastatic
-	DOCKER_LINUX_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_x64-be`; \
-	if [ -z "$$DOCKER_LINUX_X64_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x64-be evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
-	fi
-	docker start -a rocksdb_linux_x64-be
+rocksdbjavastaticreleasedocker: rocksdbjavastatic rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64
+	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
+	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
+	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
+
+rocksdbjavastaticdockerx86:
+	mkdir -p java/target
 	DOCKER_LINUX_X86_CONTAINER=`docker ps -aqf name=rocksdb_linux_x86-be`; \
 	if [ -z "$$DOCKER_LINUX_X86_CONTAINER" ]; then \
 		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x86-be evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
 	fi
 	docker start -a rocksdb_linux_x86-be
-	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
-	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
-	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
+
+rocksdbjavastaticdockerx86_64:
+	mkdir -p java/target
+	DOCKER_LINUX_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_x64-be`; \
+	if [ -z "$$DOCKER_LINUX_X64_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x64-be evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_x64-be
 
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target

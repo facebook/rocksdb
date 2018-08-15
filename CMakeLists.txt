@@ -48,6 +48,7 @@ option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
+option(WITH_ZSTD "build with zstd" OFF)
 if(MSVC)
   # Defaults currently different for GFLAGS.
   #  We will address find_package work a little later
@@ -108,7 +109,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${LZ4_LIBRARIES})
   endif()
 
-  option(WITH_ZSTD "build with zstd" OFF)
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
@@ -307,14 +307,6 @@ if(DISABLE_STALL_NOTIF)
   add_definitions(-DROCKSDB_DISABLE_STALL_NOTIFICATION)
 endif()
 
-# Used to run CI build and tests so we can run faster
-set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
-
-if(DEFINED OPTDBG)
-   set(OPTIMIZE_DEBUG ${OPTDBG})
-else()
-   set(OPTIMIZE_DEBUG ${OPTIMIZE_DEBUG_DEFAULT})
-endif()
 
 if(DEFINED USE_RTTI)
   if(USE_RTTI)
@@ -342,8 +334,10 @@ else()
   endif()
 endif()
 
+# Used to run CI build and tests so we can run faster
+option(OPTDBG "Build optimized debug build with MSVC" OFF)
 if(MSVC)
-  if((${OPTIMIZE_DEBUG} EQUAL 1))
+  if(OPTDBG)
     message(STATUS "Debug optimization is enabled")
     set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /${RUNTIME_LIBRARY}d")
   else()
@@ -494,7 +488,6 @@ set(SOURCES
         db/log_reader.cc
         db/log_writer.cc
         db/malloc_stats.cc
-        db/managed_iterator.cc
         db/memtable.cc
         db/memtable_list.cc
         db/merge_helper.cc
@@ -556,6 +549,8 @@ set(SOURCES
         table/cuckoo_table_builder.cc
         table/cuckoo_table_factory.cc
         table/cuckoo_table_reader.cc
+        table/data_block_hash_index.cc
+        table/data_block_footer.cc
         table/flush_block_policy.cc
         table/format.cc
         table/full_filter_block.cc
@@ -579,6 +574,7 @@ set(SOURCES
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
+        tools/trace_analyzer_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
         util/bloom.cc
@@ -603,13 +599,13 @@ set(SOURCES
         util/slice.cc
         util/sst_file_manager_impl.cc
         util/status.cc
-        util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
         util/sync_point_impl.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/trace_replay.cc
         util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
@@ -621,7 +617,6 @@ set(SOURCES
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
         utilities/blob_db/blob_log_format.cc
-        utilities/blob_db/ttl_extractor.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
@@ -658,6 +653,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
+        utilities/trace/file_trace_reader_writer.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -921,12 +917,14 @@ if(WITH_TESTS)
         table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc
+        table/data_block_hash_index_test.cc
         table/full_filter_block_test.cc
         table/merger_test.cc
         table/table_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
+        tools/trace_analyzer_test.cc
         util/arena_test.cc
         util/auto_roll_logger_test.cc
         util/autovector_test.cc

@@ -131,7 +131,8 @@ class EmptyIterator : public Iterator {
   Status status_;
 };
 
-class EmptyInternalIterator : public InternalIterator {
+template <class TValue = Slice>
+class EmptyInternalIterator : public InternalIteratorBase<TValue> {
  public:
   explicit EmptyInternalIterator(const Status& s) : status_(s) {}
   virtual bool Valid() const override { return false; }
@@ -145,9 +146,9 @@ class EmptyInternalIterator : public InternalIterator {
     assert(false);
     return Slice();
   }
-  Slice value() const override {
+  TValue value() const override {
     assert(false);
-    return Slice();
+    return TValue();
   }
   virtual Status status() const override { return status_; }
 
@@ -164,30 +165,48 @@ Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
 }
 
-InternalIterator* NewEmptyInternalIterator() {
-  return new EmptyInternalIterator(Status::OK());
+template <class TValue>
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status) {
+  return new EmptyInternalIterator<TValue>(status);
 }
+template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
+    const Status& status);
+template InternalIteratorBase<Slice>* NewErrorInternalIterator(
+    const Status& status);
 
-InternalIterator* NewEmptyInternalIterator(Arena* arena) {
+template <class TValue>
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
+                                                       Arena* arena) {
   if (arena == nullptr) {
-    return NewEmptyInternalIterator();
+    return NewErrorInternalIterator<TValue>(status);
   } else {
     auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
-    return new (mem) EmptyInternalIterator(Status::OK());
+    return new (mem) EmptyInternalIterator<TValue>(status);
   }
 }
+template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
+template InternalIteratorBase<Slice>* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
 
-InternalIterator* NewErrorInternalIterator(const Status& status) {
-  return new EmptyInternalIterator(status);
+template <class TValue>
+InternalIteratorBase<TValue>* NewEmptyInternalIterator() {
+  return new EmptyInternalIterator<TValue>(Status::OK());
 }
+template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator();
+template InternalIteratorBase<Slice>* NewEmptyInternalIterator();
 
-InternalIterator* NewErrorInternalIterator(const Status& status, Arena* arena) {
+template <class TValue>
+InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
   if (arena == nullptr) {
-    return NewErrorInternalIterator(status);
+    return NewEmptyInternalIterator<TValue>();
   } else {
     auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
-    return new (mem) EmptyInternalIterator(status);
+    return new (mem) EmptyInternalIterator<TValue>(Status::OK());
   }
 }
+template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator(
+    Arena* arena);
+template InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
 
 }  // namespace rocksdb

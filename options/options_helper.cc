@@ -168,6 +168,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.max_bytes_for_level_base;
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
+  cf_opts.ttl = mutable_cf_options.ttl;
 
   cf_opts.max_bytes_for_level_multiplier_additional.clear();
   for (auto value :
@@ -493,6 +494,11 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<BlockBasedTableOptions::IndexType>(
           block_base_table_index_type_string_map, value,
           reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
+    case OptionType::kBlockBasedTableDataBlockIndexType:
+      return ParseEnum<BlockBasedTableOptions::DataBlockIndexType>(
+          block_base_table_data_block_index_type_string_map, value,
+          reinterpret_cast<BlockBasedTableOptions::DataBlockIndexType*>(
+              opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
@@ -670,6 +676,12 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<BlockBasedTableOptions::IndexType>(
           block_base_table_index_type_string_map,
           *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
+              opt_address),
+          value);
+    case OptionType::kBlockBasedTableDataBlockIndexType:
+      return SerializeEnum<BlockBasedTableOptions::DataBlockIndexType>(
+          block_base_table_data_block_index_type_string_map,
+          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
               opt_address),
           value);
     case OptionType::kFlushBlockPolicyFactory: {
@@ -1551,6 +1563,13 @@ std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kTwoLevelIndexSearch",
          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}};
 
+std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
+    OptionsHelper::block_base_table_data_block_index_type_string_map = {
+        {"kDataBlockBinarySearch",
+         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch},
+        {"kDataBlockBinaryAndHash",
+         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash}};
+
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
                                                {"kPrefix", kPrefix}};
@@ -1867,7 +1886,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct MutableCFOptions, compaction_options_universal)}},
         {"ttl",
          {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
-          OptionVerificationType::kNormal, false, 0}}};
+          OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, ttl)}}};
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::fifo_compaction_options_type_info = {

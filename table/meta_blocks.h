@@ -27,7 +27,6 @@ class Footer;
 class Logger;
 class RandomAccessFile;
 struct TableProperties;
-class InternalIterator;
 
 class MetaIndexBuilder {
  public:

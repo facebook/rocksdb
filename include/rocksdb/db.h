@@ -53,6 +53,7 @@ struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
+class TraceWriter;
 
 using std::unique_ptr;
 
@@ -996,11 +997,6 @@ class DB {
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
   // Obtains the meta data of the specified column family of the DB.
-  // Status::NotFound() will be returned if the current DB does not have
-  // any column family match the specified name.
-  //
-  // If cf_name is not specified, then the metadata of the default
-  // column family will be returned.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
 
@@ -1173,6 +1169,15 @@ class DB {
     return Status::NotSupported("PromoteL0() is not implemented.");
   }
 
+  // Trace DB operations. Use EndTrace() to stop tracing.
+  virtual Status StartTrace(const TraceOptions& /*options*/,
+                            std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartTrace() is not implemented.");
+  }
+
+  virtual Status EndTrace() {
+    return Status::NotSupported("EndTrace() is not implemented.");
+  }
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

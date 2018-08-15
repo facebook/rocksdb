@@ -714,7 +714,10 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 
 bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
                                           Slice* result) {
-  if (offset < buffer_offset_) {
+  if (track_min_offset_ && offset < min_offset_read_) {
+    min_offset_read_ = offset;
+  }
+  if (!enable_ || offset < buffer_offset_) {
     return false;
   }
 
@@ -755,6 +758,43 @@ Status NewWritableFile(Env* env, const std::string& fname,
   Status s = env->NewWritableFile(fname, result, options);
   TEST_KILL_RANDOM("NewWritableFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
   return s;
+}
+
+bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
+                 std::string* output, bool* has_data, Status* result) {
+  const int kBufferSize = 8192;
+  char buffer[kBufferSize + 1];
+  Slice input_slice;
+
+  std::string line;
+  bool has_complete_line = false;
+  while (!has_complete_line) {
+    if (std::getline(*iss, line)) {
+      has_complete_line = !iss->eof();
+    } else {
+      has_complete_line = false;
+    }
+    if (!has_complete_line) {
+      // if we're not sure whether we have a complete line,
+      // further read from the file.
+      if (*has_data) {
+        *result = seq_file->Read(kBufferSize, &input_slice, buffer);
+      }
+      if (input_slice.size() == 0) {
+        // meaning we have read all the data
+        *has_data = false;
+        break;
+      } else {
+        iss->str(line + input_slice.ToString());
+        // reset the internal state of iss so that we can keep reading it.
+        iss->clear();
+        *has_data = (input_slice.size() == kBufferSize);
+        continue;
+      }
+    }
+  }
+  *output = line;
+  return *has_data || has_complete_line;
 }
 
 }  // namespace rocksdb

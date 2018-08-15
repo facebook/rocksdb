@@ -52,7 +52,6 @@ class Writer;
 }
 
 class Compaction;
-class InternalIterator;
 class LogBuffer;
 class LookupKey;
 class MemTable;
@@ -137,7 +136,8 @@ class VersionStorageInfo {
 
   // This computes ttl_expired_files_ and is called by
   // ComputeCompactionScore()
-  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions);
+  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
+                              const uint64_t ttl);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -834,6 +834,11 @@ class VersionSet {
 
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
+
+  // Fetch And Add n new file number
+  uint64_t FetchAddFileNumber(uint64_t n) {
+    return next_file_number_.fetch_add(n);
+  }
 
   // Return the last sequence number.
   uint64_t LastSequence() const {

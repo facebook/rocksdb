@@ -76,6 +76,8 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kTopLevelIndexSize, props.top_level_index_size);
   }
   Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
+  Add(TablePropertiesNames::kIndexValueIsDeltaEncoded,
+      props.index_value_is_delta_encoded);
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
   Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
@@ -218,6 +220,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
        &new_table_properties->top_level_index_size},
       {TablePropertiesNames::kIndexKeyIsUserKey,
        &new_table_properties->index_key_is_user_key},
+      {TablePropertiesNames::kIndexValueIsDeltaEncoded,
+       &new_table_properties->index_value_is_delta_encoded},
       {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
       {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
       {TablePropertiesNames::kRawValueSize,

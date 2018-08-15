@@ -41,7 +41,6 @@
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/malloc_stats.h"
-#include "db/managed_iterator.h"
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
@@ -1048,7 +1047,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   } else {
     CleanupSuperVersion(super_version);
   }
-  return NewErrorInternalIterator(s, arena);
+  return NewErrorInternalIterator<Slice>(s, arena);
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
@@ -1071,6 +1070,15 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(column_family, key);
+    }
+  }
 
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
@@ -1578,6 +1586,10 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  if (read_options.managed) {
+    return NewErrorIterator(
+        Status::NotSupported("Managed iterator is not supported anymore."));
+  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -1595,22 +1607,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-  if (read_options.managed) {
-#ifdef ROCKSDB_LITE
-    // not supported in lite version
-    result = NewErrorIterator(Status::InvalidArgument(
-        "Managed Iterators not supported in RocksDBLite."));
-#else
-    if ((read_options.tailing) || (read_options.snapshot != nullptr) ||
-        (is_snapshot_supported_)) {
-      result = new ManagedIterator(this, read_options, cfd);
-    } else {
-      // Managed iter not supported
-      result = NewErrorIterator(Status::InvalidArgument(
-          "Managed Iterators not supported without snapshots."));
-    }
-#endif
-  } else if (read_options.tailing) {
+if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
     result = nullptr;
@@ -1621,8 +1618,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        read_callback);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
+        this, cfd);
 #endif
   } else {
     // Note: no need to consider the special case of
@@ -1689,9 +1686,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback,
-      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob,
-      allow_refresh);
+      sv->version_number, read_callback, this, cfd, allow_blob,
+      ((read_options.snapshot != nullptr) ? false : allow_refresh));
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1705,6 +1701,9 @@ Status DBImpl::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (read_options.managed) {
+    return Status::NotSupported("Managed iterator is not supported anymore.");
+  }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
@@ -1712,23 +1711,7 @@ Status DBImpl::NewIterators(
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
-  if (read_options.managed) {
-#ifdef ROCKSDB_LITE
-    return Status::InvalidArgument(
-        "Managed interator not supported in RocksDB lite");
-#else
-    if ((!read_options.tailing) && (read_options.snapshot == nullptr) &&
-        (!is_snapshot_supported_)) {
-      return Status::InvalidArgument(
-          "Managed interator not supported without snapshots");
-    }
-    for (auto cfh : column_families) {
-      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      auto iter = new ManagedIterator(this, read_options, cfd);
-      iterators->push_back(iter);
-    }
-#endif
-  } else if (read_options.tailing) {
+  if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     return Status::InvalidArgument(
         "Tailing interator not supported in RocksDB lite");
@@ -1741,7 +1724,7 @@ Status DBImpl::NewIterators(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          read_callback));
+          read_callback, this, cfd));
     }
 #endif
   } else {
@@ -2252,9 +2235,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
-                                         *cfd->GetLatestMutableCFOptions(),
-                                         FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_contexts[0],
+          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2337,9 +2320,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd, &job_context.superversion_context,
-                                         *cfd->GetLatestMutableCFOptions(),
-                                         FlushReason::kDeleteFiles);
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_contexts[0],
+          *cfd->GetLatestMutableCFOptions(), FlushReason::kDeleteFiles);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2904,6 +2887,10 @@ Status DBImpl::IngestExternalFile(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& external_files,
     const IngestExternalFileOptions& ingestion_options) {
+  if (external_files.empty()) {
+    return Status::InvalidArgument("external_files is empty");
+  }
+
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -2921,6 +2908,9 @@ Status DBImpl::IngestExternalFile(
                                             immutable_db_options_, env_options_,
                                             &snapshots_, ingestion_options);
 
+  SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
+  VersionEdit dummy_edit;
+  uint64_t next_file_number = 0;
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -2931,12 +2921,33 @@ Status DBImpl::IngestExternalFile(
 
     // Make sure that bg cleanup wont delete the files that we are ingesting
     pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+
+    // If crash happen after a hard link established, Recover function may
+    // reuse the file number that has already assigned to the internal file,
+    // and this will overwrite the external file. To protect the external
+    // file, we have to make sure the file number will never being reused.
+    next_file_number = versions_->FetchAddFileNumber(external_files.size());
+    auto cf_options = cfd->GetLatestMutableCFOptions();
+    status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
+                                    directories_.GetDbDir());
+    if (status.ok()) {
+      InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+    }
+  }
+  dummy_sv_ctx.Clean();
+  if (!status.ok()) {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+    return status;
   }
 
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
-  status = ingestion_job.Prepare(external_files, super_version);
+  status =
+      ingestion_job.Prepare(external_files, next_file_number, super_version);
   CleanupSuperVersion(super_version);
   if (!status.ok()) {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
@@ -3079,7 +3090,6 @@ Status DBImpl::VerifyChecksum() {
 
 void DBImpl::NotifyOnExternalFileIngested(
     ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.empty()) {
     return;
   }
@@ -3095,8 +3105,6 @@ void DBImpl::NotifyOnExternalFileIngested(
       listener->OnExternalFileIngested(this, info);
     }
   }
-
-#endif
 }
 
 void DBImpl::WaitForIngestFile() {
@@ -3106,5 +3114,42 @@ void DBImpl::WaitForIngestFile() {
   }
 }
 
+Status DBImpl::StartTrace(const TraceOptions& /* options */,
+                          std::unique_ptr<TraceWriter>&& trace_writer) {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+  return Status::OK();
+}
+
+Status DBImpl::EndTrace() {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  Status s = tracer_->Close();
+  tracer_.reset();
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorSeek(cf_id, key);
+    }
+  }
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorSeekForPrev(cf_id, key);
+    }
+  }
+  return s;
+}
+
 #endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb

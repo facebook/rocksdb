@@ -64,6 +64,7 @@ class WritePreparedTxn : public PessimisticTransaction {
   virtual void SetSnapshot() override;
 
  protected:
+  void Initialize(const TransactionOptions& txn_options) override;
   // Override the protected SetId to make it visible to the friend class
   // WritePreparedTxnDB
   inline void SetId(uint64_t id) override { Transaction::SetId(id); }
@@ -72,6 +73,7 @@ class WritePreparedTxn : public PessimisticTransaction {
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTxnDB;
   friend class WriteUnpreparedTxnDB;
+  friend class WriteUnpreparedTxn;
 
   Status PrepareInternal() override;
 

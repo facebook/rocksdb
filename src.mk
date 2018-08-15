@@ -38,7 +38,6 @@ LIB_SOURCES =                                                   \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
   db/malloc_stats.cc                                            \
-  db/managed_iterator.cc                                        \
   db/memtable.cc                                                \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
@@ -104,6 +103,8 @@ LIB_SOURCES =                                                   \
   table/cuckoo_table_builder.cc                                 \
   table/cuckoo_table_factory.cc                                 \
   table/cuckoo_table_reader.cc                                  \
+  table/data_block_hash_index.cc                                \
+  table/data_block_footer.cc                                    \
   table/flush_block_policy.cc                                   \
   table/format.cc                                               \
   table/full_filter_block.cc                                    \
@@ -148,12 +149,12 @@ LIB_SOURCES =                                                   \
   util/slice.cc                                                 \
   util/sst_file_manager_impl.cc                                 \
   util/status.cc                                                \
-  util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
   util/sync_point_impl.cc                                       \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
+  util/trace_replay.cc                                          \
   util/transaction_test_util.cc                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
@@ -164,7 +165,6 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_log_format.cc                          \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
-  utilities/blob_db/ttl_extractor.cc                            \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
@@ -199,6 +199,7 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
+  utilities/trace/file_trace_reader_writer.cc                   \
   utilities/transactions/optimistic_transaction.cc              \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
@@ -231,6 +232,7 @@ TOOL_LIB_SOURCES = \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
   utilities/blob_db/blob_dump_tool.cc                           \
+  tools/trace_analyzer_tool.cc					\
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
@@ -348,6 +350,7 @@ MAIN_SOURCES =                                                          \
   table/cleanable_test.cc                                               \
   table/cuckoo_table_builder_test.cc                                    \
   table/cuckoo_table_reader_test.cc                                     \
+  table/data_block_hash_index_test.cc                                   \
   table/full_filter_block_test.cc                                       \
   table/merger_test.cc                                                  \
   table/table_reader_bench.cc                                           \
@@ -359,6 +362,7 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
+  tools/trace_analyzer_test.cc						\
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \

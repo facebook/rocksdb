@@ -272,8 +272,6 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
-    auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-    pdb->UnregisterTransaction(txn);
     delete txn;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
@@ -387,12 +385,6 @@ class TransactionTestBase : public ::testing::Test {
             ASSERT_OK(txn->Prepare());
           }
           ASSERT_OK(txn->Commit());
-          if (type == 2) {
-            auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-            // TODO(myabandeh): this is counter-intuitive. The destructor should
-            // also do the unregistering.
-            pdb->UnregisterTransaction(txn);
-          }
           delete txn;
           break;
         default:
@@ -414,7 +406,7 @@ class TransactionTestBase : public ::testing::Test {
     if (empty_wal) {
       ASSERT_OK(s);
     } else {
-      // Test that we can detect the WAL that is produced by an incompatbile
+      // Test that we can detect the WAL that is produced by an incompatible
       // WritePolicy and fail fast before mis-interpreting the WAL.
       ASSERT_TRUE(s.IsNotSupported());
       return;
