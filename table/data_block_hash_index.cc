@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-void DataBlockHashIndexBuilder::Add(const Slice key,
+void DataBlockHashIndexBuilder::Add(const Slice& key,
                                     const size_t restart_index) {
   assert(Valid());
   if (restart_index > kMaxRestartSupportedByHashIndex) {
