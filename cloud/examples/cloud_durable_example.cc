@@ -19,6 +19,9 @@ std::string kDBPath = "/tmp/rocksdb_cloud_durable";
 std::string kBucketSuffix = "cloud.durable.example.";
 std::string kRegion = "us-west-2";
 
+static const bool flushAtEnd = true;
+static const bool disableWAL = false;
+
 int main() {
   // cloud environment config options here
   CloudEnvOptions cloud_env_options;
@@ -72,6 +75,10 @@ int main() {
   // No persistent read-cache
   std::string persistent_cache = "";
 
+  // options for each write
+  WriteOptions wopt;
+  wopt.disableWAL = disableWAL;
+
   // open DB
   DBCloud* db;
   s = DBCloud::Open(options, kDBPath, persistent_cache, 0, &db);
@@ -82,7 +89,7 @@ int main() {
   }
 
   // Put key-value
-  s = db->Put(WriteOptions(), "key1", "value");
+  s = db->Put(wopt, "key1", "value");
   assert(s.ok());
   std::string value;
   // get value
@@ -95,7 +102,7 @@ int main() {
     WriteBatch batch;
     batch.Delete("key1");
     batch.Put("key2", value);
-    s = db->Write(WriteOptions(), &batch);
+    s = db->Write(wopt, &batch);
   }
 
   s = db->Get(ReadOptions(), "key1", &value);
@@ -113,7 +120,9 @@ int main() {
   delete it;
 
   // Flush all data from main db to sst files. Release db.
-  db->Flush(FlushOptions());
+  if (flushAtEnd) {
+    db->Flush(FlushOptions());
+  }
   delete db;
 
   fprintf(stdout, "Successfully used db at path %s in bucket %s.\n",
