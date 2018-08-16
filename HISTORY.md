@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.15.5 (8/16/2018)
+### Bug Fixes
+* Fix VerifyChecksum() API not preserving options
+
 ## 5.15.4 (8/11/2018)
 ### Bug Fixes
 * Fix a bug caused by not generating OnTableFileCreated() notification for a 0-byte SST.
