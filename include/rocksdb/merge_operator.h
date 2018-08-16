@@ -195,6 +195,11 @@ class MergeOperator {
   // during a point lookup, thereby helping in limiting the number of levels to
   // read from.
   // Doesn't help with iterators.
+  //
+  // Note: the merge operands are passed to this function in the reversed order
+  // relative to how they were merged (passed to FullMerge or FullMergeV2)
+  // for performance reasons, see also:
+  // https://github.com/facebook/rocksdb/issues/3865
   virtual bool ShouldMerge(const std::vector<Slice>& /*operands*/) const {
     return false;
   }
