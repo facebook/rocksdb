@@ -466,6 +466,15 @@ DEFINE_bool(enable_index_compression,
 DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_bool(use_data_block_hash_index, false, "if use kDataBlockBinaryAndHash "
+            "instead of kDataBlockBinarySearch. "
+            "This is valid if only we use BlockTable");
+
+DEFINE_double(data_block_hash_table_util_ratio, 0.75,
+              "util ratio for data block hash index table. "
+              "This is only valid if use_data_block_hash_index is "
+              "set to true");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -1062,13 +1071,6 @@ DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
-DEFINE_bool(use_data_block_hash_index, false, "if use kDataBlockBinaryAndHash "
-            "instead of kDataBlockBinarySearch. "
-            "This is valid if only we use BlockTable");
-DEFINE_double(data_block_hash_table_util_ratio, 0.75,
-              "util ratio for data block hash index table. "
-              "This is only valid if use_data_block_hash_index is "
-              "set to true");
 DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
             "instead of kFullFilter for filter block. "
             "This is valid if only we use BlockTable");
@@ -2061,15 +2063,6 @@ class Benchmark {
 
     auto compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression: %s\n", compression.c_str());
-
-    if (FLAGS_use_data_block_hash_index) {
-      fprintf(stdout,
-              "DataBlockIndexType: binary_and_hash "
-              "(hash util_ratio = %lf)\n",
-              FLAGS_data_block_hash_table_util_ratio);
-    } else {
-      fprintf(stdout, "DataBlockIndexType: binary\n");
-    }
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
