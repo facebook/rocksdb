@@ -13,67 +13,503 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
 #include <algorithm>
-#include <functional>
+#include <inttypes.h>
 #include <list>
-#include <memory>
-#include <random>
-#include <set>
-#include <thread>
-#include <utility>
-#include <vector>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "db/builder.h"
-#include "db/db_impl.h"
-#include "db/db_iter.h"
-#include "db/dbformat.h"
-#include "db/error_handler.h"
 #include "db/event_helpers.h"
-#include "db/log_reader.h"
-#include "db/log_writer.h"
-#include "db/memtable.h"
-#include "db/memtable_list.h"
-#include "db/merge_context.h"
-#include "db/merge_helper.h"
-#include "db/version_set.h"
-#include "monitoring/iostats_context_imp.h"
-#include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-#include "table/block.h"
-#include "table/block_based_table_factory.h"
-#include "table/merging_iterator.h"
-#include "table/table_builder.h"
-#include "util/coding.h"
-#include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/iterator_cache.h"
-#include "util/log_buffer.h"
-#include "util/logging.h"
-#include "util/mutexlock.h"
-#include "util/random.h"
-#include "util/range_partition.h"
 #include "util/sst_file_manager_impl.h"
-#include "util/stop_watch.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
+  
+struct FileMetaDataBoundBuilder {
+  const InternalKeyComparator& icomp;
+  InternalKey smallest, largest;
+  SequenceNumber smallest_seqno;
+  SequenceNumber largest_seqno;
+  uint64_t creation_time;
+
+  FileMetaDataBoundBuilder(const InternalKeyComparator& _icomp)
+      : icomp(_icomp),
+        smallest_seqno(kMaxSequenceNumber),
+        largest_seqno(0),
+        creation_time(0) {}
+
+  void Update(const FileMetaData* f) {
+    if (smallest.size() == 0 || icomp.Compare(f->smallest, smallest) < 0) {
+      smallest = f->smallest;
+    }
+    if (largest.size() == 0 || icomp.Compare(f->largest, largest) > 0) {
+      largest = f->largest;
+    }
+    smallest_seqno = std::min(smallest_seqno, f->fd.smallest_seqno);
+    largest_seqno = std::max(largest_seqno, f->fd.largest_seqno);
+  }
+
+};
+
+namespace {
+
+struct RangeWithDepend {
+  InternalKey point[2];
+  bool include[2];
+  std::vector<uint64_t> depend;
+
+  RangeWithDepend() = default;
+
+
+  RangeWithDepend(const FileMetaData* f) {
+    point[0] = f->smallest;
+    point[1] = f->largest;
+    include[0] = true;
+    include[1] = true;
+    depend.push_back(f->fd.GetNumber());
+  }
+
+  RangeWithDepend(const MapSstElement& map_element) {
+    point[0].DecodeFrom(map_element.smallest_key_);
+    point[1].DecodeFrom(map_element.largest_key_);
+    include[0] = true;
+    include[1] = true;
+    depend.resize(map_element.link_.size());
+    for (size_t i = 0; i < depend.size(); ++i) {
+      depend[i] = map_element.link_[i].sst_id;
+    }
+  }
+};
+  
+const Slice& RangePoint(const RangePtr& r, size_t i) {
+  return i == 0 ? *r.start : *r.limit;
+}
+bool RangeInclude(const RangePtr& r, size_t i) {
+  return i == 0 ? r.include_start : r.include_limit;
+}
+
+int CompRange(const InternalKeyComparator& icomp, const RangeWithDepend& a,
+              size_t ao, const RangePtr& b, size_t bo) {
+  if (bo == 0) {
+    if (b.start == nullptr) {
+      return 1;
+    }
+    return icomp.Compare(a.point[ao].Encode(), *b.start);
+  } else {
+    if (b.limit == nullptr) {
+      return -1;
+    }
+    return icomp.Compare(a.point[ao].Encode(), *b.limit);
+  }
+}
+}
+
+class MapSstElementIterator {
+ public:
+  MapSstElementIterator(
+      const std::vector<RangeWithDepend>& ranges,
+      IteratorCache& iterator_cache, const InternalKeyComparator& icomp)
+      : ranges_(ranges),
+        iterator_cache_(iterator_cache),
+        icomp_(icomp) {}
+  bool Valid() const { return !buffer_.empty(); }
+  void SeekToFirst() {
+    where_ = ranges_.begin();
+    PrepareNext();
+  }
+  void Next() { PrepareNext(); }
+  Slice key() const { return map_elements_.Key(); }
+  Slice value() const { return buffer_; }
+  Status status() const { return status_; }
+
+ RangeDelAggregator* GetRangeDelAggregator() {
+   return iterator_cache_.GetRangeDelAggregator();
+ }
+
+ const std::unordered_set<uint64_t>& GetSstDepend() const {
+   return sst_depend_build_;
+ }
+
+ private:
+
+  void PrepareNext() {
+    while (TryPrepareNext());
+  }
+
+  bool TryPrepareNext() {
+    if (where_ == ranges_.end()) {
+      buffer_.clear();
+      return false;
+    }
+    auto& range_with_depend = *where_;
+    auto& start = range_with_depend.point[0];
+    auto& end = range_with_depend.point[1];
+    bool include_start = range_with_depend.include[0];
+    bool include_end = range_with_depend.include[1];
+    new_start_.Clear();
+    new_end_.Clear();
+    map_elements_.link_.clear();
+
+    for (auto sst_id : range_with_depend.depend) {
+      TableReader* reader;
+      auto iter = iterator_cache_.GetIterator(sst_id, &reader);
+      if (!iter->status().ok()) {
+        buffer_.clear();
+        status_ = iter->status();
+        return false;
+      }
+      iter->Seek(start.Encode());
+      if (!iter->Valid()) {
+        continue;
+      }
+      if (!include_start && icomp_.Compare(iter->key(), start.Encode()) == 0) {
+        iter->Next();
+        if (!iter->Valid()) {
+          continue;
+        }
+      }
+      start_.DecodeFrom(iter->key());
+      iter->SeekForPrev(end.Encode());
+      if (!iter->Valid()) {
+        continue;
+      }
+      if (!include_end && icomp_.Compare(iter->key(), end.Encode()) == 0) {
+        iter->Prev();
+        if (!iter->Valid()) {
+          continue;
+        }
+      }
+      end_.DecodeFrom(iter->key());
+      if (icomp_.Compare(start_, end_) > 0) {
+        continue;
+      }
+      if (new_start_.size() == 0 || icomp_.Compare(start_, new_start_) < 0) {
+        new_start_ = start_;
+      }
+      if (new_end_.size() == 0 || icomp_.Compare(end_, new_end_) > 0) {
+        new_end_ = end_;
+      }
+      uint64_t left_offset =
+          reader->ApproximateOffsetOf(start_.Encode());
+      uint64_t right_offset =
+          reader->ApproximateOffsetOf(end_.Encode());
+      sst_depend_build_.emplace(sst_id);
+
+      // append a link
+      MapSstElement::LinkTarget link;
+      link.sst_id = sst_id;
+      link.size = right_offset - left_offset;
+      map_elements_.link_.emplace_back(link);
+    }
+    ++where_;
+    if (!map_elements_.link_.empty()) {
+      // output map_element
+      map_elements_.smallest_key_ = new_start_.Encode();
+      map_elements_.largest_key_ = new_end_.Encode();
+      map_elements_.Value(&buffer_);
+      return false;
+    }
+    return true;
+  }
+
+ private:
+  Status status_;
+  MapSstElement map_elements_;
+  InternalKey new_start_, new_end_;
+  InternalKey start_, end_;
+  std::string buffer_;
+  std::vector<RangeWithDepend>::const_iterator where_;
+  const std::vector<RangeWithDepend>& ranges_;
+  std::unordered_set<uint64_t> sst_depend_build_;
+  IteratorCache& iterator_cache_;
+  const InternalKeyComparator& icomp_;
+};
+
+namespace {
+
+Status LoadRangeWithDepend(
+    std::vector<RangeWithDepend>& ranges,
+    FileMetaDataBoundBuilder* bound_builder, IteratorCache& iterator_cache,
+    const FileMetaData* const* file_meta, size_t n) {
+  MapSstElement map_element;
+  for (size_t i = 0; i < n; ++i) {
+    auto f = file_meta[i];
+    TableReader* reader;
+    if (f->sst_variety == kMapSst) {
+      auto iter = iterator_cache.GetIterator(f, &reader);
+      assert(iter != nullptr);
+      if (!iter->status().ok()) {
+        return iter->status();
+      }
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        if (!map_element.Decode(iter->key(), iter->value())) {
+          return Status::Corruption("Map sst invalid key or value");
+        }
+        ranges.emplace_back(map_element);
+      }
+    } else {
+      iterator_cache.GetIterator(f, &reader);
+      ranges.emplace_back(f);
+    }
+    if (bound_builder != nullptr) {
+      bound_builder->Update(f);
+      bound_builder->creation_time =
+          std::max(bound_builder->creation_time,
+                   reader->GetTableProperties()->creation_time);
+    }
+  }
+  return Status::OK();
+}
+
+// Merge two sorted non-overlap range vector
+// a: [ -------- )      [ -------- ]
+// b:       ( -------------- ]
+// r: [ -- ]( -- )[ -- )[ -- ]( -- ]
+std::vector<RangeWithDepend> MergeRangeWithDepend(
+    const std::vector<RangeWithDepend>& ranges_a,
+    const std::vector<RangeWithDepend>& ranges_b,
+    const InternalKeyComparator& icomp) {
+  std::vector<RangeWithDepend> output;
+  assert(!ranges_a.empty() && !ranges_b.empty());
+  auto put_left = [&](const InternalKey& key, bool include) {
+    output.emplace_back();
+    auto& back = output.back();
+    back.point[0] = key;
+    back.include[0] = include;
+  };
+  auto put_right = [&](const InternalKey& key, bool include) {
+    auto& back = output.back();
+    back.point[1] = key;
+    back.include[1] = include;
+  };
+  auto put_depend = [&](const RangeWithDepend* a, const RangeWithDepend* b) {
+    auto& depend = output.back().depend;
+    if (a != nullptr) {
+      depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+    }
+    if (b != nullptr) {
+      depend.insert(depend.end(), b->depend.begin(), b->depend.end());
+    }
+    assert(!depend.empty());
+  };
+  size_t ai = 0, bi = 0;  // range index
+  size_t ac, bc;          // changed
+  size_t ab = 0, bb = 0;  // left bound or right bound
+#define CASE(a,b,c,d) (!!(a) | (!!(b) << 1) | (!!(c) << 2) | (!!(d) << 3))
+  do {
+    int c;
+    if (ai < ranges_a.size() && bi < ranges_b.size()) {
+      c = icomp.Compare(ranges_a[ai].point[ab].Encode(),
+                        ranges_b[bi].point[bb].Encode());
+      if (c == 0) {
+        switch (CASE(ab, ranges_a[ai].include[ab], bb,
+                     ranges_b[bi].include[bb])) {
+        // ranges_e: [   [   (   )   )   [
+        // ranges_d: (   )   ]   ]   (   ]
+        case CASE(0, 1, 0, 0):
+        case CASE(0, 1, 1, 0):
+        case CASE(0, 0, 1, 1):
+        case CASE(1, 0, 1, 1):
+        case CASE(1, 0, 0, 0):
+        case CASE(0, 1, 1, 1):
+          c = -1;
+          break;
+        // ranges_e: (   )   ]   ]   (   ]
+        // ranges_d: [   [   (   )   )   [
+        case CASE(0, 0, 0, 1):
+        case CASE(1, 0, 0, 1):
+        case CASE(1, 1, 0, 0):
+        case CASE(1, 1, 1, 0):
+        case CASE(0, 0, 1, 0):
+        case CASE(1, 1, 0, 1):
+          c = 1;
+          break;
+        // ranges_e: [   ]   (   )
+        // ranges_d: [   ]   (   )
+        default:
+          c = 0;
+          break;
+        }
+      }
+    } else {
+      c = ai < ranges_a.size() ? -1 : 1;
+    }
+    ac = c <= 0;
+    bc = c >= 0;
+    switch (CASE(ab, bb, ac, bc)) {
+    // out ranges_e , out ranges_d , enter ranges_e
+    case CASE(0, 0, 1, 0):
+      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+      put_depend(&ranges_a[ai], nullptr);
+      break;
+    // in ranges_e , out ranges_d , leave ranges_e
+    case CASE(1, 0, 1, 0):
+      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+      break;
+    // out ranges_e , out ranges_d , enter ranges_d
+    case CASE(0, 0, 0, 1):
+      put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+      put_depend(nullptr, &ranges_b[bi]);
+      break;
+    // out ranges_e , in ranges_d , leave ranges_d
+    case CASE(0, 1, 0, 1):
+      put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+      break;
+    // in ranges_e , out ranges_d , begin ranges_d
+    case CASE(1, 0, 0, 1):
+      put_right(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
+      put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+      put_depend(&ranges_a[ai], &ranges_b[bi]);
+      break;
+    // in ranges_e , in ranges_d , leave ranges_d
+    case CASE(1, 1, 0, 1):
+      put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+      put_left(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
+      put_depend(&ranges_a[ai], nullptr);
+      break;
+    // out ranges_e , in ranges_d , begin ranges_e
+    case CASE(0, 1, 1, 0):
+      put_right(ranges_a[ai].point[ab], !ranges_a[ai].include[ab]);
+      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+      put_depend(&ranges_a[ai], &ranges_b[bi]);
+      break;
+    // in ranges_e , in ranges_d , leave ranges_e
+    case CASE(1, 1, 1, 0):
+      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+      put_left(ranges_a[ai].point[ab], !ranges_a[ai].include[ab]);
+      put_depend(nullptr, &ranges_b[bi]);
+      break;
+    // out ranges_e , out ranges_d , enter ranges_e , enter ranges_d
+    case CASE(0, 0, 1, 1):
+      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+      put_depend(&ranges_a[ai], &ranges_b[bi]);
+      break;
+    // in ranges_e , in ranges_d , leave ranges_e , leave ranges_d
+    case CASE(1, 1, 1, 1):
+      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+      break;
+    default:
+      assert(false);
+    }
+    ai += (ab + ac) / 2;
+    bi += (bb + bc) / 2;
+    ab = (ab + ac) % 2;
+    bb = (bb + bc) % 2;
+  } while (ai != ranges_a.size() || bi != ranges_b.size());
+#undef CASE
+  return output;
+}
+
+// Delete range from sorted non-overlap range vector
+// e: [ -------- )      [ -------- ]
+// d:       ( -------------- ]
+// r: [ -- ]                  ( -- ]
+std::vector<RangeWithDepend> DeleteRangeWithDepend(
+    const std::vector<RangeWithDepend>& ranges_e,
+    const std::vector<RangePtr>& ranges_d,
+    const InternalKeyComparator& icomp) {
+  std::vector<RangeWithDepend> output;
+  assert(!ranges_e.empty() && !ranges_d.empty());
+  auto put_left = [&](const Slice& key, bool include,
+                      const std::vector<uint64_t>& depend) {
+    output.emplace_back();
+    auto& back = output.back();
+    back.point[0].DecodeFrom(key);
+    back.include[0] = include;
+    back.depend = depend;
+  };
+  auto put_right = [&](const Slice& key, bool include) {
+    auto& back = output.back();
+    back.point[1].DecodeFrom(key);
+    back.include[1] = include;
+  };
+  size_t ei = 0, di = 0;  // range index
+  size_t ec, dc;          // changed
+  size_t eb = 0, db = 0;  // left bound or right bound
+#define CASE(a,b,c,d) (!!(a) | (!!(b) << 1) | (!!(c) << 2) | (!!(d) << 3))
+  do {
+    int c;
+    if (ei < ranges_e.size() && di < ranges_d.size()) {
+      c = CompRange(icomp, ranges_e[ei], eb, ranges_d[di], db);
+      if (c == 0) {
+        switch (CASE(eb, ranges_e[ei].include[eb], db,
+                     RangeInclude(ranges_d[di], db))) {
+        // ranges_e: [   [   (   )   )   [
+        // ranges_d: (   )   ]   ]   (   ]
+        case CASE(0, 1, 0, 0):
+        case CASE(0, 1, 1, 0):
+        case CASE(0, 0, 1, 1):
+        case CASE(1, 0, 1, 1):
+        case CASE(1, 0, 0, 0):
+        case CASE(0, 1, 1, 1):
+          c = -1;
+          break;
+        // ranges_e: (   )   ]   ]   (   ]
+        // ranges_d: [   [   (   )   )   [
+        case CASE(0, 0, 0, 1):
+        case CASE(1, 0, 0, 1):
+        case CASE(1, 1, 0, 0):
+        case CASE(1, 1, 1, 0):
+        case CASE(0, 0, 1, 0):
+        case CASE(1, 1, 0, 1):
+          c = 1;
+          break;
+        // ranges_e: [   ]   (   )
+        // ranges_d: [   ]   (   )
+        default:
+          c = 0;
+          break;
+        }
+      }
+    } else {
+      c = ei < ranges_e.size() ? -1 : 1;
+    }
+    ec = c <= 0;
+    dc = c >= 0;
+    switch (CASE(eb, db, ec, dc)) {
+    // out ranges_e , out ranges_d , enter ranges_e
+    case CASE(0, 0, 1, 0):
+      put_left(ranges_e[ei].point[eb].Encode(), ranges_e[ei].include[eb],
+               ranges_e[ei].depend);
+      break;
+    // in ranges_e , out ranges_d , leave ranges_e
+    case CASE(1, 0, 1, 0):
+      put_right(ranges_e[ei].point[eb].Encode(), ranges_e[ei].include[eb]);
+      break;
+    // in ranges_e , out ranges_d , begin ranges_d
+    case CASE(1, 0, 0, 1):
+    // in ranges_e , out ranges_d , leave ranges_e , enter ranges_d
+    case CASE(1, 0, 1, 1):
+      put_right(RangePoint(ranges_d[di], db), !RangeInclude(ranges_d[di], db));
+      break;
+    // in ranges_e , in ranges_d , leave ranges_d
+    case CASE(1, 1, 0, 1):
+    // out ranges_e , in ranges_d , enter ranges_e & leave ranges_d
+    case CASE(0, 1, 1, 1):
+      put_left(RangePoint(ranges_d[di], db), !RangeInclude(ranges_d[di], db),
+               ranges_e[ei].depend);
+      break;
+    }
+    ei += (eb + ec) / 2;
+    di += (db + dc) / 2;
+    eb = (eb + ec) % 2;
+    db = (db + dc) % 2;
+  } while (ei != ranges_e.size() || di != ranges_d.size());
+#undef CASE
+  return output;
+}
+
+}
 
 MapBuilder::MapBuilder(
     int job_id, const ImmutableDBOptions& db_options,
     const EnvOptions env_options, VersionSet* versions,
-    LogBuffer* log_buffer, Statistics* stats, InstrumentedMutex* db_mutex,
-    ErrorHandler* db_error_handler,
-    std::vector<SequenceNumber> existing_snapshots,
-    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-    const std::string& dbname)
+    Statistics* stats, InstrumentedMutex* db_mutex,
+    const std::vector<SequenceNumber>& existing_snapshots,
+    std::shared_ptr<Cache> table_cache, const std::string& dbname)
     : job_id_(job_id),
       dbname_(dbname),
       db_options_(db_options),
@@ -82,15 +518,10 @@ MapBuilder::MapBuilder(
       env_optiosn_for_read_(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
-      log_buffer_(log_buffer),
       stats_(stats),
       db_mutex_(db_mutex),
-      db_error_handler_(db_error_handler),
       existing_snapshots_(std::move(existing_snapshots)),
-      table_cache_(std::move(table_cache)),
-      event_logger_(event_logger) {
-  assert(log_buffer_ != nullptr);
-}
+      table_cache_(std::move(table_cache)) {}
 
 Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          const std::vector<RangePtr>& deleted_range,
@@ -207,6 +638,36 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
         MergeRangeWithDepend(level_ranges.front(), ranges,
                              cfd->internal_comparator());
   }
+  
+  using IterType = MapSstElementIterator;
+  void* buffer = iterator_cache.GetArena()->AllocateAligned(sizeof(IterType));
+  std::unique_ptr<IterType, void(*)(IterType*)> output_iter(
+      new(buffer) IterType(level_ranges.front(), iterator_cache,
+                           cfd->internal_comparator()),
+      [](IterType* iter) { iter->~IterType(); });
+
+  s = WriteOutputFile(bound_builder, output_iter.get(), output_path_id, cfd,
+                      file_meta, porp);
+
+  if (s.ok() && edit != nullptr) {
+    for (auto& input_level : inputs) {
+      for (auto f : input_level.files) {
+        edit->DeleteFile(input_level.level, f->fd.GetNumber());
+      }
+    }
+    for (auto f : added_files) {
+      edit->AddFile(vstorage->num_levels(), *f);
+    }
+  }
+  return s;
+}
+
+
+Status MapBuilder::WriteOutputFile(
+    const FileMetaDataBoundBuilder& bound_builder,
+    MapSstElementIterator* range_iter, uint32_t output_path_id,
+    ColumnFamilyData* cfd, FileMetaData* file_meta,
+    TableProperties* porp) {
 
   // Used for write properties
   std::vector<uint64_t> sst_depend;
@@ -227,7 +688,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   // Make the output file
   unique_ptr<WritableFile> writable_file;
-  s = NewWritableFile(env_, fname, &writable_file, env_options_);
+  auto s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
@@ -273,7 +734,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                       cfd->internal_comparator(), &collectors,
                       cfd->GetID(), cfd->GetName(), outfile.get(),
                       kNoCompression, CompressionOptions(), -1, nullptr,
-                      false, output_file_creation_time));
+                      true, output_file_creation_time));
   LogFlush(db_options_.info_log);
 
   // Update boundaries
@@ -282,24 +743,18 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   file_meta->fd.smallest_seqno = bound_builder.smallest_seqno;
   file_meta->fd.largest_seqno = bound_builder.largest_seqno;
 
-  std::unordered_set<uint64_t> sst_depend_build;
-  ScopedArenaIterator output_iter(
-      NewShrinkRangeWithDependIterator(level_ranges.front(), sst_depend_build,
-                                       iterator_cache,
-                                       cfd->internal_comparator(),
-                                       iterator_cache.GetArena()));
-  for (output_iter->SeekToFirst(); output_iter->Valid(); output_iter->Next()) {
-    builder->Add(output_iter->key(), output_iter->value());
+  for (range_iter->SeekToFirst(); range_iter->Valid(); range_iter->Next()) {
+    builder->Add(range_iter->key(), range_iter->value());
   }
-  if (!output_iter->status().ok()) {
-    return output_iter->status();
+  if (!range_iter->status().ok()) {
+    return range_iter->status();
   }
 
   // Prepare sst_depend, IntTblPropCollector::Finish will read it
+  auto& sst_depend_build = range_iter->GetSstDepend();
   sst_depend.reserve(sst_depend_build.size());
   sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
                     sst_depend_build.end());
-  sst_depend_build.clear();
   std::sort(sst_depend.begin(), sst_depend.end());
 
   CompactionIterationStats range_del_out_stats;
@@ -307,12 +762,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
 
   const Comparator* ucmp = cfd->user_comparator();
-  auto range_del_agg = iterator_cache.GetRangeDelAggregator();
-  auto earliest_snapshot = kMaxSequenceNumber;
-  if (existing_snapshots_.size() > 0) {
-    earliest_snapshot = existing_snapshots_[0];
-  }
-  auto it = range_del_agg->NewIterator();
+  auto it = range_iter->GetRangeDelAggregator()->NewIterator();
   for (it->Seek(bound_builder.smallest.user_key()); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
     if (ucmp->Compare(bound_builder.largest.user_key(),
@@ -379,16 +829,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   file_meta->sst_variety = kMapSst;
   file_meta->sst_depend = std::move(sst_depend);
 
-  if (edit != nullptr) {
-    for (auto& input_level : inputs) {
-      for (auto f : input_level.files) {
-        edit->DeleteFile(input_level.level, f->fd.GetNumber());
-      }
-    }
-    for (auto f : added_files) {
-      edit->AddFile(vstorage->num_levels(), *f);
-    }
-  }
   return Status::OK();
 }
 

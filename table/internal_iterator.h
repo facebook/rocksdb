@@ -196,7 +196,7 @@ extern InternalIteratorBase<TValue>* NewSourceInternalIterator(
     InternalIteratorBase<TValue>* inner, Arena* arena = nullptr);
 
 // Return an empty iterator with the specified status.
-// allocated arena  if not nullptr.
+// allocated arena if not nullptr.
 template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena = nullptr);

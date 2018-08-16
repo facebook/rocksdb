@@ -38,7 +38,7 @@ LIB_SOURCES =                                                   \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
   db/malloc_stats.cc                                            \
-  db/map_buildercc                                              \
+  db/map_builder.cc                                             \
   db/memtable.cc                                                \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
@@ -147,7 +147,6 @@ LIB_SOURCES =                                                   \
   util/log_buffer.cc                                            \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
-  util/range_partition.cc                                       \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
   util/sst_file_manager_impl.cc                                 \

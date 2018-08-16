@@ -54,12 +54,10 @@
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
-#include "util/iterator_cache.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/range_partition.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -1321,18 +1319,17 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
 void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
   MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
-                         log_buffer_, stats_, db_mutex_, db_error_handler_,
-                         existing_snapshots_, table_cache_, event_logger_,
+                         stats_, db_mutex_, existing_snapshots_, table_cache_,
                          dbname_);
   auto compaction = compact_->compaction;
   auto cfd = compaction->column_family_data();
   auto vstorage = compaction->input_version()->storage_info();
   sub_compact->outputs.emplace_back();
   std::unique_ptr<TableProperties> prop(new TableProperties);
-  auto s = map_builder.Build(
-               *compaction->inputs(), {}, {},
-               compaction->output_path_id(), vstorage, cfd, nullptr,
-               &sub_compact->current_output()->meta, prop.get());
+  auto s = map_builder.Build(*compaction->inputs(), {}, {},
+                             compaction->output_path_id(), vstorage, cfd,
+                             nullptr, &sub_compact->current_output()->meta,
+                             prop.get());
   sub_compact->status = s;
   if (s.ok()) {
     sub_compact->current_output()->table_properties.reset(prop.release());
