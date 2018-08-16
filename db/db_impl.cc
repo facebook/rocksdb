@@ -3058,8 +3058,12 @@ Status DBImpl::VerifyChecksum() {
   for (auto& sv : sv_list) {
     VersionStorageInfo* vstorage = sv->current->storage_info();
     ColumnFamilyData* cfd = sv->current->cfd();
-    Options opts = Options(BuildDBOptions(immutable_db_options_,
-       mutable_db_options_), cfd->GetLatestCFOptions());
+    Options opts;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      opts = Options(BuildDBOptions(immutable_db_options_,
+         mutable_db_options_), cfd->GetLatestCFOptions());
+    }
     for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
       for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
            j++) {
