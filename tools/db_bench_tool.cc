@@ -796,9 +796,7 @@ static DataBlockIndexType StringToDataBlockIndexType(const char* ctype
 ) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "none"))
-    return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
-  else if (!strcasecmp(ctype, "binary"))
+  if (!strcasecmp(ctype, "binary"))
     return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
   else if (!strcasecmp(ctype, "hash"))
     return rocksdb::BlockBasedTableOptions::kDataBlockHashIndex;
