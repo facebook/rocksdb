@@ -11,6 +11,8 @@
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/data_block_hash_index.h"
+#include "table/get_context.h"
+#include "table/block_based_table_reader.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -19,7 +21,7 @@ namespace rocksdb {
 bool SearchForOffset(DataBlockHashIndex& index, const char* data,
                      uint16_t map_offset, const Slice& key,
                      uint8_t& restart_point) {
-  uint8_t entry = index.Seek(data, map_offset, key);
+  uint8_t entry = index.Lookup(data, map_offset, key);
   if (entry == kCollision) {
     return true;
   }
@@ -104,7 +106,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
     for (uint8_t i = 0; i < 2; i++) {
       std::string key("key" + std::to_string(i));
       uint8_t restart_point = i;
-      ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+      ASSERT_TRUE(
+          SearchForOffset(index, s.data(), map_offset, key, restart_point));
     }
     builder.Reset();
   }
@@ -142,7 +145,8 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+    ASSERT_TRUE(
+        SearchForOffset(index, s.data(), map_offset, key, restart_point));
   }
 }
 
@@ -178,7 +182,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
   for (uint8_t i = 0; i < 100; i++) {
     std::string key("key" + std::to_string(i));
     uint8_t restart_point = i;
-    ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+    ASSERT_TRUE(
+        SearchForOffset(index, s.data(), map_offset, key, restart_point));
   }
 }
 
@@ -220,7 +225,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
     uint8_t restart_point = i;
     if (m.count(key)) {
       ASSERT_TRUE(m[key] == restart_point);
-      ASSERT_TRUE(SearchForOffset(index, s.data(), map_offset, key, restart_point));
+      ASSERT_TRUE(
+          SearchForOffset(index, s.data(), map_offset, key, restart_point));
     } else {
       // we allow false positve, so don't test the nonexisting keys.
       // when false positive happens, the search will continue to the
@@ -328,7 +334,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // read serialized contents of the block
     Slice rawblock = builder.Finish();
     ASSERT_LE(rawblock.size(), kMaxBlockSizeSupportedByHashIndex);
-    fprintf(stderr, "block size:%ld\n", rawblock.size());
+    std::cerr << "block size: " << rawblock.size() << std::endl;
 
     // create block reader
     BlockContents contents;
@@ -353,7 +359,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // read serialized contents of the block
     Slice rawblock = builder.Finish();
     ASSERT_LE(rawblock.size(), kMaxBlockSizeSupportedByHashIndex);
-    fprintf(stderr, "block size:%ld\n", rawblock.size());
+    std::cerr << "block size: " << rawblock.size() << std::endl;
 
     // create block reader
     BlockContents contents;
@@ -529,6 +535,189 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
     }
 
     delete iter;
+  }
+}
+
+// helper routine for DataBlockHashIndex.BlockBoundary
+void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
+                  std::string& v2, InternalKey& seek_ikey,
+                  GetContext& get_context, Options& options) {
+  unique_ptr<WritableFileWriter> file_writer;
+  unique_ptr<RandomAccessFileReader> file_reader;
+  unique_ptr<TableReader> table_reader;
+  int level_ = -1;
+
+  std::vector<std::string> keys;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+
+  EnvOptions soptions;
+
+  soptions.use_mmap_reads = ioptions.allow_mmap_reads;
+  file_writer.reset(test::GetWritableFileWriter(new test::StringSink()));
+  unique_ptr<TableBuilder> builder;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::string column_family_name;
+  builder.reset(ioptions.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, internal_comparator,
+                          &int_tbl_prop_collector_factories,
+                          options.compression, CompressionOptions(),
+                          nullptr /* compression_dict */,
+                          false /* skip_filters */, column_family_name, level_),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      file_writer.get()));
+
+  builder->Add(ik1.Encode().ToString(), v1);
+  builder->Add(ik2.Encode().ToString(), v2);
+  EXPECT_TRUE(builder->status().ok());
+
+  Status s = builder->Finish();
+  file_writer->Flush();
+  EXPECT_TRUE(s.ok()) << s.ToString();
+
+  EXPECT_EQ(static_cast<test::StringSink*>(file_writer->writable_file())
+                ->contents()
+                .size(),
+            builder->FileSize());
+
+  // Open the table
+  file_reader.reset(test::GetRandomAccessFileReader(new test::StringSource(
+      static_cast<test::StringSink*>(file_writer->writable_file())->contents(),
+      0 /*uniq_id*/, ioptions.allow_mmap_reads)));
+  const bool kSkipFilters = true;
+  const bool kImmortal = true;
+  ioptions.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
+                         internal_comparator, !kSkipFilters, !kImmortal,
+                         level_),
+      std::move(file_reader),
+      static_cast<test::StringSink*>(file_writer->writable_file())
+          ->contents()
+          .size(),
+      &table_reader);
+  // Search using Get()
+  ReadOptions ro;
+
+  ASSERT_OK(table_reader->Get(ro, seek_ikey.Encode().ToString(), &get_context,
+                               moptions.prefix_extractor.get()));
+}
+
+TEST(DataBlockHashIndex, BlockBoundary) {
+  BlockBasedTableOptions table_options;
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
+  table_options.block_restart_interval = 1;
+  table_options.block_size = 4096;
+
+  Options options;
+  options.comparator = BytewiseComparator();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  // insert two large k/v pair. Given that the block_size is 4096, one k/v
+  // pair will take up one block.
+  // [    k1/v1   ][    k2/v2  ]
+  // [   Block N  ][ Block N+1 ]
+
+  {
+    // [ "aab"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@60
+    std::string uk1("aab");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value, v2);
+    value.Reset();
+  }
+
+  {
+    // [ "axy"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@60
+    std::string uk1("axy");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value, v2);
+    value.Reset();
+  }
+
+  {
+    // [ "axy"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@120
+    std::string uk1("axy");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 120, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value, v1);
+    value.Reset();
+  }
+
+  {
+    // [ "axy"@100 ][ "axy"@10  ]
+    // | Block  N  ][ Block N+1 ]
+    // seek for "axy"@5
+    std::string uk1("axy");
+    InternalKey ik1(uk1, 100, kTypeValue);
+    std::string v1(4100, '1');  // large value
+
+    std::string uk2("axy");
+    InternalKey ik2(uk2, 10, kTypeValue);
+    std::string v2(4100, '2');  // large value
+
+    PinnableSlice value;
+    std::string seek_ukey("axy");
+    InternalKey seek_ikey(seek_ukey, 5, kTypeValue);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, seek_ukey, &value, nullptr,
+                           nullptr, nullptr, nullptr);
+
+    TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
+    ASSERT_EQ(get_context.State(), GetContext::kNotFound);
+    value.Reset();
   }
 }
 

@@ -30,7 +30,7 @@ uint32_t PackIndexTypeAndNumRestarts(
 
   uint32_t block_footer = num_restarts;
   if (index_type == BlockBasedTableOptions::kDataBlockBinaryAndHash) {
-    block_footer |= 1 << kDataBlockIndexTypeBitShift;
+    block_footer |= 1u << kDataBlockIndexTypeBitShift;
   } else if (index_type != BlockBasedTableOptions::kDataBlockBinarySearch) {
       assert(0);
   }
@@ -44,7 +44,7 @@ void UnPackIndexTypeAndNumRestarts(
     BlockBasedTableOptions::DataBlockIndexType* index_type,
     uint32_t* num_restarts) {
   if (index_type) {
-    if (block_footer & 1 << kDataBlockIndexTypeBitShift) {
+    if (block_footer & 1u << kDataBlockIndexTypeBitShift) {
       *index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
     } else {
       *index_type = BlockBasedTableOptions::kDataBlockBinarySearch;

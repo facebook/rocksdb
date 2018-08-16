@@ -251,20 +251,20 @@ class PersistentCacheTier : public PersistentCache {
   // Print stats to string recursively
   virtual std::string PrintStats();
 
-  virtual PersistentCache::StatsType Stats();
+  virtual PersistentCache::StatsType Stats() override;
 
   // Insert to page cache
   virtual Status Insert(const Slice& page_key, const char* data,
-                        const size_t size) = 0;
+                        const size_t size) override = 0;
 
   // Lookup page cache by page identifier
   virtual Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,
-                        size_t* size) = 0;
+                        size_t* size) override = 0;
 
   // Does it store compressed data ?
-  virtual bool IsCompressed() = 0;
+  virtual bool IsCompressed() override = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  virtual std::string GetPrintableOptions() const override = 0;
 
   // Return a reference to next tier
   virtual Tier& next_tier() { return next_tier_; }

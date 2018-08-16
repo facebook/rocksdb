@@ -803,7 +803,7 @@ static DataBlockIndexType StringToDataBlockIndexType(const char* ctype
   else if (!strcasecmp(ctype, "hash"))
     return rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
 
-  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
+  fprintf(stdout, "Cannot parse data block index type '%s'\n", ctype);
 
   // return default value
   return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;

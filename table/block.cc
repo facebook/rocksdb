@@ -225,11 +225,18 @@ void DataBlockIter::Seek(const Slice& target) {
 }
 
 // Optimized Seek for point lookup for an internal key `target`
-// target = "seek_user_key @ seqno".
+// target = "seek_user_key @ type | seqno".
+//
+// For any type other than kTypeValue, kTypeDeletion, kTypeSingleDeletion,
+// or kTypeBlobIndex, this function behaves identically as Seek().
+//
+// For any type in kTypeValue, kTypeDeletion, kTypeSingleDeletion,
+// or kTypeBlobIndex:
 //
 // If the return value is FALSE, iter location is undefined, and it means:
 // 1) there is no key in this block falling into the range:
-//    ["seek_user_key @ seqno", "seek_user_key @ 0"], inclusive; AND
+//    ["seek_user_key @ type | seqno", "seek_user_key @ type |  0"],
+//    inclusive; AND
 // 2) the last key of this block has a greater user_key from seek_user_key
 //
 // If the return value is TRUE, iter location has two possibilies:
@@ -238,22 +245,10 @@ void DataBlockIter::Seek(const Slice& target) {
 //    matching user_key with a seqno no greater than the seeking seqno.
 // 2) If the iter is invalid, it means either the block has no such user_key,
 //    or the block ends with a matching user_key but with a larger seqno.
-bool DataBlockIter::SeekForGet(const Slice& target) {
-  if (!data_block_hash_index_) {
-    Seek(target);
-    return true;
-  }
-
-  if (!data_block_hash_index_->Valid()) {
-    // if the block content does not contain hash map, fall back
-    Seek(target);
-    return true;
-  }
-
+bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   Slice user_key = ExtractUserKey(target);
-  uint16_t map_offset =
-      static_cast<uint16_t>(restarts_ + num_restarts_ * sizeof(uint32_t));
-  uint8_t entry = data_block_hash_index_->Seek(data_, map_offset, user_key);
+  uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
+  uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
 
   if (entry == kNoEntry) {
     // Even if we cannot find the user_key in this block, the result may
@@ -267,7 +262,7 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
     // Even if the user_key is not found in the hash map, the caller still
     // have to conntinue searching the next block. So we invalidate the
     // iterator to tell the caller to go on.
-    Invalidate(Status::OK());
+    current_ = restarts_; // Invalidate the iter
     return true;
   }
 
@@ -286,6 +281,8 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
   const char* limit = nullptr;
   if (restart_index_ + 1 < num_restarts_) {
     limit = data_ + GetRestartPoint(restart_index_ + 1);
+  } else {
+    limit = data_ + restarts_;
   }
 
   while (true) {
@@ -326,7 +323,9 @@ bool DataBlockIter::SeekForGet(const Slice& target) {
   // Here we are conservative and only support a limited set of cases
   ValueType value_type = ExtractValueType(key_.GetKey());
   if (value_type != ValueType::kTypeValue &&
-      value_type != ValueType::kTypeDeletion) {
+      value_type != ValueType::kTypeDeletion &&
+      value_type != ValueType::kTypeSingleDeletion &&
+      value_type != ValueType::kTypeBlobIndex) {
     Seek(target);
     return true;
   }
@@ -577,7 +576,9 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
   if (shared == 0) {
     uint64_t o, s;
     const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
+    assert(newp);
     newp = GetVarint64Ptr(newp, limit, &s);
+    assert(newp);
     decoded_value_ = BlockHandle(o, s);
     value_ = Slice(value_.data(), newp - value_.data());
   } else {
@@ -751,6 +752,8 @@ BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
   return index_type;
 }
 
+Block::~Block() { TEST_SYNC_POINT("Block::~Block"); }
+
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
              size_t read_amp_bytes_per_bit, Statistics* statistics)
     : contents_(std::move(contents)),
@@ -759,6 +762,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       restart_offset_(0),
       num_restarts_(0),
       global_seqno_(_global_seqno) {
+  TEST_SYNC_POINT("Block::Block:0");
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
@@ -776,8 +780,8 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
           }
           break;
         case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-          if (size_ < sizeof(uint32_t) /* NUM_RESTARTS*/ +
-                          sizeof(uint16_t) * 2 /* NUM_BUCK and MAP_START */) {
+          if (size_ < sizeof(uint32_t) /* block footer */ +
+                          sizeof(uint16_t)  /* NUM_BUCK */) {
             size_ = 0;
             break;
           }
@@ -832,9 +836,10 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         global_seqno_, read_amp_bitmap_.get(), cachable(),
-                         &data_block_hash_index_);
+    ret_iter->Initialize(
+        cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno_,
+        read_amp_bitmap_.get(), cachable(),
+        data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
