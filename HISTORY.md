@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.15.6 (8/21/2018)
+### Public API Change
+* The merge operands are passed to `MergeOperator::ShouldMerge` in the reversed order relative to how they were merged (passed to FullMerge or FullMergeV2) for performance reasons
+
 ## 5.15.5 (8/16/2018)
 ### Bug Fixes
 * Fix VerifyChecksum() API not preserving options
