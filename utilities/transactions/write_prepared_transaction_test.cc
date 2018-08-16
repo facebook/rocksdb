@@ -493,8 +493,10 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
   // Verify all versions of keys.
   void VerifyInternalKeys(const std::vector<KeyVersion>& expected_versions) {
     std::vector<KeyVersion> versions;
+    const size_t kMaxKeys = 100000;
     ASSERT_OK(GetAllKeyVersions(db, expected_versions.front().user_key,
-                                expected_versions.back().user_key, &versions));
+                                expected_versions.back().user_key, kMaxKeys,
+                                &versions));
     ASSERT_EQ(expected_versions.size(), versions.size());
     for (size_t i = 0; i < versions.size(); i++) {
       ASSERT_EQ(expected_versions[i].user_key, versions[i].user_key);

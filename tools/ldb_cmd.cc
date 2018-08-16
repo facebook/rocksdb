@@ -1237,7 +1237,7 @@ void InternalDumpCommand::DoCommand() {
 
   // Cast as DBImpl to get internal iterator
   std::vector<KeyVersion> key_versions;
-  Status st = GetAllKeyVersions(db_, from_, to_, &key_versions);
+  Status st = GetAllKeyVersions(db_, from_, to_, max_keys_, &key_versions);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
