@@ -789,27 +789,6 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " not compressed. Otherwise, apply compression_type to "
              "all levels.");
 
-typedef enum rocksdb::BlockBasedTableOptions::DataBlockIndexType
-    DataBlockIndexType;
-
-static DataBlockIndexType StringToDataBlockIndexType(const char* ctype) {
-  assert(ctype);
-
-  if (!strcasecmp(ctype, "binary"))
-    return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
-  else if (!strcasecmp(ctype, "binary_and_hash"))
-    return rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
-
-  fprintf(stdout, "Cannot parse data block index type '%s'\n", ctype);
-
-  // return default value
-  return rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
-}
-
-DEFINE_string(data_block_index_type, "binary", "Index type for data blocks");
-static DataBlockIndexType FLAGS_data_block_index_type_e =
-    rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
-
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
   if (0 >= value || value > 20) {
@@ -1076,8 +1055,6 @@ static enum RepFactory StringToRepFactory(const char* ctype) {
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
-DEFINE_double(data_block_hash_table_util_ratio, 0.75,
-              "util ratio for data block hash index table");
 DEFINE_bool(use_plain_table, false, "if use plain table "
             "instead of block-based table format");
 DEFINE_bool(use_cuckoo_table, false, "if use cuckoo table format");
@@ -1085,6 +1062,13 @@ DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
+DEFINE_bool(use_data_block_hash_index, false, "if use kDataBlockBinaryAndHash "
+            "instead of kDataBlockBinarySearch. "
+            "This is valid if only we use BlockTable");
+DEFINE_double(data_block_hash_table_util_ratio, 0.75,
+              "util ratio for data block hash index table. "
+              "This is only valid if use_data_block_hash_index is "
+              "set to true");
 DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
             "instead of kFullFilter for filter block. "
             "This is valid if only we use BlockTable");
@@ -2078,16 +2062,13 @@ class Benchmark {
     auto compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression: %s\n", compression.c_str());
 
-    switch (FLAGS_data_block_index_type_e) {
-      case rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch:
-        fprintf(stdout, "DataBlockIndexType: binary\n");
-        break;
-      case rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash:
-        fprintf(stdout,
-                "DataBlockIndexType: binary_and_hash "
-                "(hash util_ratio = %lf)\n",
-                FLAGS_data_block_hash_table_util_ratio);
-        break;
+    if (FLAGS_use_data_block_hash_index) {
+      fprintf(stdout,
+              "DataBlockIndexType: binary_and_hash "
+              "(hash util_ratio = %lf)\n",
+              FLAGS_data_block_hash_table_util_ratio);
+    } else {
+      fprintf(stdout, "DataBlockIndexType: binary\n");
     }
 
     switch (FLAGS_rep_factory) {
@@ -3300,7 +3281,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
-      block_based_options.data_block_index_type = FLAGS_data_block_index_type_e;
+      if (FLAGS_use_data_block_hash_index) {
+        block_based_options.data_block_index_type =
+          rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
+      } else {
+        block_based_options.data_block_index_type =
+          rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+      }
       block_based_options.data_block_hash_table_util_ratio =
           FLAGS_data_block_hash_table_util_ratio;
       if (FLAGS_read_cache_path != "") {
@@ -5703,9 +5690,6 @@ int db_bench_tool(int argc, char** argv) {
 
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
-
-  FLAGS_data_block_index_type_e =
-      StringToDataBlockIndexType(FLAGS_data_block_index_type.c_str());
 
 #ifndef ROCKSDB_LITE
   std::unique_ptr<Env> custom_env_guard;
