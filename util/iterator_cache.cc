@@ -49,7 +49,7 @@ InternalIterator* IteratorCache::GetIterator(
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
   iterator_map_.emplace(f->fd.GetNumber(), item);
   if (reader_ptr != nullptr) {
-    *reader_ptr = find->second.reader;
+    *reader_ptr = item.reader;
   }
   return item.iter;
 }
@@ -70,7 +70,7 @@ InternalIterator* IteratorCache::GetIterator(
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
   iterator_map_.emplace(sst_id, item);
   if (reader_ptr != nullptr) {
-    *reader_ptr = find->second.reader;
+    *reader_ptr = item.reader;
   }
   return item.iter;
 }

@@ -33,17 +33,19 @@ struct FileMetaDataBoundBuilder {
   InternalKey smallest, largest;
   SequenceNumber smallest_seqno;
   SequenceNumber largest_seqno;
+  uint64_t creation_time;
 
   FileMetaDataBoundBuilder(const InternalKeyComparator& _icomp)
       : icomp(_icomp),
         smallest_seqno(kMaxSequenceNumber),
-        largest_seqno(0) {}
+        largest_seqno(0),
+        creation_time(0) {}
 
   void Update(const FileMetaData* f);
 };
 
 Status LoadRangeWithDepend(std::vector<RangeWithDepend>& ranges,
-                           FileMetaDataBoundBuilder& bound_builder,
+                           FileMetaDataBoundBuilder* bound_builder,
                            IteratorCache& iterator_cache,
                            const FileMetaData* const* file_meta, size_t n);
 

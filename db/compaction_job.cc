@@ -32,6 +32,7 @@
 #include "db/event_helpers.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/map_builder.h"
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
@@ -98,6 +99,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "Flush";
     case CompactionReason::kExternalSstIngestion:
       return "ExternalSstIngestion";
+    case CompactionReason::kVarietiesAmplification:
+      return "VarietiesAmplification";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -627,7 +630,8 @@ Status CompactionJob::Run() {
   std::vector<port::Thread> thread_pool;
   // map compact don't need multithreads
   assert(compact_->compaction->compaction_varieties() != kMapSst ||
-         compact_->sub_compact_states.size() == 1);
+         (compact_->sub_compact_states.size() == 1 &&
+          compact_->compaction->input_range().empty()));
   thread_pool.reserve(num_threads - 1);
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
     thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
@@ -1316,158 +1320,25 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
 
 void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
+  MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
+                         log_buffer_, stats_, db_mutex_, db_error_handler_,
+                         existing_snapshots_, table_cache_, event_logger_,
+                         dbname_);
   auto compaction = compact_->compaction;
   auto cfd = compaction->column_family_data();
-
-  std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
-  auto& depend_files =
-      compaction->input_version()->storage_info()->depend_files();
-
-  auto create_iterator = [&](const FileMetaData* f, uint64_t sst_id,
-                             Arena* arena, RangeDelAggregator* range_del_agg,
-                             TableReader** reader_ptr)->InternalIterator* {
-    
-    if (f == nullptr) {
-      auto find = depend_files.find(sst_id);
-      if (find == depend_files.end()) {
-        if (reader_ptr != nullptr) {
-          *reader_ptr = nullptr;
-        }
-        auto s = Status::Corruption("Variety sst depend files missing");
-        return NewErrorInternalIterator<Slice>(s, arena);
-      }
-      f = find->second;
-    }
-    ReadOptions read_options;
-    read_options.verify_checksums = true;
-    read_options.fill_cache = false;
-    read_options.total_order_seek = true;
-
-    return cfd->table_cache()->NewIterator(
-               read_options, env_optiosn_for_read_,
-               cfd->internal_comparator(), *f,
-               f->sst_variety == kMapSst ? empty_delend_files : depend_files,
-               range_del_agg,
-               compaction->mutable_cf_options()->prefix_extractor.get(),
-               reader_ptr, nullptr /* no per level latency histogram */,
-               true /* for_compaction */, arena,
-               false /* skip_filters */, -1);
-  };
-
-  IteratorCache iterator_cache(std::ref(create_iterator));
-  iterator_cache.NewRangeDelAgg(cfd->internal_comparator(),
-                                existing_snapshots_);
-
-  std::list<std::vector<RangeWithDepend>> level_ranges;
-  MapSstElement map_element;
-  FileMetaDataBoundBuilder bound_builder(cfd->internal_comparator());
-
-  // load input files into segments
-  for (auto& level_files : *compaction->inputs()) {
-    if (level_files.files.empty()) {
-      continue;
-    }
-    if (level_files.level == 0) {
-      for (auto f : level_files.files) {
-        std::vector<RangeWithDepend> ranges;
-        sub_compact->status =
-            LoadRangeWithDepend(ranges, bound_builder, iterator_cache, &f, 1);
-        if (!sub_compact->status.ok()) {
-          return;
-        }
-        level_ranges.emplace_back(std::move(ranges));
-      }
-    } else {
-      std::vector<RangeWithDepend> ranges;
-      sub_compact->status = LoadRangeWithDepend(ranges, bound_builder,
-                                                iterator_cache,
-                                                level_files.files.data(),
-                                                level_files.files.size());
-      if (!sub_compact->status.ok()) {
-        return;
-      }
-      level_ranges.emplace_back(std::move(ranges));
-    }
-  }
-
-  // union segments
-  // TODO(zouzhizhang): multi way union
-  while (level_ranges.size() > 1) {
-    auto union_a = level_ranges.begin();
-    auto union_b = std::next(union_a);
-    size_t min_sum = union_a->size() + union_b->size();
-    for (auto next = std::next(union_b); next != level_ranges.end();
-         ++union_b, ++next) {
-      size_t sum = union_b->size() + next->size();
-      if (sum < min_sum) {
-        min_sum = sum;
-        union_a = union_b;
-      }
-    }
-    union_b = std::next(union_a);
-    level_ranges.insert(
-        union_a, MergeRangeWithDepend(*union_a, *union_b,
-                                      cfd->internal_comparator()));
-    level_ranges.erase(union_a);
-    level_ranges.erase(union_b);
-  }
-
-  // Used for write properties
-  std::vector<uint64_t> sst_depend;
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
-  collectors.emplace_back(
-      new SSTLinkPropertiesCollectorFactory((uint8_t)kMapSst, &sst_depend));
-
-  auto status = OpenCompactionOutputFile(sub_compact, &collectors);
-  if (!status.ok()) {
-    sub_compact->status = status;
-    return;
-  }
-  
-  assert(sub_compact->start == nullptr);
-  assert(sub_compact->end == nullptr);
-
-  // Update boundaries
-  auto& meta = sub_compact->current_output()->meta;
-  meta.smallest = bound_builder.smallest;
-  meta.largest = bound_builder.largest;
-  meta.fd.smallest_seqno = bound_builder.smallest_seqno;
-  meta.fd.largest_seqno = bound_builder.largest_seqno;
-
-  std::unordered_set<uint64_t> sst_depend_build;
-  ScopedArenaIterator output_iter(
-      NewShrinkRangeWithDependIterator(level_ranges.front(), sst_depend_build,
-                                       iterator_cache,
-                                       cfd->internal_comparator(),
-                                       iterator_cache.GetArena()));
-  for (output_iter->SeekToFirst(); output_iter->Valid(); output_iter->Next()) {
-    sub_compact->builder->Add(output_iter->key(), output_iter->value());
-    sub_compact->current_output_file_size = sub_compact->builder->FileSize();
-    sub_compact->num_output_records++;
-  }
-  if (!output_iter->status().ok()) {
-    sub_compact->status = status;
-    return;
-  }
-
-  // Prepare sst_depend, IntTblPropCollector::Finish will read it
-  sst_depend.reserve(sst_depend_build.size());
-  sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
-                    sst_depend_build.end());
-  sst_depend_build.clear();
-  std::sort(sst_depend.begin(), sst_depend.end());
-
-  CompactionIterationStats range_del_out_stats;
-  status = FinishCompactionOutputFile(
-      status, sub_compact, iterator_cache.GetRangeDelAggregator(),
-      &range_del_out_stats);
-
-  // Update metadata
-  meta.sst_variety = kMapSst;
-  meta.sst_depend = std::move(sst_depend);
-
-  if (!status.ok()) {
-    sub_compact->status = status;
+  auto vstorage = compaction->input_version()->storage_info();
+  sub_compact->outputs.emplace_back();
+  std::unique_ptr<TableProperties> prop(new TableProperties);
+  auto s = map_builder.Build(
+               *compaction->inputs(), {}, {},
+               compaction->output_path_id(), vstorage, cfd, nullptr,
+               &sub_compact->current_output()->meta, prop.get());
+  sub_compact->status = s;
+  if (s.ok()) {
+    sub_compact->current_output()->table_properties.reset(prop.release());
+    sub_compact->current_output()->finished = true;
+  } else{
+    sub_compact->outputs.pop_back();
   }
 }
 

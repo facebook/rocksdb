@@ -48,13 +48,22 @@ class ShrinkRangeWithDependIterator : public InternalIterator {
         iterator_cache_(iterator_cache),
         icomp_(icomp) {}
   virtual bool Valid() const override { return !buffer_.empty(); }
-  virtual void Seek(const Slice& /*target*/) override { assert(false); }
-  virtual void SeekForPrev(const Slice& /*target*/) override { assert(false); }
+  virtual void Seek(const Slice& /*target*/) override {
+    buffer_.clear();
+    assert(false);
+  }
+  virtual void SeekForPrev(const Slice& /*target*/) override {
+    buffer_.clear();
+    assert(false);
+  }
   virtual void SeekToFirst() override {
     where_ = ranges_.begin();
     PrepareNext();
   }
-  virtual void SeekToLast() override { assert(false); }
+  virtual void SeekToLast() override {
+    buffer_.clear();
+    assert(false);
+  }
   virtual void Next() override { PrepareNext(); }
   virtual void Prev() override { assert(false); }
   Slice key() const override { return map_elements_.Key(); }
@@ -187,13 +196,14 @@ void FileMetaDataBoundBuilder::Update(const FileMetaData* f) {
 
 Status LoadRangeWithDepend(
     std::vector<RangeWithDepend>& ranges,
-    FileMetaDataBoundBuilder& bound_builder, IteratorCache& iterator_cache,
+    FileMetaDataBoundBuilder* bound_builder, IteratorCache& iterator_cache,
     const FileMetaData* const* file_meta, size_t n) {
   MapSstElement map_element;
   for (size_t i = 0; i < n; ++i) {
     auto f = file_meta[i];
+    TableReader* reader;
     if (f->sst_variety == kMapSst) {
-      auto iter = iterator_cache.GetIterator(f);
+      auto iter = iterator_cache.GetIterator(f, &reader);
       assert(iter != nullptr);
       if (!iter->status().ok()) {
         return iter->status();
@@ -205,10 +215,15 @@ Status LoadRangeWithDepend(
         ranges.emplace_back(map_element);
       }
     } else {
-      iterator_cache.GetIterator(f); // load into cache
+      iterator_cache.GetIterator(f, &reader);
       ranges.emplace_back(f);
     }
-    bound_builder.Update(f);
+    if (bound_builder != nullptr) {
+      bound_builder->Update(f);
+      bound_builder->creation_time =
+          std::max(bound_builder->creation_time,
+                   reader->GetTableProperties()->creation_time);
+    }
   }
   return Status::OK();
 }
