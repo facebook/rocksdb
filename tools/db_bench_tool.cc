@@ -1413,6 +1413,13 @@ struct DBWithColumnFamilies {
   }
 };
 
+// Generate the keys according to the two term expe fit
+// given the probability model, you can transfer the random
+// access to such distribution according to the prefix and
+// key distribution of the following model:
+// f(x) = a*exp(b*x) + c*exp(d*x)
+// x is the access count of the key or the rank of
+// prefix that has the average access count of f(x);
 struct ExpKeyUnit {
   int64_t start_access;
   int64_t start_key;
@@ -1427,17 +1434,11 @@ struct PrefixUnit {
   std::vector<ExpKeyUnit> access_set;
 };
 
-// Generate the keys according to the two term expe fit
-// given the probability model, you can transfer the random
-// access to such distribution
-// f(x) = a*exp(b*x) + c*exp(d*x)
-// x is the access count of the key
 class GenerateTwoTermExpKeys {
  public:
   int64_t access_num_;
   int64_t key_num_;
   int64_t input_key_num_;
-  int64_t group_num_;
   bool initiated_;
   std::vector<ExpKeyUnit> access_set_;
   std::vector<PrefixUnit> prefix_set_;
@@ -1446,7 +1447,6 @@ class GenerateTwoTermExpKeys {
     access_num_ = FLAGS_num;
     key_num_ = FLAGS_num;
     input_key_num_ = FLAGS_num;
-    group_num_ = 1;
     initiated_ = false;
   }
 
@@ -1463,6 +1463,8 @@ class GenerateTwoTermExpKeys {
     int64_t prefix_total_access;
     int64_t prefix_start = 0;
 
+    // According to the prefix access distribution, generate the
+    // total access of each prefix
     for (int64_t pfx = 1; pfx <= FLAGS_prefix_num; pfx++) {
       double prefix_total = (prefix_a * std::exp(prefix_b * pfx) +
                              prefix_c * std::exp(prefix_d * pfx)) *
@@ -1483,6 +1485,8 @@ class GenerateTwoTermExpKeys {
       int64_t access_num;
       double exp_val;
 
+      // With the total access count of the prefix, generate the
+      // access distribution array of the keys in this prefix
       for (int64_t x = 1; x <= prefix_size; x++) {
         exp_val =
             (a * std::exp(b * x) + c * std::exp(d * x)) * prefix_total_access;
@@ -1511,21 +1515,18 @@ class GenerateTwoTermExpKeys {
       prefix_set_.push_back(p_unit);
     }
 
-    // shuffle the prefix and recalculate the start;
+    // shuffle the prefix to randomly arrange the prefix in the whole key
+    // space
     for (int64_t i = 0; i < FLAGS_prefix_num; i++) {
       int64_t pos = prefix_set_[i].prefix_access % FLAGS_prefix_num;
-      PrefixUnit tmp = prefix_set_[i];
-      prefix_set_[i] = prefix_set_[pos];
-      prefix_set_[pos] = tmp;
+      std::swap(prefix_set_[i], prefix_set_[pos]);
     }
     // Re-compute the starting point of each prefix after shuffle
     int64_t offset = 0;
     for (auto& p_unit : prefix_set_) {
       p_unit.prefix_start = offset;
       offset += p_unit.prefix_access;
-      std::cout << p_unit.prefix_start << " " << p_unit.prefix_keys << "\n";
     }
-
     return Status::OK();
   }
 
@@ -1535,6 +1536,7 @@ class GenerateTwoTermExpKeys {
       return (ini_rand % key_num_);
     }
 
+    // Find the prefix of this rand access seed
     int64_t start = 0, end = static_cast<int64_t>(prefix_set_.size());
     while (start + 1 < end) {
       int64_t mid = start + (end - start) / 2;
@@ -1545,6 +1547,7 @@ class GenerateTwoTermExpKeys {
       }
     }
 
+    // Find the offset of the seed in certain prefix
     int64_t prefix_id = start;
     int64_t prefix_offset = ini_rand - prefix_set_[prefix_id].prefix_start;
     start = 0;
@@ -1563,14 +1566,14 @@ class GenerateTwoTermExpKeys {
         diff / prefix_set_[prefix_id].access_set[start].access_count;
     int64_t key_offset =
         prefix_set_[prefix_id].access_set[start].start_key + offset;
+    // shuffle the key in the prefix but still maintain the mapping
     Random64 rand(key_offset);
     int64_t ori_key =
         static_cast<int64_t>(rand.Next() % prefix_set_[prefix_id].prefix_keys) +
         prefix_set_[prefix_id].prefix_start;
-    int64_t output_key;
     double ratio =
         static_cast<double>(input_key_num_) / static_cast<double>(key_num_);
-    output_key = static_cast<int64_t>(std::floor(ori_key * ratio));
+    int64_t output_key = static_cast<int64_t>(std::floor(ori_key * ratio));
     return output_key;
   }
 };
