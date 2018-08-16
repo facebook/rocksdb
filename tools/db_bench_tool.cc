@@ -466,7 +466,8 @@ DEFINE_bool(enable_index_compression,
 DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
-DEFINE_bool(use_data_block_hash_index, false, "if use kDataBlockBinaryAndHash "
+DEFINE_bool(use_data_block_hash_index, false,
+            "if use kDataBlockBinaryAndHash "
             "instead of kDataBlockBinarySearch. "
             "This is valid if only we use BlockTable");
 
@@ -3276,10 +3277,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.block_align = FLAGS_block_align;
       if (FLAGS_use_data_block_hash_index) {
         block_based_options.data_block_index_type =
-          rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
+            rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
       } else {
         block_based_options.data_block_index_type =
-          rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+            rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
       }
       block_based_options.data_block_hash_table_util_ratio =
           FLAGS_data_block_hash_table_util_ratio;
