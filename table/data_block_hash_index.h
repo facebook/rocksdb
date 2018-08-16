@@ -12,9 +12,10 @@
 
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of
-// point-lookup within a data-block. It is not used in per-table index-blocks.
-// It supports Get(), but not Seek() or Scan(). If the key does not exist,
-// the iterator is set to invalid.
+// point-lookup within a data-block. It is only used in data blocks, and not
+// in meta-data blocks or per-table index blocks.
+//
+// It only used to support BlockBasedTable::Get().
 //
 // A serialized hash index is appended to the data-block. The new block data
 // format is as follows:
@@ -66,7 +67,7 @@ const uint8_t kCollision = 254;
 const uint8_t kMaxRestartSupportedByHashIndex = 253;
 
 // Because we use uint16_t address, we only support block no more than 64KB
-const size_t kMaxBlockSizeSupportedByHashIndex = 1 << 16;
+const size_t kMaxBlockSizeSupportedByHashIndex = 1u << 16;
 const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
@@ -81,8 +82,8 @@ class DataBlockHashIndexBuilder {
     valid_ = true;
   }
 
-  bool Valid() const { return valid_ && util_ratio_ > 0; }
-  void Add(const Slice key, const size_t restart_index);
+  inline bool Valid() const { return valid_ && util_ratio_ > 0; }
+  void Add(const Slice& key, const size_t restart_index);
   void Finish(std::string& buffer);
   void Reset();
   inline size_t EstimateSize() const {
@@ -114,7 +115,7 @@ class DataBlockHashIndex {
 
   void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
 
-  uint8_t Seek(const char* data, uint16_t map_offset, const Slice& key) const;
+  uint8_t Lookup(const char* data, uint32_t map_offset, const Slice& key) const;
 
   inline bool Valid() { return num_buckets_ != 0; }
 

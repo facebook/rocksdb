@@ -78,6 +78,12 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
                                        use_value_delta_encoding),
       sub_index_builder_(nullptr),
       table_opt_(table_opt),
+      // We start by false. After each partition we revise the value based on
+      // what the sub_index_builder has decided. If the feature is disabled
+      // entirely, this will be set to true after switching the first
+      // sub_index_builder. Otherwise, it could be set to true even one of the
+      // sub_index_builders could not safely exclude seq from the keys, then it
+      // wil be enforced on all sub_index_builders on ::Finish.
       seperator_is_key_plus_seq_(false),
       use_value_delta_encoding_(use_value_delta_encoding) {}
 
@@ -92,7 +98,11 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       table_opt_.format_version, use_value_delta_encoding_);
   flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-      sub_index_builder_->index_block_builder_));
+      // Note: this is sub-optimal since sub_index_builder_ could later reset
+      // seperator_is_key_plus_seq_ but the probability of that is low.
+      sub_index_builder_->seperator_is_key_plus_seq_
+          ? sub_index_builder_->index_block_builder_
+          : sub_index_builder_->index_block_builder_without_seq_));
   partition_cut_requested_ = false;
 }
 
@@ -152,6 +162,9 @@ void PartitionedIndexBuilder::AddIndexEntry(
 
 Status PartitionedIndexBuilder::Finish(
     IndexBlocks* index_blocks, const BlockHandle& last_partition_block_handle) {
+  if (partition_cnt_ == 0) {
+    partition_cnt_ = entries_.size();
+  }
   // It must be set to null after last key is added
   assert(sub_index_builder_ == nullptr);
   if (finishing_indexes == true) {
@@ -181,6 +194,8 @@ Status PartitionedIndexBuilder::Finish(
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
     }
+    top_level_index_size_ = index_blocks->index_block_contents.size();
+    index_size_ += top_level_index_size_;
     return Status::OK();
   } else {
     // Finish the next partition index in line and Incomplete() to indicate we
@@ -189,48 +204,13 @@ Status PartitionedIndexBuilder::Finish(
     // Apply the policy to all sub-indexes
     entry.value->seperator_is_key_plus_seq_ = seperator_is_key_plus_seq_;
     auto s = entry.value->Finish(index_blocks);
+    index_size_ += index_blocks->index_block_contents.size();
     finishing_indexes = true;
     return s.ok() ? Status::Incomplete() : s;
   }
 }
 
-// Estimate size excluding the top-level index
-// It is assumed that this method is called before writing index partition
-// starts
-size_t PartitionedIndexBuilder::EstimatedSize() const {
-  size_t total = 0;
-  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-    total += it->value->EstimatedSize();
-  }
-  total +=
-      sub_index_builder_ == nullptr ? 0 : sub_index_builder_->EstimatedSize();
-  return total;
-}
-
-// Since when this method is called we do not know the index block offsets yet,
-// the top-level index does not exist. Hence we estimate the block offsets and
-// create a temporary top-level index.
-size_t PartitionedIndexBuilder::EstimateTopLevelIndexSize(
-    uint64_t offset) const {
-  BlockBuilder tmp_builder(
-      table_opt_.index_block_restart_interval);  // tmp top-level index builder
-  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-    std::string tmp_handle_encoding;
-    uint64_t size = it->value->EstimatedSize();
-    BlockHandle tmp_block_handle(offset, size);
-    tmp_block_handle.EncodeTo(&tmp_handle_encoding);
-    std::string handle_delta_encoding;
-    tmp_block_handle.EncodeSizeTo(&handle_delta_encoding);
-    const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    tmp_builder.Add(
-        seperator_is_key_plus_seq_ ? it->key : ExtractUserKey(it->key),
-        tmp_handle_encoding, &handle_delta_encoding_slice);
-    offset += size;
-  }
-  return tmp_builder.CurrentSizeEstimate();
-}
-
 size_t PartitionedIndexBuilder::NumPartitions() const {
-  return entries_.size();
+  return partition_cnt_;
 }
 }  // namespace rocksdb
