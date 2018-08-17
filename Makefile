@@ -573,6 +573,7 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
+	db_compaction_test \
 
 
 TEST_LIBS = \
@@ -1061,6 +1062,9 @@ memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+db_compaction_test: tools/db_compaction_test.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
