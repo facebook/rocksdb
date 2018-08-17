@@ -54,9 +54,9 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
   }
 
   for (uint8_t restart_index : buckets) {
-    buffer.append(const_cast<const char*>(
-                      reinterpret_cast<char*>(&restart_index)),
-                  sizeof(restart_index));
+    buffer.append(
+        const_cast<const char*>(reinterpret_cast<char*>(&restart_index)),
+        sizeof(restart_index));
   }
 
   // write NUM_BUCK
@@ -81,7 +81,7 @@ void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
 }
 
 uint8_t DataBlockHashIndex::Lookup(const char* data, uint32_t map_offset,
-                                 const Slice& key) const {
+                                   const Slice& key) const {
   uint32_t hash_value = GetSliceHash(key);
   uint16_t idx = static_cast<uint16_t>(hash_value % num_buckets_);
   const char* bucket_table = data + map_offset;

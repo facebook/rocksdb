@@ -32,12 +32,11 @@ uint32_t PackIndexTypeAndNumRestarts(
   if (index_type == BlockBasedTableOptions::kDataBlockBinaryAndHash) {
     block_footer |= 1u << kDataBlockIndexTypeBitShift;
   } else if (index_type != BlockBasedTableOptions::kDataBlockBinarySearch) {
-      assert(0);
+    assert(0);
   }
 
   return block_footer;
 }
-
 
 void UnPackIndexTypeAndNumRestarts(
     uint32_t block_footer,
@@ -57,4 +56,4 @@ void UnPackIndexTypeAndNumRestarts(
   }
 }
 
-} // namespace rocksdb
+}  // namespace rocksdb
