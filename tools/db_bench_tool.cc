@@ -466,6 +466,16 @@ DEFINE_bool(enable_index_compression,
 DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_bool(use_data_block_hash_index, false,
+            "if use kDataBlockBinaryAndHash "
+            "instead of kDataBlockBinarySearch. "
+            "This is valid if only we use BlockTable");
+
+DEFINE_double(data_block_hash_table_util_ratio, 0.75,
+              "util ratio for data block hash index table. "
+              "This is only valid if use_data_block_hash_index is "
+              "set to true");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -3265,6 +3275,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      if (FLAGS_use_data_block_hash_index) {
+        block_based_options.data_block_index_type =
+            rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
+      } else {
+        block_based_options.data_block_index_type =
+            rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+      }
+      block_based_options.data_block_hash_table_util_ratio =
+          FLAGS_data_block_hash_table_util_ratio;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;

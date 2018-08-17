@@ -33,8 +33,8 @@
 
 #include "table/block_builder.h"
 
-#include <algorithm>
 #include <assert.h>
+#include <algorithm>
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "table/data_block_footer.h"
@@ -118,7 +118,7 @@ Slice BlockBuilder::Finish() {
 
   uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
   BlockBasedTableOptions::DataBlockIndexType index_type =
-    BlockBasedTableOptions::kDataBlockBinarySearch;
+      BlockBasedTableOptions::kDataBlockBinarySearch;
   if (data_block_hash_index_builder_.Valid() &&
       CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
     data_block_hash_index_builder_.Finish(buffer_);
@@ -126,8 +126,7 @@ Slice BlockBuilder::Finish() {
   }
 
   // footer is a packed format of data_block_index_type and num_restarts
-  uint32_t block_footer = PackIndexTypeAndNumRestarts(
-      index_type, num_restarts);
+  uint32_t block_footer = PackIndexTypeAndNumRestarts(index_type, num_restarts);
 
   PutFixed32(&buffer_, block_footer);
   finished_ = true;
