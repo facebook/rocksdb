@@ -13,6 +13,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/compaction_filter_factory_jnicallback.cc
         rocksjni/compaction_options_fifo.cc
         rocksjni/compaction_options_universal.cc
+        rocksjni/compact_range_options.cc
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
@@ -79,6 +80,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.ColumnFamilyOptions
         org.rocksdb.CompactionOptionsFIFO
         org.rocksdb.CompactionOptionsUniversal
+        org.rocksdb.CompactRangeOptions
         org.rocksdb.Comparator
         org.rocksdb.ComparatorOptions
         org.rocksdb.CompressionOptions
@@ -192,6 +194,7 @@ add_jar(
   src/main/java/org/rocksdb/CompactionOptionsFIFO.java
   src/main/java/org/rocksdb/CompactionOptionsUniversal.java
   src/main/java/org/rocksdb/CompactionPriority.java
+  src/main/java/org/rocksdb/CompactRangeOptions.java
   src/main/java/org/rocksdb/CompactionStopStyle.java
   src/main/java/org/rocksdb/CompactionStyle.java
   src/main/java/org/rocksdb/Comparator.java
