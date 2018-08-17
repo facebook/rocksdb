@@ -683,7 +683,7 @@ Status CompactionJob::Run() {
         }
         // Use empty depend files to disable map or link sst forward calls.
         // depend files will build in InstallCompactionResults
-        std::unordered_map<uint64_t, FileMetaData*> empty_depend_files;
+        DependFileMap empty_depend_files;
         // Verify that the table is usable
         // We set for_compaction to false and don't OptimizeForCompactionTableRead
         // here because this is a special case after we finish the table building
@@ -728,17 +728,6 @@ Status CompactionJob::Run() {
       }
     }
   }
-
-  TablePropertiesCollection tp;
-  for (const auto& state : compact_->sub_compact_states) {
-    for (const auto& output : state.outputs) {
-      auto fn =
-          TableFileName(state.compaction->immutable_cf_options()->cf_paths,
-                        output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
-      tp[fn] = output.table_properties;
-    }
-  }
-  compact_->compaction->SetOutputTableProperties(std::move(tp));
 
   // Finish up all book-keeping to unify the subcompaction results
   AggregateStatistics();
@@ -856,7 +845,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     ProcessLinkCompaction(sub_compact);
     break;
   case kMapSst:
-    ProcessMapCompaction(sub_compact);
+    // do nothing ...
     break;
   }
 }
@@ -1316,29 +1305,6 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   }
 }
 
-
-void CompactionJob::ProcessMapCompaction(SubcompactionState* sub_compact) {
-  MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
-                         stats_, db_mutex_, existing_snapshots_, table_cache_,
-                         dbname_);
-  auto compaction = compact_->compaction;
-  auto cfd = compaction->column_family_data();
-  auto vstorage = compaction->input_version()->storage_info();
-  sub_compact->outputs.emplace_back();
-  std::unique_ptr<TableProperties> prop(new TableProperties);
-  auto s = map_builder.Build(*compaction->inputs(), {}, {},
-                             compaction->output_path_id(), vstorage, cfd,
-                             nullptr, &sub_compact->current_output()->meta,
-                             prop.get());
-  sub_compact->status = s;
-  if (s.ok()) {
-    sub_compact->current_output()->table_properties.reset(prop.release());
-    sub_compact->current_output()->finished = true;
-  } else{
-    sub_compact->outputs.pop_back();
-  }
-}
-
 void CompactionJob::RecordDroppedKeys(
     const CompactionIterationStats& c_iter_stats,
     CompactionJobStats* compaction_job_stats) {
@@ -1617,14 +1583,66 @@ Status CompactionJob::InstallCompactionResults(
         compaction->InputLevelSummary(&inputs_summary), compact_->total_bytes);
   }
 
-  // Add compaction inputs
-  compaction->AddInputDeletions(compact_->compaction->edit());
+  if (!compaction->input_range().empty() ||
+      compaction->mutable_cf_options()->enable_lazy_compaction ||
+      compaction->compaction_varieties() == kMapSst) {
 
-  for (const auto& sub_compact : compact_->sub_compact_states) {
-    for (const auto& out : sub_compact.outputs) {
-      compaction->edit()->AddFile(compaction->output_level(), out.meta);
+    MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
+                           stats_, db_mutex_, existing_snapshots_,
+                           table_cache_, dbname_);
+    auto cfd = compaction->column_family_data();
+    auto vstorage = compaction->input_version()->storage_info();
+    std::unique_ptr<TableProperties> prop;
+    FileMetaData file_meta;
+    std::vector<RangePtr> deleted_range;
+    std::vector<const FileMetaData*> added_files;
+    if (compaction->compaction_varieties() != kMapSst) {
+      for (auto& sub_compact : compact_->sub_compact_states) {
+        deleted_range.emplace_back(sub_compact.start, sub_compact.end,
+                                   sub_compact.include_start,
+                                   sub_compact.include_end);
+        for (auto& output : sub_compact.outputs) {
+          added_files.emplace_back(&output.meta);
+        }
+      }
+    }
+    auto s = map_builder.Build(*compaction->inputs(), deleted_range,
+                               added_files, compaction->output_level(),
+                               compaction->output_path_id(), vstorage, cfd,
+                               compact_->compaction->edit(), &file_meta,
+                               &prop);
+    if (!s.ok()) {
+      return s;
+    }
+    if (file_meta.fd.file_size > 0) {
+      compact_->sub_compact_states[0].outputs.emplace_back();
+      auto current = compact_->sub_compact_states[0].current_output();
+      current->meta = file_meta;
+      current->finished = true;
+      current->table_properties.reset(prop.release());
+    }
+  } else {
+    // Add compaction inputs
+    compaction->AddInputDeletions(compact_->compaction->edit());
+
+    for (const auto& sub_compact : compact_->sub_compact_states) {
+      for (const auto& out : sub_compact.outputs) {
+        compaction->edit()->AddFile(compaction->output_level(), out.meta);
+      }
     }
   }
+
+  TablePropertiesCollection tp;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.outputs) {
+      auto fn =
+          TableFileName(state.compaction->immutable_cf_options()->cf_paths,
+                        output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
+      tp[fn] = output.table_properties;
+    }
+  }
+  compact_->compaction->SetOutputTableProperties(std::move(tp));
+
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),
                                 db_mutex_, db_directory_);

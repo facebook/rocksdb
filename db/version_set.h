@@ -287,7 +287,7 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  const std::unordered_map<uint64_t, FileMetaData*>& depend_files() const {
+  const DependFileMap& depend_files() const {
     return depend_files_;
   }
 
@@ -449,7 +449,7 @@ class VersionStorageInfo {
   std::vector<FileMetaData*>* files_;
 
   // depend files both in files[num_levels] and depend_files
-  std::unordered_map<uint64_t, FileMetaData*> depend_files_;
+  DependFileMap depend_files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.

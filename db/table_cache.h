@@ -23,6 +23,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
+#include "util/iterator_cache.h"
 
 namespace rocksdb {
 
@@ -52,8 +53,7 @@ class TableCache {
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta,
-      const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+      const FileMetaData& file_meta, const DependFileMap& depend_files,
       RangeDelAggregator* range_del_agg,
       const SliceTransform* prefix_extractor = nullptr,
       TableReader** table_reader_ptr = nullptr,
@@ -70,8 +70,7 @@ class TableCache {
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
-             const FileMetaData& file_meta,
-             const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+             const FileMetaData& file_meta, const DependFileMap& depend_files,
              const Slice& k, GetContext* get_context,
              const SliceTransform* prefix_extractor = nullptr,
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,

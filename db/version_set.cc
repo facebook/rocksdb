@@ -465,10 +465,11 @@ class LevelIterator final : public InternalIterator {
                 const EnvOptions& env_options,
                 const InternalKeyComparator& icomparator,
                 const LevelFilesBrief* flevel,
-                const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+                const DependFileMap& depend_files,
                 const SliceTransform* prefix_extractor, bool should_sample,
                 HistogramImpl* file_read_hist, bool for_compaction,
-                bool skip_filters, int level, RangeDelAggregator* range_del_agg)
+                bool skip_filters, int level,
+                RangeDelAggregator* range_del_agg)
       : table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
@@ -567,7 +568,7 @@ class LevelIterator final : public InternalIterator {
   const EnvOptions& env_options_;
   const InternalKeyComparator& icomparator_;
   const LevelFilesBrief* flevel_;
-  const std::unordered_map<uint64_t, FileMetaData*>& depend_files_;
+  const DependFileMap& depend_files_;
   mutable FileDescriptor current_value_;
   const SliceTransform* prefix_extractor_;
 

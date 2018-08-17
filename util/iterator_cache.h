@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <unordered_map>
 
 #include "table/internal_iterator.h"
@@ -18,13 +17,17 @@ class PinnedIteratorsManager;
 class RangeDelAggregator;
 class TableReader;
 
+typedef std::unordered_map<uint64_t, const FileMetaData*> DependFileMap;
+
 class IteratorCache {
  public:
   using CreateIterCallback =
-      std::function<InternalIterator*(const FileMetaData*, uint64_t, Arena*,
-                                      RangeDelAggregator*, TableReader**)>;
+      InternalIterator*(*)(void* arg, const FileMetaData*,
+                           const DependFileMap&, Arena*, RangeDelAggregator*,
+                           TableReader**);
 
-  IteratorCache(const CreateIterCallback& create_iterator);
+  IteratorCache(const DependFileMap& depend_files, void* create_iter_arg,
+                const CreateIterCallback& create_iter);
   ~IteratorCache();
 
   void NewRangeDelAgg(const InternalKeyComparator& icmp,
@@ -36,6 +39,8 @@ class IteratorCache {
   InternalIterator* GetIterator(uint64_t sst_id,
                                 TableReader** reader_ptr = nullptr);
 
+  const FileMetaData* GetFileMetaData(uint64_t sst_id);
+
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr);
 
   Arena* GetArena() { return &arena_; }
@@ -45,7 +50,9 @@ class IteratorCache {
   }
 
  private:
-  CreateIterCallback create_iterator_;
+  const std::unordered_map<uint64_t, const FileMetaData*>& depend_files_;
+  void* create_iter_arg_;
+  CreateIterCallback create_iter_;
   Arena arena_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   RangeDelAggregator* range_del_agg_;
@@ -53,6 +60,7 @@ class IteratorCache {
   struct CacheItem {
     InternalIterator* iter;
     TableReader* reader;
+    const FileMetaData* meta;
   };
   std::unordered_map<uint64_t, CacheItem> iterator_map_;
 };

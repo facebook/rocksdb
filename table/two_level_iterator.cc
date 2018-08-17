@@ -241,15 +241,15 @@ class LinkSstIterator final : public InternalIterator {
 
  public:
   LinkSstIterator(
-      InternalIterator* iter,
-      const InternalKeyComparator& icomp,
+      InternalIterator* iter, const DependFileMap& depend_files,
+      const InternalKeyComparator& icomp, void* create_arg,
       const IteratorCache::CreateIterCallback& create)
       : first_level_iter_(iter),
         second_level_iter_(nullptr),
         has_bound_(false),
         is_backword_(false),
         icomp_(icomp),
-        iterator_cache_(create) {}
+        iterator_cache_(depend_files, create_arg, create) {}
 
   virtual bool Valid() const override {
     return second_level_iter_ != nullptr && second_level_iter_->Valid();
@@ -453,12 +453,12 @@ class MapSstIterator final : public InternalIterator {
 
  public:
   MapSstIterator(
-      InternalIterator* iter,
-      const InternalKeyComparator& icomp,
+      InternalIterator* iter, const DependFileMap& depend_files,
+      const InternalKeyComparator& icomp, void* create_arg,
       const IteratorCache::CreateIterCallback& create)
       : first_level_iter_(iter),
         is_backword_(false),
-        iterator_cache_(create),
+        iterator_cache_(depend_files, create_arg, create),
         min_heap_(icomp) {}
 
   ~MapSstIterator() {
@@ -593,15 +593,16 @@ class MapSstIterator final : public InternalIterator {
 
 template<class IteratorType>
 InternalIterator* NewVarietySstIterator(
-    InternalIterator* link_sst_iter,
-    const InternalKeyComparator& icomp,
-    const IteratorCache::CreateIterCallback& create_iter,
-    Arena* arena) {
+    InternalIterator* variety_sst_iter, const DependFileMap& depend_files,
+    const InternalKeyComparator& icomp, void* create_iter_arg,
+    const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
   if (arena == nullptr) {
-    return new IteratorType(link_sst_iter, icomp, create_iter);
+    return new IteratorType(variety_sst_iter, depend_files, icomp,
+                            create_iter_arg, create_iter);
   } else {
     void* buffer = arena->AllocateAligned(sizeof(IteratorType));
-    return new(buffer) IteratorType(link_sst_iter, icomp, create_iter);
+    return new(buffer) IteratorType(variety_sst_iter, depend_files, icomp,
+                                    create_iter_arg, create_iter);
   }
 }
 
@@ -614,21 +615,21 @@ InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
 }
 
 InternalIterator* NewLinkSstIterator(
-    InternalIterator* link_sst_iter,
-    const InternalKeyComparator& icomp,
-    const IteratorCache::CreateIterCallback& create_iter,
-    Arena* arena) {
-  return NewVarietySstIterator<LinkSstIterator>(link_sst_iter, icomp,
+    InternalIterator* link_sst_iter, const DependFileMap& depend_files,
+    const InternalKeyComparator& icomp, void* create_iter_arg,
+    const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
+  return NewVarietySstIterator<LinkSstIterator>(link_sst_iter, depend_files,
+                                                icomp, create_iter_arg,
                                                 create_iter, arena);
 }
 
 
 InternalIterator* NewMapSstIterator(
-    InternalIterator* link_sst_iter,
-    const InternalKeyComparator& icomp,
-    const IteratorCache::CreateIterCallback& create_iter,
-    Arena* arena) {
-  return NewVarietySstIterator<MapSstIterator>(link_sst_iter, icomp,
+    InternalIterator* map_sst_iter, const DependFileMap& depend_files,
+    const InternalKeyComparator& icomp, void* create_iter_arg,
+    const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
+  return NewVarietySstIterator<MapSstIterator>(map_sst_iter, depend_files,
+                                               icomp, create_iter_arg,
                                                create_iter, arena);
 }
 

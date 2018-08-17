@@ -23,6 +23,7 @@
 #include "db/builder.h"
 #include "db/event_helpers.h"
 #include "monitoring/thread_status_util.h"
+#include "util/c_style_callback.h"
 #include "util/iterator_cache.h"
 #include "util/sst_file_manager_impl.h"
 
@@ -251,7 +252,11 @@ Status LoadRangeWithDepend(
         ranges.emplace_back(map_element);
       }
     } else {
-      iterator_cache.GetIterator(f, &reader);
+      auto iter = iterator_cache.GetIterator(f, &reader);
+      assert(iter != nullptr);
+      if (!iter->status().ok()) {
+        return iter->status();
+      }
       ranges.emplace_back(f);
     }
     if (bound_builder != nullptr) {
@@ -526,28 +531,18 @@ MapBuilder::MapBuilder(
 Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          const std::vector<RangePtr>& deleted_range,
                          const std::vector<const FileMetaData*>& added_files,
-                         uint32_t output_path_id, VersionStorageInfo* vstorage,
-                         ColumnFamilyData* cfd, VersionEdit* edit,
-                         FileMetaData* file_meta, TableProperties* porp) {
+                         int output_level, uint32_t output_path_id,
+                         VersionStorageInfo* vstorage, ColumnFamilyData* cfd,
+                         VersionEdit* edit, FileMetaData* file_meta,
+                         std::unique_ptr<TableProperties>* porp) {
 
-  std::unordered_map<uint64_t, FileMetaData*> empty_delend_files;
+  DependFileMap empty_delend_files;
   auto& depend_files = vstorage->depend_files();
 
-  auto create_iterator = [&](const FileMetaData* f, uint64_t sst_id,
-                             Arena* arena, RangeDelAggregator* range_del_agg,
+  auto create_iterator = [&](const FileMetaData* f,
+                             const DependFileMap& depend_files, Arena* arena,
+                             RangeDelAggregator* range_del_agg,
                              TableReader** reader_ptr)->InternalIterator* {
-    
-    if (f == nullptr) {
-      auto find = depend_files.find(sst_id);
-      if (find == depend_files.end()) {
-        if (reader_ptr != nullptr) {
-          *reader_ptr = nullptr;
-        }
-        auto s = Status::Corruption("Variety sst depend files missing");
-        return NewErrorInternalIterator<Slice>(s, arena);
-      }
-      f = find->second;
-    }
     ReadOptions read_options;
     read_options.verify_checksums = true;
     read_options.fill_cache = false;
@@ -564,7 +559,8 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                false /* skip_filters */, -1);
   };
 
-  IteratorCache iterator_cache(std::ref(create_iterator));
+  IteratorCache iterator_cache(depend_files, &create_iterator,
+                               c_style_callback(create_iterator));
   iterator_cache.NewRangeDelAgg(cfd->internal_comparator(),
                                 existing_snapshots_);
 
@@ -572,31 +568,37 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   MapSstElement map_element;
   FileMetaDataBoundBuilder bound_builder(cfd->internal_comparator());
 
+  size_t totla_range_count = added_files.size();
   Status s;
 
-  // load input files into level_ranges
-  for (auto& level_files : inputs) {
-    if (level_files.files.empty()) {
-      continue;
-    }
-    if (level_files.level == 0) {
-      for (auto f : level_files.files) {
+  if (deleted_range.size() != 1 || deleted_range.front().start != nullptr ||
+      deleted_range.front().limit != nullptr) {
+    // load input files into level_ranges
+    for (auto& level_files : inputs) {
+      if (level_files.files.empty()) {
+        continue;
+      }
+      totla_range_count += level_files.files.size();
+      if (level_files.level == 0) {
+        for (auto f : level_files.files) {
+          std::vector<RangeWithDepend> ranges;
+          s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache, &f,
+                                  1);
+          if (!s.ok()) {
+            return s;
+          }
+          level_ranges.emplace_back(std::move(ranges));
+        }
+      } else {
         std::vector<RangeWithDepend> ranges;
-        s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache, &f, 1);
+        s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
+                                level_files.files.data(),
+                                level_files.files.size());
         if (!s.ok()) {
           return s;
         }
         level_ranges.emplace_back(std::move(ranges));
       }
-    } else {
-      std::vector<RangeWithDepend> ranges;
-      s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
-                              level_files.files.data(),
-                              level_files.files.size());
-      if (!s.ok()) {
-        return s;
-      }
-      level_ranges.emplace_back(std::move(ranges));
     }
   }
 
@@ -622,7 +624,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     level_ranges.erase(union_b);
   }
 
-  if (!deleted_range.empty()) {
+  if (!level_ranges.empty() && !deleted_range.empty()) {
     level_ranges.front() =
         DeleteRangeWithDepend(level_ranges.front(), deleted_range,
                               cfd->internal_comparator());
@@ -634,22 +636,80 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     if (!s.ok()) {
       return s;
     }
-    level_ranges.front() =
-        MergeRangeWithDepend(level_ranges.front(), ranges,
-                             cfd->internal_comparator());
+    if (level_ranges.empty()) {
+      level_ranges.emplace_back(std::move(ranges));
+    } else {
+      level_ranges.front() =
+          MergeRangeWithDepend(level_ranges.front(), ranges,
+                               cfd->internal_comparator());
+    }
+  }
+
+  if (level_ranges.empty()) {
+    for (auto& input_level : inputs) {
+      for (auto f : input_level.files) {
+        edit->DeleteFile(input_level.level, f->fd.GetNumber());
+      }
+    }
+    return s;
+  }
+  auto& ranges = level_ranges.front();
+  auto& icomp = cfd->internal_comparator();
+  DependFileMap sst_live;
+  // check is need build map
+  if (ranges.size() == totla_range_count) {
+    for (auto it = ranges.begin(); it != ranges.end(); ++it) {
+      if (it->depend.size() > 1) {
+        sst_live.clear();
+        break;
+      }
+      auto f = iterator_cache.GetFileMetaData(it->depend.front());
+      assert(f != nullptr);
+      if (icomp.Compare(it->point[0], f->smallest) != 0 ||
+          icomp.Compare(it->point[1], f->largest) != 0) {
+        sst_live.clear();
+        break;
+      }
+      sst_live.emplace(it->depend.front(), f);
+    }
+  }
+  if (!sst_live.empty()) {
+    // unnecessary, add all files to output level
+    for (auto& input_level : inputs) {
+      for (auto f : input_level.files) {
+        uint64_t file_number = f->fd.GetNumber();
+        if (sst_live.count(file_number) > 0) {
+          if (output_level != input_level.level) {
+            edit->DeleteFile(input_level.level, file_number);
+            edit->AddFile(output_level, *f);
+          }
+          sst_live.erase(file_number);
+        } else {
+          edit->DeleteFile(input_level.level, file_number);
+        }
+      }
+    }
+    for (auto f : added_files) {
+      assert(sst_live.count(f->fd.GetNumber()) == 1);
+      sst_live.erase(f->fd.GetNumber());
+      edit->AddFile(output_level, *f);
+    }
+    for (auto& pair : sst_live) {
+      edit->AddFile(output_level, *pair.second);
+    }
+    return s;
   }
   
   using IterType = MapSstElementIterator;
   void* buffer = iterator_cache.GetArena()->AllocateAligned(sizeof(IterType));
   std::unique_ptr<IterType, void(*)(IterType*)> output_iter(
-      new(buffer) IterType(level_ranges.front(), iterator_cache,
-                           cfd->internal_comparator()),
+      new(buffer) IterType(ranges, iterator_cache, cfd->internal_comparator()),
       [](IterType* iter) { iter->~IterType(); });
 
   s = WriteOutputFile(bound_builder, output_iter.get(), output_path_id, cfd,
                       file_meta, porp);
 
-  if (s.ok() && edit != nullptr) {
+  if (s.ok()) {
     for (auto& input_level : inputs) {
       for (auto f : input_level.files) {
         edit->DeleteFile(input_level.level, f->fd.GetNumber());
@@ -658,6 +718,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     for (auto f : added_files) {
       edit->AddFile(vstorage->num_levels(), *f);
     }
+    edit->AddFile(output_level, *file_meta);
   }
   return s;
 }
@@ -667,7 +728,7 @@ Status MapBuilder::WriteOutputFile(
     const FileMetaDataBoundBuilder& bound_builder,
     MapSstElementIterator* range_iter, uint32_t output_path_id,
     ColumnFamilyData* cfd, FileMetaData* file_meta,
-    TableProperties* porp) {
+    std::unique_ptr<TableProperties>* porp) {
 
   // Used for write properties
   std::vector<uint64_t> sst_depend;
@@ -757,23 +818,15 @@ Status MapBuilder::WriteOutputFile(
                     sst_depend_build.end());
   std::sort(sst_depend.begin(), sst_depend.end());
 
-  CompactionIterationStats range_del_out_stats;
-  AutoThreadOperationStageUpdater stage_updater(
-      ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
-
-  const Comparator* ucmp = cfd->user_comparator();
+  // Write all tombstones
   auto it = range_iter->GetRangeDelAggregator()->NewIterator();
   for (it->Seek(bound_builder.smallest.user_key()); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
-    if (ucmp->Compare(bound_builder.largest.user_key(),
-                      tombstone.start_key_) <= 0) {
-      // Tombstones starting at upper_bound or later only need to be included
-      // in the next table. Break because subsequent tombstones will start
-      // even later.
-      break;
-    }
+    assert(cfd->user_comparator()->Compare(bound_builder.largest.user_key(),
+                                           tombstone.start_key_) >= 0);
   }
   file_meta->marked_for_compaction = builder->NeedCompact();
+
   const uint64_t current_entries = builder->NumEntries();
   if (s.ok()) {
     s = builder->Finish();
@@ -795,7 +848,7 @@ Status MapBuilder::WriteOutputFile(
   outfile.reset();
 
   if (s.ok()) {
-    *porp = builder->GetTableProperties();
+    porp->reset(new TableProperties(builder->GetTableProperties()));
     // Output to event logger and fire events.
     const char* compaction_msg =
         file_meta->marked_for_compaction ? " (need compaction)" : "";
@@ -807,7 +860,7 @@ Status MapBuilder::WriteOutputFile(
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       nullptr, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      -1, file_meta->fd, *porp, TableFileCreationReason::kCompaction, s);
+      -1, file_meta->fd, **porp, TableFileCreationReason::kCompaction, s);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl

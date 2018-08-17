@@ -198,7 +198,7 @@ Status BuildTable(
 
     if (s.ok() && !empty) {
       // this sst has no depend ...
-      std::unordered_map<uint64_t, FileMetaData*> empty_depend_files;
+      DependFileMap empty_depend_files;
       assert(meta->sst_variety == 0);
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead

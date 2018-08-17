@@ -43,14 +43,14 @@ extern InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
     InternalIteratorBase<BlockHandle>* first_level_iter);
 
 extern InternalIterator* NewLinkSstIterator(
-    InternalIterator* link_sst_iter,
-    const InternalKeyComparator& icomp,
+    InternalIterator* link_sst_iter, const DependFileMap& depend_files,
+    const InternalKeyComparator& icomp, void* create_iter_arg,
     const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena = nullptr);
 
 extern InternalIterator* NewMapSstIterator(
-    InternalIterator* map_sst_iter,
-    const InternalKeyComparator& icomp,
+    InternalIterator* map_sst_iter, const DependFileMap& depend_files,
+    const InternalKeyComparator& icomp, void* create_iter_arg,
     const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena = nullptr);
 

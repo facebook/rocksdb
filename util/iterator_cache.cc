@@ -11,8 +11,12 @@
 namespace rocksdb {
   
 
-IteratorCache::IteratorCache(const CreateIterCallback& create_iterator)
-    : create_iterator_(create_iterator),
+IteratorCache::IteratorCache(const DependFileMap& depend_files,
+                             void* create_iter_arg,
+                             const CreateIterCallback& create_iter)
+    : depend_files_(depend_files),
+      create_iter_arg_(create_iter_arg),
+      create_iter_(create_iter),
       pinned_iters_mgr_(nullptr),
       range_del_agg_(nullptr) {}
 
@@ -43,8 +47,9 @@ InternalIterator* IteratorCache::GetIterator(
     return find->second.iter;
   }
   CacheItem item;
-  item.iter = create_iterator_(f, uint64_t(-1), &arena_, range_del_agg_,
-                               &item.reader);
+  item.iter = create_iter_(create_iter_arg_, f, depend_files_, &arena_,
+                           range_del_agg_, &item.reader);
+  item.meta = f;
   assert(item.iter != nullptr);
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
   iterator_map_.emplace(f->fd.GetNumber(), item);
@@ -64,15 +69,33 @@ InternalIterator* IteratorCache::GetIterator(
     return find->second.iter;
   }
   CacheItem item;
-  item.iter = create_iterator_(nullptr, sst_id, &arena_, range_del_agg_,
-                               &item.reader);
-  assert(item.iter != nullptr);
+  auto find_f = depend_files_.find(sst_id);
+  if (find_f == depend_files_.end()) {
+    auto s = Status::Corruption("Variety sst depend files missing");
+    item.iter = NewErrorInternalIterator<Slice>(s, &arena_);
+    item.reader = nullptr;
+    item.meta = nullptr;
+  } else {
+    auto f = find_f->second;
+    item.iter = create_iter_(create_iter_arg_, f, depend_files_, &arena_,
+                           range_del_agg_, &item.reader);
+    item.meta = f;
+    assert(item.iter != nullptr);
+  }
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
   iterator_map_.emplace(sst_id, item);
   if (reader_ptr != nullptr) {
     *reader_ptr = item.reader;
   }
   return item.iter;
+}
+
+const FileMetaData* IteratorCache::GetFileMetaData(uint64_t sst_id) {
+  auto find = iterator_map_.find(sst_id);
+  if (find != iterator_map_.end()) {
+    return find->second.meta;
+  }
+  return nullptr;
 }
 
 void IteratorCache::SetPinnedItersMgr(

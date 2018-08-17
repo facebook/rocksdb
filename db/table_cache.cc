@@ -21,6 +21,7 @@
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
+#include "util/c_style_callback.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
@@ -29,27 +30,6 @@
 namespace rocksdb {
 
 namespace {
-
-template<class Lambda>
-struct c_style_callback_fetcher {
-  template<class R, class... Args>
-  static R invoke(void* vlamb, Args... args) {
-    return (*(Lambda*)vlamb)(std::forward<Args>(args)...);
-  }
-
-  template<class R, class ...Args>
-  using target_callback = R(*)(void*, Args...);
-
-  template<class R, class ...Args>
-  operator target_callback<R, Args...>() const {
-    return &c_style_callback_fetcher::invoke<R, Args...>;
-  }
-};
-
-template<class Lambda>
-c_style_callback_fetcher<Lambda> gen_c_style_callback(Lambda&) {
-  return c_style_callback_fetcher<Lambda>();
-}
 
 template <class T>
 static void DeleteEntry(const Slice& /*key*/, void* value) {
@@ -85,16 +65,18 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 InternalIterator* TranslateVarietySstIterator(
     const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
-    const InternalKeyComparator& icomp,
-    const IteratorCache::CreateIterCallback& create_iter,
+    const DependFileMap& depend_files, const InternalKeyComparator& icomp,
+    void* create_iter_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   InternalIterator* result;
   switch (file_meta.sst_variety) {
   case kLinkSst:
-    result = NewLinkSstIterator(variety_sst_iter, icomp, create_iter, arena);
+    result = NewLinkSstIterator(variety_sst_iter, depend_files, icomp,
+                                create_iter_arg, create_iter, arena);
     break;
   case kMapSst:
-    result = NewMapSstIterator(variety_sst_iter, icomp, create_iter, arena);
+    result = NewMapSstIterator(variety_sst_iter, depend_files, icomp,
+                               create_iter_arg, create_iter, arena);
     break;
   default:
     assert(false);
@@ -154,7 +136,7 @@ Status GetFromVarietySst(
       return true;
     };
     table_reader->RangeScan(&k, &get_from_link,
-                            gen_c_style_callback(get_from_link));
+                            c_style_callback(get_from_link));
     return s;
   }
   case kMapSst: {  
@@ -206,8 +188,7 @@ Status GetFromVarietySst(
       get_context->SetMinSequenceNumber(min_seq_backup);
       return is_largest_user_key;
     };
-    table_reader->RangeScan(&k, &get_from_map,
-                            gen_c_style_callback(get_from_map));
+    table_reader->RangeScan(&k, &get_from_map, c_style_callback(get_from_map));
     return s;
   }
   default:
@@ -336,10 +317,10 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
-    const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
-    RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
-    TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters, int level) {
+    const DependFileMap& depend_files, RangeDelAggregator* range_del_agg,
+    const SliceTransform* prefix_extractor, TableReader** table_reader_ptr,
+    HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
+    bool skip_filters, int level) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -406,43 +387,48 @@ InternalIterator* TableCache::NewIterator(
       if (file_meta.sst_variety != 0 && !depend_files.empty()) {
         // Store params for create depend table iterator in future
         // DON'T REF THIS OBJECT, DEEP COPY IT !
-        struct {
+        struct CreateIterator {
           TableCache* table_cache;
           ReadOptions options;  // deep copy
           const EnvOptions& env_options;
           const InternalKeyComparator& icomparator;
-          const std::unordered_map<uint64_t, FileMetaData*>& depend_files;
           const SliceTransform* prefix_extractor;
           bool for_compaction;
           bool skip_filters;
           int level;
 
           InternalIterator* operator()(
-              const FileMetaData* in_f, uint64_t sst_id, Arena* in_arena,
-              RangeDelAggregator* in_range_del_agg, TableReader** reader_ptr) {
-            if (in_f == nullptr) {
-              auto find = depend_files.find(sst_id);
-              if (find == depend_files.end()) {
-                if (reader_ptr != nullptr) {
-                  *reader_ptr = nullptr;
-                }
-                auto s =
-                    Status::Corruption("Variety sst depend files missing");
-                return NewErrorInternalIterator<Slice>(s, in_arena);
-              }
-              in_f = find->second;
-            }
+              const FileMetaData* _f, const DependFileMap& _depend_files,
+              Arena* _arena, RangeDelAggregator* _range_del_agg,
+              TableReader** _reader_ptr) {
             return table_cache->NewIterator(
-                       options, env_options, icomparator, *in_f, depend_files,
-                       in_range_del_agg, prefix_extractor, reader_ptr,
-                       nullptr, for_compaction, in_arena, skip_filters, level);
+                       options, env_options, icomparator, *_f, _depend_files,
+                       _range_del_agg, prefix_extractor, _reader_ptr,
+                       nullptr, for_compaction, _arena, skip_filters, level);
           }
-        } create_iterator {
-          this, options, env_options, icomparator, depend_files,
-          prefix_extractor, for_compaction, skip_filters, level,
         };
-        result = TranslateVarietySstIterator(file_meta, result, icomparator,
-                                             create_iterator, arena);
+        void* buffer;
+        if (arena != nullptr) {
+          buffer = arena->AllocateAligned(sizeof(CreateIterator));
+        } else {
+          buffer = new std::aligned_storage<sizeof(CreateIterator)>::type();
+        }
+        CreateIterator* create_iter = new(buffer) CreateIterator{
+          this, options, env_options, icomparator, prefix_extractor,
+          for_compaction, skip_filters, level
+        };
+        result->RegisterCleanup([](void* arg1, void* arg2) {
+          auto param_create_iter = (CreateIterator*)arg1;
+          auto param_arena = (Arena*)arg2;
+          param_create_iter->~CreateIterator();
+          if (param_arena == nullptr) {
+            delete (std::aligned_storage<sizeof(CreateIterator)>::type*)arg1;
+          }
+        }, create_iter, arena);
+        result = TranslateVarietySstIterator(file_meta, result, depend_files,
+                                             icomparator, create_iter,
+                                             c_style_callback(*create_iter),
+                                             arena);
       }
     }
     if (create_new_table_reader) {
@@ -489,8 +475,7 @@ InternalIterator* TableCache::NewIterator(
 Status TableCache::Get(
     const ReadOptions& options,
     const InternalKeyComparator& internal_comparator,
-    const FileMetaData& file_meta,
-    const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+    const FileMetaData& file_meta, const DependFileMap& depend_files,
     const Slice& k, GetContext* get_context,
     const SliceTransform* prefix_extractor,
     HistogramImpl* file_read_hist, bool skip_filters, int level) {
@@ -604,7 +589,7 @@ Status TableCache::Get(
         };
         s = GetFromVarietySst(file_meta, t, internal_comparator, k,
                               get_context, &get_from_sst,
-                              gen_c_style_callback(get_from_sst));
+                              c_style_callback(get_from_sst));
       }
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {

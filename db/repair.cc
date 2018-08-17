@@ -433,7 +433,7 @@ class Repairer {
   }
 
   void ExtractMetaData() {
-    std::unordered_map<uint64_t, FileMetaData*> file_meta_map;
+    DependFileMap depend_files;
     std::map<uint64_t, TableInfo*> variety_set;
     // make sure tables_ enouth, so we can hold ptr of elements
     tables_.reserve(table_fds_.size());
@@ -452,7 +452,7 @@ class Repairer {
         ArchiveFile(fname);
       } else {
         tables_.push_back(t);
-        file_meta_map.emplace(t.meta.fd.GetNumber(), &tables_.back().meta);
+        depend_files.emplace(t.meta.fd.GetNumber(), &tables_.back().meta);
         if (t.meta.sst_variety != 0) {
           variety_set.emplace(t.meta.fd.GetNumber(), &tables_.back());
         }
@@ -471,8 +471,8 @@ class Repairer {
           kOK, kError, kRetry,
         } result = kOK;
         for (auto sst_id : t.meta.sst_depend) {
-          auto find = file_meta_map.find(sst_id);
-          if (find == file_meta_map.end()) {
+          auto find = depend_files.find(sst_id);
+          if (find == depend_files.end()) {
             result = kError;
             break;
           }
@@ -588,7 +588,7 @@ class Repairer {
     if (status.ok()) {
       // Use empty depend files to disable map or link sst forward calls.
       // P.S. depend files in VersionStorage has not build yet ...
-      std::unordered_map<uint64_t, FileMetaData*> empty_depend_files;
+      DependFileMap empty_depend_files;
       InternalIterator* iter = table_cache_->NewIterator(
           ReadOptions(), env_options_, cfd->internal_comparator(), t->meta,
           empty_depend_files, nullptr /* range_del_agg */,

@@ -34,7 +34,7 @@ class ForwardLevelIterator : public InternalIterator {
   ForwardLevelIterator(
       const ColumnFamilyData* const cfd, const ReadOptions& read_options,
       const std::vector<FileMetaData*>& files,
-      const std::unordered_map<uint64_t, FileMetaData*>& depend_files,
+      const DependFileMap& depend_files,
       const SliceTransform* prefix_extractor)
       : cfd_(cfd),
         read_options_(read_options),
@@ -186,7 +186,7 @@ class ForwardLevelIterator : public InternalIterator {
   const ColumnFamilyData* const cfd_;
   const ReadOptions& read_options_;
   const std::vector<FileMetaData*>& files_;
-  const std::unordered_map<uint64_t, FileMetaData*>& depend_files_;
+  const DependFileMap& depend_files_;
 
   bool valid_;
   uint32_t file_index_;
