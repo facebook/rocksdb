@@ -413,7 +413,6 @@ TESTS = \
 	db_iter_stress_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
-	db_compaction_test \
 	db_dynamic_level_test \
 	db_flush_test \
 	db_inplace_update_test \
@@ -535,7 +534,6 @@ TESTS = \
 PARALLEL_TEST = \
 	backupable_db_test \
 	db_compaction_filter_test \
-	db_compaction_test \
 	db_merge_operator_test \
 	db_sst_test \
 	db_test \
@@ -575,7 +573,6 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
-	db_compaction_test \
 
 
 TEST_LIBS = \
@@ -1064,9 +1061,6 @@ memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
-
-db_compaction_test: tools/db_compaction_test.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
