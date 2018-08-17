@@ -49,12 +49,12 @@ SstFileManagerImpl::~SstFileManagerImpl() {
 }
 
 Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
-                                     TableFileCreationReason reason) {
+                                     bool compaction) {
   uint64_t file_size;
   Status s = env_->GetFileSize(file_path, &file_size);
   if (s.ok()) {
     MutexLock l(&mu_);
-    OnAddFileImpl(file_path, file_size, reason);
+    OnAddFileImpl(file_path, file_size, compaction);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
   return s;
@@ -102,7 +102,7 @@ Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
     if (file_size != nullptr) {
       *file_size = tracked_files_[old_path];
     }
-    OnAddFileImpl(new_path, tracked_files_[old_path]);
+    OnAddFileImpl(new_path, tracked_files_[old_path], false);
     OnDeleteFileImpl(old_path);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnMoveFile");
@@ -138,7 +138,8 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
 }
 
 bool SstFileManagerImpl::EnoughRoomForCompaction(
-    ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs) {
+    ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
+    Status bg_error) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
@@ -151,6 +152,9 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
 
   // Update cur_compactions_reserved_size_ so concurrent compaction
   // don't max out space
+  // needed_headroom_ is based on current size reserved by compactions,
+  // minus any files created by running compactions as they would count
+  // against the reserved size.
   cur_compactions_reserved_size_ += size_added_by_compaction;
   size_t needed_headroom =
       cur_compactions_reserved_size_ - in_progress_files_size_ +
@@ -162,7 +166,11 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     return false;
   }
 
-  if (CheckFreeSpace()) {
+  // Implement more aggressive checks only if this DB instance has already
+  // seen a NoSpace() error. This is tin order to contain a single potentially
+  // misbehaving DB instance and prevent it from slowing down compactions of
+  // other DB instances
+  if (CheckFreeSpace() && bg_error == Status::NoSpace()) {
     auto fn =
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
@@ -358,19 +366,21 @@ void SstFileManagerImpl::WaitForEmptyTrash() {
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
-                                       uint64_t file_size,
-                                       TableFileCreationReason reason) {
+                                       uint64_t file_size, bool compaction) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file != tracked_files_.end()) {
     // File was added before, we will just update the size
-    assert(reason != TableFileCreationReason::kCompaction);
-    assert(reason != TableFileCreationReason::kFlush);
+    assert(!compaction);
     total_files_size_ -= tracked_file->second;
     total_files_size_ += file_size;
     cur_compactions_reserved_size_ -= file_size;
   } else {
     total_files_size_ += file_size;
-    if (reason == TableFileCreationReason::kCompaction) {
+    if (compaction) {
+      // Keep track of the size of files created by in-progress compactions.
+      // When calculating whether there's enough headroom for new compactions,
+      // this will be subtracted from cur_compactions_reserved_size_.
+      // Otherwise, compactions will be double counted.
       in_progress_files_size_ += file_size;
       in_progress_files_.insert(file_path);
     }

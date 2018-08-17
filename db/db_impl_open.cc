@@ -135,6 +135,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
 
+  // Create a default SstFileManager for purposes of tracking compaction size
+  // and facilitating recovery from out of space errors.
   if (result.sst_file_manager.get() == nullptr) {
     std::shared_ptr<SstFileManager> sst_file_manager(
         NewSstFileManager(result.env, result.info_log));
@@ -1057,8 +1059,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
 
-    // Create a default SstFileManager for purposes of tracking compaction size
-    // and facilitating recovery from out of space errors. It can only handle
+    // For recovery from NoSpace() error, we can only handle
     // the case where the database is stored in a single path
     if (paths.size() <= 1) {
       impl->error_handler_.EnableAutoRecovery();

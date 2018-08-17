@@ -34,7 +34,11 @@ bool DBImpl::EnoughRoomForCompaction(
   auto sfm = static_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
   if (sfm) {
-    enough_room = sfm->EnoughRoomForCompaction(cfd, inputs);
+    // Pass the current bg_error_ to SFM so it can decide what checks to
+    // perform. If this DB instance hasn't seen any error yet, the SFM can be
+    // optimistic and not do disk space checks
+    enough_room =
+        sfm->EnoughRoomForCompaction(cfd, inputs, error_handler_.GetBGError());
     if (enough_room) {
       *sfm_reserved_compact_space = true;
     }

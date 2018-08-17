@@ -118,7 +118,12 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   virtual Status GetFreeSpace(const std::string& path,
                               uint64_t* disk_free) override {
-    return target()->GetFreeSpace(path, disk_free);
+    if (!IsFilesystemActive() && error_ == Status::NoSpace()) {
+      *disk_free = 0;
+      return Status::OK();
+    } else {
+      return target()->GetFreeSpace(path, disk_free);
+    }
   }
 
   void WritableFileClosed(const FileState& state);

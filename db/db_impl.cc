@@ -277,6 +277,8 @@ Status DBImpl::ResumeImpl() {
   Status bg_error = error_handler_.GetBGError();
   Status s;
   if (shutdown) {
+    // Returning shutdown status to SFM during auto recovery will cause it
+    // to abort the recovery and allow the shutdown to progress
     s = Status::ShutdownInProgress();
   }
   if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
@@ -375,6 +377,7 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false, true);
+  error_handler_.CancelErrorRecovery();
   int bottom_compactions_unscheduled =
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);

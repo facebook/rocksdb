@@ -158,6 +158,9 @@ void ErrorHandler::CancelErrorRecovery() {
 //    the actual recovery. If no sst file manager is specified in DBOptions,
 //    a default one is allocated during DB::Open(), so there will always be
 //    one.
+// This can also get called as part of a recovery operation. In that case, we
+// also track the error seperately in recovery_error_ so we can tell in the
+// end whether recovery succeeded or not
 Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
 

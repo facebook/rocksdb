@@ -34,9 +34,7 @@ class SstFileManagerImpl : public SstFileManager {
   ~SstFileManagerImpl();
 
   // DB will call OnAddFile whenever a new sst file is added.
-  Status OnAddFile(
-      const std::string& file_path,
-      TableFileCreationReason reason = TableFileCreationReason::kMisc);
+  Status OnAddFile(const std::string& file_path, bool compaction = false);
 
   // DB will call OnDeleteFile whenever an sst file is deleted.
   Status OnDeleteFile(const std::string& file_path);
@@ -71,7 +69,8 @@ class SstFileManagerImpl : public SstFileManager {
   // if a compaction has started, this function bumps the used space by
   // the full compaction size).
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
-                               const std::vector<CompactionInputFiles>& inputs);
+                               const std::vector<CompactionInputFiles>& inputs,
+                               Status bg_error);
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction
   // finishes
@@ -124,9 +123,8 @@ class SstFileManagerImpl : public SstFileManager {
 
  private:
   // REQUIRES: mutex locked
-  void OnAddFileImpl(
-      const std::string& file_path, uint64_t file_size,
-      TableFileCreationReason reason = TableFileCreationReason::kMisc);
+  void OnAddFileImpl(const std::string& file_path, uint64_t file_size,
+                     bool compaction);
   // REQUIRES: mutex locked
   void OnDeleteFileImpl(const std::string& file_path);
 
