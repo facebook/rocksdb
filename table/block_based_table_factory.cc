@@ -260,7 +260,7 @@ Status BlockBasedTableFactory::SanitizeOptions(
         "Block alignment requested but block size is not a power of 2");
   }
   if (table_options_.data_block_index_type ==
-      BlockBasedTableOptions::kDataBlockBinaryAndHash &&
+          BlockBasedTableOptions::kDataBlockBinaryAndHash &&
       table_options_.data_block_hash_table_util_ratio <= 0) {
     return Status::InvalidArgument(
         "data_block_hash_table_util_ratio should be greater than 0 when "

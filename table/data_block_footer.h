@@ -17,10 +17,9 @@ uint32_t PackIndexTypeAndNumRestarts(
     BlockBasedTableOptions::DataBlockIndexType index_type,
     uint32_t num_restarts);
 
-
 void UnPackIndexTypeAndNumRestarts(
     uint32_t block_footer,
     BlockBasedTableOptions::DataBlockIndexType* index_type,
     uint32_t* num_restarts);
 
-} // namespace rocksdb
+}  // namespace rocksdb
