@@ -23,15 +23,11 @@ class IteratorCache {
  public:
   using CreateIterCallback =
       InternalIterator*(*)(void* arg, const FileMetaData*,
-                           const DependFileMap&, Arena*, RangeDelAggregator*,
-                           TableReader**);
+                           const DependFileMap&, Arena*, TableReader**);
 
   IteratorCache(const DependFileMap& depend_files, void* create_iter_arg,
                 const CreateIterCallback& create_iter);
   ~IteratorCache();
-
-  void NewRangeDelAgg(const InternalKeyComparator& icmp,
-                      const std::vector<SequenceNumber>& snapshots);
 
   InternalIterator* GetIterator(const FileMetaData* f,
                                 TableReader** reader_ptr = nullptr);
@@ -45,17 +41,12 @@ class IteratorCache {
 
   Arena* GetArena() { return &arena_; }
 
-  RangeDelAggregator* GetRangeDelAggregator() const {
-    return range_del_agg_;
-  }
-
  private:
   const std::unordered_map<uint64_t, const FileMetaData*>& depend_files_;
   void* create_iter_arg_;
   CreateIterCallback create_iter_;
   Arena arena_;
   PinnedIteratorsManager* pinned_iters_mgr_;
-  RangeDelAggregator* range_del_agg_;
 
   struct CacheItem {
     InternalIterator* iter;

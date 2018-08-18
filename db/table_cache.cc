@@ -392,6 +392,7 @@ InternalIterator* TableCache::NewIterator(
           ReadOptions options;  // deep copy
           const EnvOptions& env_options;
           const InternalKeyComparator& icomparator;
+          RangeDelAggregator* range_del_agg;
           const SliceTransform* prefix_extractor;
           bool for_compaction;
           bool skip_filters;
@@ -399,11 +400,10 @@ InternalIterator* TableCache::NewIterator(
 
           InternalIterator* operator()(
               const FileMetaData* _f, const DependFileMap& _depend_files,
-              Arena* _arena, RangeDelAggregator* _range_del_agg,
-              TableReader** _reader_ptr) {
+              Arena* _arena, TableReader** _reader_ptr) {
             return table_cache->NewIterator(
                        options, env_options, icomparator, *_f, _depend_files,
-                       _range_del_agg, prefix_extractor, _reader_ptr,
+                       range_del_agg, prefix_extractor, _reader_ptr,
                        nullptr, for_compaction, _arena, skip_filters, level);
           }
         };
@@ -414,8 +414,8 @@ InternalIterator* TableCache::NewIterator(
           buffer = new std::aligned_storage<sizeof(CreateIterator)>::type();
         }
         CreateIterator* create_iter = new(buffer) CreateIterator{
-          this, options, env_options, icomparator, prefix_extractor,
-          for_compaction, skip_filters, level
+          this, options, env_options, icomparator, range_del_agg,
+          prefix_extractor, for_compaction, skip_filters, level
         };
         result->RegisterCleanup([](void* arg1, void* arg2) {
           auto param_create_iter = (CreateIterator*)arg1;
@@ -446,7 +446,8 @@ InternalIterator* TableCache::NewIterator(
       *table_reader_ptr = table_reader;
     }
   }
-  if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
+  if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions &&
+      file_meta.sst_variety != kMapSst) {
     if (range_del_agg->AddFile(fd.GetNumber())) {
       std::unique_ptr<InternalIterator> range_del_iter(
           table_reader->NewRangeTombstoneIterator(options));
@@ -553,7 +554,7 @@ Status TableCache::Get(
       }
     }
     if (s.ok() && get_context->range_del_agg() != nullptr &&
-        !options.ignore_range_deletions) {
+        !options.ignore_range_deletions && file_meta.sst_variety != kMapSst) {
       std::unique_ptr<InternalIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
       if (range_del_iter != nullptr) {
@@ -571,8 +572,6 @@ Status TableCache::Get(
       if (file_meta.sst_variety == 0 || depend_files.empty()) {
         s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
       } else {
-        ReadOptions options_copy = options;
-        options_copy.ignore_range_deletions = true;
         // Forward query to target sst
         auto get_from_sst = [&](const Slice& find_k, uint64_t sst_id,
                                 Status& status) {
@@ -581,7 +580,7 @@ Status TableCache::Get(
             status = Status::Corruption("Variety sst depend files missing");
             return false;
           }
-          status = Get(options_copy, internal_comparator, *find->second,
+          status = Get(options, internal_comparator, *find->second,
                        depend_files, find_k, get_context, prefix_extractor,
                        file_read_hist, skip_filters, level);
 

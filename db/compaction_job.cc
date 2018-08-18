@@ -1217,9 +1217,9 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   collectors.emplace_back(
       new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend));
 
-  auto status = OpenCompactionOutputFile(sub_compact, &collectors);
-  if (!status.ok()) {
-    sub_compact->status = status;
+  auto& s = sub_compact->status;
+  s = OpenCompactionOutputFile(sub_compact, &collectors);
+  if (!s.ok()) {
     return;
   }
   
@@ -1268,41 +1268,40 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   };
 
   // Multiway merge, write table switch point into sst
-  update_key();
-  last_source = input->source();
-  for (input->Next(); input->Valid(); input->Next()) {
-    assert(input->source().type == IteratorSource::kSST);
-    if (end != nullptr &&
-        ucomp->Compare(
-            ExtractUserKey(input->key()), *end) >= sub_compact->include_end) {
-      break;
-    }
-    if (input->source() != last_source) {
-      put_link_element();
-      last_source = input->source();
-    }
+  if (input->Valid()) {
     update_key();
+    last_source = input->source();
+    int include_end = sub_compact->include_end;
+    for (input->Next(); input->Valid(); input->Next()) {
+      assert(input->source().type == IteratorSource::kSST);
+      if (end != nullptr &&
+          ucomp->Compare(ExtractUserKey(input->key()), *end) >= include_end) {
+        break;
+      }
+      if (input->source() != last_source) {
+        put_link_element();
+        last_source = input->source();
+      }
+      update_key();
+    }
+    put_link_element();
+    
+    // Prepare sst_depend, IntTblPropCollector::Finish will read it
+    sst_depend.reserve(sst_depend_build.size());
+    sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
+                      sst_depend_build.end());
+    sst_depend_build.clear();
+    std::sort(sst_depend.begin(), sst_depend.end());
   }
-  put_link_element();
-
-  // Prepare sst_depend, IntTblPropCollector::Finish will read it
-  sst_depend.reserve(sst_depend_build.size());
-  sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
-                    sst_depend_build.end());
-  sst_depend_build.clear();
-  std::sort(sst_depend.begin(), sst_depend.end());
 
   CompactionIterationStats range_del_out_stats;
-  status = FinishCompactionOutputFile(
-      status, sub_compact, range_del_agg.get(), &range_del_out_stats);
+  s = FinishCompactionOutputFile(input->status(), sub_compact,
+                                 range_del_agg.get(), &range_del_out_stats);
 
   // Update metadata
   meta.sst_variety = kLinkSst;
   meta.sst_depend = std::move(sst_depend);
 
-  if (!status.ok()) {
-    sub_compact->status = status;
-  }
 }
 
 void CompactionJob::RecordDroppedKeys(

@@ -17,24 +17,12 @@ IteratorCache::IteratorCache(const DependFileMap& depend_files,
     : depend_files_(depend_files),
       create_iter_arg_(create_iter_arg),
       create_iter_(create_iter),
-      pinned_iters_mgr_(nullptr),
-      range_del_agg_(nullptr) {}
+      pinned_iters_mgr_(nullptr) {}
 
 IteratorCache::~IteratorCache() {
   for (auto pair : iterator_map_) {
     pair.second.iter->~InternalIterator();
   }
-  if (range_del_agg_ != nullptr) {
-    range_del_agg_->~RangeDelAggregator();
-  }
-}
-
-void IteratorCache::NewRangeDelAgg(
-    const InternalKeyComparator& icmp,
-    const std::vector<SequenceNumber>& snapshots) {
-  assert(iterator_map_.empty());
-  char* buffer = arena_.AllocateAligned(sizeof(RangeDelAggregator));
-  range_del_agg_ = new(buffer) RangeDelAggregator(icmp, snapshots);
 }
 
 InternalIterator* IteratorCache::GetIterator(
@@ -48,7 +36,7 @@ InternalIterator* IteratorCache::GetIterator(
   }
   CacheItem item;
   item.iter = create_iter_(create_iter_arg_, f, depend_files_, &arena_,
-                           range_del_agg_, &item.reader);
+                           &item.reader);
   item.meta = f;
   assert(item.iter != nullptr);
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -78,7 +66,7 @@ InternalIterator* IteratorCache::GetIterator(
   } else {
     auto f = find_f->second;
     item.iter = create_iter_(create_iter_arg_, f, depend_files_, &arena_,
-                           range_del_agg_, &item.reader);
+                             &item.reader);
     item.meta = f;
     assert(item.iter != nullptr);
   }

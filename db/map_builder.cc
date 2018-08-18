@@ -126,10 +126,6 @@ class MapSstElementIterator {
   Slice value() const { return buffer_; }
   Status status() const { return status_; }
 
- RangeDelAggregator* GetRangeDelAggregator() {
-   return iterator_cache_.GetRangeDelAggregator();
- }
-
  const std::unordered_set<uint64_t>& GetSstDepend() const {
    return sst_depend_build_;
  }
@@ -541,7 +537,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   auto create_iterator = [&](const FileMetaData* f,
                              const DependFileMap& depend_files, Arena* arena,
-                             RangeDelAggregator* range_del_agg,
                              TableReader** reader_ptr)->InternalIterator* {
     ReadOptions read_options;
     read_options.verify_checksums = true;
@@ -552,7 +547,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                read_options, env_optiosn_for_read_,
                cfd->internal_comparator(), *f,
                f->sst_variety == kMapSst ? empty_delend_files : depend_files,
-               range_del_agg,
+               nullptr,
                cfd->GetCurrentMutableCFOptions()->prefix_extractor.get(),
                reader_ptr, nullptr /* no per level latency histogram */,
                true /* for_compaction */, arena,
@@ -561,8 +556,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   IteratorCache iterator_cache(depend_files, &create_iterator,
                                c_style_callback(create_iterator));
-  iterator_cache.NewRangeDelAgg(cfd->internal_comparator(),
-                                existing_snapshots_);
 
   std::list<std::vector<RangeWithDepend>> level_ranges;
   MapSstElement map_element;
@@ -674,7 +667,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     }
   }
   if (!sst_live.empty()) {
-    // unnecessary, add all files to output level
+    // unnecessary build map sst
     for (auto& input_level : inputs) {
       for (auto f : input_level.files) {
         uint64_t file_number = f->fd.GetNumber();
@@ -688,11 +681,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
           edit->DeleteFile(input_level.level, file_number);
         }
       }
-    }
-    for (auto f : added_files) {
-      assert(sst_live.count(f->fd.GetNumber()) == 1);
-      sst_live.erase(f->fd.GetNumber());
-      edit->AddFile(output_level, *f);
     }
     for (auto& pair : sst_live) {
       edit->AddFile(output_level, *pair.second);
@@ -818,15 +806,8 @@ Status MapBuilder::WriteOutputFile(
                     sst_depend_build.end());
   std::sort(sst_depend.begin(), sst_depend.end());
 
-  // Write all tombstones
-  auto it = range_iter->GetRangeDelAggregator()->NewIterator();
-  for (it->Seek(bound_builder.smallest.user_key()); it->Valid(); it->Next()) {
-    auto tombstone = it->Tombstone();
-    assert(cfd->user_comparator()->Compare(bound_builder.largest.user_key(),
-                                           tombstone.start_key_) >= 0);
-  }
+  // Map sst don't write tombstones
   file_meta->marked_for_compaction = builder->NeedCompact();
-
   const uint64_t current_entries = builder->NumEntries();
   if (s.ok()) {
     s = builder->Finish();
