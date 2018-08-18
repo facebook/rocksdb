@@ -146,35 +146,68 @@ Status GetFromVarietySst(
       Slice map_input = map_value;
       Slice smallest_key;
       uint64_t link_count;
+      uint64_t flags;
       uint64_t sst_id = uint64_t(-1);
       Slice find_k = k;
+      InternalKey find_storage;
       
       if (!GetLengthPrefixedSlice(&map_input, &smallest_key) ||
           !GetVarint64(&map_input, &link_count) ||
+          !GetVarint64(&map_input, &flags) ||
           map_input.size() < link_count * sizeof(uint64_t)) {
         s = Status::Corruption("Map sst invalid link_value");
         return false;
       }
-      if (icomp.Compare(k, smallest_key) < 0) {
+      // don't care kNoEntries, Get call need load RangeDelAggregator
+      int include_smallest = (flags >> MapSstElement::kIncludeSmallest) & 1;
+      int include_largest = (flags >> MapSstElement::kIncludeLargest) & 1;
+
+      // same as include_smallest ? cmp_result <= 0 : cmp_result < 0
+      if (icomp.Compare(k, smallest_key) < (1 - include_smallest)) {
         if (icomp.user_comparator()->Compare(ExtractUserKey(smallest_key),
                                              ExtractUserKey(k)) != 0) {
           // less than smallest_key
           return false;
         }
-        assert(ExtractInternalKeyFooter(k) >
-                   ExtractInternalKeyFooter(smallest_key));
         // same user_key, shrink to smallest_key
-        find_k = smallest_key;
+        if (include_smallest) {
+          assert(ExtractInternalKeyFooter(k) >
+                     ExtractInternalKeyFooter(smallest_key));
+          find_k = smallest_key;
+        } else {
+          uint64_t seq_type = ExtractInternalKeyFooter(smallest_key);
+          assert(ExtractInternalKeyFooter(k) >= seq_type);
+          if (seq_type == 0) {
+            // 'smallest_key' has the largest seq_type of current user_key
+            // k is out of smallest bound
+            return false;
+          }
+          // make find_k a bit greater than k
+          find_storage.DecodeFrom(smallest_key);
+          EncodeFixed64(
+              &find_storage.rep()->front() + find_storage.user_key().size(),
+              seq_type - 1);
+          find_k = find_storage.Encode();
+        }
       }
 
       bool is_largest_user_key =
           icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
                                            ExtractUserKey(k)) == 0;
-      SequenceNumber min_seq_backup = get_context->GetMinSequenceNumber();
+      uint64_t min_seq_type_backup = get_context->GetMinSequenceAndType();
       if (is_largest_user_key) {
         // shrink seqno to largest_key, make sure can't read greater keys
-        get_context->SetMinSequenceNumber(
-            std::max(min_seq_backup, GetInternalKeySeqno(largest_key)));
+        uint64_t seq_type = ExtractInternalKeyFooter(largest_key);
+        assert(seq_type <=
+                   PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+        // For safety. may kValueTypeForSeek can be 255 in the future ?
+        if (seq_type == port::kMaxUint64 && !include_largest) {
+          // 'largest_key' has the smallest seq_type of current user_key
+          // k is out of largest bound
+          return true;
+        }
+        get_context->SetMinSequenceAndType(
+            std::max(min_seq_type_backup, seq_type + include_largest));
       }
 
       for (uint64_t i = 0; i < link_count; ++i) {
@@ -185,7 +218,7 @@ Status GetFromVarietySst(
         }
       }
       // recovery min_seq_backup
-      get_context->SetMinSequenceNumber(min_seq_backup);
+      get_context->SetMinSequenceAndType(min_seq_type_backup);
       return is_largest_user_key;
     };
     table_reader->RangeScan(&k, &get_from_map, c_style_callback(get_from_map));
@@ -414,7 +447,8 @@ InternalIterator* TableCache::NewIterator(
           buffer = new std::aligned_storage<sizeof(CreateIterator)>::type();
         }
         CreateIterator* create_iter = new(buffer) CreateIterator{
-          this, options, env_options, icomparator, range_del_agg,
+          this, options, env_options, icomparator,
+          file_meta.sst_variety == kLinkSst ? nullptr : range_del_agg,
           prefix_extractor, for_compaction, skip_filters, level
         };
         result->RegisterCleanup([](void* arg1, void* arg2) {

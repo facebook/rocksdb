@@ -59,7 +59,7 @@ GetContext::GetContext(const Comparator* ucmp,
       range_del_agg_(_range_del_agg),
       env_(env),
       seq_(seq),
-      min_seq_(0),
+      min_seq_type_(0),
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
       callback_(callback),
@@ -168,7 +168,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
-    if (parsed_key.sequence < min_seq_) {
+    if (DecodeFixed64(parsed_key.user_key.data() +
+                          parsed_key.user_key.size()) < min_seq_type_) {
       // for map sst, this key is masked
       return false;
     }

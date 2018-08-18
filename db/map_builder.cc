@@ -76,8 +76,8 @@ struct RangeWithDepend {
   RangeWithDepend(const MapSstElement& map_element) {
     point[0].DecodeFrom(map_element.smallest_key_);
     point[1].DecodeFrom(map_element.largest_key_);
-    include[0] = true;
-    include[1] = true;
+    include[0] = map_element.include_smallest_;
+    include[1] = map_element.include_largest_;
     depend.resize(map_element.link_.size());
     for (size_t i = 0; i < depend.size(); ++i) {
       depend[i] = map_element.link_[i].sst_id;
@@ -110,9 +110,9 @@ int CompRange(const InternalKeyComparator& icomp, const RangeWithDepend& a,
 
 class MapSstElementIterator {
  public:
-  MapSstElementIterator(
-      const std::vector<RangeWithDepend>& ranges,
-      IteratorCache& iterator_cache, const InternalKeyComparator& icomp)
+  MapSstElementIterator(const std::vector<RangeWithDepend>& ranges,
+                        IteratorCache& iterator_cache,
+                        const InternalKeyComparator& icomp)
       : ranges_(ranges),
         iterator_cache_(iterator_cache),
         icomp_(icomp) {}
@@ -133,89 +133,70 @@ class MapSstElementIterator {
  private:
 
   void PrepareNext() {
-    while (TryPrepareNext());
-  }
-
-  bool TryPrepareNext() {
     if (where_ == ranges_.end()) {
       buffer_.clear();
-      return false;
+      return;
     }
-    auto& range_with_depend = *where_;
-    auto& start = range_with_depend.point[0];
-    auto& end = range_with_depend.point[1];
-    bool include_start = range_with_depend.include[0];
-    bool include_end = range_with_depend.include[1];
-    new_start_.Clear();
-    new_end_.Clear();
+    auto& start = map_elements_.smallest_key_ = where_->point[0].Encode();
+    auto& end = map_elements_.largest_key_ = where_->point[1].Encode();
+    bool include_start = map_elements_.include_smallest_ = where_->include[0];
+    bool include_end = map_elements_.include_largest_ = where_->include[1];
+    bool no_entries = true;
     map_elements_.link_.clear();
 
-    for (auto sst_id : range_with_depend.depend) {
+    for (auto sst_id : where_->depend) {
       TableReader* reader;
       auto iter = iterator_cache_.GetIterator(sst_id, &reader);
       if (!iter->status().ok()) {
         buffer_.clear();
         status_ = iter->status();
-        return false;
+        return;
       }
-      iter->Seek(start.Encode());
+      iter->Seek(start);
       if (!iter->Valid()) {
         continue;
       }
-      if (!include_start && icomp_.Compare(iter->key(), start.Encode()) == 0) {
+      if (!include_start && icomp_.Compare(iter->key(), start) == 0) {
         iter->Next();
         if (!iter->Valid()) {
           continue;
         }
       }
       start_.DecodeFrom(iter->key());
-      iter->SeekForPrev(end.Encode());
+      iter->SeekForPrev(end);
       if (!iter->Valid()) {
         continue;
       }
-      if (!include_end && icomp_.Compare(iter->key(), end.Encode()) == 0) {
+      if (!include_end && icomp_.Compare(iter->key(), end) == 0) {
         iter->Prev();
         if (!iter->Valid()) {
           continue;
         }
       }
       end_.DecodeFrom(iter->key());
-      if (icomp_.Compare(start_, end_) > 0) {
-        continue;
-      }
-      if (new_start_.size() == 0 || icomp_.Compare(start_, new_start_) < 0) {
-        new_start_ = start_;
-      }
-      if (new_end_.size() == 0 || icomp_.Compare(end_, new_end_) > 0) {
-        new_end_ = end_;
-      }
-      uint64_t left_offset =
-          reader->ApproximateOffsetOf(start_.Encode());
-      uint64_t right_offset =
-          reader->ApproximateOffsetOf(end_.Encode());
-      sst_depend_build_.emplace(sst_id);
-
-      // append a link
       MapSstElement::LinkTarget link;
       link.sst_id = sst_id;
-      link.size = right_offset - left_offset;
+      if (icomp_.Compare(start_, end_) <= 0) {
+        uint64_t start_offset =
+          reader->ApproximateOffsetOf(start_.Encode());
+        uint64_t end_offset =
+          reader->ApproximateOffsetOf(end_.Encode());
+        no_entries = false;
+        link.size = end_offset - start_offset;
+      } else {
+        link.size = 0;
+      }
       map_elements_.link_.emplace_back(link);
+      sst_depend_build_.emplace(sst_id);
     }
+    map_elements_.no_entries_ = no_entries;
+    map_elements_.Value(&buffer_);  // Encode value
     ++where_;
-    if (!map_elements_.link_.empty()) {
-      // output map_element
-      map_elements_.smallest_key_ = new_start_.Encode();
-      map_elements_.largest_key_ = new_end_.Encode();
-      map_elements_.Value(&buffer_);
-      return false;
-    }
-    return true;
   }
 
  private:
   Status status_;
   MapSstElement map_elements_;
-  InternalKey new_start_, new_end_;
   InternalKey start_, end_;
   std::string buffer_;
   std::vector<RangeWithDepend>::const_iterator where_;

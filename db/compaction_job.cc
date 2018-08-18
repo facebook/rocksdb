@@ -1271,11 +1271,11 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   if (input->Valid()) {
     update_key();
     last_source = input->source();
-    int include_end = sub_compact->include_end;
     for (input->Next(); input->Valid(); input->Next()) {
       assert(input->source().type == IteratorSource::kSST);
       if (end != nullptr &&
-          ucomp->Compare(ExtractUserKey(input->key()), *end) >= include_end) {
+          ucomp->Compare(ExtractUserKey(input->key()), *end) >=
+              sub_compact->include_end) {
         break;
       }
       if (input->source() != last_source) {
