@@ -413,6 +413,7 @@ TESTS = \
 	db_iter_stress_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
+	db_compaction_test \
 	db_dynamic_level_test \
 	db_flush_test \
 	db_inplace_update_test \
@@ -534,6 +535,7 @@ TESTS = \
 PARALLEL_TEST = \
 	backupable_db_test \
 	db_compaction_filter_test \
+	db_compaction_test \
 	db_merge_operator_test \
 	db_sst_test \
 	db_test \
@@ -573,7 +575,6 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
-
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1166,6 +1167,9 @@ db_log_iter_test: db/db_log_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHA
 	$(AM_LINK)
 
 db_compaction_filter_test: db/db_compaction_filter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_compaction_test: db/db_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_dynamic_level_test: db/db_dynamic_level_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
