@@ -725,13 +725,16 @@ uint32_t Block::NumRestarts() const {
   uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
   uint32_t num_restarts = block_footer;
   if (size_ > kMaxBlockSizeSupportedByHashIndex) {
-    // We ensure a block with HashIndex is less than 64KiB in BlockBuilder.
-    // Therefore the footer cannot be encoded as a packed index type and
+    // In BlockBuilder, we have ensured a block with HashIndex is less than
+    // kMaxBlockSizeSupportedByHashIndex (64KiB).
+    //
+    // Therefore, if we encounter a block with a size > 64KiB, the block
+    // cannot have HashIndex. So the footer will directly interpreted as
     // num_restarts.
-    // Such check can ensure legacy block with a vary large num_restarts
-    // i.e. >= 0x10000000 can be interpreted correctly as no HashIndex.
-    // If a legacy block hash a num_restarts >= 0x10000000, size_ will be
-    // much large than 64KiB.
+    //
+    // Such check is for backward compatibility. We can ensure legacy block
+    // with a vary large num_restarts i.e. >= 0x80000000 can be interpreted
+    // correctly as no HashIndex even if the MSB of num_restarts is set.
     return num_restarts;
   }
   BlockBasedTableOptions::DataBlockIndexType index_type;
