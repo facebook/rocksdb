@@ -420,7 +420,7 @@ class MapSstIterator final : public InternalIterator {
       status_ = Status::Corruption("Map sst invalid value");
       return kInitFirstIterInvalid;
     }
-    if ((flags >> MapSstElement::kNoEntries) & 1) {
+    if ((flags >> MapSstElement::kNoRecords) & 1) {
       return kInitFirstIterEmpty;
     }
     include_smallest_ = (flags >> MapSstElement::kIncludeSmallest) & 1;
@@ -445,7 +445,7 @@ class MapSstIterator final : public InternalIterator {
     return result == kInitFirstIterOK;
   }
 
-  void InitSecondLevelMinHeap(const Slice& target) {
+  void InitSecondLevelMinHeap(const Slice& target, bool include) {
     assert(min_heap_.empty());
     auto& icomp = min_heap_.comparator().internal_comparator();
     for (auto sst_id : link_) {
@@ -459,40 +459,44 @@ class MapSstIterator final : public InternalIterator {
       if (!it->Valid()) {
         continue;
       }
-      if (!include_smallest_ && icomp.Compare(it->key(), target) == 0) {
+      if (!include && icomp.Compare(it->key(), target) == 0) {
         it->Next();
         if (!it->Valid()) {
           continue;
         }
       }
-      min_heap_.push(HeapElement{it, it->key()});
+      auto key = it->key();
+      if (icomp.Compare(key, largest_key_) < include_largest_) {
+        min_heap_.push(HeapElement{it, key});
+      }
     }
-    assert(!min_heap_.empty());
   }
 
-  void InitSecondLevelMaxHeap(const Slice& target) {
+  void InitSecondLevelMaxHeap(const Slice& target, bool include) {
     assert(max_heap_.empty());
     auto& icomp = min_heap_.comparator().internal_comparator();
     for (auto sst_id : link_) {
       auto it = iterator_cache_.GetIterator(sst_id);
       if (!it->status().ok()) {
         status_ = it->status();
-        min_heap_.clear();
+        max_heap_.clear();
         return;
       }
       it->SeekForPrev(target);
       if (!it->Valid()) {
         continue;
       }
-      if (!include_largest_ && icomp.Compare(it->key(), target) == 0) {
+      if (!include && icomp.Compare(it->key(), target) == 0) {
         it->Prev();
         if (!it->Valid()) {
           continue;
         }
       }
-      max_heap_.push(HeapElement{it, it->key()});
+      auto key = it->key();
+      if (icomp.Compare(smallest_key_, key) < include_smallest_) {
+        max_heap_.push(HeapElement{it, key});
+      }
     }
-    assert(!max_heap_.empty());
   }
 
  public:
@@ -518,14 +522,16 @@ class MapSstIterator final : public InternalIterator {
     is_backword_ = false;
     first_level_iter_->SeekToFirst();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMinHeap(smallest_key_);
+      InitSecondLevelMinHeap(smallest_key_, include_smallest_);
+      assert(!min_heap_.empty());
     }
   }
   virtual void SeekToLast() override {
-    is_backword_ = false;
+    is_backword_ = true;
     first_level_iter_->SeekToLast();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMaxHeap(largest_key_);
+      InitSecondLevelMaxHeap(largest_key_, include_largest_);
+      assert(!max_heap_.empty());
     }
   }
   virtual void Seek(const Slice& target) override {
@@ -536,10 +542,26 @@ class MapSstIterator final : public InternalIterator {
     }
     auto& icomp = min_heap_.comparator().internal_comparator();
     Slice seek_target = target;
-    if (icomp.Compare(target, smallest_key_) < 0) {
+    bool include = true;
+    if (icomp.Compare(target, largest_key_) == 0 && !include_largest_) {
+      first_level_iter_->Next();
+      if (!InitFirstLevelIter()) {
+        return;
+      }
       seek_target = smallest_key_;
+      include = include_smallest_;
+    } else if (icomp.Compare(target, smallest_key_) < 0) {
+      seek_target = smallest_key_;
+      include = include_smallest_;
     }
-    InitSecondLevelMinHeap(seek_target);
+    InitSecondLevelMinHeap(seek_target, include);
+    if (min_heap_.empty()) {
+      first_level_iter_->Next();
+      if (InitFirstLevelIter()) {
+        InitSecondLevelMinHeap(smallest_key_, include_smallest_);
+        assert(!min_heap_.empty());
+      }
+    }
   }
   virtual void SeekForPrev(const Slice& target) override {
     is_backword_ = true;
@@ -550,30 +572,41 @@ class MapSstIterator final : public InternalIterator {
     }
     auto& icomp = min_heap_.comparator().internal_comparator();
     Slice seek_target = target;
-    if (icomp.Compare(target, smallest_key_) < 0) {
+    bool include = true;
+    // include_smallest ? cmp_result > 0 : cmp_result >= 0
+    if (icomp.Compare(smallest_key_, target) >= include_smallest_) {
       first_level_iter_->Prev();
       if (!InitFirstLevelIter()) {
         return;
       }
       seek_target = largest_key_;
+      include = include_largest_;
     }
-    InitSecondLevelMaxHeap(seek_target);
+    InitSecondLevelMaxHeap(seek_target, include);
+    if (max_heap_.empty()) {
+      first_level_iter_->Prev();
+      if (InitFirstLevelIter()) {
+        InitSecondLevelMaxHeap(largest_key_, include_largest_);
+        assert(!max_heap_.empty());
+      }
+    }
   }
   virtual void Next() override {
     if (is_backword_) {
       InternalKey where;
       where.DecodeFrom(max_heap_.top().key);
       max_heap_.clear();
-      InitSecondLevelMinHeap(where.Encode());
+      InitSecondLevelMinHeap(where.Encode(), false);
       is_backword_ = false;
-    }
-    auto current = min_heap_.top();
-    current.iter->Next();
-    if (current.iter->Valid()) {
-      current.key = current.iter->key();
-      min_heap_.replace_top(current);
     } else {
-      min_heap_.pop();
+      auto current = min_heap_.top();
+      current.iter->Next();
+      if (current.iter->Valid()) {
+        current.key = current.iter->key();
+        min_heap_.replace_top(current);
+      } else {
+        min_heap_.pop();
+      }
     }
     auto& icomp = min_heap_.comparator().internal_comparator();
     if (!min_heap_.empty() &&
@@ -582,7 +615,8 @@ class MapSstIterator final : public InternalIterator {
     }
     first_level_iter_->Next();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMinHeap(smallest_key_);
+      InitSecondLevelMinHeap(smallest_key_, include_smallest_);
+      assert(!min_heap_.empty());
     }
   }
   virtual void Prev() override {
@@ -590,26 +624,28 @@ class MapSstIterator final : public InternalIterator {
       InternalKey where;
       where.DecodeFrom(min_heap_.top().key);
       min_heap_.clear();
-      InitSecondLevelMaxHeap(where.Encode());
+      InitSecondLevelMaxHeap(where.Encode(), false);
       is_backword_ = true;
-    }
-    auto current = max_heap_.top();
-    current.iter->Prev();
-    if (current.iter->Valid()) {
-      current.key = current.iter->key();
-      max_heap_.replace_top(current);
     } else {
-      max_heap_.pop();
+      auto current = max_heap_.top();
+      current.iter->Prev();
+      if (current.iter->Valid()) {
+        current.key = current.iter->key();
+        max_heap_.replace_top(current);
+      } else {
+        max_heap_.pop();
+      }
     }
     auto& icomp = min_heap_.comparator().internal_comparator();
     if (!max_heap_.empty() &&
-        icomp.Compare(max_heap_.top().key, smallest_key_) >
+        icomp.Compare(smallest_key_, max_heap_.top().key) <
             include_smallest_) {
       return;
     }
     first_level_iter_->Prev();
     if (InitFirstLevelIter()) {
-      InitSecondLevelMaxHeap(largest_key_);
+      InitSecondLevelMaxHeap(largest_key_, include_largest_);
+      assert(!max_heap_.empty());
     }
   }
   virtual Slice key() const override {

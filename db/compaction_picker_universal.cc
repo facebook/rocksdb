@@ -472,6 +472,17 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
       break;
     }
   }
+  if (inputs.level == -1 && vstorage->has_space_amplification(0)) {
+    auto& level0_files = vstorage->LevelFiles(0);
+    for (auto it = level0_files.rbegin(); it != level0_files.rend(); ++it) {
+      auto f = *it;
+      if (f->sst_variety != 0 && !f->being_compacted) {
+        inputs.level = 0;
+        inputs.files = {f};
+        break;
+      }
+    }
+  }
   if (inputs.level == -1) {
     return nullptr;
   }

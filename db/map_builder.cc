@@ -141,7 +141,7 @@ class MapSstElementIterator {
     auto& end = map_elements_.largest_key_ = where_->point[1].Encode();
     bool include_start = map_elements_.include_smallest_ = where_->include[0];
     bool include_end = map_elements_.include_largest_ = where_->include[1];
-    bool no_entries = true;
+    bool no_records = true;
     map_elements_.link_.clear();
 
     for (auto sst_id : where_->depend) {
@@ -181,7 +181,7 @@ class MapSstElementIterator {
           reader->ApproximateOffsetOf(start_.Encode());
         uint64_t end_offset =
           reader->ApproximateOffsetOf(end_.Encode());
-        no_entries = false;
+        no_records = false;
         link.size = end_offset - start_offset;
       } else {
         link.size = 0;
@@ -189,7 +189,7 @@ class MapSstElementIterator {
       map_elements_.link_.emplace_back(link);
       sst_depend_build_.emplace(sst_id);
     }
-    map_elements_.no_entries_ = no_entries;
+    map_elements_.no_records_ = no_records;
     map_elements_.Value(&buffer_);  // Encode value
     ++where_;
   }
@@ -264,8 +264,13 @@ std::vector<RangeWithDepend> MergeRangeWithDepend(
   };
   auto put_right = [&](const InternalKey& key, bool include) {
     auto& back = output.back();
-    back.point[1] = key;
-    back.include[1] = include;
+    if (icomp.Compare(key, back.point[0]) != 0 ||
+        (back.include[0] && include)) {
+      back.point[1] = key;
+      back.include[1] = include;
+    } else {
+      output.pop_back();
+    }
   };
   auto put_depend = [&](const RangeWithDepend* a, const RangeWithDepend* b) {
     auto& depend = output.back().depend;

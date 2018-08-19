@@ -940,7 +940,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       start_iter.SetInternalKey(*start, 0, static_cast<ValueType>(0));
     }
     input->Seek(start_iter.GetInternalKey());
-    if (!sub_compact->include_start &&
+    if (!sub_compact->include_start && input->Valid() &&
         cfd->user_comparator()->Compare(ExtractUserKey(input->key()),
                                         *start) == 0) {
       input->Next();

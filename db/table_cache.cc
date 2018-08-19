@@ -147,7 +147,6 @@ Status GetFromVarietySst(
       Slice smallest_key;
       uint64_t link_count;
       uint64_t flags;
-      uint64_t sst_id = uint64_t(-1);
       Slice find_k = k;
       InternalKey find_storage;
       
@@ -158,25 +157,24 @@ Status GetFromVarietySst(
         s = Status::Corruption("Map sst invalid link_value");
         return false;
       }
-      // don't care kNoEntries, Get call need load RangeDelAggregator
+      // don't care kNoRecords, Get call need load RangeDelAggregator
       int include_smallest = (flags >> MapSstElement::kIncludeSmallest) & 1;
       int include_largest = (flags >> MapSstElement::kIncludeLargest) & 1;
 
-      // same as include_smallest ? cmp_result <= 0 : cmp_result < 0
-      if (icomp.Compare(k, smallest_key) < (1 - include_smallest)) {
+      // include_smallest ? cmp_result > 0 : cmp_result >= 0
+      if (icomp.Compare(smallest_key, k) >= include_smallest) {
         if (icomp.user_comparator()->Compare(ExtractUserKey(smallest_key),
                                              ExtractUserKey(k)) != 0) {
-          // less than smallest_key
+          // k is out of smallest bound
           return false;
         }
+        assert(ExtractInternalKeyFooter(k) >
+                   ExtractInternalKeyFooter(smallest_key));
         // same user_key, shrink to smallest_key
         if (include_smallest) {
-          assert(ExtractInternalKeyFooter(k) >
-                     ExtractInternalKeyFooter(smallest_key));
           find_k = smallest_key;
         } else {
           uint64_t seq_type = ExtractInternalKeyFooter(smallest_key);
-          assert(ExtractInternalKeyFooter(k) >= seq_type);
           if (seq_type == 0) {
             // 'smallest_key' has the largest seq_type of current user_key
             // k is out of smallest bound
@@ -207,15 +205,17 @@ Status GetFromVarietySst(
           return true;
         }
         get_context->SetMinSequenceAndType(
-            std::max(min_seq_type_backup, seq_type + include_largest));
+            std::max(min_seq_type_backup, seq_type + !include_largest));
       }
 
       for (uint64_t i = 0; i < link_count; ++i) {
-        GetFixed64(&map_input, &sst_id);
+        // Manual inline GetFixed64
+        uint64_t sst_id = DecodeFixed64(map_input.data());
         if (!get_from_sst(arg, find_k, sst_id, s)) {
           // error or found, recovery min_seq_backup is unnecessary
           return false;
         }
+        map_input.remove_prefix(sizeof(uint64_t));
       }
       // recovery min_seq_backup
       get_context->SetMinSequenceAndType(min_seq_type_backup);

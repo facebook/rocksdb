@@ -660,7 +660,7 @@ struct MapSstElement {
   Slice largest_key_;
   bool include_smallest_;
   bool include_largest_;
-  bool no_entries_;
+  bool no_records_;
   struct LinkTarget {
     uint64_t sst_id;
     uint64_t size;
@@ -669,13 +669,13 @@ struct MapSstElement {
   enum Flags : uint64_t {
     kIncludeSmallest,
     kIncludeLargest,
-    kNoEntries,
+    kNoRecords,
   };
 
   MapSstElement()
       : include_smallest_(false),
         include_largest_(false),
-        no_entries_(false) {}
+        no_records_(false) {}
 
   bool Decode(Slice ikey, Slice value) {
     link_.clear();
@@ -690,7 +690,7 @@ struct MapSstElement {
     }
     include_smallest_ = (flags >> kIncludeSmallest) & 1;
     include_largest_ = (flags >> kIncludeLargest) & 1;
-    no_entries_ = (flags >> kNoEntries) & 1;
+    no_records_ = (flags >> kNoRecords) & 1;
     link_.resize(link_count);
 
     for (uint64_t i = 0; i < link_count; ++i) {
@@ -711,7 +711,7 @@ struct MapSstElement {
     uint64_t flags =
         (!!include_smallest_ << kIncludeSmallest) |
         (!!include_largest_ << kIncludeLargest) |
-        (!!no_entries_ << kNoEntries);
+        (!!no_records_ << kNoRecords);
     PutVarint64(buffer, flags);
     buffer->reserve(buffer->size() + sizeof(LinkTarget) * link_.size());
     for (auto& l : link_) {
