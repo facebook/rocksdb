@@ -191,6 +191,12 @@ TEST_F(VersionEditTest, MinLogNumberToKeep) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, AtomicGroupTest) {
+  VersionEdit edit;
+  edit.MarkAtomicGroup(1);
+  TestEncodeDecode(edit);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

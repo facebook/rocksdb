@@ -728,6 +728,10 @@ struct ObsoleteFileInfo {
   }
 };
 
+namespace {
+class BaseReferencedVersionBuilder;
+}
+
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
@@ -988,6 +992,16 @@ class VersionSet {
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
+
+  Status ApplyOneVersionEdit(
+      VersionEdit& edit,
+      const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_opts,
+      std::unordered_map<int, std::string>& column_families_not_found,
+      std::unordered_map<uint32_t, BaseReferencedVersionBuilder*>& builders,
+      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
+      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
+      bool* have_last_sequence, SequenceNumber* last_sequence,
+      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
 
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
                                InstrumentedMutex* mu, Directory* db_directory,
