@@ -2868,7 +2868,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
           }
         }
       }
-  }
+    }
   }
   if (rep_->filter) {
     out_file->Append(
