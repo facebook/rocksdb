@@ -9,10 +9,10 @@
 
 #include "rocksdb/slice.h"
 #include "table/block.h"
+#include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/data_block_hash_index.h"
 #include "table/get_context.h"
-#include "table/block_based_table_reader.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -40,9 +40,9 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
-                        Random *rnd) {
+                        Random* rnd) {
   char buf[50];
-  char *p = &buf[0];
+  char* p = &buf[0];
   snprintf(buf, sizeof(buf), "%6d%4d", primary_key, secondary_key);
   std::string k(p);
   if (padding_size) {
@@ -55,8 +55,8 @@ std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
 // Generate random key value pairs.
 // The generated key will be sorted. You can tune the parameters to generated
 // different kinds of test key/value pairs for different scenario.
-void GenerateRandomKVs(std::vector<std::string> *keys,
-                       std::vector<std::string> *values, const int from,
+void GenerateRandomKVs(std::vector<std::string>* keys,
+                       std::vector<std::string>* values, const int from,
                        const int len, const int step = 1,
                        const int padding_size = 0,
                        const int keys_share_prefix = 1) {
@@ -93,8 +93,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
 
     ASSERT_EQ(buffer.size(), estimated_size);
 
-    buffer2 = buffer; // test for the correctness of relative offset
-
+    buffer2 = buffer;  // test for the correctness of relative offset
 
     Slice s(buffer2);
     DataBlockHashIndex index;
@@ -290,7 +289,6 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
   }
 
-
   builder.Reset();
 
   // #restarts > 253. HashIndex is not used
@@ -343,7 +341,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
     ASSERT_EQ(reader.IndexType(),
-               BlockBasedTableOptions::kDataBlockBinaryAndHash);
+              BlockBasedTableOptions::kDataBlockBinaryAndHash);
   }
 
   builder.Reset();
@@ -404,8 +402,8 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
     may_exist = iter->SeekForGet(seek_ikey.Encode().ToString());
     ASSERT_TRUE(may_exist);
     ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(options.comparator->Compare(
-                  iter->key(), ikey.Encode().ToString()), 0);
+    ASSERT_EQ(
+        options.comparator->Compare(iter->key(), ikey.Encode().ToString()), 0);
     ASSERT_EQ(iter->value(), value);
   }
 
@@ -419,8 +417,8 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
     ASSERT_TRUE(iter->Valid());
 
     // user key should match
-    ASSERT_EQ(options.comparator->Compare(
-                  ExtractUserKey(iter->key()), ukey), 0);
+    ASSERT_EQ(options.comparator->Compare(ExtractUserKey(iter->key()), ukey),
+              0);
 
     // seek_key seqno number should be greater than that of iter result
     ASSERT_GT(GetInternalKeySeqno(seek_ikey.Encode()),
@@ -601,7 +599,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   ReadOptions ro;
 
   ASSERT_OK(table_reader->Get(ro, seek_ikey.Encode().ToString(), &get_context,
-                               moptions.prefix_extractor.get()));
+                              moptions.prefix_extractor.get()));
 }
 
 TEST(DataBlockHashIndex, BlockBoundary) {

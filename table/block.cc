@@ -262,7 +262,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // Even if the user_key is not found in the hash map, the caller still
     // have to conntinue searching the next block. So we invalidate the
     // iterator to tell the caller to go on.
-    current_ = restarts_; // Invalidate the iter
+    current_ = restarts_;  // Invalidate the iter
     return true;
   }
 
@@ -781,7 +781,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
           break;
         case BlockBasedTableOptions::kDataBlockBinaryAndHash:
           if (size_ < sizeof(uint32_t) /* block footer */ +
-                          sizeof(uint16_t)  /* NUM_BUCK */) {
+                          sizeof(uint16_t) /* NUM_BUCK */) {
             size_ = 0;
             break;
           }
@@ -789,9 +789,9 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
           uint16_t map_offset;
           data_block_hash_index_.Initialize(
               contents.data.data(),
-              static_cast<uint16_t>(
-                  contents.data.size() - sizeof(uint32_t)),     /*chop off
-                                                            NUM_RESTARTS*/
+              static_cast<uint16_t>(contents.data.size() -
+                                    sizeof(uint32_t)), /*chop off
+                                                   NUM_RESTARTS*/
               &map_offset);
 
           restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);

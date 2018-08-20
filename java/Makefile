@@ -14,6 +14,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.ColumnFamilyOptions\
 	org.rocksdb.CompactionOptionsFIFO\
 	org.rocksdb.CompactionOptionsUniversal\
+	org.rocksdb.CompactRangeOptions\
 	org.rocksdb.Comparator\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
