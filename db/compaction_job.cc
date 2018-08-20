@@ -971,7 +971,10 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   // dictionary from the first output file.
   size_t data_begin_offset = 0;
   std::string dict_sample_data;
-  dict_sample_data.reserve(kSampleBytes);
+  // single_output don't need sample
+  if (!sub_compact->compaction->single_output()) {
+    dict_sample_data.reserve(kSampleBytes);
+  }
 
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
@@ -1010,7 +1013,9 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
         key, c_iter->ikey().sequence);
     sub_compact->num_output_records++;
 
-    if (sub_compact->outputs.size() == 1) {  // first output file
+    // single_output don't need sample
+    if (!sub_compact->compaction->single_output() &&
+        sub_compact->outputs.size() == 1) { // first output file
       // Check if this key/value overlaps any sample intervals; if so, appends
       // overlapping portions to the dictionary.
       for (const auto& data_elmt : {key, value}) {
@@ -1059,77 +1064,78 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       }
     }
 
-    // Close output file if it is big enough. Two possibilities determine it's
-    // time to close it: (1) the current key should be this file's last key, (2)
-    // the next key should not be in this file.
-    //
-    // TODO(aekmekji): determine if file should be closed earlier than this
-    // during subcompactions (i.e. if output size, estimated by input size, is
-    // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
-    // and 0.6MB instead of 1MB and 0.2MB)
-    bool output_file_ended = false;
-    Status input_status;
-    if (sub_compact->compaction->output_level() != 0 &&
-        sub_compact->current_output_file_size >=
-            sub_compact->compaction->max_output_file_size()) {
-      // (1) this key terminates the file. For historical reasons, the iterator
-      // status before advancing will be given to FinishCompactionOutputFile().
-      input_status = input->status();
-      output_file_ended = true;
-    }
-    c_iter->Next();
-    if (!output_file_ended && c_iter->Valid() &&
-        sub_compact->compaction->output_level() != 0 &&
-        sub_compact->ShouldStopBefore(c_iter->key(),
-                                      sub_compact->current_output_file_size) &&
-        sub_compact->builder != nullptr) {
-      // (2) this key belongs to the next file. For historical reasons, the
-      // iterator status after advancing will be given to
-      // FinishCompactionOutputFile().
-      input_status = input->status();
-      output_file_ended = true;
-    }
-    const Slice* next_key = nullptr;
-    if (output_file_ended) {
-      if (c_iter->Valid()) {
-        next_key = &c_iter->key();
+    if (!sub_compact->compaction->single_output()) {
+      // Close output file if it is big enough. Two possibilities determine
+      // it's time to close it: (1) the current key should be this file's last
+      // key, (2) the next key should not be in this file.
+      //
+      // TODO(aekmekji): determine if file should be closed earlier than this
+      // during subcompactions (i.e. if output size, estimated by input size,
+      // is going to be 1.2MB and max_output_file_size = 1MB, prefer to have
+      // 0.6MB and 0.6MB instead of 1MB and 0.2MB)
+      bool output_file_ended = false;
+      Status input_status;
+      if (sub_compact->compaction->output_level() != 0 &&
+          sub_compact->current_output_file_size >=
+              sub_compact->compaction->max_output_file_size()) {
+        // (1) this key terminates the file. For historical reasons, the
+        // iterator status before advancing will be given to
+        // FinishCompactionOutputFile().
+        input_status = input->status();
+        output_file_ended = true;
       }
-      if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction &&
-          false) { // test map and link , disable tempory
-        if (next_key != nullptr &&
-            cfd->user_comparator()->Compare(
-                ExtractUserKey(*next_key),
-                sub_compact->outputs.back().meta.largest.user_key()) != 0) {
-          // set end to actual end
-          sub_compact->end_storage.SetMinPossibleForUserKey(
-              ExtractUserKey(*next_key));
-          sub_compact->end_slice = sub_compact->end_storage.Encode();
-          sub_compact->end = &sub_compact->end_slice;
-          sub_compact->include_end = false;
-          // TODO(zouzhizhang): check is cover any sst
-          break;
-        } else {
-          output_file_ended = false;
+      c_iter->Next();
+      if (!output_file_ended && c_iter->Valid() &&
+          sub_compact->compaction->output_level() != 0 &&
+          sub_compact->ShouldStopBefore(
+              c_iter->key(), sub_compact->current_output_file_size) &&
+          sub_compact->builder != nullptr) {
+        // (2) this key belongs to the next file. For historical reasons, the
+        // iterator status after advancing will be given to
+        // FinishCompactionOutputFile().
+        input_status = input->status();
+        output_file_ended = true;
+      }
+      const Slice* next_key = nullptr;
+      if (output_file_ended) {
+        if (c_iter->Valid()) {
+          next_key = &c_iter->key();
+        }
+        if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
+          if (next_key != nullptr &&
+              cfd->user_comparator()->Compare(
+                  ExtractUserKey(*next_key),
+                  sub_compact->outputs.back().meta.largest.user_key()) != 0) {
+            // set end to actual end
+            sub_compact->end_storage.SetMinPossibleForUserKey(
+                ExtractUserKey(*next_key));
+            sub_compact->end_slice = sub_compact->end_storage.Encode();
+            sub_compact->end = &sub_compact->end_slice;
+            sub_compact->include_end = false;
+            break;
+          } else {
+            output_file_ended = false;
+          }
         }
       }
-    }
-    if (output_file_ended) {
-      CompactionIterationStats range_del_out_stats;
-      status = FinishCompactionOutputFile(input_status, sub_compact,
-                                          range_del_agg.get(),
-                                          &range_del_out_stats, next_key);
-      RecordDroppedKeys(range_del_out_stats,
-                        &sub_compact->compaction_job_stats);
-      if (sub_compact->outputs.size() == 1) {
-        // Use samples from first output file to create dictionary for
-        // compression of subsequent files.
-        if (kUseZstdTrainer) {
-          sub_compact->compression_dict = ZSTD_TrainDictionary(
-              dict_sample_data, kSampleLenShift,
-              sub_compact->compaction->output_compression_opts()
-                  .max_dict_bytes);
-        } else {
-          sub_compact->compression_dict = std::move(dict_sample_data);
+      if (output_file_ended) {
+        CompactionIterationStats range_del_out_stats;
+        status = FinishCompactionOutputFile(input_status, sub_compact,
+                                            range_del_agg.get(),
+                                            &range_del_out_stats, next_key);
+        RecordDroppedKeys(range_del_out_stats,
+                          &sub_compact->compaction_job_stats);
+        if (sub_compact->outputs.size() == 1) {
+          // Use samples from first output file to create dictionary for
+          // compression of subsequent files.
+          if (kUseZstdTrainer) {
+            sub_compact->compression_dict = ZSTD_TrainDictionary(
+                dict_sample_data, kSampleLenShift,
+                sub_compact->compaction->output_compression_opts()
+                    .max_dict_bytes);
+          } else {
+            sub_compact->compression_dict = std::move(dict_sample_data);
+          }
         }
       }
     }
@@ -1248,6 +1254,9 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
   auto update_key = [&] {
     ++key_count;
+    assert(last_key.size() == 0 ||
+           cfd->internal_comparator().Compare(last_key.Encode(),
+                                              input->key()) < 0);
     last_key.DecodeFrom(input->key());
     meta.UpdateBoundaries(last_key.Encode(),
                           GetInternalKeySeqno(last_key.Encode()));

@@ -68,20 +68,13 @@ InternalIterator* TranslateVarietySstIterator(
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* create_iter_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
-  InternalIterator* result;
-  switch (file_meta.sst_variety) {
-  case kLinkSst:
-    result = NewLinkSstIterator(variety_sst_iter, depend_files, icomp,
-                                create_iter_arg, create_iter, arena);
-    break;
-  case kMapSst:
-    result = NewMapSstIterator(variety_sst_iter, depend_files, icomp,
-                               create_iter_arg, create_iter, arena);
-    break;
-  default:
+  if (file_meta.sst_variety == 0) {
     assert(false);
     return variety_sst_iter;
   }
+  InternalIterator* result =
+      NewVarietySstIterator(file_meta, variety_sst_iter, depend_files, icomp,
+                            create_iter_arg, create_iter, arena);
   result->RegisterCleanup([](void* arg1, void* arg2) {
     auto param_iter = (InternalIterator*)arg1;
     auto param_arena = (Arena*)arg2;
@@ -111,15 +104,26 @@ Status GetFromVarietySst(
       uint64_t sst_id;
       Slice find_k = k;
 
-      if (!GetFixed64(&link_input, &sst_id)) {
-        s = Status::Corruption("Link sst invalid link_value");
-        return false;
-      }
-      if (smallest_key.size() != 0) {
+      if (smallest_key.size() == 0) {
+        if (icomp.user_comparator()->Compare(file_meta.smallest.user_key(),
+                                             k) > 0) {
+          if (icomp.user_comparator()->Compare(file_meta.smallest.user_key(),
+                                               ExtractUserKey(k)) != 0) {
+            // k is less than file_meta.smallest ? is this a bug ?
+            return false;
+          }
+          find_k = smallest_key.Encode();
+        }
+      } else {
         assert(icomp.user_comparator()->Compare(smallest_key.user_key(),
                                                 ExtractUserKey(k)) == 0);
         // shrink to smallest_key
         find_k = smallest_key.Encode();
+      }
+
+      if (!GetFixed64(&link_input, &sst_id)) {
+        s = Status::Corruption("Link sst invalid link_value");
+        return false;
       }
       if (!get_from_sst(arg, find_k, sst_id, s)) {
         // error or found

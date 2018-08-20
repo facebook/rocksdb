@@ -44,7 +44,7 @@ class Compaction {
              CompressionOptions compression_opts, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
-             bool deletion_compaction = false,
+             bool deletion_compaction = false, bool single_output = false,
              SstVarieties compaction_varieties = kGeneralSst,
              const std::vector<RangeStorage>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
@@ -136,6 +136,9 @@ class Compaction {
 
   // If true, then the compaction can be done by simply deleting input files.
   bool deletion_compaction() const { return deletion_compaction_; }
+
+  // If true, then output single sst pre subsompact
+  bool single_output() const { return single_output_; }
 
   // Compaction varieties
   SstVarieties compaction_varieties() const {
@@ -304,6 +307,8 @@ class Compaction {
   CompressionOptions output_compression_opts_;
   // If true, then the comaction can be done by simply deleting input files.
   const bool deletion_compaction_;
+  // If true, then output single sst pre subsompact
+  const bool single_output_;
 
   // Compaction varieties
   const SstVarieties compaction_varieties_;

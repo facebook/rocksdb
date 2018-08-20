@@ -139,6 +139,7 @@ class MapSstElementIterator {
     }
     auto& start = map_elements_.smallest_key_ = where_->point[0].Encode();
     auto& end = map_elements_.largest_key_ = where_->point[1].Encode();
+    assert(icomp_.Compare(start, end) <= 0);
     bool include_start = map_elements_.include_smallest_ = where_->include[0];
     bool include_end = map_elements_.include_largest_ = where_->include[1];
     bool no_records = true;
@@ -178,9 +179,9 @@ class MapSstElementIterator {
       link.sst_id = sst_id;
       if (icomp_.Compare(start_, end_) <= 0) {
         uint64_t start_offset =
-          reader->ApproximateOffsetOf(start_.Encode());
+            reader->ApproximateOffsetOf(start_.Encode());
         uint64_t end_offset =
-          reader->ApproximateOffsetOf(end_.Encode());
+            reader->ApproximateOffsetOf(end_.Encode());
         no_records = false;
         link.size = end_offset - start_offset;
       } else {
@@ -289,8 +290,7 @@ std::vector<RangeWithDepend> MergeRangeWithDepend(
   do {
     int c;
     if (ai < ranges_a.size() && bi < ranges_b.size()) {
-      c = icomp.Compare(ranges_a[ai].point[ab].Encode(),
-                        ranges_b[bi].point[bb].Encode());
+      c = icomp.Compare(ranges_a[ai].point[ab], ranges_b[bi].point[bb]);
       if (c == 0) {
         switch (CASE(ab, ranges_a[ai].include[ab], bb,
                      ranges_b[bi].include[bb])) {
@@ -518,6 +518,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          VersionEdit* edit, FileMetaData* file_meta,
                          std::unique_ptr<TableProperties>* porp) {
 
+  auto& icomp = cfd->internal_comparator();
   DependFileMap empty_delend_files;
   auto& depend_files = vstorage->depend_files();
 
@@ -570,6 +571,11 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
         }
       } else {
         std::vector<RangeWithDepend> ranges;
+        assert(std::is_sorted(
+                   level_files.files.begin(), level_files.files.end(),
+                   [&icomp](const FileMetaData* f1, const FileMetaData* f2) {
+                     return icomp.Compare(f1->largest, f2->smallest) < 0;
+                   }));
         s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
                                 level_files.files.data(),
                                 level_files.files.size());
@@ -610,6 +616,12 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   }
   if (!added_files.empty()) {
     std::vector<RangeWithDepend> ranges;
+    assert(std::is_sorted(
+               added_files.begin(), added_files.end(),
+               [&icomp](const FileMetaData* f1,
+                        const FileMetaData* f2) {
+                 return icomp.Compare(f1->largest, f2->smallest) < 0;
+               }));
     s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
                             added_files.data(), added_files.size());
     if (!s.ok()) {
@@ -633,7 +645,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     return s;
   }
   auto& ranges = level_ranges.front();
-  auto& icomp = cfd->internal_comparator();
   DependFileMap sst_live;
   // check is need build map
   if (ranges.size() == totla_range_count) {
@@ -679,7 +690,12 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   std::unique_ptr<IterType, void(*)(IterType*)> output_iter(
       new(buffer) IterType(ranges, iterator_cache, cfd->internal_comparator()),
       [](IterType* iter) { iter->~IterType(); });
-
+  
+  assert(std::is_sorted(ranges.begin(), ranges.end(),
+                        [&icomp](const RangeWithDepend& f1,
+                                 const RangeWithDepend& f2) {
+                          return icomp.Compare(f1.point[1], f2.point[0]) < 0;
+                        }));
   s = WriteOutputFile(bound_builder, output_iter.get(), output_path_id, cfd,
                       file_meta, porp);
 
