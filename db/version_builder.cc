@@ -383,7 +383,6 @@ class VersionBuilder::Rep {
       }
     }
 
-    std::vector<port::Thread> threads;
     std::atomic<size_t> next_file_meta_idx(0);
     std::function<void()> load_handlers_func = [&]() {
       while (true) {
@@ -408,6 +407,7 @@ class VersionBuilder::Rep {
       }
     };
 
+    std::vector<port::Thread> threads;
     for (int i = 1; i < max_threads; i++) {
       threads.emplace_back(load_handlers_func);
     }
