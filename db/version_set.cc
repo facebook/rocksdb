@@ -3257,6 +3257,7 @@ Status VersionSet::ApplyOneVersionEdit(
       delete builder->second;
       builders.erase(builder);
       cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+      assert(cfd != nullptr);
       if (cfd->Unref()) {
         delete cfd;
         cfd = nullptr;
