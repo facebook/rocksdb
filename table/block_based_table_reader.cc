@@ -2840,7 +2840,6 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
         "  ");
     out_file->Append(table_properties->ToString("\n  ", ": ").c_str());
     out_file->Append("\n");
-  }
 
   // Output Filter blocks
   if (!rep_->filter && !table_properties->filter_policy_name.empty()) {
@@ -2869,6 +2868,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
         }
       }
     }
+  }
   }
   if (rep_->filter) {
     out_file->Append(
