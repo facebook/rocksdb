@@ -250,6 +250,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           wup_db->db_impl_->FlushWAL(true);
           wup_db->TEST_Crash();
           ReOpenNoDelete();
+          assert(db != nullptr);
 
           db->GetAllPreparedTransactions(&prepared_trans);
           ASSERT_EQ(prepared_trans.size(), a == UNPREPARED ? 0 : 1);

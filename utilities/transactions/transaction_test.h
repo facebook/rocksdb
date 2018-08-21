@@ -100,7 +100,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
-    assert(db != nullptr);
+    assert(!s.ok() || db != nullptr);
     return s;
   }
 
