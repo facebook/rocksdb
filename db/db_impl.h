@@ -396,7 +396,7 @@ class DBImpl : public DB {
   Status TEST_SwitchMemtable(ColumnFamilyData* cfd = nullptr);
 
   // Force current memtable contents to be flushed.
-  Status TEST_FlushMemTable(bool wait = true,
+  Status TEST_FlushMemTable(bool wait = true, bool allow_write_stall = false,
                             ColumnFamilyHandle* cfh = nullptr);
 
   // Wait for memtable compaction
@@ -945,6 +945,10 @@ class DBImpl : public DB {
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
+
+  // Wait until flushing this column family won't stall writes
+  Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
+                                           bool* flush_needed);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID

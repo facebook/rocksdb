@@ -3538,12 +3538,13 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
       // ensure the flush doesn't finish until manual compaction has had a
       // chance to be delayed.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
-          {{"DBImpl::CompactRange:StallWait", "FlushJob::WriteLevel0Table"}});
+          {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+            "FlushJob::WriteLevel0Table"}});
     } else {
       // ensure the flush doesn't finish until manual compaction has continued
       // without delay.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
-          {{"DBImpl::CompactRange:StallWaitDone",
+          {{"DBImpl::FlushMemTable:StallWaitDone",
             "FlushJob::WriteLevel0Table"}});
     }
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();

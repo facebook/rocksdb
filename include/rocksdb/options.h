@@ -1183,8 +1183,13 @@ struct FlushOptions {
   // If true, the flush will wait until the flush is done.
   // Default: true
   bool wait;
-
-  FlushOptions() : wait(true) {}
+  // If true, the flush would proceed immediately even it means writes will
+  // stall for the duration of the flush; if false the operation will wait
+  // until it's possible to do flush w/o causing stall or until required flush
+  // is performed by someone else (foreground call or background thread).
+  // Default: false
+  bool allow_write_stall;
+  FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
 // Create a Logger from provided DBOptions
