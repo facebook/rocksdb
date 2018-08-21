@@ -100,6 +100,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
+    assert(!s.ok() || db != nullptr);
     return s;
   }
 
@@ -121,6 +122,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB(cfs, handles);
     }
+    assert(db != nullptr);
     return s;
   }
 
@@ -134,6 +136,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
+    assert(db != nullptr);
     return s;
   }
 
@@ -184,15 +187,17 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
                             &root_db, use_seq_per_batch, use_batch_per_txn);
-    StackableDB* stackable_db = new StackableDB(root_db);
-    if (s.ok()) {
-      assert(root_db != nullptr);
-      assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
-                                         compaction_enabled_cf_indices, handles,
-                                         &db);
-      delete handles[0];
+    if (!s.ok()) {
+      delete root_db;
+      return s;
     }
+    StackableDB* stackable_db = new StackableDB(root_db);
+    assert(root_db != nullptr);
+    assert(handles.size() == 1);
+    s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+                                       compaction_enabled_cf_indices, handles,
+                                       &db);
+    delete handles[0];
     if (!s.ok()) {
       delete stackable_db;
       // just in case it was not deleted (and not set to nullptr).
