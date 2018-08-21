@@ -63,36 +63,36 @@ DEFINE_string(output_prefix, "trace",
 DEFINE_bool(output_key_stats, false,
             "Output the key access count statistics to file\n"
             "for accessed keys:\n"
-            "file name: <prefix>-<query type>-<cf_id>-accessed_key_stats.txt\n"
+            "file name: <prefix>-<query_type>-<cf_id>-accessed_key_stats.txt\n"
             "Format:[cf_id value_size access_keyid access_count]\n"
             "for the whole key space keys:\n"
-            "File name: <prefix>-<query type>-<cf_id>-whole_key_stats.txt\n"
+            "File name: <prefix>-<query_type>-<cf_id>-whole_key_stats.txt\n"
             "Format:[whole_key_space_keyid access_count]");
 DEFINE_bool(output_access_count_stats, false,
             "Output the access count distribution statistics to file.\n"
-            "File name:  <prefix>-<query type>-<cf_id>-accessed_"
+            "File name:  <prefix>-<query_type>-<cf_id>-accessed_"
             "key_count_distribution.txt \n"
             "Format:[access_count number_of_access_count]");
 DEFINE_bool(output_time_series, false,
             "Output the access time in second of each key, "
             "such that we can have the time series data of the queries \n"
-            "File name: <prefix>-<query type>-<cf_id>-time_series.txt\n"
+            "File name: <prefix>-<query_type>-<cf_id>-time_series.txt\n"
             "Format:[type_id time_in_sec access_keyid].");
 DEFINE_int32(output_prefix_cut, 0,
              "The number of bytes as prefix to cut the keys.\n"
-             "if it is enabled, it will generate the following:\n"
-             "for accessed keys:\n"
-             "File name: <prefix>-<query type>-<cf_id>-"
+             "If it is enabled, it will generate the following:\n"
+             "For accessed keys:\n"
+             "File name: <prefix>-<query_type>-<cf_id>-"
              "accessed_key_prefix_cut.txt \n"
              "Format:[acessed_keyid access_count_of_prefix "
              "number_of_keys_in_prefix average_key_access "
              "prefix_succ_ratio prefix]\n"
-             "for whole key space keys:\n"
-             "File name: <prefix>-<query type>-<cf_id>"
+             "For whole key space keys:\n"
+             "File name: <prefix>-<query_type>-<cf_id>"
              "-whole_key_prefix_cut.txt\n"
              "Format:[start_keyid_in_whole_keyspace prefix]\n"
              "if 'output_qps_stats' and 'top_k' are enabled, it will output:\n"
-             "File name: <prefix>-<query type>-<cf_id>"
+             "File name: <prefix>-<query_type>-<cf_id>"
              "-accessed_top_k_qps_prefix_cut.txt\n"
              "Format:[the_top_ith_qps_time QPS], [prefix qps_of_this_second].");
 DEFINE_bool(convert_to_human_readable_trace, false,
@@ -101,7 +101,7 @@ DEFINE_bool(convert_to_human_readable_trace, false,
             "This file will be extremely large "
             "(similar size as the original binary trace file). "
             "You can specify 'no_key' to reduce the size, if key is not "
-            "needed in the next step\n"
+            "needed in the next step.\n"
             "File name: <prefix>_human_readable_trace.txt\n"
             "Format:[type_id cf_id value_size time_in_micorsec <key>].");
 DEFINE_bool(output_qps_stats, false,
@@ -110,8 +110,8 @@ DEFINE_bool(output_qps_stats, false,
             "The time is started from the first trace record\n"
             "File name: <prefix>_qps_stats.txt\n"
             "Format: [qps_type_1 qps_type_2 ...... overall_qps]\n"
-            "For each cf and query, it will have its own qps output\n"
-            "File name: <prefix>-<query type>-<cf_id>_qps_stats.txt \n"
+            "For each cf and query, it will have its own qps output.\n"
+            "File name: <prefix>-<query_type>-<cf_id>_qps_stats.txt \n"
             "Format:[query_count_in_this_second].");
 DEFINE_bool(no_print, false, "Do not print out any result");
 DEFINE_string(
@@ -122,7 +122,7 @@ DEFINE_string(
     "get, put, delete, single_delete, rangle_delete, merge. No space "
     "between the pairs separated by commar. Example: =[get,get]... "
     "It will print out the number of pairs of 'A after B' and "
-    "the average time interval between the two query");
+    "the average time interval between the two query.");
 DEFINE_string(key_space_dir, "",
               "<the directory stores full key space files> \n"
               "The key space files should be: <column family id>.txt");
@@ -143,7 +143,7 @@ DEFINE_bool(print_key_distribution, false, "Print the key size distribution.");
 DEFINE_bool(
     output_value_distribution, false,
     "Out put the value size distribution, only available for Put and Merge.\n"
-    "File name: <prefix>-<query type>-<cf_id>"
+    "File name: <prefix>-<query_type>-<cf_id>"
     "-accessed_value_size_distribution.txt\n"
     "Format:[Number_of_value_size_between x and "
     "x+value_interval is: <the count>]");
