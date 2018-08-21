@@ -444,17 +444,21 @@ ColumnFamilyData::ColumnFamilyData(
     table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
-          new LevelCompactionPicker(ioptions_, &internal_comparator_));
+          new LevelCompactionPicker(table_cache_.get(), env_options, ioptions_,
+                                    &internal_comparator_));
 #ifndef ROCKSDB_LITE
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
-          new UniversalCompactionPicker(ioptions_, &internal_comparator_));
+          new UniversalCompactionPicker(table_cache_.get(), env_options,
+                                        ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
-          new FIFOCompactionPicker(ioptions_, &internal_comparator_));
+          new FIFOCompactionPicker(table_cache_.get(), env_options, ioptions_,
+                                   &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
-      compaction_picker_.reset(new NullCompactionPicker(
-          ioptions_, &internal_comparator_));
+      compaction_picker_.reset(
+          new NullCompactionPicker(table_cache_.get(), env_options, ioptions_,
+                                   &internal_comparator_));
       ROCKS_LOG_WARN(ioptions_.info_log,
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
@@ -466,7 +470,8 @@ ColumnFamilyData::ColumnFamilyData(
                       "Column family %s will use kCompactionStyleLevel.\n",
                       ioptions_.compaction_style, GetName().c_str());
       compaction_picker_.reset(
-          new LevelCompactionPicker(ioptions_, &internal_comparator_));
+          new LevelCompactionPicker(table_cache_.get(), env_options, ioptions_,
+                                    &internal_comparator_));
     }
 
     if (column_family_set_->NumberOfColumnFamilies() < 10) {

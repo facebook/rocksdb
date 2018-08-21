@@ -128,9 +128,14 @@ CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
   return ioptions.compression_opts;
 }
 
-CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
+CompactionPicker::CompactionPicker(TableCache* table_cache,
+                                   const EnvOptions& env_options,
+                                   const ImmutableCFOptions& ioptions,
                                    const InternalKeyComparator* icmp)
-    : ioptions_(ioptions), icmp_(icmp) {}
+    : table_cache_(table_cache),
+      env_options_(env_options),
+      ioptions_(ioptions),
+      icmp_(icmp) {}
 
 CompactionPicker::~CompactionPicker() {}
 
@@ -1360,8 +1365,8 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       start_level_score_, false /* deletion_compaction */,
-      false /* single_output */, kGeneralSst, {} /* input_range */,
-      compaction_reason_);
+      false /* single_output */, false /* enable_partial_compaction */,
+      kGeneralSst, {} /* input_range */, compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -1612,7 +1617,8 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
       {}, /* is manual */ false, vstorage->CompactionScore(0),
       /* is deletion compaction */ true, false /* single_output */,
-      kGeneralSst, {} /* input_range */, CompactionReason::kFIFOTtl);
+      false /* enable_partial_compaction */, kGeneralSst, {} /* input_range */,
+      CompactionReason::kFIFOTtl);
   return c;
 }
 
@@ -1653,8 +1659,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             ioptions_.compression_opts, 0 /* max_subcompactions */, {},
             /* is manual */ false, vstorage->CompactionScore(0),
             /* is deletion compaction */ false, false /* single_output */,
-            kGeneralSst, {} /* input_range */,
-            CompactionReason::kFIFOReduceNumFiles);
+            false /* enable_partial_compaction */, kGeneralSst,
+            {} /* input_range */, CompactionReason::kFIFOReduceNumFiles);
         return c;
       }
     }
@@ -1702,7 +1708,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
       {}, /* is manual */ false, vstorage->CompactionScore(0),
       /* is deletion compaction */ true, false /* single_output */,
-      kGeneralSst, {} /* input_range */, CompactionReason::kFIFOMaxSize);
+      false /* enable_partial_compaction */, kGeneralSst, {} /* input_range */,
+      CompactionReason::kFIFOMaxSize);
   return c;
 }
 

@@ -83,6 +83,10 @@ const FileMetaData* IteratorCache::GetFileMetaData(uint64_t sst_id) {
   if (find != iterator_map_.end()) {
     return find->second.meta;
   }
+  auto find_depend = depend_files_.find(sst_id);
+  if (find_depend != depend_files_.end()) {
+    return find_depend->second;
+  }
   return nullptr;
 }
 

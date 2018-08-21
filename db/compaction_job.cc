@@ -120,8 +120,8 @@ struct CompactionJob::SubcompactionState {
   int include_end;
 
   // actual end for this subcompaction
-  Slice end_slice;
-  InternalKey end_storage;
+  InternalKey actual_start;
+  InternalKey actual_end;
 
   // The return status of this subcompaction
   Status status;
@@ -193,15 +193,11 @@ struct CompactionJob::SubcompactionState {
   SubcompactionState& operator=(SubcompactionState&& o) {
     compaction = std::move(o.compaction);
     start = std::move(o.start);
-    if (o.end != &o.end_slice) {
-      end = std::move(o.end);
-    } else {
-      end_storage = std::move(o.end_storage);
-      end_slice = end_storage.Encode();
-      end = &end_slice;
-    }
+    end = std::move(o.end);
     include_start = std::move(o.include_start);
     include_end = std::move(o.include_end);
+    actual_start = std::move(o.actual_start);
+    actual_end = std::move(o.actual_end);
     status = std::move(o.status);
     outputs = std::move(o.outputs);
     outfile = std::move(o.outfile);
@@ -948,6 +944,9 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   } else {
     input->SeekToFirst();
   }
+  if (input->Valid()) {
+    sub_compact->actual_start.DecodeFrom(input->key());
+  }
 
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
@@ -1106,12 +1105,13 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
               cfd->user_comparator()->Compare(
                   ExtractUserKey(*next_key),
                   sub_compact->outputs.back().meta.largest.user_key()) != 0) {
-            // set end to actual end
-            sub_compact->end_storage.SetMinPossibleForUserKey(
-                ExtractUserKey(*next_key));
-            sub_compact->end_slice = sub_compact->end_storage.Encode();
-            sub_compact->end = &sub_compact->end_slice;
-            sub_compact->include_end = false;
+            // find out actual end
+            IterKey end_iter;
+            end_iter.SetInternalKey(ExtractUserKey(*next_key),
+                                    kMaxSequenceNumber, kValueTypeForSeek);
+            input->SeekForPrev(end_iter.GetInternalKey());
+            assert(input->Valid());
+            sub_compact->actual_end.DecodeFrom(input->key());
             break;
           } else {
             output_file_ended = false;
@@ -1140,6 +1140,25 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       }
     }
   }
+  
+  if (sub_compact->actual_end.size() == 0) {
+    if (end != nullptr) {
+      IterKey end_iter;
+      if (sub_compact->include_end) {
+        end_iter.SetInternalKey(*end, 0, static_cast<ValueType>(0));
+      } else {
+        end_iter.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
+      }
+      input->SeekForPrev(end_iter.GetInternalKey());
+    } else {
+      input->SeekToFirst();
+    }
+    if (input->Valid()) {
+      sub_compact->actual_end.DecodeFrom(input->key());
+    }
+  }
+  assert(sub_compact->actual_start.Valid());
+  assert(sub_compact->actual_end.Valid());
 
   sub_compact->num_input_records = c_iter_stats.num_input_records;
   sub_compact->compaction_job_stats.num_input_deletion_records =
@@ -1602,13 +1621,13 @@ Status CompactionJob::InstallCompactionResults(
     auto vstorage = compaction->input_version()->storage_info();
     std::unique_ptr<TableProperties> prop;
     FileMetaData file_meta;
-    std::vector<RangePtr> deleted_range;
+    std::vector<Range> deleted_range;
     std::vector<const FileMetaData*> added_files;
     if (compaction->compaction_varieties() != kMapSst) {
       for (auto& sub_compact : compact_->sub_compact_states) {
-        deleted_range.emplace_back(sub_compact.start, sub_compact.end,
-                                   sub_compact.include_start,
-                                   sub_compact.include_end);
+        deleted_range.emplace_back(sub_compact.actual_start.Encode(),
+                                   sub_compact.actual_end.Encode(),
+                                   true, true);
         for (auto& output : sub_compact.outputs) {
           added_files.emplace_back(&output.meta);
         }

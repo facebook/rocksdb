@@ -24,14 +24,17 @@
 
 namespace rocksdb {
 
-class LogBuffer;
 class Compaction;
-class VersionStorageInfo;
 struct CompactionInputFiles;
+struct EnvOptions;
+class LogBuffer;
+class TableCache;
+class VersionStorageInfo;
 
 class CompactionPicker {
  public:
-  CompactionPicker(const ImmutableCFOptions& ioptions,
+  CompactionPicker(TableCache* table_cache, const EnvOptions& env_options,
+                   const ImmutableCFOptions& ioptions,
                    const InternalKeyComparator* icmp);
   virtual ~CompactionPicker();
 
@@ -198,6 +201,8 @@ class CompactionPicker {
   }
 
  protected:
+  TableCache* table_cache_;
+  const EnvOptions& env_options_;
   const ImmutableCFOptions& ioptions_;
 
 // A helper function to SanitizeCompactionInputFiles() that
@@ -221,9 +226,10 @@ class CompactionPicker {
 
 class LevelCompactionPicker : public CompactionPicker {
  public:
-  LevelCompactionPicker(const ImmutableCFOptions& ioptions,
+  LevelCompactionPicker(TableCache* table_cache, const EnvOptions& env_options,
+                        const ImmutableCFOptions& ioptions,
                         const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(table_cache, env_options, ioptions, icmp) {}
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
@@ -236,9 +242,10 @@ class LevelCompactionPicker : public CompactionPicker {
 #ifndef ROCKSDB_LITE
 class FIFOCompactionPicker : public CompactionPicker {
  public:
-  FIFOCompactionPicker(const ImmutableCFOptions& ioptions,
+  FIFOCompactionPicker(TableCache* table_cache, const EnvOptions& env_options,
+                       const ImmutableCFOptions& ioptions,
                        const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(table_cache, env_options, ioptions, icmp) {}
 
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
@@ -272,9 +279,10 @@ class FIFOCompactionPicker : public CompactionPicker {
 
 class NullCompactionPicker : public CompactionPicker {
  public:
-  NullCompactionPicker(const ImmutableCFOptions& ioptions,
+  NullCompactionPicker(TableCache* table_cache, const EnvOptions& env_options,
+                       const ImmutableCFOptions& ioptions,
                        const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(table_cache, env_options, ioptions, icmp) {}
   virtual ~NullCompactionPicker() {}
 
   // Always return "nullptr"

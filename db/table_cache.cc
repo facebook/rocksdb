@@ -130,13 +130,18 @@ Status GetFromVarietySst(
         return false;
       }
       if (icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
-                                           ExtractUserKey(k)) != 0) {
+                                           ExtractUserKey(k)) != 0 ||
+          ExtractInternalKeyFooter(largest_key) == 0) {
         // next smallest_key is current largest_key
         // k less than next link smallest_key
         return false;
       }
-      // store largest_key
+      // trans largest_key to next smallest_key
+      assert(ExtractInternalKeyFooter(largest_key) > 0);
       smallest_key.DecodeFrom(largest_key);
+      EncodeFixed64(
+          &smallest_key.rep()->front() + smallest_key.user_key().size(),
+          ExtractInternalKeyFooter(largest_key) - 1);
       return true;
     };
     table_reader->RangeScan(&k, &get_from_link,
@@ -216,7 +221,7 @@ Status GetFromVarietySst(
         // Manual inline GetFixed64
         uint64_t sst_id = DecodeFixed64(map_input.data());
         if (!get_from_sst(arg, find_k, sst_id, s)) {
-          // error or found, recovery min_seq_backup is unnecessary
+          // error or found, recovery min_seq_type_backup is unnecessary
           return false;
         }
         map_input.remove_prefix(sizeof(uint64_t));

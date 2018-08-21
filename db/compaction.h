@@ -45,6 +45,7 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false, bool single_output = false,
+             bool enable_partial_compaction = false,
              SstVarieties compaction_varieties = kGeneralSst,
              const std::vector<RangeStorage>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
@@ -139,6 +140,9 @@ class Compaction {
 
   // If true, then output single sst pre subsompact
   bool single_output() const { return single_output_; }
+
+  // If true, then enable partial compaction
+  bool enable_partial_compaction() { return enable_partial_compaction_; }
 
   // Compaction varieties
   SstVarieties compaction_varieties() const {
@@ -309,6 +313,9 @@ class Compaction {
   const bool deletion_compaction_;
   // If true, then output single sst pre subsompact
   const bool single_output_;
+
+  // If true, then enable partial compaction
+  const bool enable_partial_compaction_;
 
   // Compaction varieties
   const SstVarieties compaction_varieties_;

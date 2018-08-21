@@ -15,9 +15,11 @@
 namespace rocksdb {
 class UniversalCompactionPicker : public CompactionPicker {
  public:
-  UniversalCompactionPicker(const ImmutableCFOptions& ioptions,
+  UniversalCompactionPicker(TableCache* table_cache,
+                            const EnvOptions& env_options,
+                            const ImmutableCFOptions& ioptions,
                             const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
+      : CompactionPicker(table_cache, env_options, ioptions, icmp) {}
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
