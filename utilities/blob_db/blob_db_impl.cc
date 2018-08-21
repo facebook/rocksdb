@@ -212,8 +212,8 @@ void BlobDBImpl::StartBackgroundTasks() {
   tqueue_.add(kSanityCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::SanityCheck, this, std::placeholders::_1));
   tqueue_.add(
-      kCheckSeqFilesPeriodMillisecs,
-      std::bind(&BlobDBImpl::CheckSeqFiles, this, std::placeholders::_1));
+      kEvictExpiredFilesPeriodMillisecs,
+      std::bind(&BlobDBImpl::EvictExpiredFiles, this, std::placeholders::_1));
 }
 
 Status BlobDBImpl::GetAllBlobFiles(std::set<uint64_t>* file_numbers) {
@@ -1282,29 +1282,38 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
   return oldest_snapshot < obsolete_sequence;
 }
 
-std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
-  if (aborted) return std::make_pair(false, -1);
+std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
+  if (aborted) {
+    return std::make_pair(false, -1);
+  }
 
   std::vector<std::shared_ptr<BlobFile>> process_files;
+  uint64_t now = EpochNow();
   {
-    uint64_t epoch_now = EpochNow();
-
     ReadLock rl(&mutex_);
-    for (auto bfile : open_ttl_files_) {
-      {
-        ReadLock lockbfile_r(&bfile->mutex_);
-
-        if (bfile->expiration_range_.second > epoch_now) {
-          continue;
-        }
-        process_files.push_back(bfile);
+    for (auto p : blob_files_) {
+      auto& blob_file = p.second;
+      ReadLock file_lock(&blob_file->mutex_);
+      if (blob_file->HasTTL() && !blob_file->Obsolete() &&
+          blob_file->GetExpirationRange().second <= now) {
+        process_files.push_back(blob_file);
       }
     }
   }
 
-  MutexLock l(&write_mutex_);
-  for (auto bfile : process_files) {
-    CloseBlobFile(bfile);
+  SequenceNumber seq = GetLatestSequenceNumber();
+  {
+    MutexLock l(&write_mutex_);
+    for (auto& blob_file : process_files) {
+      WriteLock file_lock(&blob_file->mutex_);
+      if (!blob_file->Immutable()) {
+        CloseBlobFile(blob_file, false /*need_lock*/);
+      }
+      // Need to double check if the file is obsolete.
+      if (!blob_file->Obsolete()) {
+        ObsoleteBlobFile(blob_file, seq, true /*update_size*/);
+      }
+    }
   }
 
   return std::make_pair(true, -1);
@@ -1581,8 +1590,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       }
 
       // We don't add the file to open_ttl_files_ or open_non_ttl_files_, to
-      // avoid user writes writing to the file, and avoid CheckSeqFiles close
-      // the file by mistake.
+      // avoid user writes writing to the file, and avoid
+      // EvictExpiredFiles close the file by mistake.
       WriteLock wl(&mutex_);
       blob_files_.insert(std::make_pair(newfile->BlobFileNumber(), newfile));
     }
@@ -1850,6 +1859,10 @@ Status BlobDBImpl::TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
 }
 
 void BlobDBImpl::TEST_RunGC() { RunGC(false /*abort*/); }
+
+void BlobDBImpl::TEST_EvictExpiredFiles() {
+  EvictExpiredFiles(false /*abort*/);
+}
 
 uint64_t BlobDBImpl::TEST_live_sst_size() { return live_sst_size_.load(); }
 #endif  //  !NDEBUG
