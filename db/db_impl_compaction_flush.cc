@@ -201,20 +201,14 @@ Status DBImpl::FlushMemTableToOutputFile(
 }
 
 Status DBImpl::FlushMemTablesToOutputFiles(
-    const autovector<ColumnFamilyData*>& cfds,
-    const autovector<MutableCFOptions>& mutable_cf_options_list,
-    const autovector<uint64_t>& memtable_ids, bool* made_progress,
+    const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
-  int sz = static_cast<int>(cfds.size());
-  assert(sz == static_cast<int>(mutable_cf_options_list.size()));
-  assert(sz == static_cast<int>(memtable_ids.size()));
-  // TODO (yanqin): will be used in the future
-  (void)memtable_ids;
-
   Status s;
-  for (int i = 0; i != sz; ++i) {
-    s = FlushMemTableToOutputFile(cfds[i], mutable_cf_options_list[i],
-                                  made_progress, job_context, log_buffer);
+  for (auto& arg : bg_flush_args) {
+    ColumnFamilyData* cfd = arg.cfd_;
+    const MutableCFOptions& mutable_cf_options = arg.mutable_cf_options_;
+    s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
+                                  job_context, log_buffer);
     if (!s.ok()) {
       break;
     }
@@ -1312,7 +1306,7 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
 
 DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
-  auto flush_req = flush_queue_.front();
+  FlushRequest flush_req = flush_queue_.front();
   assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));
   unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   flush_queue_.pop_front();
@@ -1415,15 +1409,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     return status;
   }
 
-  autovector<ColumnFamilyData*> cfds;
-  autovector<MutableCFOptions> mutable_cf_options_list;
-  autovector<uint64_t> memtable_ids;
+  autovector<BGFlushArg> bg_flush_args;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
-    const auto& flush_req = PopFirstFromFlushQueue();
+    const FlushRequest& flush_req = PopFirstFromFlushQueue();
 
-    for (auto& iter : flush_req) {
-      auto cfd = iter.first;
+    for (const auto& iter : flush_req) {
+      ColumnFamilyData* cfd = iter.first;
       if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
         // can't flush this CF, try next one
         if (cfd->Unref()) {
@@ -1431,20 +1423,20 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         }
         continue;
       }
-      cfds.push_back(cfd);
-      mutable_cf_options_list.emplace_back(*cfd->GetLatestMutableCFOptions());
-      memtable_ids.push_back(iter.second);
+      bg_flush_args.emplace_back(cfd, *cfd->GetLatestMutableCFOptions(),
+                                 iter.second);
       job_context->superversion_contexts.emplace_back(
           SuperVersionContext(true));
     }
-    if (!cfds.empty()) {
+    if (!bg_flush_args.empty()) {
       break;
     }
   }
 
-  if (!cfds.empty()) {
+  if (!bg_flush_args.empty()) {
     auto bg_job_limits = GetBGJobLimits();
-    for (const auto& cfd : cfds) {
+    for (const auto& arg : bg_flush_args) {
+      ColumnFamilyData* cfd = arg.cfd_;
       ROCKS_LOG_BUFFER(
           log_buffer,
           "Calling FlushMemTableToOutputFile with column "
@@ -1455,10 +1447,10 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
           bg_job_limits.max_compactions, bg_flush_scheduled_,
           bg_compaction_scheduled_);
     }
-    status =
-        FlushMemTablesToOutputFiles(cfds, mutable_cf_options_list, memtable_ids,
-                                   made_progress, job_context, log_buffer);
-    for (auto cfd : cfds) {
+    status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
+                                         job_context, log_buffer);
+    for (auto& arg : bg_flush_args) {
+      ColumnFamilyData* cfd = arg.cfd_;
       if (cfd->Unref()) {
         delete cfd;
       }

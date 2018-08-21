@@ -888,12 +888,29 @@ class DBImpl : public DB {
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
                                    LogBuffer* log_buffer);
+
+  // Argument required by background flush thread.
+  struct BGFlushArg {
+    BGFlushArg() : cfd_(nullptr), memtable_id_(0) {}
+    BGFlushArg(ColumnFamilyData* cfd,
+               const MutableCFOptions& mutable_cf_options, uint64_t memtable_id)
+        : cfd_(cfd),
+          mutable_cf_options_(mutable_cf_options),
+          memtable_id_(memtable_id) {}
+    BGFlushArg(const BGFlushArg& orig)
+        : cfd_(orig.cfd_),
+          mutable_cf_options_(orig.mutable_cf_options_),
+          memtable_id_(orig.memtable_id_) {}
+
+    ColumnFamilyData* cfd_;
+    MutableCFOptions mutable_cf_options_;
+    uint64_t memtable_id_;
+  };
+
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
   Status FlushMemTablesToOutputFiles(
-      const autovector<ColumnFamilyData*>& cfds,
-      const autovector<MutableCFOptions>& mutable_cf_options_list,
-      const autovector<uint64_t>& memtable_ids, bool* made_progress,
+      const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
       JobContext* job_context, LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
