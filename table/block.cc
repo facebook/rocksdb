@@ -251,6 +251,12 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
   uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
 
+  if (entry == kCollision) {
+    // HashSeek not effective, falling back
+    Seek(target);
+    return true;
+  }
+
   if (entry == kNoEntry) {
     // Even if we cannot find the user_key in this block, the result may
     // exist in the next block. Consider this exmpale:
@@ -268,12 +274,6 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // key. It will stop at the first key that is larger than the seek_key,
     // or to the end of the block if no one is smaller.
     entry = static_cast<uint8_t>(num_restarts_ - 1);
-  }
-
-  if (entry == kCollision) {
-    // HashSeek not effective, falling back
-    Seek(target);
-    return true;
   }
 
   uint32_t restart_index = entry;
