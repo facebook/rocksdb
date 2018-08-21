@@ -260,10 +260,11 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // If seek_key = axy@60, the search will starts from Block N.
     // Even if the user_key is not found in the hash map, the caller still
-    // have to conntinue searching the next block. So we invalidate the
-    // iterator to tell the caller to go on.
-    current_ = restarts_;  // Invalidate the iter
-    return true;
+    // have to conntinue searching the next block.
+    //
+    // In this case, we pretend the key is the the last restart interval.
+    // The linear search in the while-loop below will handle it correctly.
+    entry = num_restarts_ - 1;
   }
 
   if (entry == kCollision) {
