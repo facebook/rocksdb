@@ -226,6 +226,21 @@ bool VersionEdit::GetLevel(Slice* input, int* level, const char** /*msg*/) {
   }
 }
 
+static bool is_pseudo_new_file_record_pr3488(
+  const int level,
+  const uint64_t number,
+  const uint64_t file_size,
+  InternalKey& smallest,
+  InternalKey& largest,
+  const bool has_min_log_number_to_keep_) {
+
+  InternalKey dummy_key(Slice("dummy_key"), 0ull, ValueType::kTypeValue);
+  return level == 0 && number == 0 && file_size == 0 &&
+         *smallest.rep() == *dummy_key.rep() &&
+         *largest.rep() == *dummy_key.rep() &&
+         has_min_log_number_to_keep_;
+}
+
 const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   const char* msg = nullptr;
   int level;
@@ -288,6 +303,12 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
     }
   } else {
     return "new-file4 entry";
+  }
+  if (is_pseudo_new_file_record_pr3488(level, number, file_size,
+                                       f.smallest, f.largest,
+                                       has_min_log_number_to_keep_)) {
+    // Since this has nothing to do with NewFile, return immediately.
+    return nullptr;
   }
   f.fd = FileDescriptor(number, path_id, file_size);
   new_files_.push_back(std::make_pair(level, f));
