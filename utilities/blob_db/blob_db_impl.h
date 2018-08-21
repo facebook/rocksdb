@@ -115,7 +115,7 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule delete obs files periods
   static constexpr uint32_t kDeleteObsoleteFilesPeriodMillisecs = 10 * 1000;
 
-  // how often to schedule check seq files period
+  // how often to schedule expired files eviction.
   static constexpr uint32_t kEvictExpiredFilesPeriodMillisecs = 10 * 1000;
 
   // when should oldest file be evicted:
