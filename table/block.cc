@@ -264,7 +264,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // In this case, we pretend the key is the the last restart interval.
     // The linear search in the while-loop below will handle it correctly.
-    entry = num_restarts_ - 1;
+    entry = static_cast<uint8_t>(num_restarts_ - 1);
   }
 
   if (entry == kCollision) {
