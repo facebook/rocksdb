@@ -1385,6 +1385,36 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   VerifyDB(data_after_compact);
 }
 
+// File should be evicted after expiration.
+TEST_F(BlobDBTest, EvictExpiredFile) {
+  BlobDBOptions bdb_options;
+  bdb_options.ttl_range_secs = 100;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  Open(bdb_options, options);
+  mock_env_->set_current_time(50);
+  std::map<std::string, std::string> data;
+  ASSERT_OK(PutWithTTL("foo", "bar", 100, &data));
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  auto blob_file = blob_files[0];
+  ASSERT_FALSE(blob_file->Immutable());
+  ASSERT_FALSE(blob_file->Obsolete());
+  VerifyDB(data);
+  mock_env_->set_current_time(250);
+  // The key should expired now.
+  blob_db_impl()->TEST_EvictExpiredFiles();
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  ASSERT_TRUE(blob_file->Immutable());
+  ASSERT_TRUE(blob_file->Obsolete());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 
