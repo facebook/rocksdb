@@ -408,6 +408,7 @@ bool HashCuckooRep::QuickInsert(const char* internal_key, const Slice& user_key,
       const auto bucket_user_key = UserKey(stored_key);
       if (bucket_user_key.compare(user_key) == 0) {
         cuckoo_bucket_id = bucket_ids[hid];
+        assert(cuckoo_bucket_id != -1);
         break;
       }
     }
