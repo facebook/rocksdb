@@ -72,23 +72,26 @@ const double kDefaultUtilRatio = 0.75;
 
 class DataBlockHashIndexBuilder {
  public:
-  DataBlockHashIndexBuilder() : util_ratio_(0), valid_(false) {}
+  DataBlockHashIndexBuilder()
+      : bucket_per_key_(-1 /*uninitialized marker*/),
+        estimated_num_buckets_(0),
+        valid_(false) {}
 
   void Initialize(double util_ratio) {
     if (util_ratio <= 0) {
       util_ratio = kDefaultUtilRatio;  // sanity check
     }
-    util_ratio_ = util_ratio;
+    bucket_per_key_ = 1 / util_ratio;
     valid_ = true;
   }
 
-  inline bool Valid() const { return valid_ && util_ratio_ > 0; }
+  inline bool Valid() const { return valid_ && bucket_per_key_ > 0; }
   void Add(const Slice& key, const size_t restart_index);
   void Finish(std::string& buffer);
   void Reset();
   inline size_t EstimateSize() const {
-    uint16_t estimated_num_buckets = static_cast<uint16_t>(
-        static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
+    uint16_t estimated_num_buckets =
+        static_cast<uint16_t>(estimated_num_buckets_);
 
     // Maching the num_buckets number in DataBlockHashIndexBuilder::Finish.
     estimated_num_buckets |= 1;
@@ -98,7 +101,8 @@ class DataBlockHashIndexBuilder {
   }
 
  private:
-  double util_ratio_;
+  double bucket_per_key_;  // is the multiplicative inverse of util_ratio_
+  double estimated_num_buckets_;
 
   // Now the only usage for `valid_` is to mark false when the inserted
   // restart_index is larger than supported. In this case HashIndex is not
