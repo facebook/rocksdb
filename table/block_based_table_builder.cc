@@ -303,7 +303,13 @@ struct BlockBasedTableBuilder::Rep {
                       ? std::min(table_options.block_size, kDefaultPageSize)
                       : 0),
         data_block(table_options.block_restart_interval,
-                   table_options.use_delta_encoding),
+                   table_options.use_delta_encoding,
+                   false /* use_value_delta_encoding */,
+                   icomparator.user_comparator()
+                           ->CanKeysWithDifferentByteContentsBeEqual()
+                       ? BlockBasedTableOptions::kDataBlockBinarySearch
+                       : table_options.data_block_index_type,
+                   table_options.data_block_hash_table_util_ratio),
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_dict(_compression_dict),
@@ -765,7 +771,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
             ? rep_->table_options.filter_policy->Name()
             : "";
     rep_->props.index_size =
-        rep_->index_builder->EstimatedSize() + kBlockTrailerSize;
+        rep_->index_builder->IndexSize() + kBlockTrailerSize;
     rep_->props.comparator_name = rep_->ioptions.user_comparator != nullptr
                                       ? rep_->ioptions.user_comparator->Name()
                                       : "nullptr";
@@ -796,7 +802,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       assert(rep_->p_index_builder_ != nullptr);
       rep_->props.index_partitions = rep_->p_index_builder_->NumPartitions();
       rep_->props.top_level_index_size =
-          rep_->p_index_builder_->EstimateTopLevelIndexSize(rep_->offset);
+          rep_->p_index_builder_->TopLevelIndexSize(rep_->offset);
     }
     rep_->props.index_key_is_user_key =
         !rep_->index_builder->seperator_is_key_plus_seq();

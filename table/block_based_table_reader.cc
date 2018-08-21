@@ -2378,8 +2378,17 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           break;
         }
 
+        bool may_exist = biter.SeekForGet(key);
+        if (!may_exist) {
+          // HashSeek cannot find the key this block and the the iter is not
+          // the end of the block, i.e. cannot be in the following blocks
+          // either. In this case, the seek_key cannot be found, so we break
+          // from the top level for-loop.
+          break;
+        }
+
         // Call the *saver function on each entry/block until it returns false
-        for (biter.Seek(key); biter.Valid(); biter.Next()) {
+        for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
@@ -2831,32 +2840,32 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file,
         "  ");
     out_file->Append(table_properties->ToString("\n  ", ": ").c_str());
     out_file->Append("\n");
-  }
 
-  // Output Filter blocks
-  if (!rep_->filter && !table_properties->filter_policy_name.empty()) {
-    // Support only BloomFilter as off now
-    rocksdb::BlockBasedTableOptions table_options;
-    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(1));
-    if (table_properties->filter_policy_name.compare(
-            table_options.filter_policy->Name()) == 0) {
-      std::string filter_block_key = kFilterBlockPrefix;
-      filter_block_key.append(table_properties->filter_policy_name);
-      BlockHandle handle;
-      if (FindMetaBlock(meta_iter.get(), filter_block_key, &handle).ok()) {
-        BlockContents block;
-        Slice dummy_comp_dict;
-        BlockFetcher block_fetcher(
-            rep_->file.get(), nullptr /* prefetch_buffer */, rep_->footer,
-            ReadOptions(), handle, &block, rep_->ioptions, false /*decompress*/,
-            dummy_comp_dict /*compression dict*/,
-            rep_->persistent_cache_options);
-        s = block_fetcher.ReadBlockContents();
-        if (!s.ok()) {
-          rep_->filter.reset(new BlockBasedFilterBlockReader(
-              prefix_extractor, table_options,
-              table_options.whole_key_filtering, std::move(block),
-              rep_->ioptions.statistics));
+    // Output Filter blocks
+    if (!rep_->filter && !table_properties->filter_policy_name.empty()) {
+      // Support only BloomFilter as off now
+      rocksdb::BlockBasedTableOptions table_options;
+      table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(1));
+      if (table_properties->filter_policy_name.compare(
+              table_options.filter_policy->Name()) == 0) {
+        std::string filter_block_key = kFilterBlockPrefix;
+        filter_block_key.append(table_properties->filter_policy_name);
+        BlockHandle handle;
+        if (FindMetaBlock(meta_iter.get(), filter_block_key, &handle).ok()) {
+          BlockContents block;
+          Slice dummy_comp_dict;
+          BlockFetcher block_fetcher(
+              rep_->file.get(), nullptr /* prefetch_buffer */, rep_->footer,
+              ReadOptions(), handle, &block, rep_->ioptions,
+              false /*decompress*/, dummy_comp_dict /*compression dict*/,
+              rep_->persistent_cache_options);
+          s = block_fetcher.ReadBlockContents();
+          if (!s.ok()) {
+            rep_->filter.reset(new BlockBasedFilterBlockReader(
+                prefix_extractor, table_options,
+                table_options.whole_key_filtering, std::move(block),
+                rep_->ioptions.statistics));
+          }
         }
       }
     }

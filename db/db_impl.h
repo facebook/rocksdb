@@ -342,7 +342,8 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
-
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot

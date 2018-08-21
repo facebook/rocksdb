@@ -384,7 +384,7 @@ class VersionBuilder::Rep {
     }
 
     std::atomic<size_t> next_file_meta_idx(0);
-    std::function<void()> load_handlers_func = [&]() {
+    std::function<void()> load_handlers_func([&]() {
       while (true) {
         size_t file_idx = next_file_meta_idx.fetch_add(1);
         if (file_idx >= files_meta.size()) {
@@ -405,7 +405,7 @@ class VersionBuilder::Rep {
               file_meta->table_reader_handle);
         }
       }
-    };
+    });
 
     std::vector<port::Thread> threads;
     for (int i = 1; i < max_threads; i++) {

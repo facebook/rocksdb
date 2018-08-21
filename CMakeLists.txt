@@ -550,6 +550,7 @@ set(SOURCES
         table/cuckoo_table_factory.cc
         table/cuckoo_table_reader.cc
         table/data_block_hash_index.cc
+        table/data_block_footer.cc
         table/flush_block_policy.cc
         table/format.cc
         table/full_filter_block.cc
@@ -573,6 +574,7 @@ set(SOURCES
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
+        tools/trace_analyzer_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
         util/bloom.cc
@@ -922,6 +924,7 @@ if(WITH_TESTS)
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
+        tools/trace_analyzer_test.cc
         util/arena_test.cc
         util/auto_roll_logger_test.cc
         util/autovector_test.cc

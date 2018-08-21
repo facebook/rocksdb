@@ -27,7 +27,7 @@ const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
 // A copyable structure contains information needed to read data from an SST
-// file. It can contains a pointer to a table reader opened for the file, or
+// file. It can contain a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
@@ -300,6 +300,11 @@ class VersionEdit {
     return new_files_;
   }
 
+  void MarkAtomicGroup(uint32_t remaining_entries) {
+    is_in_atomic_group_ = true;
+    remaining_entries_ = remaining_entries;
+  }
+
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
@@ -329,7 +334,7 @@ class VersionEdit {
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;
 
-  // Each version edit record should have column_family_id set
+  // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
   uint32_t column_family_;
   // a version edit can be either column_family add or
@@ -338,6 +343,9 @@ class VersionEdit {
   bool is_column_family_drop_;
   bool is_column_family_add_;
   std::string column_family_name_;
+
+  bool is_in_atomic_group_;
+  uint32_t remaining_entries_;
 };
 
 }  // namespace rocksdb

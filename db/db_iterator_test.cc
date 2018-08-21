@@ -2093,6 +2093,34 @@ TEST_P(DBIteratorTest, Refresh) {
   iter.reset();
 }
 
+TEST_P(DBIteratorTest, RefreshWithSnapshot) {
+  ASSERT_OK(Put("x", "y"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ReadOptions options;
+  options.snapshot = snapshot;
+  Iterator* iter = NewIterator(options);
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  ASSERT_OK(Put("c", "d"));
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  Status s;
+  s = iter->Refresh();
+  ASSERT_TRUE(s.IsNotSupported());
+  db_->ReleaseSnapshot(snapshot);
+  delete iter;
+}
+
 TEST_P(DBIteratorTest, CreationFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::NewInternalIterator:StatusCallback", [](void* arg) {
