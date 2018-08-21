@@ -297,7 +297,12 @@ Status MemTableList::InstallMemtableFlushResults(
     edit_lists.emplace_back(edit_list);
   }
 
-  // TODO (yanqin) mark the version edits as in atomic flush
+  uint32_t remaining = num_entries;
+  for (auto& edit_list : edit_lists) {
+    assert(static_cast<int>(edit_list.size()) == 1);
+    edit_list[0]->MarkAtomicGroup(--remaining);
+  }
+  assert(0 == remaining);
 
   if (vset->db_options()->allow_2pc) {
     int num = static_cast<int>(imm_lists.size());
