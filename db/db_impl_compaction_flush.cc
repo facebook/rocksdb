@@ -104,7 +104,8 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
 
 Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
+    bool* made_progress, JobContext* job_context,
+    SuperVersionContext* superversion_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
@@ -160,8 +161,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(
-        cfd, &job_context->superversion_contexts[0], mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
+                                       mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -206,9 +207,12 @@ Status DBImpl::FlushMemTablesToOutputFiles(
   Status s;
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
-    const MutableCFOptions& mutable_cf_options = arg.mutable_cf_options_;
+    const MutableCFOptions& mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+    SuperVersionContext* superversion_context = arg.superversion_context_;
     s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
-                                  job_context, log_buffer);
+                                  job_context, superversion_context,
+                                  log_buffer);
     if (!s.ok()) {
       break;
     }
@@ -1410,9 +1414,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   }
 
   autovector<BGFlushArg> bg_flush_args;
+  std::vector<SuperVersionContext>& superversion_contexts =
+      job_context->superversion_contexts;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
+    superversion_contexts.clear();
+    superversion_contexts.reserve(flush_req.size());
 
     for (const auto& iter : flush_req) {
       ColumnFamilyData* cfd = iter.first;
@@ -1423,10 +1431,9 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         }
         continue;
       }
-      bg_flush_args.emplace_back(cfd, *cfd->GetLatestMutableCFOptions(),
-                                 iter.second);
-      job_context->superversion_contexts.emplace_back(
-          SuperVersionContext(true));
+      superversion_contexts.emplace_back(SuperVersionContext(true));
+      bg_flush_args.emplace_back(cfd, iter.second,
+                                 &(superversion_contexts.back()));
     }
     if (!bg_flush_args.empty()) {
       break;

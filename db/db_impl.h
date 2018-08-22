@@ -888,24 +888,22 @@ class DBImpl : public DB {
   Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
+                                   SuperVersionContext* superversion_context,
                                    LogBuffer* log_buffer);
 
   // Argument required by background flush thread.
   struct BGFlushArg {
-    BGFlushArg() : cfd_(nullptr), memtable_id_(0) {}
-    BGFlushArg(ColumnFamilyData* cfd,
-               const MutableCFOptions& mutable_cf_options, uint64_t memtable_id)
+    BGFlushArg()
+        : cfd_(nullptr), memtable_id_(0), superversion_context_(nullptr) {}
+    BGFlushArg(ColumnFamilyData* cfd, uint64_t memtable_id,
+               SuperVersionContext* superversion_context)
         : cfd_(cfd),
-          mutable_cf_options_(mutable_cf_options),
-          memtable_id_(memtable_id) {}
-    BGFlushArg(const BGFlushArg& orig)
-        : cfd_(orig.cfd_),
-          mutable_cf_options_(orig.mutable_cf_options_),
-          memtable_id_(orig.memtable_id_) {}
+          memtable_id_(memtable_id),
+          superversion_context_(superversion_context) {}
 
     ColumnFamilyData* cfd_;
-    MutableCFOptions mutable_cf_options_;
     uint64_t memtable_id_;
+    SuperVersionContext* superversion_context_;
   };
 
   // Flush the memtables of (multiple) column families to multiple files on
