@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <atomic>
+#include <sstream>
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -250,4 +251,7 @@ class FilePrefetchBuffer {
 extern Status NewWritableFile(Env* env, const std::string& fname,
                               unique_ptr<WritableFile>* result,
                               const EnvOptions& options);
+bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
+                 std::string* output, bool* has_data, Status* result);
+
 }  // namespace rocksdb

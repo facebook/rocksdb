@@ -35,7 +35,6 @@ class VersionEdit;
 class TableBuilder;
 class WritableFileWriter;
 class InternalStats;
-class InternalIterator;
 
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown. It must outlive the

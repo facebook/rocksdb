@@ -38,7 +38,6 @@ class TableReader;
 class InternalKeyComparator;
 class PlainTableKeyDecoder;
 class GetContext;
-class InternalIterator;
 
 using std::unique_ptr;
 using std::unordered_map;

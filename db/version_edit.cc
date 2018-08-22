@@ -40,13 +40,15 @@ enum Tag : uint32_t {
   kColumnFamilyAdd = 201,
   kColumnFamilyDrop = 202,
   kMaxColumnFamily = 203,
+
+  kInAtomicGroup = 300,
 };
 
 enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
   // Since Manifest is not entirely currently forward-compatible, and the only
-  // forward-compatbile part is the CutsomtTag of kNewFile, we currently encode
+  // forward-compatible part is the CutsomtTag of kNewFile, we currently encode
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
@@ -83,6 +85,8 @@ void VersionEdit::Clear() {
   is_column_family_add_ = 0;
   is_column_family_drop_ = 0;
   column_family_name_.clear();
+  is_in_atomic_group_ = false;
+  remaining_entries_ = 0;
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -200,6 +204,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
   }
+
+  if (is_in_atomic_group_) {
+    PutVarint32(dst, kInAtomicGroup);
+    PutVarint32(dst, remaining_entries_);
+  }
   return true;
 }
 
@@ -274,7 +283,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           break;
         case kMinLogNumberToKeepHack:
           // This is a hack to encode kMinLogNumberToKeep in a
-          // forward-compatbile fashion.
+          // forward-compatible fashion.
           if (!GetFixed64(&field, &min_log_number_to_keep_)) {
             return "deleted log number malformatted";
           }
@@ -482,6 +491,15 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         is_column_family_drop_ = true;
         break;
 
+      case kInAtomicGroup:
+        is_in_atomic_group_ = true;
+        if (!GetVarint32(&input, &remaining_entries_)) {
+          if (!msg) {
+            msg = "remaining entries";
+          }
+        }
+        break;
+
       default:
         msg = "unknown tag";
         break;
@@ -560,6 +578,11 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
   }
+  if (is_in_atomic_group_) {
+    r.append("\n AtomicGroup: ");
+    AppendNumberTo(&r, remaining_entries_);
+    r.append(" entries remains");
+  }
   r.append("\n}\n");
   return r;
 }
@@ -631,6 +654,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (has_min_log_number_to_keep_) {
     jw << "MinLogNumberToKeep" << min_log_number_to_keep_;
+  }
+  if (is_in_atomic_group_) {
+    jw << "AtomicGroup" << remaining_entries_;
   }
 
   jw.EndObject();

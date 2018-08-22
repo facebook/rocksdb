@@ -115,8 +115,8 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule delete obs files periods
   static constexpr uint32_t kDeleteObsoleteFilesPeriodMillisecs = 10 * 1000;
 
-  // how often to schedule check seq files period
-  static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
+  // how often to schedule expired files eviction.
+  static constexpr uint32_t kEvictExpiredFilesPeriodMillisecs = 10 * 1000;
 
   // when should oldest file be evicted:
   // on reaching 90% of blob_dir_size
@@ -204,6 +204,8 @@ class BlobDBImpl : public BlobDB {
 
   void TEST_RunGC();
 
+  void TEST_EvictExpiredFiles();
+
   void TEST_DeleteObsoleteFiles();
 
   uint64_t TEST_live_sst_size();
@@ -270,7 +272,7 @@ class BlobDBImpl : public BlobDB {
 
   // periodically check if open blob files and their TTL's has expired
   // if expired, close the sequential writer and make the file immutable
-  std::pair<bool, int64_t> CheckSeqFiles(bool aborted);
+  std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
 
   // if the number of open files, approaches ULIMIT's this
   // task will close random readers, which are kept around for

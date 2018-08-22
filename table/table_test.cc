@@ -2988,9 +2988,13 @@ TEST_F(HarnessTest, FooterTests) {
 
 class IndexBlockRestartIntervalTest
     : public TableTest,
-      public ::testing::WithParamInterface<int> {
+      public ::testing::WithParamInterface<std::pair<int, bool>> {
  public:
-  static std::vector<int> GetRestartValues() { return {-1, 0, 1, 8, 16, 32}; }
+  static std::vector<std::pair<int, bool>> GetRestartValues() {
+    return {{-1, false}, {0, false},  {1, false}, {8, false},
+            {16, false}, {32, false}, {-1, true}, {0, true},
+            {1, true},   {8, true},   {16, true}, {32, true}};
+  }
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -3002,12 +3006,16 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   const int kKeySize = 100;
   const int kValSize = 500;
 
-  int index_block_restart_interval = GetParam();
+  const int index_block_restart_interval = std::get<0>(GetParam());
+  const bool value_delta_encoding = std::get<1>(GetParam());
 
   Options options;
   BlockBasedTableOptions table_options;
   table_options.block_size = 64;  // small block size to get big index block
   table_options.index_block_restart_interval = index_block_restart_interval;
+  if (value_delta_encoding) {
+    table_options.format_version = 4;
+  }
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
 
   TableConstructor c(BytewiseComparator());
@@ -3643,6 +3651,102 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   buffer.TryReadFromCache(480, 10, nullptr);
   buffer.TryReadFromCache(490, 10, nullptr);
   ASSERT_EQ(480, buffer.min_offset_read());
+}
+
+TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
+  const int kNumKeys = 500;
+  const int kKeySize = 8;
+  const int kValSize = 40;
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
+
+  Options options;
+  options.comparator = BytewiseComparator();
+
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  TableConstructor c(options.comparator);
+
+  static Random rnd(1048);
+  for (int i = 0; i < kNumKeys; i++) {
+    // padding one "0" to mark existent keys.
+    std::string random_key(RandomString(&rnd, kKeySize - 1) + "1");
+    InternalKey k(random_key, 0, kTypeValue);
+    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+
+  auto reader = c.GetTableReader();
+
+  std::unique_ptr<InternalIterator> seek_iter;
+  seek_iter.reset(
+      reader->NewIterator(ReadOptions(), moptions.prefix_extractor.get()));
+  for (int i = 0; i < 2; ++i) {
+    ReadOptions ro;
+    // for every kv, we seek using two method: Get() and Seek()
+    // Get() will use the SuffixIndexHash in Block. For non-existent key it
+    //      will invalidate the iterator
+    // Seek() will use the default BinarySeek() in Block. So for non-existent
+    //      key it will land at the closest key that is large than target.
+
+    // Search for existent keys
+    for (auto& kv : kvmap) {
+      if (i == 0) {
+        // Search using Seek()
+        seek_iter->Seek(kv.first);
+        ASSERT_OK(seek_iter->status());
+        ASSERT_TRUE(seek_iter->Valid());
+        ASSERT_EQ(seek_iter->key(), kv.first);
+        ASSERT_EQ(seek_iter->value(), kv.second);
+      } else {
+        // Search using Get()
+        PinnableSlice value;
+        std::string user_key = ExtractUserKey(kv.first).ToString();
+        GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, nullptr, nullptr);
+        ASSERT_OK(reader->Get(ro, kv.first, &get_context,
+                              moptions.prefix_extractor.get()));
+        ASSERT_EQ(get_context.State(), GetContext::kFound);
+        ASSERT_EQ(value, Slice(kv.second));
+        value.Reset();
+      }
+    }
+
+    // Search for non-existent keys
+    for (auto& kv : kvmap) {
+      std::string user_key = ExtractUserKey(kv.first).ToString();
+      user_key.back() = '0';  // make it non-existent key
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+      if (i == 0) {  // Search using Seek()
+        seek_iter->Seek(encoded_key);
+        ASSERT_OK(seek_iter->status());
+        if (seek_iter->Valid()) {
+          ASSERT_TRUE(BytewiseComparator()->Compare(
+                          user_key, ExtractUserKey(seek_iter->key())) < 0);
+        }
+      } else {  // Search using Get()
+        PinnableSlice value;
+        GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, nullptr, nullptr);
+        ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
+                              moptions.prefix_extractor.get()));
+        ASSERT_EQ(get_context.State(), GetContext::kNotFound);
+        value.Reset();
+      }
+    }
+  }
 }
 
 }  // namespace rocksdb

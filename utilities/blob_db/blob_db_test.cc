@@ -196,8 +196,9 @@ class BlobDBTest : public testing::Test {
       const std::map<std::string, KeyVersion> &expected_versions) {
     auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
     DB *db = blob_db_->GetRootDB();
+    const size_t kMaxKeys = 10000;
     std::vector<KeyVersion> versions;
-    GetAllKeyVersions(db, "", "", &versions);
+    GetAllKeyVersions(db, "", "", kMaxKeys, &versions);
     ASSERT_EQ(expected_versions.size(), versions.size());
     size_t i = 0;
     for (auto &key_version : expected_versions) {
@@ -1232,7 +1233,8 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   blob_db_->ReleaseSnapshot(snapshot);
   // Verify expired blob index are filtered.
   std::vector<KeyVersion> versions;
-  GetAllKeyVersions(blob_db_, "", "", &versions);
+  const size_t kMaxKeys = 10000;
+  GetAllKeyVersions(blob_db_, "", "", kMaxKeys, &versions);
   ASSERT_EQ(data_after_compact.size(), versions.size());
   for (auto &version : versions) {
     ASSERT_TRUE(data_after_compact.count(version.user_key) > 0);
@@ -1262,9 +1264,11 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
   ASSERT_EQ(2, blob_files[1]->BlobFileNumber());
   ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[1]));
 
+  const size_t kMaxKeys = 10000;
+
   DB *base_db = blob_db_->GetRootDB();
   std::vector<KeyVersion> versions;
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
   ASSERT_EQ(2, versions.size());
   ASSERT_EQ("bar", versions[0].user_key);
   ASSERT_EQ("foo", versions[1].user_key);
@@ -1272,7 +1276,7 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
 
   ASSERT_OK(blob_db_->Flush(FlushOptions()));
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
   ASSERT_EQ(2, versions.size());
   ASSERT_EQ("bar", versions[0].user_key);
   ASSERT_EQ("foo", versions[1].user_key);
@@ -1282,7 +1286,7 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
   blob_db_impl()->TEST_ObsoleteBlobFile(blob_files[0]);
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
   ASSERT_EQ(1, versions.size());
   ASSERT_EQ("bar", versions[0].user_key);
   VerifyDB({{"bar", "v2"}});
@@ -1291,7 +1295,7 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
   blob_db_impl()->TEST_ObsoleteBlobFile(blob_files[1]);
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
   ASSERT_EQ(0, versions.size());
   VerifyDB({});
 }
@@ -1379,6 +1383,36 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   data_after_compact["large_key2"] = large_value;
   data_after_compact["large_key3"] = large_value;
   VerifyDB(data_after_compact);
+}
+
+// File should be evicted after expiration.
+TEST_F(BlobDBTest, EvictExpiredFile) {
+  BlobDBOptions bdb_options;
+  bdb_options.ttl_range_secs = 100;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  Open(bdb_options, options);
+  mock_env_->set_current_time(50);
+  std::map<std::string, std::string> data;
+  ASSERT_OK(PutWithTTL("foo", "bar", 100, &data));
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  auto blob_file = blob_files[0];
+  ASSERT_FALSE(blob_file->Immutable());
+  ASSERT_FALSE(blob_file->Obsolete());
+  VerifyDB(data);
+  mock_env_->set_current_time(250);
+  // The key should expired now.
+  blob_db_impl()->TEST_EvictExpiredFiles();
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  ASSERT_TRUE(blob_file->Immutable());
+  ASSERT_TRUE(blob_file->Obsolete());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
 }
 
 }  //  namespace blob_db
