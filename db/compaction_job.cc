@@ -1261,12 +1261,15 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   } else {
     input->SeekToFirst();
   }
+  if (input->Valid()) {
+    sub_compact->actual_start.DecodeFrom(input->key());
+  }
 
   auto ucomp = cfd->user_comparator();
   auto& meta = sub_compact->current_output()->meta;
 
   std::unordered_set<uint64_t> sst_depend_build;
-  InternalKey last_key;
+  InternalKey& last_key = sub_compact->actual_end;
   uint64_t key_count = 0;
   IteratorSource last_source;
   std::string buffer;

@@ -147,7 +147,6 @@ class MapSstElementIterator {
  }
 
  private:
-
   void PrepareNext() {
     if (where_ == ranges_.end()) {
       buffer_.clear();
@@ -160,10 +159,50 @@ class MapSstElementIterator {
     bool include_end = map_elements_.include_largest_ = where_->include[1];
     bool no_records = true;
     map_elements_.link_.clear();
-
     for (auto sst_id : where_->depend) {
+      map_elements_.link_.emplace_back(MapSstElement::LinkTarget{sst_id, 0});
+    }
+
+    auto merge_depend = [](MapSstElement& e, const std::vector<uint64_t>& d) {
+      size_t insert_pos = e.link_.size();
+      for (auto rit = d.rbegin(); rit != d.rend(); ++rit) {
+        size_t new_pos;
+        for (new_pos = 0; new_pos < insert_pos; ++new_pos) {
+          if (e.link_[new_pos].sst_id == *rit) {
+            break;
+          }
+        }
+        if (new_pos == insert_pos) {
+          e.link_.emplace(e.link_.begin() + new_pos,
+                          MapSstElement::LinkTarget{*rit, 0});
+        } else {
+          insert_pos = new_pos;
+        }
+      }
+    };
+
+    ++where_;
+    if (where_ != ranges_.end() &&
+        icomp_.Compare(start, where_->point[0].Encode()) == 0) {
+      assert(include_start && include_end && !where_->include[0]);
+      assert(icomp_.Compare(start, end) == 0);
+      end = where_->point[1].Encode();
+      include_end = where_->include[1];
+      merge_depend(map_elements_, where_->depend);
+      ++where_;
+    }
+    if (where_ != ranges_.end() &&
+        icomp_.Compare(end, where_->point[1].Encode()) == 0) {
+      assert(!include_end && where_->include[0] && where_->include[1]);
+      assert(icomp_.Compare(where_->point[0], where_->point[1]) == 0);
+      include_end = true;
+      merge_depend(map_elements_, where_->depend);
+      ++where_;
+    }
+
+    for (auto& link : map_elements_.link_) {
       TableReader* reader;
-      auto iter = iterator_cache_.GetIterator(sst_id, &reader);
+      auto iter = iterator_cache_.GetIterator(link.sst_id, &reader);
       if (!iter->status().ok()) {
         buffer_.clear();
         status_ = iter->status();
@@ -191,8 +230,6 @@ class MapSstElementIterator {
         }
       }
       end_.DecodeFrom(iter->key());
-      MapSstElement::LinkTarget link;
-      link.sst_id = sst_id;
       if (icomp_.Compare(start_, end_) <= 0) {
         uint64_t start_offset =
             reader->ApproximateOffsetOf(start_.Encode());
@@ -200,16 +237,8 @@ class MapSstElementIterator {
             reader->ApproximateOffsetOf(end_.Encode());
         no_records = false;
         link.size = end_offset - start_offset;
-      } else {
-        link.size = 0;
       }
-      map_elements_.link_.emplace_back(link);
-      sst_depend_build_.emplace(sst_id);
-    }
-    ++where_;
-    if (where_ != ranges_.end() ||
-        icomp_.Compare(end, where_->point[1].Encode()) == 0) {
-      // TODO
+      sst_depend_build_.emplace(link.sst_id);
     }
     map_elements_.no_records_ = no_records;
     map_elements_.Value(&buffer_);  // Encode value
