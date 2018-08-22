@@ -245,7 +245,8 @@ void DataBlockIter::Seek(const Slice& target) {
 //    matching user_key with a seqno no greater than the seeking seqno.
 // 2) If the iter is invalid, it means that either all the user_key is less
 //    than the seek_user_key, or the block ends with a matching user_key but
-//    with a larger seqno.
+//    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
+//    but larger type).
 bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   Slice user_key = ExtractUserKey(target);
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
@@ -272,7 +273,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // In this case, we pretend the key is the the last restart interval.
     // The while-loop below will search the last restart interval for the
     // key. It will stop at the first key that is larger than the seek_key,
-    // or to the end of the block if no one is smaller.
+    // or to the end of the block if no one is larger.
     entry = static_cast<uint8_t>(num_restarts_ - 1);
   }
 
@@ -303,19 +304,19 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   }
 
   if (current_ == restarts_) {
-    // Search reaches to the end of the block. There are three possibilites;
+    // Search reaches to the end of the block. There are three possibilites:
     // 1) there is only one user_key match in the block (otherwise collsion).
-    //    the matching user_key resides in the last restart interval.
-    //    it is the last key of the restart interval and of the block too.
-    //    ParseNextDataKey() skiped it as its seqno is newer.
+    //    the matching user_key resides in the last restart interval, and it
+    //    is the last key of the restart interval and of the block as well.
+    //    ParseNextDataKey() skiped it as its [ type | seqno ] is smaller.
     //
     // 2) The seek_key is not found in the HashIndex Lookup(), i.e. kNoEntry,
-    //    AND all existing keys in the restart interval are smaller than
-    //    seek_key.
+    //    AND all existing user_keys in the restart interval are smaller than
+    //    seek_user_key.
     //
     // 3) The seek_key is a false positive and happens to be hashed to the
-    //    last restart interval, AND all existing keys in the restart
-    //    interval are smaler than seek_key.
+    //    last restart interval, AND all existing user_keys in the restart
+    //    interval are smaller than seek_user_key.
     //
     // The result may exist in the next block each case, so we return true.
     return true;
