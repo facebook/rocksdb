@@ -612,8 +612,10 @@ Status TableCache::Get(
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      if (file_meta.sst_variety == 0 || depend_files.empty()) {
+      if (file_meta.sst_variety == 0) {
         s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
+      } else if (depend_files.empty()) {
+        s = Status::Corruption("Variety sst depend files missing");
       } else {
         // Forward query to target sst
         auto get_from_sst = [&](const Slice& find_k, uint64_t sst_id,

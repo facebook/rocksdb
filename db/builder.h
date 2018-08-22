@@ -50,8 +50,8 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const std::string* compression_dict = nullptr,
-    const bool skip_filters = false, const uint64_t creation_time = 0,
-    const uint64_t oldest_key_time = 0);
+    bool skip_filters = false, bool range_deletion_as_normal_key = false,
+    uint64_t creation_time = 0, uint64_t oldest_key_time = 0);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of

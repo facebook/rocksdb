@@ -807,8 +807,10 @@ Status MapBuilder::WriteOutputFile(
       NewTableBuilder(*cfd->ioptions(), *cfd->GetCurrentMutableCFOptions(),
                       cfd->internal_comparator(), &collectors,
                       cfd->GetID(), cfd->GetName(), outfile.get(),
-                      kNoCompression, CompressionOptions(), -1, nullptr,
-                      true, output_file_creation_time));
+                      kNoCompression, CompressionOptions(), -1 /*level*/,
+                      nullptr /*compression_dict*/, true /*skip_filters*/,
+                      true /*range_deletion_as_normal_key*/,
+                      output_file_creation_time));
   LogFlush(db_options_.info_log);
 
   // Update boundaries

@@ -567,7 +567,6 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   MapSstElement map_element;
   RangeStorage range;
   std::multimap<size_t, InternalKey, std::greater<size_t>> link_count_map;
-  InternalKey last_key;
   auto range_size = [](const MapSstElement& range) {
     size_t sum = 0;
     size_t max = 0;
@@ -577,6 +576,10 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     }
     return std::make_pair(sum, max);
   };
+  auto assign_user_key = [](std::string& key, const Slice& ikey) {
+    Slice ukey = ExtractUserKey(ikey);
+    key.assign(ukey.data(), ukey.size());
+  };
 
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!map_element.Decode(iter->key(), iter->value())) {
@@ -584,19 +587,18 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
       return nullptr;
     }
     if (map_element.link_.size() > 1) {
-      link_count_map.emplace(map_element.link_.size(), std::move(last_key));
+      InternalKey internal_key;
+      internal_key.DecodeFrom(iter->key());
+      link_count_map.emplace(map_element.link_.size(), std::move(internal_key));
     }
-    last_key.DecodeFrom(iter->key());
     if (map_element.link_.size() <= 2) {
       continue;
     }
     size_t sum, max;
     std::tie(sum, max) = range_size(map_element);
     if ((sum - max) * 2 < max) {
-      range.start.assign(map_element.smallest_key_.data(),
-                         map_element.smallest_key_.size());
-      range.limit.assign(map_element.largest_key_.data(),
-                         map_element.largest_key_.size());
+      assign_user_key(range.start, map_element.smallest_key_);
+      assign_user_key(range.limit, map_element.largest_key_);
       range.include_start = map_element.include_smallest_;
       range.include_limit = map_element.include_largest_;
       input_range.emplace_back(std::move(range));
@@ -625,50 +627,33 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     ikey.DecodeFrom(key);
     unique_check.emplace(ikey.Encode());
   };
-  auto is_perfect = [=](const MapSstElement& e, const FileMetaData* f) {
+  auto is_perfect = [=](const MapSstElement& e) {
+    if (e.link_.size() > 1) {
+      return false;
+    }
+    auto& depend_files = vstorage->depend_files();
+    auto find = depend_files.find(e.link_.front().sst_id);
+    if (find == depend_files.end()) {
+      // TODO log error
+      return false;
+    }
+    auto f = find->second;
     return f->sst_variety == 0 && e.include_smallest_ && e.include_largest_ &&
            icmp_->Compare(f->smallest.Encode(), e.smallest_key_) == 0 &&
            icmp_->Compare(f->largest.Encode(), e.largest_key_) == 0;
   };
-  auto& depend_files = vstorage->depend_files();
+  auto& icomp = ioptions_.internal_comparator;
   for (auto it = link_count_map.begin(); it != link_count_map.end(); ++it) {
-    bool got_prev = false;
-    size_t sum = 0;
-    if (it->second.size() == 0) {
-      iter->SeekToFirst();
-    } else {
-      iter->Seek(it->second.Encode());
-      if (unique_check.count(iter->key()) == 0) {
-        map_element.Decode(iter->key(), iter->value());
-        size_t prev_sum = range_size(map_element).first;
-        if (prev_sum * 2 < max_file_size_for_leval) {
-          range.start.assign(map_element.smallest_key_.data(),
-                             map_element.smallest_key_.size());
-          range.include_start = map_element.include_smallest_;
-          sum += prev_sum;
-          got_prev = true;
-        }
-      }
-      iter->Next();
-    }
+    iter->Seek(it->second.Encode());
     assert(iter->Valid());
     if (unique_check.count(iter->key()) > 0) {
       continue;
     }
-    if (got_prev) {
-      push_unique(it->second.Encode());
-    }
-    map_element.Decode(iter->key(), iter->value());
-    assert(it->first == map_element.link_.size());
-    if (!got_prev) {
-      range.start.assign(map_element.smallest_key_.data(),
-                         map_element.smallest_key_.size());
-      range.include_start = map_element.include_smallest_;
-      sum += range_size(map_element).first;
-    }
-    range.limit.assign(map_element.largest_key_.data(),
-                       map_element.largest_key_.size());
-    range.include_limit = map_element.include_largest_;
+    assign_user_key(range.start, map_element.smallest_key_);
+    assign_user_key(range.limit, map_element.largest_key_);
+    range.include_start = true;
+    range.include_limit = true;
+    size_t sum = range_size(map_element).first;
     push_unique(iter->key());
     while (sum < max_file_size_for_leval) {
       iter->Next();
@@ -676,21 +661,32 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
         break;
       }
       map_element.Decode(iter->key(), iter->value());
-      if (map_element.link_.size() == 1) {
-        auto find = depend_files.find(map_element.link_.front().sst_id);
-        if (find == depend_files.end()) {
-          // TODO log error info
-          return nullptr;
-        }
-        if (is_perfect(map_element, find->second)) {
+      if (is_perfect(map_element) &&
+          icomp.Compare(ExtractUserKey(map_element.smallest_key_),
+                        range.limit) != 0) {
+        break;
+      }
+      assign_user_key(range.limit, map_element.largest_key_);
+      sum += range_size(map_element).first;
+      push_unique(iter->key());
+    }
+    if (sum < max_file_size_for_leval) {
+      iter->SeekForPrev(it->second.Encode());
+      do {
+        iter->Prev();
+        if (!iter->Valid() || unique_check.count(iter->key()) > 0) {
           break;
         }
-      }
-      sum += range_size(map_element).first;
-      range.limit.assign(map_element.largest_key_.data(),
-                         map_element.largest_key_.size());
-      range.include_limit = map_element.include_largest_;
-      push_unique(iter->key());
+        map_element.Decode(iter->key(), iter->value());
+        if (is_perfect(map_element) &&
+            icomp.Compare(ExtractUserKey(map_element.largest_key_),
+                          range.start) != 0) {
+          break;
+        }
+        assign_user_key(range.start, map_element.smallest_key_);
+        sum += range_size(map_element).first;
+        push_unique(iter->key());
+      } while (sum < max_file_size_for_leval);
     }
     input_range.emplace_back(std::move(range));
     if (input_range.size() >= ioptions_.max_subcompactions) {
@@ -710,32 +706,26 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     map_element.Decode(iter->key(), iter->value());
     assert(map_element.link_.size() == 1);
-    auto find = depend_files.find(map_element.link_.front().sst_id);
-    if (find == depend_files.end()) {
-      // TODO log error info
-      return nullptr;
-    }
     if (has_start) {
-      if (is_perfect(map_element, find->second)) {
+      assign_user_key(range.limit, map_element.largest_key_);
+      if (is_perfect(map_element) &&
+          icomp.Compare(ExtractUserKey(map_element.smallest_key_),
+                        range.limit) != 0) {
+        range.include_limit = false;
         input_range.emplace_back(std::move(range));
+        has_start = false;
         if (input_range.size() >= ioptions_.max_subcompactions) {
           break;
         }
-        has_start = false;
       }
-      range.limit.assign(map_element.largest_key_.data(),
-                         map_element.largest_key_.size());
-      range.include_limit = map_element.include_largest_;
     } else {
-      if (is_perfect(map_element, find->second)) {
+      if (is_perfect(map_element)) {
         continue;
       }
-      range.start.assign(map_element.smallest_key_.data(),
-                         map_element.smallest_key_.size());
-      range.limit.assign(map_element.largest_key_.data(),
-                         map_element.largest_key_.size());
-      range.include_start = map_element.include_smallest_;
-      range.include_limit = map_element.include_largest_;
+      assign_user_key(range.start, map_element.smallest_key_);
+      assign_user_key(range.limit, map_element.largest_key_);
+      range.include_start = true;
+      range.include_limit = true;
       has_start = true;
     }
   }

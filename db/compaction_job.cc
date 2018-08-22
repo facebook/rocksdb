@@ -119,9 +119,8 @@ struct CompactionJob::SubcompactionState {
   int include_start;
   int include_end;
 
-  // actual end for this subcompaction
-  InternalKey actual_start;
-  InternalKey actual_end;
+  // actual range for this subcompaction
+  Slice actual_start, actual_end;
 
   // The return status of this subcompaction
   Status status;
@@ -267,11 +266,43 @@ struct CompactionJob::CompactionState {
   uint64_t num_input_records;
   uint64_t num_output_records;
 
+  Slice range_start, range_end;
+
   explicit CompactionState(Compaction* c)
       : compaction(c),
         total_bytes(0),
         num_input_records(0),
-        num_output_records(0) {}
+        num_output_records(0) {
+    // Find out compaction range start/end
+    auto& icomp = c->column_family_data()->internal_comparator();
+    for (auto& level_files : *c->inputs()) {
+      if (level_files.level == 0) {
+        for (auto f : level_files.files) {
+          if (range_start.empty() ||
+              icomp.Compare(f->smallest.Encode(), range_start) < 0) {
+            range_start = f->smallest.Encode();
+          }
+          if (range_end.empty() ||
+              icomp.Compare(f->largest.Encode(), range_end) > 0) {
+            range_end = f->largest.Encode();
+          }
+        }
+      } else {
+        auto f0 = level_files.files.front();
+        auto f1 = level_files.files.back();
+        if (range_start.empty() ||
+            icomp.Compare(f0->smallest.Encode(), range_start) < 0) {
+          range_start = f0->smallest.Encode();
+        }
+        if (range_end.empty() ||
+            icomp.Compare(f1->largest.Encode(), range_end) > 0) {
+          range_end = f1->largest.Encode();
+        }
+      }
+    }
+    range_start = ExtractUserKey(range_start);
+    range_end = ExtractUserKey(range_end);
+  }
 
   size_t NumOutputFiles() {
     size_t total = 0;
@@ -941,11 +972,11 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
                                         *start) == 0) {
       input->Next();
     }
+    sub_compact->actual_start = *start;
   } else {
     input->SeekToFirst();
-  }
-  if (input->Valid()) {
-    sub_compact->actual_start.DecodeFrom(input->key());
+    sub_compact->actual_start = compact_->range_start;
+    sub_compact->include_start = true;
   }
 
   Status status;
@@ -1100,22 +1131,13 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
         if (c_iter->Valid()) {
           next_key = &c_iter->key();
         }
-        if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
-          if (next_key != nullptr &&
-              cfd->user_comparator()->Compare(
-                  ExtractUserKey(*next_key),
-                  sub_compact->outputs.back().meta.largest.user_key()) != 0) {
-            // find out actual end
-            IterKey end_iter;
-            end_iter.SetInternalKey(ExtractUserKey(*next_key),
-                                    kMaxSequenceNumber, kValueTypeForSeek);
-            input->SeekForPrev(end_iter.GetInternalKey());
-            assert(input->Valid());
-            sub_compact->actual_end.DecodeFrom(input->key());
-            break;
-          } else {
-            output_file_ended = false;
-          }
+        // Make sure end don't split user_key, otherwise it will make range del
+        // expose deleted keys
+        if (next_key != nullptr &&
+            cfd->user_comparator()->Compare(
+                ExtractUserKey(*next_key),
+                sub_compact->outputs.back().meta.largest.user_key()) == 0) {
+          output_file_ended = false;
         }
       }
       if (output_file_ended) {
@@ -1125,6 +1147,11 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
                                             &range_del_out_stats, next_key);
         RecordDroppedKeys(range_del_out_stats,
                           &sub_compact->compaction_job_stats);
+        if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
+          sub_compact->actual_end = ExtractUserKey(*next_key);
+          sub_compact->include_end = false;
+          break;
+        }
         if (sub_compact->outputs.size() == 1) {
           // Use samples from first output file to create dictionary for
           // compression of subsequent files.
@@ -1140,25 +1167,15 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
       }
     }
   }
-  
-  if (sub_compact->actual_end.size() == 0) {
+  if (!c_iter->Valid()) {
+    assert(sub_compact->actual_end.empty());
     if (end != nullptr) {
-      IterKey end_iter;
-      if (sub_compact->include_end) {
-        end_iter.SetInternalKey(*end, 0, static_cast<ValueType>(0));
-      } else {
-        end_iter.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
-      }
-      input->SeekForPrev(end_iter.GetInternalKey());
+      sub_compact->actual_end = *end;
     } else {
-      input->SeekToFirst();
-    }
-    if (input->Valid()) {
-      sub_compact->actual_end.DecodeFrom(input->key());
+      sub_compact->actual_end = compact_->range_end;
+      sub_compact->include_end = true;
     }
   }
-  assert(sub_compact->actual_start.Valid());
-  assert(sub_compact->actual_end.Valid());
 
   sub_compact->num_input_records = c_iter_stats.num_input_records;
   sub_compact->compaction_job_stats.num_input_deletion_records =
@@ -1258,18 +1275,29 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
       start_iter.SetInternalKey(*start, 0, static_cast<ValueType>(0));
     }
     input->Seek(start_iter.GetInternalKey());
+    if (!sub_compact->include_start && input->Valid() &&
+        cfd->user_comparator()->Compare(ExtractUserKey(input->key()),
+                                        *start) == 0) {
+      input->Next();
+    }
+    sub_compact->actual_start = *start;
   } else {
     input->SeekToFirst();
+    sub_compact->actual_start = compact_->range_start;
+    sub_compact->include_start = true;
   }
-  if (input->Valid()) {
-    sub_compact->actual_start.DecodeFrom(input->key());
+  if (end != nullptr) {
+    sub_compact->actual_end = *end;
+  } else {
+    sub_compact->actual_end = compact_->range_end;
+    sub_compact->include_end = true;
   }
 
   auto ucomp = cfd->user_comparator();
   auto& meta = sub_compact->current_output()->meta;
 
   std::unordered_set<uint64_t> sst_depend_build;
-  InternalKey& last_key = sub_compact->actual_end;
+  InternalKey last_key;
   uint64_t key_count = 0;
   IteratorSource last_source;
   std::string buffer;
@@ -1398,10 +1426,12 @@ Status CompactionJob::FinishCompactionOutputFile(
     Slice lower_bound_guard, upper_bound_guard;
     std::string smallest_user_key;
     const Slice *lower_bound, *upper_bound;
+    int include_lower_bound, include_upper_bound;
     if (sub_compact->outputs.size() == 1) {
       // For the first output table, include range tombstones before the min key
       // but after the subcompaction boundary.
       lower_bound = sub_compact->start;
+      include_lower_bound = sub_compact->include_start;
     } else if (meta->smallest.size() > 0) {
       // For subsequent output tables, only include range tombstones from min
       // key onwards since the previous file was extended to contain range
@@ -1409,18 +1439,22 @@ Status CompactionJob::FinishCompactionOutputFile(
       smallest_user_key = meta->smallest.user_key().ToString(false /*hex*/);
       lower_bound_guard = Slice(smallest_user_key);
       lower_bound = &lower_bound_guard;
+      include_lower_bound = true;
     } else {
       lower_bound = nullptr;
+      include_lower_bound = true;
     }
     if (next_table_min_key != nullptr) {
       // This isn't the last file in the subcompaction, so extend until the next
       // file starts.
       upper_bound_guard = ExtractUserKey(*next_table_min_key);
       upper_bound = &upper_bound_guard;
+      include_upper_bound = false;
     } else {
       // This is the last file in the subcompaction, so extend until the
       // subcompaction ends.
       upper_bound = sub_compact->end;
+      include_upper_bound = sub_compact->include_end;
     }
     auto earliest_snapshot = kMaxSequenceNumber;
     if (existing_snapshots_.size() > 0) {
@@ -1429,11 +1463,20 @@ Status CompactionJob::FinishCompactionOutputFile(
     auto it = range_del_agg->NewIterator();
     if (lower_bound != nullptr) {
       it->Seek(*lower_bound);
+      assert(!include_lower_bound || lower_bound != nullptr);
+      while (!include_lower_bound && it->Valid()) {
+        if (ucmp->Compare(it->Tombstone().end_key_, *lower_bound) <= 0) {
+          it->Next();
+        }
+      }
     }
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
+      // include_upper_bound ? cmp(upper_bound, start_key) <= 0
+      //                     : cmp(upper_bound, start_key) < 0
       if (upper_bound != nullptr &&
-          ucmp->Compare(*upper_bound, tombstone.start_key_) <= 0) {
+          ucmp->Compare(*upper_bound, tombstone.start_key_) <=
+              include_upper_bound) {
         // Tombstones starting at upper_bound or later only need to be included
         // in the next table. Break because subsequent tombstones will start
         // even later.
@@ -1628,9 +1671,10 @@ Status CompactionJob::InstallCompactionResults(
     std::vector<const FileMetaData*> added_files;
     if (compaction->compaction_varieties() != kMapSst) {
       for (auto& sub_compact : compact_->sub_compact_states) {
-        deleted_range.emplace_back(sub_compact.actual_start.Encode(),
-                                   sub_compact.actual_end.Encode(),
-                                   true, true);
+        deleted_range.emplace_back(sub_compact.actual_start,
+                                   sub_compact.actual_end,
+                                   sub_compact.include_start,
+                                   sub_compact.include_end);
         for (auto& output : sub_compact.outputs) {
           added_files.emplace_back(&output.meta);
         }

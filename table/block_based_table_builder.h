@@ -48,9 +48,9 @@ class BlockBasedTableBuilder : public TableBuilder {
       uint32_t column_family_id, WritableFileWriter* file,
       const CompressionType compression_type,
       const CompressionOptions& compression_opts,
-      const std::string* compression_dict, const bool skip_filters,
-      const std::string& column_family_name, const uint64_t creation_time = 0,
-      const uint64_t oldest_key_time = 0);
+      const std::string* compression_dict, bool skip_filters,
+      bool range_deletion_as_normal_key, const std::string& column_family_name,
+      uint64_t creation_time = 0, uint64_t oldest_key_time = 0);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
