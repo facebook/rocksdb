@@ -74,6 +74,12 @@ class Comparator {
                                               const Slice& /*t*/) const {
     return false;
   }
+
+  // return true if two keys with different byte sequences can be regarded
+  // as equal by this comparator.
+  // The major use case is to determine if DataBlockHashIndex is compatible
+  // with the customized comparator.
+  virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise

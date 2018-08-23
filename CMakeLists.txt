@@ -550,6 +550,7 @@ set(SOURCES
         table/cuckoo_table_factory.cc
         table/cuckoo_table_reader.cc
         table/data_block_hash_index.cc
+        table/data_block_footer.cc
         table/flush_block_policy.cc
         table/format.cc
         table/full_filter_block.cc

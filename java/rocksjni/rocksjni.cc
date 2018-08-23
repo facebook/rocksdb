@@ -1955,8 +1955,7 @@ bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
                                  rocksdb::ColumnFamilyHandle* cf_handle,
                                  jbyteArray jbegin, jint jbegin_len,
                                  jbyteArray jend, jint jend_len,
-                                 jboolean jreduce_level, jint jtarget_level,
-                                 jint jtarget_path_id) {
+                                 const rocksdb::CompactRangeOptions& compact_options) {
   jbyte* begin = env->GetByteArrayElements(jbegin, nullptr);
   if (begin == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1974,10 +1973,6 @@ bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
   const rocksdb::Slice end_slice(reinterpret_cast<char*>(end), jend_len);
 
   rocksdb::Status s;
-  rocksdb::CompactRangeOptions compact_options;
-  compact_options.change_level = jreduce_level;
-  compact_options.target_level = jtarget_level;
-  compact_options.target_path_id = static_cast<uint32_t>(jtarget_path_id);
   if (cf_handle != nullptr) {
     s = db->CompactRange(compact_options, cf_handle, &begin_slice, &end_slice);
   } else {
@@ -1994,6 +1989,25 @@ bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
 
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   return false;
+}
+
+/**
+ * @return true if the compact range succeeded, false if a Java Exception
+ *     was thrown
+ */
+bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
+                                 rocksdb::ColumnFamilyHandle* cf_handle,
+                                 jbyteArray jbegin, jint jbegin_len,
+                                 jbyteArray jend, jint jend_len,
+                                 jboolean jreduce_level, jint jtarget_level,
+                                 jint jtarget_path_id) {
+    rocksdb::CompactRangeOptions compact_options;
+    compact_options.change_level = jreduce_level;
+    compact_options.target_level = jtarget_level;
+    compact_options.target_path_id = static_cast<uint32_t>(jtarget_path_id);
+
+    return rocksdb_compactrange_helper(env, db, cf_handle, jbegin, jbegin_len,
+      jend, jend_len, compact_options);
 }
 
 /*
@@ -2026,6 +2040,20 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
                               jend_len, jreduce_level, jtarget_level,
                               jtarget_path_id);
 }
+
+
+void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIJJ(
+    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jbyteArray jbegin,
+    jint jbegin_len, jbyteArray jend, jint jend_len,
+    jlong jcompact_options_handle, jlong jcf_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  auto* compact_options = reinterpret_cast<rocksdb::CompactRangeOptions*>(jcompact_options_handle);
+
+  rocksdb_compactrange_helper(env, db, cf_handle, jbegin, jbegin_len, jend,
+                              jend_len, *compact_options);
+}
+
 
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::PauseBackgroundWork
