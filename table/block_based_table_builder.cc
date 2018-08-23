@@ -330,6 +330,10 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict.Init(*_compression_dict,
                             CompressionDict::Mode::kCompression,
                             _compression_type, _compression_opts.level);
+    } else {
+      compression_dict.Init(Slice() /* dict */,
+                            CompressionDict::Mode::kEmpty,
+                            _compression_type, _compression_opts.level);
     }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {

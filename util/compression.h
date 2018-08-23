@@ -134,11 +134,10 @@ class ZSTDUncompressCachedData {
 namespace rocksdb {
 
 // Holds dictionary and related data, like ZSTD's digested dictionary.
-// Can be used without calling `Init()`, in which case it'll behave as if it
-// were initialized with an empty dictionary.
 struct CompressionDict {
   enum class Mode {
     kUninit,
+    kEmpty,  // An empty one can be used for both compression and uncompression
     kCompression,
     kUncompression,
   };
@@ -153,14 +152,26 @@ struct CompressionDict {
 
  public:
   static const CompressionDict& GetEmptyDict() {
-    static const CompressionDict empty_dict{};
+    static CompressionDict empty_dict{};
+    static bool init = false;
+    if (!init) {
+      empty_dict.Init(Slice() /* dict */, Mode::kEmpty,
+                      false /* use_zstd_trainer */);
+      init = true;
+    }
     return empty_dict;
   }
 
-#if ZSTD_VERSION_NUMBER >= 700
   void Init(Slice dict, Mode mode, CompressionType type, int level = -1) {
+    return Init(dict, mode, type == kZSTD || type == kZSTDNotFinalCompression,
+                level);
+  }
+
+ private:
+#if ZSTD_VERSION_NUMBER >= 700
+  void Init(Slice dict, Mode mode, bool use_zstd_trainer, int level = -1) {
 #else   // ZSTD_VERSION_NUMBER >= 700
-  void Init(Slice dict, Mode mode, CompressionType /*type*/,
+  void Init(Slice dict, Mode mode, bool /* use_zstd_trainer */,
             int /*level*/ = -1) {
 #endif  // ZSTD_VERSION_NUMBER >= 700
     assert(mode_ == Mode::kUninit);
@@ -170,11 +181,12 @@ struct CompressionDict {
       case Mode::kUninit:
         assert(false);
         break;
+      case Mode::kEmpty:
+        break;
       case Mode::kCompression:
 #if ZSTD_VERSION_NUMBER >= 700
         zstd_cdict_ = nullptr;
-        if (!dict_.empty() &&
-            (type == kZSTD || type == kZSTDNotFinalCompression)) {
+        if (!dict_.empty() && use_zstd_trainer) {
           if (level == CompressionOptions::kDefaultCompressionLevel) {
             // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
             // https://github.com/facebook/zstd/issues/1148
@@ -190,8 +202,7 @@ struct CompressionDict {
       case Mode::kUncompression:
 #if ZSTD_VERSION_NUMBER >= 700
         zstd_ddict_ = nullptr;
-        if (!dict_.empty() &&
-            (type == kZSTD || type == kZSTDNotFinalCompression)) {
+        if (!dict_.empty() && use_zstd_trainer) {
           zstd_ddict_ = ZSTD_createDDict(dict_.data(), dict_.size());
           assert(zstd_ddict_ != nullptr);
         }
@@ -200,11 +211,14 @@ struct CompressionDict {
     }
   }
 
+ public:
   ~CompressionDict() {
 #if ZSTD_VERSION_NUMBER >= 700
     size_t res = 0;
     switch (mode_) {
       case Mode::kUninit:
+        break;
+      case Mode::kEmpty:
         break;
       case Mode::kCompression:
         if (zstd_cdict_ != nullptr) {
@@ -224,7 +238,8 @@ struct CompressionDict {
 
 #if ZSTD_VERSION_NUMBER >= 700
   const ZSTD_CDict* GetDigestedZstdCDict() const {
-    if (mode_ == Mode::kUninit) {
+    assert(mode_ != Mode::kUninit);
+    if (mode_ == Mode::kEmpty) {
       return nullptr;
     }
     assert(mode_ == Mode::kCompression);
@@ -232,7 +247,8 @@ struct CompressionDict {
   }
 
   const ZSTD_DDict* GetDigestedZstdDDict() const {
-    if (mode_ == Mode::kUninit) {
+    assert(mode_ != Mode::kUninit);
+    if (mode_ == Mode::kEmpty) {
       return nullptr;
     }
     assert(mode_ == Mode::kUncompression);
@@ -241,7 +257,8 @@ struct CompressionDict {
 #endif  // ZSTD_VERSION_NUMBER >= 700
 
   Slice GetRawDict() const {
-    assert(mode_ != Mode::kUninit || dict_.empty());
+    assert(mode_ != Mode::kUninit);
+    assert(mode_ != Mode::kEmpty || dict_.empty());
     return dict_;
   }
 
