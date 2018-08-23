@@ -23,12 +23,13 @@ void DataBlockHashIndexBuilder::Add(const Slice& key,
   uint32_t hash_value = GetSliceHash(key);
   hash_and_restart_pairs_.emplace_back(hash_value,
                                        static_cast<uint8_t>(restart_index));
+  estimated_num_buckets_ += bucket_per_key_;
 }
 
 void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
   assert(Valid());
-  uint16_t num_buckets = static_cast<uint16_t>(
-      static_cast<double>(hash_and_restart_pairs_.size()) / util_ratio_);
+  uint16_t num_buckets = static_cast<uint16_t>(estimated_num_buckets_);
+
   if (num_buckets == 0) {
     num_buckets = 1;  // sanity check
   }
@@ -66,8 +67,9 @@ void DataBlockHashIndexBuilder::Finish(std::string& buffer) {
 }
 
 void DataBlockHashIndexBuilder::Reset() {
-  hash_and_restart_pairs_.clear();
+  estimated_num_buckets_ = 0;
   valid_ = true;
+  hash_and_restart_pairs_.clear();
 }
 
 void DataBlockHashIndex::Initialize(const char* data, uint16_t size,

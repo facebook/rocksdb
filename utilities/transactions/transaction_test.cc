@@ -796,6 +796,7 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
   WriteOptions write_options;
   options.write_buffer_size = 1024;
   ASSERT_OK(ReOpenNoDelete());
+  assert(db != nullptr);
   Random rnd(47);
   std::vector<Transaction*> txns;
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -1254,6 +1255,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   s = ReOpenNoDelete();
   ASSERT_OK(s);
+  assert(db != nullptr);
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
   // find trans in list of prepared transactions
