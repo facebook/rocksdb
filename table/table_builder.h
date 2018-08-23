@@ -76,9 +76,8 @@ struct TableBuilderOptions {
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, bool _skip_filters,
-      bool _range_deletion_as_normal_key,
-      const std::string& _column_family_name, int _level,
-      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0)
+      bool _ignore_key_type, const std::string& _column_family_name,
+      int _level, uint64_t _creation_time = 0, int64_t _oldest_key_time = 0)
       : ioptions(_ioptions),
         moptions(_moptions),
         internal_comparator(_internal_comparator),
@@ -87,7 +86,7 @@ struct TableBuilderOptions {
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
         skip_filters(_skip_filters),
-        range_deletion_as_normal_key(_range_deletion_as_normal_key),
+        ignore_key_type(_ignore_key_type),
         column_family_name(_column_family_name),
         level(_level),
         creation_time(_creation_time),
@@ -102,8 +101,8 @@ struct TableBuilderOptions {
   // Data for presetting the compression library's dictionary, or nullptr.
   const std::string* compression_dict;
   bool skip_filters;  // only used by BlockBasedTableBuilder
-  // Add RangeDeletion as normal keyes, don't add to tombstones
-  bool range_deletion_as_normal_key;
+  // Ignore key type, force store all keys, no tombstones
+  bool ignore_key_type;
   const std::string& column_family_name;
   int level; // what level this table/file is on, -1 for "not set, don't know"
   const uint64_t creation_time;

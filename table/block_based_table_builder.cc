@@ -268,7 +268,7 @@ struct BlockBasedTableBuilder::Rep {
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
   const bool use_delta_encoding_for_index_values;
-  const bool range_deletion_as_normal_key;
+  const bool ignore_key_type;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
@@ -293,9 +293,8 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, bool skip_filters,
-      bool _range_deletion_as_normal_key,
-      const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time)
+      bool _ignore_key_type, const std::string& _column_family_name,
+      uint64_t _creation_time, uint64_t _oldest_key_time)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -318,7 +317,7 @@ struct BlockBasedTableBuilder::Rep {
         compression_ctx(_compression_type, _compression_opts),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
-        range_deletion_as_normal_key(_range_deletion_as_normal_key),
+        ignore_key_type(_ignore_key_type),
         compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
@@ -377,8 +376,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const std::string* compression_dict, bool skip_filters,
-    bool range_deletion_as_normal_key, const std::string& column_family_name,
-    const uint64_t creation_time, const uint64_t oldest_key_time) {
+    bool ignore_key_type, const std::string& column_family_name,
+    uint64_t creation_time, uint64_t oldest_key_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -395,8 +394,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
       new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
               int_tbl_prop_collector_factories, column_family_id, file,
               compression_type, compression_opts, compression_dict,
-              skip_filters, range_deletion_as_normal_key, column_family_name,
-              creation_time, oldest_key_time);
+              skip_filters, ignore_key_type, column_family_name, creation_time,
+              oldest_key_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -419,8 +418,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(!r->closed);
   if (!ok()) return;
   ValueType value_type = ExtractValueType(key);
-  if (r->range_deletion_as_normal_key || IsValueType(value_type)) {
-    assert(IsExtendedValueType(value_type));
+  if (r->ignore_key_type || IsValueType(value_type)) {
     if (r->props.num_entries > 0) {
       assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
     }

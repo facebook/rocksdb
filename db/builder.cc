@@ -48,8 +48,7 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const std::string* compression_dict, bool skip_filters,
-    bool range_deletion_as_normal_key, uint64_t creation_time,
-    uint64_t oldest_key_time) {
+    bool ignore_key_type, uint64_t creation_time, uint64_t oldest_key_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -57,7 +56,7 @@ TableBuilder* NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, compression_dict, skip_filters,
-                          range_deletion_as_normal_key, column_family_name,
+                          ignore_key_type, column_family_name,
                           level, creation_time, oldest_key_time),
       column_family_id, file);
 }

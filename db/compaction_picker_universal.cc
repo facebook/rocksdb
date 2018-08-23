@@ -21,6 +21,7 @@
 #include <string>
 #include <utility>
 #include "db/column_family.h"
+#include "db/map_builder.h"
 #include "monitoring/statistics.h"
 #include "util/filename.h"
 #include "util/log_buffer.h"
@@ -496,26 +497,6 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   std::vector<RangeStorage> input_range;
 
   auto new_compaction = [&]{
-    // trans internal key to user key
-    auto uc = icmp_->user_comparator();
-    for (auto it = input_range.begin(); it != input_range.end(); ) {
-      it->start.resize(it->start.size() - 8);
-      it->limit.resize(it->limit.size() - 8);
-      it->include_start = true;
-      it->include_limit = true;
-      if (it == input_range.begin()) {
-        ++it;
-        continue;
-      }
-      if (uc->Compare(it->start, it[-1].limit) == 0) {
-        it->include_start = false;
-        if (uc->Compare(it->start, it->limit) == 0) {
-          it = input_range.erase(it);
-          continue;
-        }
-      }
-      ++it;
-    }
     uint64_t estimated_total_size = 0;
     for (auto f : inputs.files) {
       estimated_total_size += f->fd.file_size;
@@ -628,7 +609,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     unique_check.emplace(ikey.Encode());
   };
   auto is_perfect = [=](const MapSstElement& e) {
-    if (e.link_.size() > 1) {
+    if (e.link_.size() != 1) {
       return false;
     }
     auto& depend_files = vstorage->depend_files();
@@ -638,9 +619,12 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
       return false;
     }
     auto f = find->second;
-    return f->sst_variety == 0 && e.include_smallest_ && e.include_largest_ &&
-           icmp_->Compare(f->smallest.Encode(), e.smallest_key_) == 0 &&
-           icmp_->Compare(f->largest.Encode(), e.largest_key_) == 0;
+    if (f->sst_variety != 0) {
+      return false;
+    }
+    Range r(e.smallest_key_, e.largest_key_, e.include_smallest_,
+            e.include_largest_);
+    return IsPrefaceRange(r, f, *icmp_);
   };
   auto& icomp = ioptions_.internal_comparator;
   for (auto it = link_count_map.begin(); it != link_count_map.end(); ++it) {

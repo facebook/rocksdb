@@ -18,8 +18,10 @@
 
 namespace rocksdb {
 
+struct FileMetaData;
 struct FileMetaDataBoundBuilder;
 class InstrumentedMutex;
+class InternalKeyComparator;
 class RangeDelAggregator;
 class MapSstElementIterator;
 class TableCache;
@@ -42,6 +44,9 @@ class MapBuilder {
   MapBuilder& operator=(const MapBuilder& job) = delete;
 
   // All params are reference
+  // deleted_range use user_key
+  // added_files is sorted
+  // file_meta::fd::file_size == 0 If don't need create map files
   Status Build(const std::vector<CompactionInputFiles>& inputs,
                const std::vector<Range>& deleted_range,
                const std::vector<const FileMetaData*>& added_files,
@@ -73,5 +78,8 @@ class MapBuilder {
   const std::vector<SequenceNumber>& existing_snapshots_;
   std::shared_ptr<Cache> table_cache_;
 };
+
+extern bool IsPrefaceRange(const Range& range, const FileMetaData* f,
+                           const InternalKeyComparator& icomp);
 
 }  // namespace rocksdb
