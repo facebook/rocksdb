@@ -1221,7 +1221,9 @@ class DbStressListener : public EventListener {
                    const std::vector<ColumnFamilyDescriptor>& column_families)
       : db_name_(db_name), db_paths_(db_paths),
         column_families_(column_families) {}
-  virtual ~DbStressListener() {}
+  virtual ~DbStressListener() {
+    assert(num_pending_file_creations_ == 0);
+  }
 #ifndef ROCKSDB_LITE
   virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
@@ -1246,16 +1248,23 @@ class DbStressListener : public EventListener {
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 
+  virtual void OnTableFileCreationStarted(
+      const TableFileCreationBriefInfo& /*info*/) {
+    ++num_pending_file_creations_;
+  }
   virtual void OnTableFileCreated(const TableFileCreationInfo& info) override {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
-    VerifyFilePath(info.file_path);
+    if (info.file_size) {
+      VerifyFilePath(info.file_path);
+    }
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
     if (info.status.ok() && info.file_size > 0) {
       assert(info.table_properties.data_size > 0);
       assert(info.table_properties.raw_key_size > 0);
       assert(info.table_properties.num_entries > 0);
     }
+    --num_pending_file_creations_;
   }
 
  protected:
@@ -1328,6 +1337,7 @@ class DbStressListener : public EventListener {
   std::string db_name_;
   std::vector<DbPath> db_paths_;
   std::vector<ColumnFamilyDescriptor> column_families_;
+  std::atomic<int> num_pending_file_creations_;
 };
 
 }  // namespace
