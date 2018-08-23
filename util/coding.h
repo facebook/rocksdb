@@ -64,7 +64,8 @@ extern Slice GetLengthPrefixedSlice(const char* data);
 
 extern Slice GetSliceUntil(Slice* slice, char delimiter);
 
-// Borrowed from https://github.com/facebook/fbthrift/blob/449a5f77f9f9bae72c9eb5e78093247eef185c04/thrift/lib/cpp/util/VarintUtils-inl.h#L202-L208
+// Borrowed from
+// https://github.com/facebook/fbthrift/blob/449a5f77f9f9bae72c9eb5e78093247eef185c04/thrift/lib/cpp/util/VarintUtils-inl.h#L202-L208
 constexpr inline uint64_t i64ToZigzag(const int64_t l) {
   return (static_cast<uint64_t>(l) << 1) ^ static_cast<uint64_t>(l >> 63);
 }

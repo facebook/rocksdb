@@ -59,7 +59,7 @@ void createSST(const std::string& file_name,
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       int_tbl_prop_collector_factories;
   std::unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), EnvOptions()));
+      new WritableFileWriter(std::move(file), file_name, EnvOptions()));
   std::string column_family_name;
   int unknown_level = -1;
   tb.reset(opts.table_factory->NewTableBuilder(
@@ -92,12 +92,11 @@ void cleanup(const std::string& file_name) {
 // Test for sst dump tool "raw" mode
 class SSTDumpToolTest : public testing::Test {
   std::string testDir_;
-public:
+
+ public:
   BlockBasedTableOptions table_options_;
 
-  SSTDumpToolTest() {
-    testDir_ = test::TmpDir();
-  }
+  SSTDumpToolTest() { testDir_ = test::TmpDir(); }
 
   ~SSTDumpToolTest() {}
 
@@ -107,9 +106,9 @@ public:
     return path;
   }
 
-  template<std::size_t N>
+  template <std::size_t N>
   void PopulateCommandArgs(const std::string& file_path, const char* command,
-    char* (&usage)[N]) const {
+                           char* (&usage)[N]) const {
     for (int i = 0; i < static_cast<int>(N); ++i) {
       usage[i] = new char[optLength];
     }

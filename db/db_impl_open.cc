@@ -232,7 +232,7 @@ Status DBImpl::NewDB() {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), env_options));
+        new WritableFileWriter(std::move(file), manifest, env_options));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -1075,10 +1075,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->immutable_db_options_.env->OptimizeForLogWrite(
             soptions, BuildDBOptions(impl->immutable_db_options_,
                                      impl->mutable_db_options_));
-    s = NewWritableFile(
-        impl->immutable_db_options_.env,
-        LogFileName(impl->immutable_db_options_.wal_dir, new_log_number),
-        &lfile, opt_env_options);
+    std::string log_fname =
+        LogFileName(impl->immutable_db_options_.wal_dir, new_log_number);
+    s = NewWritableFile(impl->immutable_db_options_.env, log_fname, &lfile,
+                        opt_env_options);
     if (s.ok()) {
       lfile->SetWriteLifeTimeHint(write_hint);
       lfile->SetPreallocationBlockSize(
@@ -1086,8 +1086,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       {
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
-        unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), opt_env_options));
+        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+            std::move(lfile), log_fname, opt_env_options));
         impl->logs_.emplace_back(
             new_log_number,
             new log::Writer(

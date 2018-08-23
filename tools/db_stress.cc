@@ -591,7 +591,7 @@ enum RepFactory StringToRepFactory(const char* ctype) {
 #ifdef _MSC_VER
 #pragma warning(push)
 // truncation of constant value on static_cast
-#pragma warning(disable: 4309)
+#pragma warning(disable : 4309)
 #endif
 bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
   std::string ret = src.ToString();
@@ -1997,14 +1997,14 @@ class StressTest {
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
-            value, lock);
+                value, lock);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
         TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
       } else if (delBound <= prob_op && prob_op < delRangeBound) {
         // OPERATION delete range
         TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
-            lock);
+                        lock);
       } else {
         // OPERATION iterate
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
@@ -2022,8 +2022,7 @@ class StressTest {
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
 
   virtual std::vector<int> GenerateColumnFamilies(
-      const int /* num_column_families */,
-      int rand_column_family) const {
+      const int /* num_column_families */, int rand_column_family) const {
     return {rand_column_family};
   }
 

@@ -210,7 +210,5 @@ Status PartitionedIndexBuilder::Finish(
   }
 }
 
-size_t PartitionedIndexBuilder::NumPartitions() const {
-  return partition_cnt_;
-}
+size_t PartitionedIndexBuilder::NumPartitions() const { return partition_cnt_; }
 }  // namespace rocksdb

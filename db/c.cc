@@ -2433,11 +2433,13 @@ void rocksdb_options_set_max_write_buffer_number_to_maintain(
   opt->rep.max_write_buffer_number_to_maintain = n;
 }
 
-void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt, unsigned char v) {
+void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt,
+                                                unsigned char v) {
   opt->rep.enable_pipelined_write = v;
 }
 
-void rocksdb_options_set_max_subcompactions(rocksdb_options_t* opt, uint32_t n) {
+void rocksdb_options_set_max_subcompactions(rocksdb_options_t* opt,
+                                            uint32_t n) {
   opt->rep.max_subcompactions = n;
 }
 

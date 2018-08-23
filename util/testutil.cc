@@ -124,9 +124,10 @@ const Comparator* Uint64Comparator() {
   return &uint64comp;
 }
 
-WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
+WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
+                                          const std::string& fname) {
   unique_ptr<WritableFile> file(wf);
-  return new WritableFileWriter(std::move(file), EnvOptions());
+  return new WritableFileWriter(std::move(file), fname, EnvOptions());
 }
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {

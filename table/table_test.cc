@@ -323,7 +323,8 @@ class TableConstructor: public Constructor {
                             const stl_wrappers::KVMap& kv_map) override {
     Reset();
     soptions.use_mmap_reads = ioptions.allow_mmap_reads;
-    file_writer_.reset(test::GetWritableFileWriter(new test::StringSink()));
+    file_writer_.reset(test::GetWritableFileWriter(new test::StringSink(),
+                                                   "" /* don't care */));
     unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
@@ -2550,7 +2551,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   PlainTableFactory factory(plain_table_options);
   test::StringSink sink;
   unique_ptr<WritableFileWriter> file_writer(
-      test::GetWritableFileWriter(new test::StringSink()));
+      test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
   Options options;
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
@@ -3150,7 +3151,8 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
 TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
+  unique_ptr<WritableFileWriter> file_writer(
+      test::GetWritableFileWriter(sink, "" /* don't care */));
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const ImmutableCFOptions ioptions(options);
@@ -3331,7 +3333,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
+  unique_ptr<WritableFileWriter> file_writer(
+      test::GetWritableFileWriter(sink, "" /* don't care */));
   Options options;
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -3420,7 +3423,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
+  unique_ptr<WritableFileWriter> file_writer(
+      test::GetWritableFileWriter(sink, "" /* don't care */));
 
   Options options;
   options.compression = kNoCompression;
