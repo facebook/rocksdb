@@ -181,9 +181,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     return Status::OK();
   }
 
-  virtual size_t IndexSize() const override {
-    return index_size_;
-  }
+  virtual size_t IndexSize() const override { return index_size_; }
 
   virtual bool seperator_is_key_plus_seq() override {
     return seperator_is_key_plus_seq_;
@@ -353,12 +351,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override;
 
-  virtual size_t IndexSize() const override {
-    return index_size_;
-  }
-  size_t TopLevelIndexSize(uint64_t) const {
-    return top_level_index_size_;
-  }
+  virtual size_t IndexSize() const override { return index_size_; }
+  size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
 
   inline bool ShouldCutFilterBlock() {

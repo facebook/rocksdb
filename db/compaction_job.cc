@@ -1464,8 +1464,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
-  sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), env_options_, db_options_.statistics.get()));
+  sub_compact->outfile.reset(
+      new WritableFileWriter(std::move(writable_file), fname, env_options_,
+                             db_options_.statistics.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where
