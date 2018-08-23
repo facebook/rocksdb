@@ -235,7 +235,7 @@ void DataBlockIter::Seek(const Slice& target) {
 //
 // If the return value is FALSE, iter location is undefined, and it means:
 // 1) there is no key in this block falling into the range:
-//    ["seek_user_key @ type | seqno", "seek_user_key @ type |  0"],
+//    ["seek_user_key @ type | seqno", "seek_user_key @ kTypeDeletion | 0"],
 //    inclusive; AND
 // 2) the last key of this block has a greater user_key from seek_user_key
 //
@@ -243,12 +243,20 @@ void DataBlockIter::Seek(const Slice& target) {
 // 1) If iter is valid, it is set to a location as if set by BinarySeek. In
 //    this case, it points to the first key_ with a larger user_key or a
 //    matching user_key with a seqno no greater than the seeking seqno.
-// 2) If the iter is invalid, it means either the block has no such user_key,
-//    or the block ends with a matching user_key but with a larger seqno.
+// 2) If the iter is invalid, it means that either all the user_key is less
+//    than the seek_user_key, or the block ends with a matching user_key but
+//    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
+//    but larger type).
 bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   Slice user_key = ExtractUserKey(target);
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
   uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
+
+  if (entry == kCollision) {
+    // HashSeek not effective, falling back
+    Seek(target);
+    return true;
+  }
 
   if (entry == kNoEntry) {
     // Even if we cannot find the user_key in this block, the result may
@@ -260,16 +268,13 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // If seek_key = axy@60, the search will starts from Block N.
     // Even if the user_key is not found in the hash map, the caller still
-    // have to conntinue searching the next block. So we invalidate the
-    // iterator to tell the caller to go on.
-    current_ = restarts_;  // Invalidate the iter
-    return true;
-  }
-
-  if (entry == kCollision) {
-    // HashSeek not effective, falling back
-    Seek(target);
-    return true;
+    // have to conntinue searching the next block.
+    //
+    // In this case, we pretend the key is the the last restart interval.
+    // The while-loop below will search the last restart interval for the
+    // key. It will stop at the first key that is larger than the seek_key,
+    // or to the end of the block if no one is larger.
+    entry = static_cast<uint8_t>(num_restarts_ - 1);
   }
 
   uint32_t restart_index = entry;
@@ -299,24 +304,26 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   }
 
   if (current_ == restarts_) {
-    // Search reaches to the end of the block. There are two possibilites;
+    // Search reaches to the end of the block. There are three possibilites:
     // 1) there is only one user_key match in the block (otherwise collsion).
-    //    the matching user_key resides in the last restart interval.
-    //    it is the last key of the restart interval and of the block too.
-    //    ParseNextDataKey() skiped it as its seqno is newer.
+    //    the matching user_key resides in the last restart interval, and it
+    //    is the last key of the restart interval and of the block as well.
+    //    ParseNextDataKey() skiped it as its [ type | seqno ] is smaller.
     //
-    // 2) The seek_key is a false positive and got hashed to the last restart
-    //    interval.
-    //    All existing keys in the restart interval are less than seek_key.
+    // 2) The seek_key is not found in the HashIndex Lookup(), i.e. kNoEntry,
+    //    AND all existing user_keys in the restart interval are smaller than
+    //    seek_user_key.
     //
-    // The result may exist in the next block in either case, so may_exist is
-    // returned as true.
+    // 3) The seek_key is a false positive and happens to be hashed to the
+    //    last restart interval, AND all existing user_keys in the restart
+    //    interval are smaller than seek_user_key.
+    //
+    // The result may exist in the next block each case, so we return true.
     return true;
   }
 
   if (user_comparator_->Compare(key_.GetUserKey(), user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
-    // return false to tell the caller to break from the top-level for-loop
     return false;
   }
 
