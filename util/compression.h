@@ -271,9 +271,9 @@ struct CompressionDict {
 };
 
 class CompressionContext {
+#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
  private:
   const CompressionType type_;
-#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
   ZSTD_CCtx* zstd_ctx_ = nullptr;
   void CreateNativeContext() {
     if (type_ == kZSTD || type_ == kZSTDNotFinalCompression) {
@@ -298,15 +298,18 @@ class CompressionContext {
     return zstd_ctx_;
   }
 
+  explicit CompressionContext(CompressionType comp_type) : type_(comp_type) {
+    CreateNativeContext();
+  }
+
 #else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
+ public:
+  explicit CompressionContext(CompressionType /* comp_type */) {}
  private:
   void CreateNativeContext() {}
   void DestroyNativeContext() {}
 #endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  public:
-  explicit CompressionContext(CompressionType comp_type) : type_(comp_type) {
-    CreateNativeContext();
-  }
   ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;
   CompressionContext& operator=(const CompressionContext&) = delete;
