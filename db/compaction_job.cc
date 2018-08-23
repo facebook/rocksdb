@@ -1308,8 +1308,6 @@ Status CompactionJob::FinishCompactionOutputFile(
     // VersionEdit.
     assert(!sub_compact->outputs.empty());
     sub_compact->outputs.pop_back();
-    sub_compact->builder.reset();
-    sub_compact->current_output_file_size = 0;
     meta = nullptr;
   }
 
