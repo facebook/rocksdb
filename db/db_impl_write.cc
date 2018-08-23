@@ -1319,6 +1319,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   auto write_hint = CalculateWALWriteHint();
   mutex_.Unlock();
   {
+    std::string log_fname =
+        LogFileName(immutable_db_options_.wal_dir, new_log_number);
     if (creating_new_log) {
       EnvOptions opt_env_opt =
           env_->OptimizeForLogWrite(env_options_, db_options);
@@ -1326,14 +1328,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "reusing log %" PRIu64 " from recycle list\n",
                        recycle_log_number);
-        s = env_->ReuseWritableFile(
-            LogFileName(immutable_db_options_.wal_dir, new_log_number),
-            LogFileName(immutable_db_options_.wal_dir, recycle_log_number),
-            &lfile, opt_env_opt);
+        std::string old_log_fname =
+            LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
+        s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
+                                    opt_env_opt);
       } else {
-        s = NewWritableFile(
-            env_, LogFileName(immutable_db_options_.wal_dir, new_log_number),
-            &lfile, opt_env_opt);
+        s = NewWritableFile(env_, log_fname, &lfile, opt_env_opt);
       }
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
@@ -1344,7 +1344,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
         lfile->SetPreallocationBlockSize(preallocate_block_size);
         lfile->SetWriteLifeTimeHint(write_hint);
         unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), opt_env_opt));
+            new WritableFileWriter(std::move(lfile), log_fname, opt_env_opt));
         new_log = new log::Writer(
             std::move(file_writer), new_log_number,
             immutable_db_options_.recycle_log_file_num > 0, manual_wal_flush_);

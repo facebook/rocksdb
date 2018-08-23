@@ -37,7 +37,7 @@ namespace rocksdb {
 namespace {
 static const int kMaxArgCount = 100;
 static const size_t kArgBufferSize = 100000;
-}
+}  // namespace
 
 // The helper functions for the test
 class TraceAnalyzerTest : public testing::Test {
@@ -83,6 +83,7 @@ class TraceAnalyzerTest : public testing::Test {
     single_iter->SeekForPrev("b");
     delete single_iter;
     std::this_thread::sleep_for (std::chrono::seconds(1));
+
     db_->Get(ro, "g", &value);
 
     ASSERT_OK(db_->EndTrace());

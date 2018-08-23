@@ -238,7 +238,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
       nullptr /* compression_dict */, r->skip_filters, r->column_family_name,
       unknown_level);
   r->file_writer.reset(
-      new WritableFileWriter(std::move(sst_file), r->env_options));
+      new WritableFileWriter(std::move(sst_file), file_path, r->env_options));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.

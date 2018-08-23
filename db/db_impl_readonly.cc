@@ -31,6 +31,8 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* pinnable_val) {
   assert(pinnable_val != nullptr);
+  // TODO: stopwatch DB_GET needed?, perf timer needed?
+  PERF_TIMER_GUARD(get_snapshot_time);
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -45,14 +47,22 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
   LookupKey lkey(key, snapshot);
+  PERF_TIMER_STOP(get_snapshot_time);
   if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
                               &range_del_agg, read_options)) {
     pinnable_val->PinSelf();
+    RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
     super_version->current->Get(read_options, lkey, pinnable_val, &s,
                                 &merge_context, &range_del_agg);
+    RecordTick(stats_, MEMTABLE_MISS);
   }
+  RecordTick(stats_, NUMBER_KEYS_READ);
+  size_t size = pinnable_val->size();
+  RecordTick(stats_, BYTES_READ, size);
+  MeasureTime(stats_, BYTES_PER_READ, size);
+  PERF_COUNTER_ADD(get_read_bytes, size);
   return s;
 }
 

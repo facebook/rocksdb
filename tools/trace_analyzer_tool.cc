@@ -740,7 +740,8 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
 
 // Process the statistics of QPS
 Status TraceAnalyzer::MakeStatisticQPS() {
-  uint32_t duration = static_cast<uint32_t>((end_time_ - begin_time_) / 1000000);
+  uint32_t duration =
+      static_cast<uint32_t>((end_time_ - begin_time_) / 1000000);
   int ret;
   Status s;
   std::vector<std::vector<uint32_t>> type_qps(
@@ -1794,5 +1795,5 @@ int trace_analyzer_tool(int argc, char** argv) {
 }
 }  // namespace rocksdb
 
-#endif // Endif of Gflag
-#endif // RocksDB LITE
+#endif  // Endif of Gflag
+#endif  // RocksDB LITE
