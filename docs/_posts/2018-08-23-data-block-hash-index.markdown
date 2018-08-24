@@ -4,7 +4,9 @@ layout: post
 author: fgwu
 category: blog
 ---
-CPU util directly translates to power consumption, and throughput is cruicial to user experience. We've designed and implemented a _data block hash index_ in RocksDB that can both reduce the CPU util and increase the throughput for point lookup queries with a reasonable and tunable space overhead.
+We've designed and implemented a _data block hash index_ in RocksDB that has the benefit of both reducing the CPU util and increasing the throughput for point lookup queries with a reasonable and tunable space overhead. 
+
+Specifially, we append a compact hash table to the end of the data block for efficient indexing. It is backward compatible with the data base created without this feature. After turned on the hash index feature, existing data will be gradually converted to the hash index format.
 
 Benchmarks with `db_bench`  show the CPU utilization of one of the main functions in the point lookup code path, `DataBlockIter::Seek()`, is reduced by 21.8%, and the overall RocksDB throughput is increased by 10% under purely cached workloads, at an overhead of 4.6% more space. Shadow testing with Facebook production traffic shows good CPU improvements too.
 
