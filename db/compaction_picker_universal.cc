@@ -497,6 +497,17 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   std::vector<RangeStorage> input_range;
 
   auto new_compaction = [&]{
+    auto uc = ioptions_.user_comparator;
+    // remove empty ranges
+    for (auto it = input_range.begin() + 1; it != input_range.end(); ) {
+      if (uc->Compare(it->start, it[-1].start) == 0) {
+        it[-1].limit = std::move(it->limit);
+        it[-1].include_limit = it->include_limit;
+        it = input_range.erase(it);
+      } else {
+        ++it;
+      }
+    }
     uint64_t estimated_total_size = 0;
     for (auto f : inputs.files) {
       estimated_total_size += f->fd.file_size;
@@ -562,6 +573,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     key.assign(ukey.data(), ukey.size());
   };
 
+  bool has_start = false;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!map_element.Decode(iter->key(), iter->value())) {
       // TODO log error info
@@ -572,21 +584,30 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
       internal_key.DecodeFrom(iter->key());
       link_count_map.emplace(map_element.link_.size(), std::move(internal_key));
     }
-    if (map_element.link_.size() <= 2) {
-      continue;
-    }
     size_t sum, max;
     std::tie(sum, max) = range_size(map_element);
-    if ((sum - max) * 2 < max) {
-      assign_user_key(range.start, map_element.smallest_key_);
+    if (map_element.link_.size() > 2 && (sum - max) * 2 < max) {
+      if (!has_start) {
+        assign_user_key(range.start, map_element.smallest_key_);
+        has_start = true;
+      }
       assign_user_key(range.limit, map_element.largest_key_);
-      range.include_start = map_element.include_smallest_;
-      range.include_limit = map_element.include_largest_;
-      input_range.emplace_back(std::move(range));
+    } else {
+      if (has_start) {
+        assign_user_key(range.limit, map_element.smallest_key_);
+        range.include_start = true;
+        range.include_limit = false;
+        input_range.emplace_back(std::move(range));
+        has_start = false;
+        if (input_range.size() >= ioptions_.max_subcompactions) {
+          break;
+        }
+      }
     }
-    if (input_range.size() >= ioptions_.max_subcompactions) {
-      break;
-    }
+  }
+  if (has_start) {
+    range.include_limit = true;
+    input_range.emplace_back(std::move(range));
   }
   if (!input_range.empty()) {
     compaction_varieties = kLinkSst;
@@ -626,31 +647,33 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
             e.include_largest_);
     return IsPrefaceRange(r, f, *icmp_);
   };
-  auto& icomp = ioptions_.internal_comparator;
+  auto uc = ioptions_.internal_comparator.user_comparator();
   for (auto it = link_count_map.begin(); it != link_count_map.end(); ++it) {
     iter->Seek(it->second.Encode());
     assert(iter->Valid());
     if (unique_check.count(iter->key()) > 0) {
       continue;
     }
+    map_element.Decode(iter->key(), iter->value());
     assign_user_key(range.start, map_element.smallest_key_);
     assign_user_key(range.limit, map_element.largest_key_);
     range.include_start = true;
-    range.include_limit = true;
+    range.include_limit = false;
     size_t sum = range_size(map_element).first;
     push_unique(iter->key());
     while (sum < max_file_size_for_leval) {
       iter->Next();
-      if (!iter->Valid() || unique_check.count(iter->key()) > 0) {
+      if (!iter->Valid()) {
+        range.include_limit = true;
         break;
       }
       map_element.Decode(iter->key(), iter->value());
-      if (is_perfect(map_element) &&
-          icomp.Compare(ExtractUserKey(map_element.smallest_key_),
-                        range.limit) != 0) {
+      if (unique_check.count(iter->key()) > 0 || is_perfect(map_element)) {
+        assign_user_key(range.limit, map_element.smallest_key_);
         break;
+      } else {
+        assign_user_key(range.limit, map_element.largest_key_);
       }
-      assign_user_key(range.limit, map_element.largest_key_);
       sum += range_size(map_element).first;
       push_unique(iter->key());
     }
@@ -662,9 +685,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
           break;
         }
         map_element.Decode(iter->key(), iter->value());
-        if (is_perfect(map_element) &&
-            icomp.Compare(ExtractUserKey(map_element.largest_key_),
-                          range.start) != 0) {
+        if (is_perfect(map_element)) {
           break;
         }
         assign_user_key(range.start, map_element.smallest_key_);
@@ -680,27 +701,31 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   if (!input_range.empty()) {
     std::sort(input_range.begin(), input_range.end(),
               [=](const RangeStorage& a, const RangeStorage& b) {
-                return icmp_->Compare(a.limit, b.limit) < 0;
+                return uc->Compare(a.limit, b.limit) < 0;
               });
     compaction_varieties = kGeneralSst;
     single_output = false;
     return new_compaction();
   }
-  bool has_start = false;
+  has_start = false;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     map_element.Decode(iter->key(), iter->value());
     assert(map_element.link_.size() == 1);
+
     if (has_start) {
-      assign_user_key(range.limit, map_element.largest_key_);
       if (is_perfect(map_element) &&
-          icomp.Compare(ExtractUserKey(map_element.smallest_key_),
-                        range.limit) != 0) {
+          uc->Compare(ExtractUserKey(map_element.smallest_key_),
+                      range.limit) != 0) {
+        assign_user_key(range.limit, map_element.smallest_key_);
+        range.include_start = true;
         range.include_limit = false;
         input_range.emplace_back(std::move(range));
         has_start = false;
         if (input_range.size() >= ioptions_.max_subcompactions) {
           break;
         }
+      } else {
+        assign_user_key(range.limit, map_element.largest_key_);
       }
     } else {
       if (is_perfect(map_element)) {
@@ -708,12 +733,12 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
       }
       assign_user_key(range.start, map_element.smallest_key_);
       assign_user_key(range.limit, map_element.largest_key_);
-      range.include_start = true;
-      range.include_limit = true;
       has_start = true;
     }
   }
   if (has_start) {
+    range.include_start = true;
+    range.include_limit = true;
     input_range.emplace_back(std::move(range));
   }
   if (!input_range.empty()) {

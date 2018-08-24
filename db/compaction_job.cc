@@ -118,7 +118,7 @@ struct CompactionJob::SubcompactionState {
   const Slice *start, *end;
 
   // actual range for this subcompaction
-  Slice actual_start, actual_end;
+  InternalKey actual_start, actual_end;
 
   // The return status of this subcompaction
   Status status;
@@ -281,7 +281,7 @@ struct CompactionJob::CompactionState {
             range_end = f->largest.Encode();
           }
         }
-      } else {
+      } else if(!level_files.files.empty()) {
         auto f0 = level_files.files.front();
         auto f1 = level_files.files.back();
         if (range_start.empty() ||
@@ -467,11 +467,11 @@ void CompactionJob::Prepare() {
       *end = input_range[i].limit;
       assert(input_range[i].include_start);
       if (uc->Compare(*start, compact_->range_start) == 0) {
-        *start = nullptr;
+        start = nullptr;
       }
       if (input_range[i].include_limit) {
         assert(uc->Compare(*end, compact_->range_end) == 0);
-        *end = nullptr;
+        end = nullptr;
       }
       compact_->sub_compact_states.emplace_back(c, start, end);
     }
@@ -960,13 +960,11 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   const Slice* start = sub_compact->start;
   const Slice* end = sub_compact->end;
   if (start != nullptr) {
-    IterKey start_iter;
-    start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-    input->Seek(start_iter.GetInternalKey());
-    sub_compact->actual_start = *start;
+    sub_compact->actual_start.SetMinPossibleForUserKey(*start);
+    input->Seek(sub_compact->actual_start.Encode());
   } else {
+    sub_compact->actual_start.SetMinPossibleForUserKey(compact_->range_start);
     input->SeekToFirst();
-    sub_compact->actual_start = compact_->range_start;
   }
 
   Status status;
@@ -1134,8 +1132,9 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
                                             &range_del_out_stats, next_key);
         RecordDroppedKeys(range_del_out_stats,
                           &sub_compact->compaction_job_stats);
-        if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
-          sub_compact->actual_end = ExtractUserKey(*next_key);
+        if (sub_compact->compaction->enable_partial_compaction()) {
+          sub_compact->actual_end.SetMinPossibleForUserKey(
+              ExtractUserKey(*next_key));
           break;
         }
         if (sub_compact->outputs.size() == 1) {
@@ -1151,14 +1150,6 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
           }
         }
       }
-    }
-  }
-  if (!c_iter->Valid()) {
-    assert(sub_compact->actual_end.empty());
-    if (end != nullptr) {
-      sub_compact->actual_end = *end;
-    } else {
-      sub_compact->actual_end = compact_->range_end;
     }
   }
 
@@ -1253,18 +1244,11 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   const Slice* start = sub_compact->start;
   const Slice* end = sub_compact->end;
   if (start != nullptr) {
-    IterKey start_iter;
-    start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-    input->Seek(start_iter.GetInternalKey());
-    sub_compact->actual_start = *start;
+    sub_compact->actual_start.SetMinPossibleForUserKey(*start);
+    input->Seek(sub_compact->actual_start.Encode());
   } else {
+    sub_compact->actual_start.SetMinPossibleForUserKey(compact_->range_start);
     input->SeekToFirst();
-    sub_compact->actual_start = compact_->range_start;
-  }
-  if (end != nullptr) {
-    sub_compact->actual_end = *end;
-  } else {
-    sub_compact->actual_end = compact_->range_end;
   }
 
   auto ucomp = cfd->user_comparator();
@@ -1630,11 +1614,19 @@ Status CompactionJob::InstallCompactionResults(
     if (compaction->compaction_varieties() != kMapSst) {
       for (auto& sub_compact : compact_->sub_compact_states) {
         bool include_start = true;
-        bool include_end =
-            cfd->user_comparator()->Compare(sub_compact.actual_end,
-                                            compact_->range_end) == 0;
-        deleted_range.emplace_back(sub_compact.actual_start,
-                                   sub_compact.actual_end,
+        bool include_end = false;
+        if (sub_compact.actual_end.size() == 0) {
+          if (sub_compact.end != nullptr) {
+            sub_compact.actual_end.SetMinPossibleForUserKey(
+                *sub_compact.end);
+            include_end = true;
+          } else {
+            sub_compact.actual_end.SetMaxPossibleForUserKey(
+                compact_->range_end);
+          }
+        }
+        deleted_range.emplace_back(sub_compact.actual_start.Encode(),
+                                   sub_compact.actual_end.Encode(),
                                    include_start, include_end);
         for (auto& output : sub_compact.outputs) {
           added_files.emplace_back(&output.meta);
@@ -1642,7 +1634,8 @@ Status CompactionJob::InstallCompactionResults(
       }
     }
     auto s = map_builder.Build(*compaction->inputs(), deleted_range,
-                               added_files, compaction->output_level(),
+                               added_files, compaction->compaction_varieties(),
+                               compaction->output_level(),
                                compaction->output_path_id(), vstorage, cfd,
                                compact_->compaction->edit(), &file_meta,
                                &prop);

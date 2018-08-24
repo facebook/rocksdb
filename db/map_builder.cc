@@ -112,17 +112,8 @@ struct RangeWithDepend {
     }
   }
   RangeWithDepend(const Range& range) {
-    auto gen_internal_key = [](const Slice& uk, uint64_t seq_type) {
-      InternalKey ik;
-      ik.rep()->reserve(uk.size() + sizeof(seq_type));
-      ik.rep()->append(uk.data(), uk.size());
-      PutFixed64(ik.rep(), seq_type);
-      return ik;
-    };
-    point[0] = gen_internal_key(range.start,
-                                range.include_start ? port::kMaxUint64 : 0);
-    point[1] = gen_internal_key(range.limit,
-                                range.include_limit ? 0 : port::kMaxUint64);
+    point[0].DecodeFrom(range.start);
+    point[1].DecodeFrom(range.limit);
     include[0] = range.include_start;
     include[1] = range.include_limit;
   }
@@ -133,8 +124,8 @@ bool IsEmptyMapSstElement(const RangeWithDepend& range,
   if (range.depend.size() != 1) {
     return false;
   }
-  if (icomp.Compare(range.point[0].user_key(),
-                    range.point[1].user_key()) != 0) {
+  if (icomp.user_comparator()->Compare(range.point[0].user_key(),
+                                       range.point[1].user_key()) != 0) {
     return false;
   }
   ParsedInternalKey pikey;
@@ -209,8 +200,8 @@ class MapSstElementIterator {
     auto& start = map_elements_.smallest_key_ = where_->point[0].Encode();
     auto& end = map_elements_.largest_key_ = where_->point[1].Encode();
     assert(icomp_.Compare(start, end) <= 0);
-    bool include_start = map_elements_.include_smallest_ = where_->include[0];
-    bool include_end = map_elements_.include_largest_ = where_->include[1];
+    bool& include_start = map_elements_.include_smallest_ = where_->include[0];
+    bool& include_end = map_elements_.include_largest_ = where_->include[1];
     bool no_records = true;
     map_elements_.link_.clear();
     for (auto sst_id : where_->depend) {
@@ -255,6 +246,7 @@ class MapSstElementIterator {
     }
 
     for (auto& link : map_elements_.link_) {
+      sst_depend_build_.emplace(link.sst_id);
       TableReader* reader;
       auto iter = iterator_cache_.GetIterator(link.sst_id, &reader);
       if (!iter->status().ok()) {
@@ -272,7 +264,7 @@ class MapSstElementIterator {
           continue;
         }
       }
-      start_.DecodeFrom(iter->key());
+      temp_start_.DecodeFrom(iter->key());
       iter->SeekForPrev(end);
       if (!iter->Valid()) {
         continue;
@@ -283,16 +275,15 @@ class MapSstElementIterator {
           continue;
         }
       }
-      end_.DecodeFrom(iter->key());
-      if (icomp_.Compare(start_, end_) <= 0) {
+      temp_end_.DecodeFrom(iter->key());
+      if (icomp_.Compare(temp_start_, temp_end_) <= 0) {
         uint64_t start_offset =
-            reader->ApproximateOffsetOf(start_.Encode());
+            reader->ApproximateOffsetOf(temp_start_.Encode());
         uint64_t end_offset =
-            reader->ApproximateOffsetOf(end_.Encode());
+            reader->ApproximateOffsetOf(temp_end_.Encode());
         no_records = false;
         link.size = end_offset - start_offset;
       }
-      sst_depend_build_.emplace(link.sst_id);
     }
     map_elements_.no_records_ = no_records;
     map_elements_.Value(&buffer_);  // Encode value
@@ -301,7 +292,7 @@ class MapSstElementIterator {
  private:
   Status status_;
   MapSstElement map_elements_;
-  InternalKey start_, end_;
+  InternalKey temp_start_, temp_end_;
   std::string buffer_;
   std::vector<RangeWithDepend>::const_iterator where_;
   const std::vector<RangeWithDepend>& ranges_;
@@ -350,6 +341,12 @@ Status LoadRangeWithDepend(
   return Status::OK();
 }
 
+enum class PartitionType {
+  kMerge,
+  kReplace,
+  kDelete,
+};
+
 // Partition two sorted non-overlap range vector
 // a: [ -------- )      [ -------- ]
 // b:       ( -------------- ]
@@ -357,7 +354,7 @@ Status LoadRangeWithDepend(
 std::vector<RangeWithDepend> PartitionRangeWithDepend(
     const std::vector<RangeWithDepend>& ranges_a,
     const std::vector<RangeWithDepend>& ranges_b,
-    const InternalKeyComparator& icomp) {
+    const InternalKeyComparator& icomp, PartitionType type) {
   std::vector<RangeWithDepend> output;
   assert(!ranges_a.empty() && !ranges_b.empty());
   auto put_left = [&](const InternalKey& key, bool include) {
@@ -371,8 +368,9 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   };
   auto put_right = [&](const InternalKey& key, bool include) {
     auto& back = output.back();
-    if (icomp.Compare(key, back.point[0]) == 0 &&
-        (!back.include[0] || !include)) {
+    if (back.depend.empty() ||
+        (icomp.Compare(key, back.point[0]) == 0 &&
+         (!back.include[0] || !include))) {
       output.pop_back();
       return;
     }
@@ -385,13 +383,32 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   };
   auto put_depend = [&](const RangeWithDepend* a, const RangeWithDepend* b) {
     auto& depend = output.back().depend;
-    if (a != nullptr) {
-      depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+    assert(a != nullptr || b != nullptr);
+    switch (type) {
+    case PartitionType::kMerge:
+      if (a != nullptr) {
+        depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+      }
+      if (b != nullptr) {
+        depend.insert(depend.end(), b->depend.begin(), b->depend.end());
+      }
+      assert(!depend.empty());
+      break;
+    case PartitionType::kReplace:
+      if (b == nullptr) {
+        depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+      } else if (a != nullptr) {
+        depend.insert(depend.end(), b->depend.begin(), b->depend.end());
+      }
+      break;
+    case PartitionType::kDelete:
+      if (b == nullptr) {
+        depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+      } else {
+        assert(b->depend.empty());
+      }
+      break;
     }
-    if (b != nullptr) {
-      depend.insert(depend.end(), b->depend.begin(), b->depend.end());
-    }
-    assert(!depend.empty());
   };
   size_t ai = 0, bi = 0;  // range index
   size_t ac, bc;          // changed
@@ -472,89 +489,6 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   return output;
 }
 
-// Subtract two from sorted non-overlap range vector
-// a: [ -------- )      [ -------- ]
-// b:       ( -------------- ]
-// r: [ -- ]                  ( -- ]
-std::vector<RangeWithDepend> SubtractRangeWithDepend(
-    const std::vector<RangeWithDepend>& ranges_a,
-    const std::vector<RangeWithDepend>& ranges_b,
-    const InternalKeyComparator& icomp) {
-  std::vector<RangeWithDepend> output;
-  assert(!ranges_a.empty() && !ranges_b.empty());
-  auto put_left = [&](const InternalKey& key, bool include,
-                      const std::vector<uint64_t>& depend) {
-    assert(output.empty() ||
-           icomp.Compare(output.back().point[1], key) < 0 ||
-           !output.back().include[1] || !include);
-    output.emplace_back();
-    auto& back = output.back();
-    back.point[0] = key;
-    back.include[0] = include;
-    back.depend = depend;
-  };
-  auto put_right = [&](const InternalKey& key, bool include) {
-    auto& back = output.back();
-    if (icomp.Compare(key, back.point[0]) == 0 &&
-        (!back.include[0] || !include)) {
-      output.pop_back();
-      return;
-    }
-    back.point[1] = key;
-    back.include[1] = include;
-    assert(icomp.Compare(back.point[0], back.point[1]) <= 0);
-    if (IsEmptyMapSstElement(back, icomp)) {
-      output.pop_back();
-    }
-  };
-  size_t ai = 0, bi = 0;  // range index
-  size_t ac, bc;          // changed
-  size_t ab = 0, bb = 0;  // left bound or right bound
-#define CASE(a,b,c,d) (!!(a) | (!!(b) << 1) | (!!(c) << 2) | (!!(d) << 3))
-  do {
-    int c;
-    if (ai < ranges_a.size() && bi < ranges_b.size()) {
-      c = icomp.Compare(ranges_a[ai].point[ab], ranges_b[bi].point[bb]);
-      c = CompInclude(c, ab, ranges_a[ai].include[ab], bb,
-                      ranges_b[bi].include[bb]);
-    } else {
-      c = ai < ranges_a.size() ? -1 : 1;
-    }
-    ac = c <= 0;
-    bc = c >= 0;
-    switch (CASE(ab, bb, ac, bc)) {
-    // out ranges_a , out ranges_b , enter ranges_a
-    case CASE(0, 0, 1, 0):
-      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-               ranges_a[ai].depend);
-      break;
-    // in ranges_a , out ranges_b , leave ranges_a
-    case CASE(1, 0, 1, 0):
-      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      break;
-    // in ranges_a , out ranges_b , begin ranges_b
-    case CASE(1, 0, 0, 1):
-    // in ranges_a , out ranges_b , leave ranges_a , enter ranges_b
-    case CASE(1, 0, 1, 1):
-      put_right(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
-      break;
-    // in ranges_a , in ranges_b , leave ranges_b
-    case CASE(1, 1, 0, 1):
-    // out ranges_a , in ranges_b , enter ranges_a & leave ranges_b
-    case CASE(0, 1, 1, 1):
-      put_left(ranges_b[bi].point[bb], !ranges_b[bi].include[bb],
-               ranges_a[ai].depend);
-      break;
-    }
-    ai += (ab + ac) / 2;
-    bi += (bb + bc) / 2;
-    ab = (ab + ac) % 2;
-    bb = (bb + bc) % 2;
-  } while (ai != ranges_a.size() || bi != ranges_b.size());
-#undef CASE
-  return output;
-}
-
 }
 
 MapBuilder::MapBuilder(
@@ -579,10 +513,15 @@ MapBuilder::MapBuilder(
 Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          const std::vector<Range>& deleted_range,
                          const std::vector<const FileMetaData*>& added_files,
-                         int output_level, uint32_t output_path_id,
-                         VersionStorageInfo* vstorage, ColumnFamilyData* cfd,
-                         VersionEdit* edit, FileMetaData* file_meta,
+                         SstVarieties compaction_varieties, int output_level,
+                         uint32_t output_path_id, VersionStorageInfo* vstorage,
+                         ColumnFamilyData* cfd, VersionEdit* edit,
+                         FileMetaData* file_meta,
                          std::unique_ptr<TableProperties>* porp) {
+
+  assert(compaction_varieties != kMapSst ||
+         (deleted_range.empty() && added_files.empty()));
+  assert(compaction_varieties != kLinkSst || !added_files.empty());
 
   auto& icomp = cfd->internal_comparator();
   DependFileMap empty_delend_files;
@@ -616,39 +555,16 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   Status s;
 
-  if (deleted_range.size() != 1 || deleted_range.front().start != nullptr ||
-      deleted_range.front().limit != nullptr) {
-    // load input files into level_ranges
-    for (auto& level_files : inputs) {
-      if (level_files.files.empty()) {
-        continue;
-      }
-      if (level_files.level == 0) {
-        for (auto f : level_files.files) {
-          std::vector<RangeWithDepend> ranges;
-          s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache, &f,
-                                  1);
-          if (!s.ok()) {
-            return s;
-          }
-          assert(std::is_sorted(
-                     ranges.begin(), ranges.end(),
-                     [&icomp](const RangeWithDepend& a,
-                              const RangeWithDepend& b) {
-                       return icomp.Compare(a.point[1], b.point[1]) < 0;
-                     }));
-          level_ranges.emplace_back(std::move(ranges));
-        }
-      } else {
+  // load input files into level_ranges
+  for (auto& level_files : inputs) {
+    if (level_files.files.empty()) {
+      continue;
+    }
+    if (level_files.level == 0) {
+      for (auto f : level_files.files) {
         std::vector<RangeWithDepend> ranges;
-        assert(std::is_sorted(
-                   level_files.files.begin(), level_files.files.end(),
-                   [&icomp](const FileMetaData* f1, const FileMetaData* f2) {
-                     return icomp.Compare(f1->largest, f2->largest) < 0;
-                   }));
-        s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
-                                level_files.files.data(),
-                                level_files.files.size());
+        s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache, &f,
+                                1);
         if (!s.ok()) {
           return s;
         }
@@ -660,10 +576,30 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                    }));
         level_ranges.emplace_back(std::move(ranges));
       }
+    } else {
+      std::vector<RangeWithDepend> ranges;
+      assert(std::is_sorted(
+                 level_files.files.begin(), level_files.files.end(),
+                 [&icomp](const FileMetaData* f1, const FileMetaData* f2) {
+                   return icomp.Compare(f1->largest, f2->largest) < 0;
+                 }));
+      s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
+                              level_files.files.data(),
+                              level_files.files.size());
+      if (!s.ok()) {
+        return s;
+      }
+      assert(std::is_sorted(
+                 ranges.begin(), ranges.end(),
+                 [&icomp](const RangeWithDepend& a,
+                          const RangeWithDepend& b) {
+                   return icomp.Compare(a.point[1], b.point[1]) < 0;
+                 }));
+      level_ranges.emplace_back(std::move(ranges));
     }
   }
 
-  // merge segments
+  // merge ranges
   // TODO(zouzhizhang): multi way union
   while (level_ranges.size() > 1) {
     auto union_a = level_ranges.begin();
@@ -680,20 +616,24 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     union_b = std::next(union_a);
     level_ranges.insert(
         union_a, PartitionRangeWithDepend(*union_a, *union_b,
-                                      cfd->internal_comparator()));
+                                          cfd->internal_comparator(),
+                                          PartitionType::kMerge));
     level_ranges.erase(union_a);
     level_ranges.erase(union_b);
   }
 
-  if (!level_ranges.empty() && !deleted_range.empty()) {
+  if (!level_ranges.empty() && !deleted_range.empty() &&
+      compaction_varieties != kLinkSst) {
+    assert(compaction_varieties == kGeneralSst);
     std::vector<RangeWithDepend> ranges;
     ranges.reserve(deleted_range.size());
     for (auto& r : deleted_range) {
       ranges.emplace_back(r);
     }
     level_ranges.front() =
-        SubtractRangeWithDepend(level_ranges.front(), ranges,
-                              cfd->internal_comparator());
+        PartitionRangeWithDepend(level_ranges.front(), ranges,
+                                 cfd->internal_comparator(),
+                                 PartitionType::kDelete);
     if (level_ranges.front().empty()) {
       level_ranges.pop_front();
     }
@@ -712,11 +652,15 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       return s;
     }
     if (level_ranges.empty()) {
+      assert(compaction_varieties == kGeneralSst);
       level_ranges.emplace_back(std::move(ranges));
     } else {
+      PartitionType type
+          = compaction_varieties == kLinkSst ? PartitionType::kReplace
+                                             : PartitionType::kMerge;
       level_ranges.front() =
           PartitionRangeWithDepend(level_ranges.front(), ranges,
-                               cfd->internal_comparator());
+                                   cfd->internal_comparator(), type);
     }
   }
 
@@ -884,7 +828,7 @@ Status MapBuilder::WriteOutputFile(
     builder->Add(range_iter->key(), range_iter->value());
   }
   if (!range_iter->status().ok()) {
-    return range_iter->status();
+    s = range_iter->status();
   }
 
   // Prepare sst_depend, IntTblPropCollector::Finish will read it
@@ -951,7 +895,7 @@ Status MapBuilder::WriteOutputFile(
   file_meta->sst_variety = kMapSst;
   file_meta->sst_depend = std::move(sst_depend);
 
-  return Status::OK();
+  return s;
 }
 
 }  // namespace rocksdb

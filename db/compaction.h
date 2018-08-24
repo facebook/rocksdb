@@ -142,7 +142,7 @@ class Compaction {
   bool single_output() const { return single_output_; }
 
   // If true, then enable partial compaction
-  bool enable_partial_compaction() { return enable_partial_compaction_; }
+  bool enable_partial_compaction() const { return enable_partial_compaction_; }
 
   // Compaction varieties
   SstVarieties compaction_varieties() const {

@@ -105,14 +105,13 @@ Status GetFromVarietySst(
       Slice find_k = k;
 
       if (smallest_key.size() == 0) {
-        if (icomp.user_comparator()->Compare(file_meta.smallest.user_key(),
-                                             k) > 0) {
+        if (icomp.Compare(k, file_meta.smallest.Encode()) < 0) {
           if (icomp.user_comparator()->Compare(file_meta.smallest.user_key(),
                                                ExtractUserKey(k)) != 0) {
             // k is less than file_meta.smallest ? is this a bug ?
             return false;
           }
-          find_k = smallest_key.Encode();
+          find_k = file_meta.smallest.Encode();
         }
       } else {
         assert(icomp.user_comparator()->Compare(smallest_key.user_key(),

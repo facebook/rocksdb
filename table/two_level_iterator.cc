@@ -234,6 +234,8 @@ class LinkSstIterator final : public InternalIterator {
       second_level_iter_ = nullptr;
       return false;
     }
+    assert(std::binary_search(file_meta_.sst_depend.begin(),
+                              file_meta_.sst_depend.end(), sst_id));
     second_level_iter_ = iterator_cache_.GetIterator(sst_id);
     if (!second_level_iter_->status().ok()) {
       status_ = second_level_iter_->status();
@@ -275,10 +277,16 @@ class LinkSstIterator final : public InternalIterator {
   }
   virtual void Seek(const Slice& target) override {
     is_backword_ = false;
-    first_level_iter_->Seek(target);
+    Slice seek_target = target;
+    if (icomp_.Compare(target, file_meta_.smallest.Encode()) < 0) {
+      seek_target = file_meta_.smallest.Encode();
+    }
+    first_level_iter_->Seek(seek_target);
     if (InitFirstLevelIter()) {
-      second_level_iter_->Seek(target);
+      second_level_iter_->Seek(seek_target);
+      assert(second_level_iter_->Valid());
       assert(icomp_.Compare(second_level_iter_->key(), bound_) <= 0);
+      assert(icomp_.Compare(second_level_iter_->key(), target) >= 0);
       if (icomp_.Compare(second_level_iter_->key(),
                          file_meta_.largest.Encode()) > 0) {
         second_level_iter_ = nullptr;
@@ -291,10 +299,6 @@ class LinkSstIterator final : public InternalIterator {
       LinkSstIterator::SeekToLast();
     } else if (icomp_.Compare(LinkSstIterator::key(), target) != 0) {
       LinkSstIterator::Prev();
-    }
-    if (icomp_.Compare(second_level_iter_->key(),
-                       file_meta_.smallest.Encode()) < 0) {
-      second_level_iter_ = nullptr;
     }
   }
   virtual void Next() override {
@@ -378,6 +382,7 @@ class LinkSstIterator final : public InternalIterator {
  
 class MapSstIterator final : public InternalIterator {
  private:
+  const FileMetaData& file_meta_;
   InternalIterator* first_level_iter_;
   bool is_backword_;
   Status status_;
@@ -426,10 +431,10 @@ class MapSstIterator final : public InternalIterator {
     }
     // Manual inline MapSstElement::Decode
     Slice map_input = first_level_iter_->value();
-    uint64_t flags;
     link_.clear();
     largest_key_ = first_level_iter_->key();
     uint64_t link_count;
+    uint64_t flags;
     if (!GetLengthPrefixedSlice(&map_input, &smallest_key_) ||
         !GetVarint64(&map_input, &link_count) ||
         !GetVarint64(&map_input, &flags) ||
@@ -445,6 +450,8 @@ class MapSstIterator final : public InternalIterator {
     link_.resize(link_count);
     for (uint64_t i = 0; i < link_count; ++i) {
       GetFixed64(&map_input, &link_[i]);
+      assert(std::binary_search(file_meta_.sst_depend.begin(),
+                                file_meta_.sst_depend.end(), link_[i]));
     }
     return kInitFirstIterOK;
   }
@@ -525,10 +532,11 @@ class MapSstIterator final : public InternalIterator {
 
  public:
   MapSstIterator(
-      const FileMetaData& /*file_meta*/, InternalIterator* iter,
+      const FileMetaData& file_meta, InternalIterator* iter,
       const DependFileMap& depend_files, const InternalKeyComparator& icomp,
       void* create_arg, const IteratorCache::CreateIterCallback& create)
-      : first_level_iter_(iter),
+      : file_meta_(file_meta),
+        first_level_iter_(iter),
         is_backword_(false),
         iterator_cache_(depend_files, create_arg, create),
         include_smallest_(false),
