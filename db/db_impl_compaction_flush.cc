@@ -1324,7 +1324,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     return;
   }
   for (auto& iter : flush_req) {
-    auto cfd = iter.first;
+    ColumnFamilyData* cfd = iter.first;
     cfd->Ref();
     cfd->SetFlushReason(flush_reason);
   }

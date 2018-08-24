@@ -1126,7 +1126,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   FlushRequest flush_req;
   for (const auto cfd : cfds) {
     cfd->Ref();
-    status = SwitchMemtable(cfd, write_context, FlushReason::kWriteBufferFull);
+    status = SwitchMemtable(cfd, write_context);
     cfd->Unref();
     if (!status.ok()) {
       break;
@@ -1235,7 +1235,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ColumnFamilyData* cfd;
   FlushRequest flush_req;
   while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-    auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+    auto status = SwitchMemtable(cfd, context);
     bool should_schedule = true;
     if (cfd->Unref()) {
       delete cfd;
@@ -1272,8 +1272,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
-                              FlushReason /* flush_reason */) {
+Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {

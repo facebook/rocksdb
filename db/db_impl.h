@@ -884,7 +884,8 @@ class DBImpl : public DB {
   Status SyncClosedLogs(JobContext* job_context);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
-  // log-file/memtable and writes a new descriptor iff successful.
+  // log-file/memtable and writes a new descriptor iff successful. Then
+  // installs a new super version for the column family.
   Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
                                    const MutableCFOptions& mutable_cf_options,
                                    bool* madeProgress, JobContext* job_context,
@@ -901,8 +902,14 @@ class DBImpl : public DB {
           memtable_id_(memtable_id),
           superversion_context_(superversion_context) {}
 
+    // Column family to flush.
     ColumnFamilyData* cfd_;
+    // Maximum ID of memtable to flush. In this column family, memtables with
+    // IDs smaller than this value must be flushed before this flush completes.
     uint64_t memtable_id_;
+    // Pointer to a SuperVersionContext object. After flush completes, RocksDB
+    // installs a new superversion for the column family. This operation
+    // requires a SuperVersionContext object (currently embedded in JobContext).
     SuperVersionContext* superversion_context_;
   };
 
@@ -933,8 +940,7 @@ class DBImpl : public DB {
 
   Status ScheduleFlushes(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
-                        FlushReason flush_reason = FlushReason::kOthers);
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
