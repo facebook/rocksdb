@@ -1308,9 +1308,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // VersionEdit.
     assert(!sub_compact->outputs.empty());
     sub_compact->outputs.pop_back();
-    sub_compact->builder.reset();
-    sub_compact->current_output_file_size = 0;
-    return s;
+    meta = nullptr;
   }
 
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
