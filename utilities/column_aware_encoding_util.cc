@@ -89,8 +89,9 @@ void ColumnAwareEncodingReader::DecodeBlocks(
     CompressionType type =
         (CompressionType)slice_final_with_bit[slice_final_with_bit.size() - 1];
     if (type != kNoCompression) {
-      UncompressionContext uncompression_ctx(type);
-      UncompressBlockContents(uncompression_ctx, slice_final_with_bit.c_str(),
+      UncompressionContext context(type);
+      UncompressionInfo info(context, CompressionDict::GetEmptyDict(), type);
+      UncompressBlockContents(info, slice_final_with_bit.c_str(),
                               slice_final_with_bit.size() - 1, &contents,
                               format_version, ioptions);
       content_ptr = contents.data.data();
@@ -171,8 +172,9 @@ void ColumnAwareEncodingReader::DecodeBlocksFromRowFormat(
     CompressionType type =
         (CompressionType)slice_final_with_bit[slice_final_with_bit.size() - 1];
     if (type != kNoCompression) {
-      UncompressionContext uncompression_ctx(type);
-      UncompressBlockContents(uncompression_ctx, slice_final_with_bit.c_str(),
+      UncompressionContext context(type);
+      UncompressionInfo info(context, CompressionDict::GetEmptyDict(), type);
+      UncompressBlockContents(info, slice_final_with_bit.c_str(),
                               slice_final_with_bit.size() - 1, &contents,
                               format_version, ioptions);
       decoded_content = std::string(contents.data.data(), contents.data.size());
@@ -243,10 +245,12 @@ namespace {
 
 void CompressDataBlock(const std::string& output_content, Slice* slice_final,
                        CompressionType* type, std::string* compressed_output) {
-  CompressionContext compression_ctx(*type);
+  CompressionContext context(*type);
+  CompressionOptions opts;
+  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), *type);
   uint32_t format_version = 2;  // hard-coded version
-  *slice_final = CompressBlock(output_content, compression_ctx, type,
-                               format_version, compressed_output);
+  *slice_final = CompressBlock(output_content, info, type, format_version,
+                               compressed_output);
 }
 
 }  // namespace
