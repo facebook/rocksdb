@@ -104,7 +104,8 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
 
 Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
+    bool* made_progress, JobContext* job_context,
+    SuperVersionContext* superversion_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
@@ -160,8 +161,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(
-        cfd, &job_context->superversion_contexts[0], mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
+                                       mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -196,6 +197,25 @@ Status DBImpl::FlushMemTableToOutputFile(
       }
     }
 #endif  // ROCKSDB_LITE
+  }
+  return s;
+}
+
+Status DBImpl::FlushMemTablesToOutputFiles(
+    const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
+    JobContext* job_context, LogBuffer* log_buffer) {
+  Status s;
+  for (auto& arg : bg_flush_args) {
+    ColumnFamilyData* cfd = arg.cfd_;
+    const MutableCFOptions& mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+    SuperVersionContext* superversion_context = arg.superversion_context_;
+    s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
+                                  job_context, superversion_context,
+                                  log_buffer);
+    if (!s.ok()) {
+      break;
+    }
   }
   return s;
 }
@@ -1077,63 +1097,93 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
   uint64_t flush_memtable_id = 0;
+  FlushRequest flush_req;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
-
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
-        cached_recoverable_state_empty_.load()) {
-      // Nothing to flush
-      return Status::OK();
-    }
 
     WriteThread::Writer w;
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    // SwitchMemtable() will release and reacquire mutex during execution
-    s = SwitchMemtable(cfd, &context);
-    flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+        !cached_recoverable_state_empty_.load()) {
+      s = SwitchMemtable(cfd, &context);
+      flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      flush_req.emplace_back(cfd, flush_memtable_id);
+    }
+
+    if (s.ok() && !flush_req.empty()) {
+      for (auto& elem : flush_req) {
+        ColumnFamilyData* loop_cfd = elem.first;
+        loop_cfd->imm()->FlushRequested();
+      }
+      SchedulePendingFlush(flush_req, flush_reason);
+      MaybeScheduleFlushOrCompaction();
+    }
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
     }
-
-    cfd->imm()->FlushRequested();
-
-    // schedule flush
-    SchedulePendingFlush(cfd, flush_reason);
-    MaybeScheduleFlushOrCompaction();
   }
 
   if (s.ok() && flush_options.wait) {
-    // Wait until the compaction completes
-    s = WaitForFlushMemTable(cfd, &flush_memtable_id);
+    autovector<ColumnFamilyData*> cfds;
+    autovector<const uint64_t*> flush_memtable_ids;
+    for (auto& iter : flush_req) {
+      cfds.push_back(iter.first);
+      flush_memtable_ids.push_back(&(iter.second));
+    }
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
 }
 
-Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
-                                    const uint64_t* flush_memtable_id) {
-  Status s;
+// Wait for memtables to be flushed for multiple column families.
+// let N = cfds.size()
+// for i in [0, N),
+//  1) if flush_memtable_ids[i] is not null, then the memtables with lower IDs
+//     have to be flushed for THIS column family;
+//  2) if flush_memtable_ids[i] is null, then all memtables in THIS column
+//     family have to be flushed.
+// Finish waiting when ALL column families finish flushing memtables.
+Status DBImpl::WaitForFlushMemTables(
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<const uint64_t*>& flush_memtable_ids) {
+  int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (cfd->imm()->NumNotFlushed() > 0 && !error_handler_.IsDBStopped() &&
-         (flush_memtable_id == nullptr ||
-          cfd->imm()->GetEarliestMemTableID() <= *flush_memtable_id)) {
+  while (!error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
-    if (cfd->IsDropped()) {
-      // FlushJob cannot flush a dropped CF, if we did not break here
-      // we will loop forever since cfd->imm()->NumNotFlushed() will never
-      // drop to zero
+    // Number of column families that have been dropped.
+    int num_dropped = 0;
+    // Number of column families that have finished flush.
+    int num_finished = 0;
+    for (int i = 0; i < num; ++i) {
+      if (cfds[i]->IsDropped()) {
+        ++num_dropped;
+      } else if (cfds[i]->imm()->NumNotFlushed() == 0 ||
+                 (flush_memtable_ids[i] != nullptr &&
+                  cfds[i]->imm()->GetEarliestMemTableID() >
+                      *flush_memtable_ids[i])) {
+        ++num_finished;
+      }
+    }
+    if (1 == num_dropped && 1 == num) {
       return Status::InvalidArgument("Cannot flush a dropped CF");
+    }
+    // Column families involved in this flush request have either been dropped
+    // or finished flush. Then it's time to finish waiting.
+    if (num_dropped + num_finished == num) {
+      break;
     }
     bg_cv_.Wait();
   }
+  Status s;
   if (error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
   }
@@ -1172,7 +1222,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-    unscheduled_flushes_--;
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
@@ -1183,7 +1232,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     while (unscheduled_flushes_ > 0 &&
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_job_limits.max_flushes) {
-      unscheduled_flushes_--;
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
@@ -1260,30 +1308,28 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
   return cfd;
 }
 
-void DBImpl::AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason) {
-  assert(!cfd->queued_for_flush());
-  cfd->Ref();
-  flush_queue_.push_back(cfd);
-  cfd->set_queued_for_flush(true);
-  cfd->SetFlushReason(flush_reason);
-}
-
-ColumnFamilyData* DBImpl::PopFirstFromFlushQueue() {
+DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
-  auto cfd = *flush_queue_.begin();
+  FlushRequest flush_req = flush_queue_.front();
+  assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));
+  unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   flush_queue_.pop_front();
-  assert(cfd->queued_for_flush());
-  cfd->set_queued_for_flush(false);
   // TODO: need to unset flush reason?
-  return cfd;
+  return flush_req;
 }
 
-void DBImpl::SchedulePendingFlush(ColumnFamilyData* cfd,
+void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
                                   FlushReason flush_reason) {
-  if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
-    AddToFlushQueue(cfd, flush_reason);
-    ++unscheduled_flushes_;
+  if (flush_req.empty()) {
+    return;
   }
+  for (auto& iter : flush_req) {
+    ColumnFamilyData* cfd = iter.first;
+    cfd->Ref();
+    cfd->SetFlushReason(flush_reason);
+  }
+  unscheduled_flushes_ += static_cast<int>(flush_req.size());
+  flush_queue_.push_back(flush_req);
 }
 
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
@@ -1367,40 +1413,55 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     return status;
   }
 
-  ColumnFamilyData* cfd = nullptr;
+  autovector<BGFlushArg> bg_flush_args;
+  std::vector<SuperVersionContext>& superversion_contexts =
+      job_context->superversion_contexts;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
-    auto first_cfd = PopFirstFromFlushQueue();
+    const FlushRequest& flush_req = PopFirstFromFlushQueue();
+    superversion_contexts.clear();
+    superversion_contexts.reserve(flush_req.size());
 
-    if (first_cfd->IsDropped() || !first_cfd->imm()->IsFlushPending()) {
-      // can't flush this CF, try next one
-      if (first_cfd->Unref()) {
-        delete first_cfd;
+    for (const auto& iter : flush_req) {
+      ColumnFamilyData* cfd = iter.first;
+      if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
+        // can't flush this CF, try next one
+        if (cfd->Unref()) {
+          delete cfd;
+        }
+        continue;
       }
-      continue;
+      superversion_contexts.emplace_back(SuperVersionContext(true));
+      bg_flush_args.emplace_back(cfd, iter.second,
+                                 &(superversion_contexts.back()));
     }
-
-    // found a flush!
-    cfd = first_cfd;
-    break;
+    if (!bg_flush_args.empty()) {
+      break;
+    }
   }
 
-  if (cfd != nullptr) {
-    const MutableCFOptions mutable_cf_options =
-        *cfd->GetLatestMutableCFOptions();
+  if (!bg_flush_args.empty()) {
     auto bg_job_limits = GetBGJobLimits();
-    ROCKS_LOG_BUFFER(
-        log_buffer,
-        "Calling FlushMemTableToOutputFile with column "
-        "family [%s], flush slots available %d, compaction slots available %d, "
-        "flush slots scheduled %d, compaction slots scheduled %d",
-        cfd->GetName().c_str(), bg_job_limits.max_flushes,
-        bg_job_limits.max_compactions, bg_flush_scheduled_,
-        bg_compaction_scheduled_);
-    status = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
-                                       job_context, log_buffer);
-    if (cfd->Unref()) {
-      delete cfd;
+    for (const auto& arg : bg_flush_args) {
+      ColumnFamilyData* cfd = arg.cfd_;
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "Calling FlushMemTableToOutputFile with column "
+          "family [%s], flush slots available %d, compaction slots available "
+          "%d, "
+          "flush slots scheduled %d, compaction slots scheduled %d",
+          cfd->GetName().c_str(), bg_job_limits.max_flushes,
+          bg_job_limits.max_compactions, bg_flush_scheduled_,
+          bg_compaction_scheduled_);
+    }
+    status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
+                                         job_context, log_buffer);
+    for (auto& arg : bg_flush_args) {
+      ColumnFamilyData* cfd = arg.cfd_;
+      if (cfd->Unref()) {
+        delete cfd;
+        arg.cfd_ = nullptr;
+      }
     }
   }
   return status;
@@ -2080,7 +2141,10 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options, FlushReason flush_reason) {
+    const MutableCFOptions& mutable_cf_options,
+    FlushReason /* flush_reason */) {
+  // TODO(yanqin) investigate if 'flush_reason' can be removed since it's not
+  // used.
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -2099,7 +2163,6 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingFlush(cfd, flush_reason);
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 

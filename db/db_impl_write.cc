@@ -1064,6 +1064,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
                  oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
+  FlushRequest flush_req;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
@@ -1073,11 +1074,14 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       if (!status.ok()) {
         break;
       }
+      flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
       cfd->imm()->FlushRequested();
-      SchedulePendingFlush(cfd, FlushReason::kWriteBufferManager);
     }
   }
-  MaybeScheduleFlushOrCompaction();
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    MaybeScheduleFlushOrCompaction();
+  }
   return status;
 }
 
@@ -1116,14 +1120,26 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       }
     }
   }
+
+  autovector<ColumnFamilyData*> cfds;
   if (cfd_picked != nullptr) {
-    status = SwitchMemtable(cfd_picked, write_context,
-                            FlushReason::kWriteBufferFull);
-    if (status.ok()) {
-      cfd_picked->imm()->FlushRequested();
-      SchedulePendingFlush(cfd_picked, FlushReason::kWriteBufferFull);
-      MaybeScheduleFlushOrCompaction();
+    cfds.push_back(cfd_picked);
+  }
+  FlushRequest flush_req;
+  for (const auto cfd : cfds) {
+    cfd->Ref();
+    status = SwitchMemtable(cfd, write_context);
+    cfd->Unref();
+    if (!status.ok()) {
+      break;
     }
+    uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+    cfd->imm()->FlushRequested();
+    flush_req.emplace_back(cfd, flush_memtable_id);
+  }
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    MaybeScheduleFlushOrCompaction();
   }
   return status;
 }
@@ -1219,16 +1235,28 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ColumnFamilyData* cfd;
+  FlushRequest flush_req;
+  Status status;
   while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-    auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+    status = SwitchMemtable(cfd, context);
+    bool should_schedule = true;
     if (cfd->Unref()) {
       delete cfd;
+      should_schedule = false;
     }
     if (!status.ok()) {
-      return status;
+      break;
+    }
+    if (should_schedule) {
+      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      flush_req.emplace_back(cfd, flush_memtable_id);
     }
   }
-  return Status::OK();
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    MaybeScheduleFlushOrCompaction();
+  }
+  return status;
 }
 
 #ifndef ROCKSDB_LITE
@@ -1249,8 +1277,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
-                              FlushReason flush_reason) {
+Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {
@@ -1422,7 +1449,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options, flush_reason);
+                                     mutable_cf_options);
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }
