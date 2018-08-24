@@ -1249,7 +1249,7 @@ class DbStressListener : public EventListener {
   }
 
   virtual void OnTableFileCreationStarted(
-      const TableFileCreationBriefInfo& /*info*/) {
+      const TableFileCreationBriefInfo& /*info*/) override {
     ++num_pending_file_creations_;
   }
   virtual void OnTableFileCreated(const TableFileCreationInfo& info) override {
