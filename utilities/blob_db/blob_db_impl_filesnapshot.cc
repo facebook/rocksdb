@@ -47,7 +47,7 @@ Status BlobDBImpl::EnableFileDeletions(bool force) {
     MutexLock l(&delete_file_mutex_);
     if (force) {
       disable_file_deletions_ = 0;
-    } else {
+    } else if (disable_file_deletions_ > 0) {
       count = --disable_file_deletions_;
     }
     assert(count >= 0);
@@ -55,6 +55,8 @@ Status BlobDBImpl::EnableFileDeletions(bool force) {
 
   ROCKS_LOG_INFO(db_options_.info_log, "Enabled file deletions. count: %d",
                  count);
+  // Consider trigger DeleteobsoleteFiles once after re-enabled, if we are to
+  // make DeleteobsoleteFiles re-run interval configuration.
   return Status::OK();
 }
 

@@ -413,6 +413,12 @@ class BlobDBImpl : public BlobDB {
 
   // DeleteObsoleteFiles, DiableFileDeletions and EnableFileDeletions block
   // on the mutex to avoid contention.
+  //
+  // While DeleteObsoleteFiles hold both mutex_ and delete_file_mutex_, note
+  // the difference. mutex_ only needs to be held when access the
+  // data-structure, and delete_file_mutex_ needs to be held the whole time
+  // during DeleteObsoleteFiles to avoid being run simultaneously with
+  // DisableFileDeletions.
   mutable port::Mutex delete_file_mutex_;
 
   // Each call of DisableFileDeletions will increase disable_file_deletion_
