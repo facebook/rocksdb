@@ -1,6 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* `OnTableFileCreated` will now be called for empty files generated during compaction. In that case, `TableFileCreationInfo::file_path` will be "(nil)" and `TableFileCreationInfo::file_size` will be zero.
+
 ### New Features
 ### Bug Fixes
 
