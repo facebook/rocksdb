@@ -419,6 +419,9 @@ class BlobDBImpl : public BlobDB {
   // data-structure, and delete_file_mutex_ needs to be held the whole time
   // during DeleteObsoleteFiles to avoid being run simultaneously with
   // DisableFileDeletions.
+  //
+  // If both of mutex_ and delete_file_mutex_ needs to be held, it is adviced
+  // to hold delete_file_mutex_ first to avoid deadlock.
   mutable port::Mutex delete_file_mutex_;
 
   // Each call of DisableFileDeletions will increase disable_file_deletion_
