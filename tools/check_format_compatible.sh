@@ -96,7 +96,7 @@ ingest_external_sst()
     set +e
     $script_copy_dir/ingest_external_sst.sh $1 $2
     if [ $? -ne 0 ]; then
-        echo ==== Error ingesting external SST in $1 to $2 ====
+        echo ==== Error ingesting external SST in $2 to DB at $1 ====
         exit 1
     fi
     set -e
