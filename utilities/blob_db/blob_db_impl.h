@@ -155,12 +155,6 @@ class BlobDBImpl : public BlobDB {
 
   virtual Status Close() override;
 
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size,
-                              bool flush_memtable = true) override;
-  virtual void GetLiveFilesMetaData(
-      std::vector<LiveFileMetaData>* ) override;
-
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
@@ -174,6 +168,15 @@ class BlobDBImpl : public BlobDB {
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
              const DBOptions& db_options,
              const ColumnFamilyOptions& cf_options);
+
+  virtual Status DisableFileDeletions() override;
+
+  virtual Status EnableFileDeletions(bool force) override;
+
+  virtual Status GetLiveFiles(std::vector<std::string>&,
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true) override;
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
 
   ~BlobDBImpl();
 
@@ -407,6 +410,17 @@ class BlobDBImpl : public BlobDB {
   uint64_t evict_expiration_up_to_;
 
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
+
+  // DeleteObsoleteFiles, DiableFileDeletions and EnableFileDeletions block
+  // on the mutex to avoid contention.
+  mutable port::Mutex delete_file_mutex_;
+
+  // Each call of DisableFileDeletions will increase disable_file_deletion_
+  // by 1. EnableFileDeletions will either decrease the count by 1 or reset
+  // it to zeor, depending on the force flag.
+  //
+  // REQUIRES: access with delete_file_mutex_ held.
+  int disable_file_deletions_ = 0;
 
   uint32_t debug_level_;
 };
