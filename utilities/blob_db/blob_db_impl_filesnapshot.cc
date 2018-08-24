@@ -30,8 +30,8 @@ Status BlobDBImpl::DisableFileDeletions() {
     count = ++disable_file_deletions_;
   }
 
-  ROCKS_LOG_INFO(db_options_.info_log, "Disalbed file deletions. count: %d",
-                 count);
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Disalbed blob file deletions. count: %d", count);
   return Status::OK();
 }
 
@@ -53,7 +53,7 @@ Status BlobDBImpl::EnableFileDeletions(bool force) {
     assert(count >= 0);
   }
 
-  ROCKS_LOG_INFO(db_options_.info_log, "Enabled file deletions. count: %d",
+  ROCKS_LOG_INFO(db_options_.info_log, "Enabled blob file deletions. count: %d",
                  count);
   // Consider trigger DeleteobsoleteFiles once after re-enabled, if we are to
   // make DeleteobsoleteFiles re-run interval configuration.
