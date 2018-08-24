@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
+
 ## 5.15.6 (8/21/2018)
 ### Public API Change
 * The merge operands are passed to `MergeOperator::ShouldMerge` in the reversed order relative to how they were merged (passed to FullMerge or FullMergeV2) for performance reasons
