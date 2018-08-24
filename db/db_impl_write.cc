@@ -1078,8 +1078,10 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       cfd->imm()->FlushRequested();
     }
   }
-  SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
-  MaybeScheduleFlushOrCompaction();
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    MaybeScheduleFlushOrCompaction();
+  }
   return status;
 }
 
@@ -1234,24 +1236,27 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ColumnFamilyData* cfd;
   FlushRequest flush_req;
+  Status status;
   while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-    auto status = SwitchMemtable(cfd, context);
+    status = SwitchMemtable(cfd, context);
     bool should_schedule = true;
     if (cfd->Unref()) {
       delete cfd;
       should_schedule = false;
     }
     if (!status.ok()) {
-      return status;
+      break;
     }
     if (should_schedule) {
       uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
       flush_req.emplace_back(cfd, flush_memtable_id);
     }
   }
-  SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
-  MaybeScheduleFlushOrCompaction();
-  return Status::OK();
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    MaybeScheduleFlushOrCompaction();
+  }
+  return status;
 }
 
 #ifndef ROCKSDB_LITE

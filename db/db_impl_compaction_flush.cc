@@ -1116,7 +1116,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     if (s.ok() && !flush_req.empty()) {
       for (auto& elem : flush_req) {
-        auto& loop_cfd = elem.first;
+        ColumnFamilyData* loop_cfd = elem.first;
         loop_cfd->imm()->FlushRequested();
       }
       SchedulePendingFlush(flush_req, flush_reason);
@@ -1460,6 +1460,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       ColumnFamilyData* cfd = arg.cfd_;
       if (cfd->Unref()) {
         delete cfd;
+        arg.cfd_ = nullptr;
       }
     }
   }
