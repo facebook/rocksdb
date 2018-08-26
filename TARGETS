@@ -258,6 +258,7 @@ cpp_library(
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
+        "utilities/flink/flink_compaction_filter.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/lua/rocks_lua_compaction_filter.cc",
         "utilities/memory/memory_util.cc",
@@ -312,6 +313,7 @@ cpp_library(
         "util/testharness.cc",
         "util/testutil.cc",
         "utilities/cassandra/test_utils.cc",
+        "utilities/flink/flink_compaction_filter.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
@@ -728,6 +730,11 @@ ROCKS_TESTS = [
         "filename_test",
         "db/filename_test.cc",
         "serial",
+    ],
+    [
+            "flink_compaction_filter_test",
+            "utilities/flink/flink_compaction_filter_test.cc",
+            "serial",
     ],
     [
         "flush_job_test",
