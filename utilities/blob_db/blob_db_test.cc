@@ -1415,6 +1415,47 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
 }
 
+TEST_F(BlobDBTest, DisableFileDeletions) {
+  BlobDBOptions bdb_options;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  for (bool force : {true, false}) {
+    ASSERT_OK(Put("foo", "v", &data));
+    auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+    ASSERT_EQ(1, blob_files.size());
+    auto blob_file = blob_files[0];
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+    blob_db_impl()->TEST_ObsoleteBlobFile(blob_file);
+    ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+    ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+    // Call DisableFileDeletions twice.
+    ASSERT_OK(blob_db_->DisableFileDeletions());
+    ASSERT_OK(blob_db_->DisableFileDeletions());
+    // File deletions should be disabled.
+    blob_db_impl()->TEST_DeleteObsoleteFiles();
+    ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+    ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+    VerifyDB(data);
+    // Enable file deletions once. If force=true, file deletion is enabled.
+    // Otherwise it needs to enable it for a second time.
+    ASSERT_OK(blob_db_->EnableFileDeletions(force));
+    blob_db_impl()->TEST_DeleteObsoleteFiles();
+    if (!force) {
+      ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+      ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+      VerifyDB(data);
+      // Call EnableFileDeletions a second time.
+      ASSERT_OK(blob_db_->EnableFileDeletions(false));
+      blob_db_impl()->TEST_DeleteObsoleteFiles();
+    }
+    // Regardless of value of `force`, file should be deleted by now.
+    ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
+    ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
+    VerifyDB({});
+  }
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 
