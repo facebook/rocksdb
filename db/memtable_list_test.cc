@@ -59,7 +59,6 @@ class MemTableListTest : public testing::Test {
 
       cf_descs.emplace_back("one", cf_options);
       cf_descs.emplace_back("two", cf_options);
-
     }
   }
 
@@ -90,22 +89,20 @@ class MemTableListTest : public testing::Test {
     lists.emplace_back(list);
     autovector<const autovector<MemTable*>*> mems_list;
     mems_list.emplace_back(&m);
-    return Mock_InstallMemtableFlushResults(lists, {0} /* cf_ids */,
-        {mutable_cf_options}, mems_list, to_delete);
+    return Mock_InstallMemtableFlushResults(
+        lists, {0} /* cf_ids */, {&mutable_cf_options}, mems_list, to_delete);
   }
 
   // Calls MemTableList::InstallMemtableFlushResults() and sets up all
   // structures needed to call this function.
   Status Mock_InstallMemtableFlushResults(
-      autovector<MemTableList*>& lists,
-      const autovector<uint32_t>& cf_ids,
-      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      autovector<MemTableList*>& lists, const autovector<uint32_t>& cf_ids,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
       autovector<MemTable*>* to_delete) {
     // Create a mock Logger
     test::NullLogger logger;
     LogBuffer log_buffer(DEBUG_LEVEL, &logger);
-
 
     CreateDB();
     // Create a mock VersionSet
@@ -125,7 +122,6 @@ class MemTableListTest : public testing::Test {
     cf_descs.emplace_back("two", ColumnFamilyOptions());
     EXPECT_OK(versions.Recover(cf_descs, false));
 
-
     // Create mock default ColumnFamilyData
 
     auto column_family_set = versions.GetColumnFamilySet();
@@ -137,7 +133,8 @@ class MemTableListTest : public testing::Test {
       EXPECT_EQ(1, static_cast<int>(lists.size()));
       MemTableList* list = lists[0];
       EXPECT_EQ(1, static_cast<int>(mutable_cf_options_list.size()));
-      const MutableCFOptions& mutable_cf_options = mutable_cf_options_list.at(0);
+      const MutableCFOptions& mutable_cf_options =
+          *(mutable_cf_options_list.at(0));
       const autovector<MemTable*>* mems = mems_list.at(0);
       EXPECT_TRUE(nullptr != mems);
 
@@ -156,7 +153,7 @@ class MemTableListTest : public testing::Test {
     autovector<FileMetaData> file_meta;
     for (int i = 0; i != static_cast<int>(cf_ids.size()); ++i) {
       FileMetaData meta;
-      meta.fd = FileDescriptor(i+1, 0, 0);
+      meta.fd = FileDescriptor(i + 1, 0, 0);
       file_meta.emplace_back(meta);
     }
     InstrumentedMutex mutex;
@@ -703,7 +700,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_delete.clear();
 
   list.current()->Unref(&to_delete);
-  int to_delete_size = std::min(num_tables, max_write_buffer_number_to_maintain);
+  int to_delete_size =
+      std::min(num_tables, max_write_buffer_number_to_maintain);
   ASSERT_EQ(to_delete_size, to_delete.size());
 
   for (const auto& m : to_delete) {
@@ -740,15 +738,15 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
 
   autovector<uint32_t> cf_ids;
   std::vector<std::vector<MemTable*>> tables(num_cfs);
-  autovector<MutableCFOptions> mutable_cf_options_list;
+  autovector<const MutableCFOptions*> mutable_cf_options_list;
   uint32_t cf_id = 0;
   for (auto& elem : tables) {
-    MutableCFOptions mutable_cf_options(options);
-    mutable_cf_options_list.emplace_back(mutable_cf_options);
+    mutable_cf_options_list.emplace_back(new MutableCFOptions(options));
     uint64_t memtable_id = 0;
     for (int i = 0; i != num_tables_per_cf; ++i) {
-      MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                                   kMaxSequenceNumber, cf_id);
+      MemTable* mem =
+          new MemTable(cmp, ioptions, *(mutable_cf_options_list.back()), &wb,
+                       kMaxSequenceNumber, cf_id);
       mem->SetID(memtable_id++);
       mem->Ref();
 
@@ -802,7 +800,8 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
   // Pick memtables to flush
   autovector<const autovector<MemTable*>*> to_flush;
   for (int i = 0; i != num_cfs; ++i) {
-    lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i], &flush_candidates[i]);
+    lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i],
+                                   &flush_candidates[i]);
     ASSERT_EQ(flush_memtable_ids[i] - 0 + 1, flush_candidates[i].size());
     ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
     ASSERT_FALSE(lists[i]->HasFlushRequested());
@@ -820,6 +819,12 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
 
   for (auto list : lists) {
     delete list;
+  }
+  for (auto& mutable_cf_options : mutable_cf_options_list) {
+    if (mutable_cf_options != nullptr) {
+      delete mutable_cf_options;
+      mutable_cf_options = nullptr;
+    }
   }
   for (const auto& m : to_delete) {
     // Refcount should be 0 after calling InstallMemtableFlushResults.

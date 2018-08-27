@@ -620,11 +620,11 @@ TEST_F(ManifestWriterTest, SameColumnFamilyGroupCommit) {
     edits.emplace_back(VersionEdit());
   }
   autovector<ColumnFamilyData*> cfds;
-  autovector<MutableCFOptions> all_mutable_cf_options;
+  autovector<const MutableCFOptions*> all_mutable_cf_options;
   autovector<autovector<VersionEdit*>> edit_lists;
   for (int i = 0; i != kGroupSize; ++i) {
     cfds.emplace_back(cfds_[0]);
-    all_mutable_cf_options.emplace_back(mutable_cf_options_);
+    all_mutable_cf_options.emplace_back(&mutable_cf_options_);
     autovector<VersionEdit*> edit_list;
     edit_list.emplace_back(&edits[i]);
     edit_lists.emplace_back(edit_list);

@@ -754,8 +754,8 @@ class VersionSet {
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
-    autovector<MutableCFOptions> mutable_cf_options_list;
-    mutable_cf_options_list.emplace_back(mutable_cf_options);
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
+    mutable_cf_options_list.emplace_back(&mutable_cf_options);
     autovector<autovector<VersionEdit*>> edit_lists;
     autovector<VersionEdit*> edit_list;
     edit_list.emplace_back(edit);
@@ -773,8 +773,8 @@ class VersionSet {
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
-    autovector<MutableCFOptions> mutable_cf_options_list;
-    mutable_cf_options_list.emplace_back(mutable_cf_options);
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
+    mutable_cf_options_list.emplace_back(&mutable_cf_options);
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
@@ -786,7 +786,7 @@ class VersionSet {
   // family manipulation.
   Status LogAndApply(
       const autovector<ColumnFamilyData*>& cfds,
-      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, Directory* db_directory = nullptr,
       bool new_descriptor_log = false,

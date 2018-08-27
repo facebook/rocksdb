@@ -203,6 +203,25 @@ Status DBImpl::FlushMemTableToOutputFile(
   return s;
 }
 
+Status DBImpl::FlushMemTablesToOutputFiles(
+    const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
+    JobContext* job_context, LogBuffer* log_buffer) {
+  Status s;
+  for (auto& arg : bg_flush_args) {
+    ColumnFamilyData* cfd = arg.cfd_;
+    const MutableCFOptions& mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+    SuperVersionContext* superversion_context = arg.superversion_context_;
+    s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
+                                  job_context, superversion_context,
+                                  log_buffer);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  return s;
+}
+
 /*
  * Atomically flushes multiple column families.
  *
@@ -213,11 +232,15 @@ Status DBImpl::FlushMemTableToOutputFile(
  * state of the database.
  */
 Status DBImpl::AtomicFlushMemTablesToOutputFiles(
-    const autovector<ColumnFamilyData*>& cfds,
-    const autovector<MutableCFOptions>& mutable_cf_options_list,
-    const autovector<uint64_t>& flush_memtable_ids, bool* made_progress,
+    const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
+
+  autovector<ColumnFamilyData*> cfds;
+  for (const auto& arg : bg_flush_args) {
+    cfds.emplace_back(arg.cfd_);
+  }
+
 #ifndef NDEBUG
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
@@ -261,14 +284,16 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       distinct_output_dirs.emplace_back(data_dir);
     }
 
+    const MutableCFOptions& mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+    const uint64_t* memtable_id = &(bg_flush_args[i].memtable_id_);
     jobs.emplace_back(
-        dbname_, cfds[i], immutable_db_options_, mutable_cf_options_list[i],
-        &flush_memtable_ids[i], env_options_for_compaction_, versions_.get(),
-        &mutex_, &shutting_down_, snapshot_seqs,
-        earliest_write_conflict_snapshot, snapshot_checker, job_context,
-        log_buffer, directories_.GetDbDir(), data_dir,
-        GetCompressionFlush(*cfd->ioptions(), mutable_cf_options_list[i]),
-        stats_, &event_logger_, mutable_cf_options_list[i].report_bg_io_stats,
+        dbname_, cfds[i], immutable_db_options_, mutable_cf_options,
+        memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
+        &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+        data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
+        stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */);
   }
 
@@ -281,8 +306,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     file_meta.emplace_back(FileMetaData());
 
 #ifndef ROCKSDB_LITE
+    const MutableCFOptions& mutable_cf_options =
+        *cfds[i]->GetLatestMutableCFOptions();
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options_list[i],
+    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, job.GetTableProperties());
 #endif /* !ROCKSDB_LITE */
     if (logfile_number_ > 0 &&
@@ -308,10 +335,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     autovector<const autovector<MemTable*>*> mems_list;
     autovector<MemTableList*> imm_lists;
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i].GetMemTables();
       mems_list.emplace_back(&mems);
       imm_lists.emplace_back(cfds[i]->imm());
+      mutable_cf_options_list.emplace_back(
+          cfds[i]->GetLatestMutableCFOptions());
     }
     s = MemTableList::InstallMemtableFlushResults(
         imm_lists, cfds, mutable_cf_options_list, mems_list,
@@ -323,7 +353,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (int i = 0; i != num_cfs; ++i) {
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
-                                         mutable_cf_options_list[i]);
+                                         *cfds[i]->GetLatestMutableCFOptions());
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),
@@ -336,7 +366,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     for (int i = 0; i != num_cfs; ++i) {
-      NotifyOnFlushCompleted(cfds[i], &file_meta[i], mutable_cf_options_list[i],
+      NotifyOnFlushCompleted(cfds[i], &file_meta[i],
+                             *cfds[i]->GetLatestMutableCFOptions(),
                              job_context->job_id, jobs[i].GetTableProperties());
       if (sfm) {
         std::string file_path = MakeTableFileName(
@@ -366,25 +397,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
   }
 
-  return s;
-}
-
-Status DBImpl::FlushMemTablesToOutputFiles(
-    const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-    JobContext* job_context, LogBuffer* log_buffer) {
-  Status s;
-  for (auto& arg : bg_flush_args) {
-    ColumnFamilyData* cfd = arg.cfd_;
-    const MutableCFOptions& mutable_cf_options =
-        *cfd->GetLatestMutableCFOptions();
-    SuperVersionContext* superversion_context = arg.superversion_context_;
-    s = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
-                                  job_context, superversion_context,
-                                  log_buffer);
-    if (!s.ok()) {
-      break;
-    }
-  }
   return s;
 }
 

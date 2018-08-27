@@ -892,12 +892,6 @@ class DBImpl : public DB {
                                    SuperVersionContext* superversion_context,
                                    LogBuffer* log_buffer);
 
-  Status AtomicFlushMemTablesToOutputFiles(
-      const autovector<ColumnFamilyData*>& cfds,
-      const autovector<MutableCFOptions>& mutable_cf_options_list,
-      const autovector<uint64_t>& memtable_ids, bool* made_progress,
-      JobContext* job_context, LogBuffer* log_buffer);
-
   // Argument required by background flush thread.
   struct BGFlushArg {
     BGFlushArg()
@@ -922,6 +916,10 @@ class DBImpl : public DB {
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
   Status FlushMemTablesToOutputFiles(
+      const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
+      JobContext* job_context, LogBuffer* log_buffer);
+
+  Status AtomicFlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
       JobContext* job_context, LogBuffer* log_buffer);
 

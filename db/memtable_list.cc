@@ -272,7 +272,7 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
 Status MemTableList::InstallMemtableFlushResults(
     autovector<MemTableList*>& imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<MutableCFOptions>& mutable_cf_options_list,
+    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list,
     LogsWithPrepTracker* prep_tracker, VersionSet* vset, InstrumentedMutex* mu,
     const autovector<FileMetaData>& file_meta, autovector<MemTable*>* to_delete,
@@ -316,7 +316,7 @@ Status MemTableList::InstallMemtableFlushResults(
       auto& mems = mems_list[i];
       assert(!edit_list.empty());
       edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-            vset, *cfd, edit_list, *mems, prep_tracker));
+          vset, *cfd, edit_list, *mems, prep_tracker));
     }
   }
   // This can release and re-acquire the mutex.

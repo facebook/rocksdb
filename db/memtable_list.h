@@ -166,7 +166,7 @@ class MemTableList {
   static Status InstallMemtableFlushResults(
       autovector<MemTableList*>& imm_lists,
       const autovector<ColumnFamilyData*>& cfds,
-      const autovector<MutableCFOptions>& mutable_cf_options_list,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
       LogsWithPrepTracker* prep_tracker, VersionSet* vset,
       InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
