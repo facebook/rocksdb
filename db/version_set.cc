@@ -1430,6 +1430,38 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
   static const int kDeletionWeightOnCompaction = 2;
   uint64_t average_value_size = GetAverageValueSize();
 
+  std::function<uint64_t(const FileMetaData*)> compute_compensated_size;
+  auto compute_compensated_size_lambda
+      = [this, average_value_size, &compute_compensated_size](const FileMetaData* f) {
+    uint64_t compensated_file_size = f->fd.GetFileSize();
+    // Here we only boost the size of deletion entries of a file only
+    // when the number of deletion entries is greater than the number of
+    // non-deletion entries in the file.  The motivation here is that in
+    // a stable workload, the number of deletion entries should be roughly
+    // equal to the number of non-deletion entries.  If we compensate the
+    // size of deletion entries in a stable workload, the deletion
+    // compensation logic might introduce unwanted effet which changes the
+    // shape of LSM tree.
+    if (f->sst_variety == 0) {
+      if (f->num_deletions * 2 >= f->num_entries) {
+        compensated_file_size +=
+            (f->num_deletions * 2 - f->num_entries) *
+            average_value_size * kDeletionWeightOnCompaction;
+      }
+    } else {
+      for (auto sst_id : f->sst_depend) {
+        auto find = depend_files_.find(sst_id);
+        if (find == depend_files_.end()) {
+          // TODO log error
+          continue;
+        }
+        compensated_file_size += compute_compensated_size(find->second);
+      }
+    }
+    return compensated_file_size;
+  };
+  compute_compensated_size = std::ref(compute_compensated_size_lambda);
+
   // compute the compensated size
   for (int level = 0; level < num_levels_; level++) {
     for (auto* file_meta : files_[level]) {
@@ -1438,20 +1470,8 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
       // for files that have been created right now and no other thread has
       // access to them. That's why we can safely mutate compensated_file_size.
       if (file_meta->compensated_file_size == 0) {
-        file_meta->compensated_file_size = file_meta->fd.GetFileSize();
-        // Here we only boost the size of deletion entries of a file only
-        // when the number of deletion entries is greater than the number of
-        // non-deletion entries in the file.  The motivation here is that in
-        // a stable workload, the number of deletion entries should be roughly
-        // equal to the number of non-deletion entries.  If we compensate the
-        // size of deletion entries in a stable workload, the deletion
-        // compensation logic might introduce unwanted effet which changes the
-        // shape of LSM tree.
-        if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
-          file_meta->compensated_file_size +=
-              (file_meta->num_deletions * 2 - file_meta->num_entries) *
-              average_value_size * kDeletionWeightOnCompaction;
-        }
+        file_meta->compensated_file_size =
+            compute_compensated_size_lambda(file_meta);
       }
     }
   }
@@ -4152,28 +4172,54 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
   // pre-condition
   assert(v);
 
-  uint64_t result = 0;
-  if (v->cfd_->internal_comparator().Compare(f.largest_key, key) <= 0) {
-    // Entire file is before "key", so just add the file size
-    result = f.fd.GetFileSize();
-  } else if (v->cfd_->internal_comparator().Compare(f.smallest_key, key) > 0) {
-    // Entire file is after "key", so ignore
-    result = 0;
-  } else {
-    // "key" falls in the range for this table.  Add the
-    // approximate offset of "key" within the table.
-    TableReader* table_reader_ptr;
-    InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
-        ReadOptions(), v->env_options_, v->cfd_->internal_comparator(),
-        *f.file_metadata, v->storage_info()->depend_files(),
-        nullptr /* range_del_agg */,
-        v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr);
-    if (table_reader_ptr != nullptr) {
-      result = table_reader_ptr->ApproximateOffsetOf(key);
+  std::function<uint64_t(const FileMetaData*, const FileDescriptor& fd)>
+      approximate_size;
+  auto approximate_size_lambda
+      = [v, &approximate_size, &key](const FileMetaData* file_meta,
+                                     const FileDescriptor& fd) {
+    uint64_t result = 0;
+    if (file_meta->sst_variety == 0) {
+      auto& icomp = v->cfd_->internal_comparator();
+      if (icomp.Compare(file_meta->largest.Encode(), key) <= 0) {
+        // Entire file is before "key", so just add the file size
+        result = file_meta->fd.GetFileSize();
+      } else if (icomp.Compare(file_meta->smallest.Encode(), key) > 0) {
+        // Entire file is after "key", so ignore
+        result = 0;
+      } else {
+        // "key" falls in the range for this table.  Add the
+        // approximate offset of "key" within the table.
+        TableReader* table_reader_ptr = fd.table_reader;
+        if (table_reader_ptr != nullptr) {
+          result = table_reader_ptr->ApproximateOffsetOf(key);
+        } else {
+          TableCache* table_cache = v->cfd_->table_cache();
+          Cache::Handle* handle = nullptr;
+          auto s = table_cache->FindTable(
+              v->env_options_, v->cfd_->internal_comparator(), fd, &handle,
+              v->GetMutableCFOptions().prefix_extractor.get());
+          if (s.ok()) {
+            table_reader_ptr = table_cache->GetTableReaderFromHandle(handle);
+            result = table_reader_ptr->ApproximateOffsetOf(key);
+            table_cache->ReleaseHandle(handle);
+          }
+        }
+      }
+    } else {
+      auto& depend_files = v->storage_info()->depend_files();
+      for (auto sst_id : file_meta->sst_depend) {
+        auto find = depend_files.find(sst_id);
+        if (find == depend_files.end()) {
+          // TODO log error
+          continue;
+        }
+        result += approximate_size(find->second, find->second->fd);
+      }
     }
-    delete iter;
-  }
-  return result;
+    return result;
+  };
+  approximate_size = std::ref(approximate_size_lambda);
+  return approximate_size_lambda(f.file_metadata, f.fd);
 }
 
 void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {

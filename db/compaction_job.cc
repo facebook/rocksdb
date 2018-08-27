@@ -1285,7 +1285,9 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   };
 
   // Multiway merge, write table switch point into sst
-  if (input->Valid()) {
+  if (input->Valid() &&
+      (end == nullptr ||
+       ucomp->Compare(ExtractUserKey(input->key()), *end) < 0)) {
     update_key();
     last_source = input->source();
     for (input->Next(); input->Valid(); input->Next()) {
