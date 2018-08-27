@@ -1127,18 +1127,17 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
     *expiration = kNoExpiration;
   }
   RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
-  if (!s.ok()) {
-    return s;
-  }
-  if (is_blob_index) {
-    s = GetBlobValue(key, index_entry, value, expiration);
-  } else {
-    value->PinSelf(index_entry);
+  if (s.ok()) {
+    if (is_blob_index) {
+      s = GetBlobValue(key, index_entry, value, expiration);
+    } else {
+      value->PinSelf(index_entry);
+    }
+    RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
   }
-  RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   return s;
 }
 
