@@ -455,28 +455,35 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   }
   CompactionInputFiles inputs;
   inputs.level = -1;
+  size_t max_read_amp = 0;
   for (int level = vstorage->num_levels() - 1; level > 0; --level) {
-    if (vstorage->has_space_amplification(level) &&
-        !AreFilesInCompaction(vstorage->LevelFiles(level))) {
-      inputs.level = level;
-      inputs.files = vstorage->LevelFiles(level);
-      break;
+    if (!vstorage->has_space_amplification(level)) {
+      continue;
     }
-  }
-  if (inputs.level == -1 && vstorage->has_space_amplification(0)) {
-    auto& level0_files = vstorage->LevelFiles(0);
-    for (auto it = level0_files.rbegin(); it != level0_files.rend(); ++it) {
-      auto f = *it;
-      if (f->sst_variety != 0 && !f->being_compacted) {
-        inputs.level = 0;
-        inputs.files = {f};
+    auto& level_files = vstorage->LevelFiles(level);
+    if (!AreFilesInCompaction(level_files)) {
+      if (level_files.size() > 1) {
+        inputs.level = level;
         break;
+      }
+      std::shared_ptr<const TableProperties> porps;
+      auto s = table_cache_->GetTableProperties(
+          env_options_, *icmp_, level_files.front()->fd, &porps,
+          mutable_cf_options.prefix_extractor.get(), false);
+      if (s.ok()) {
+        size_t level_space_amplification =
+            GetSstReadAmp(porps->user_collected_properties);
+        if (level_space_amplification > max_read_amp) {
+          max_read_amp = level_space_amplification;
+          inputs.level = level;
+        }
       }
     }
   }
   if (inputs.level == -1) {
     return nullptr;
   }
+  inputs.files = vstorage->LevelFiles(inputs.level);
   size_t max_file_size_for_leval =
       MaxFileSizeForLevel(mutable_cf_options, inputs.level,
                           kCompactionStyleUniversal);
@@ -518,28 +525,18 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
   };
 
   if (inputs.files.size() > 1) {
-    bool has_map_sst = false;
-    for (auto f : inputs.files) {
-      if (f->sst_variety == kMapSst) {
-        has_map_sst = true;
-        break;
-      }
-    }
-    if (has_map_sst) {
-      compaction_varieties = kMapSst;
-      single_output = false;
-      max_subcompactions = 1;
-      return new_compaction();
-    }
+    compaction_varieties = kMapSst;
+    single_output = false;
+    max_subcompactions = 1;
+    return new_compaction();
   }
   Arena arena;
   DependFileMap empty_depend_files;
   ReadOptions options;
-  ScopedArenaIterator iter(
-      table_cache_->NewIterator(options, env_options_, *icmp_,
-                                *inputs.files.front(), empty_depend_files,
-                                nullptr, nullptr, nullptr, nullptr, false,
-                                &arena, true, inputs.level));
+  ScopedArenaIterator iter(table_cache_->NewIterator(
+      options, env_options_, *icmp_, *inputs.files.front(), empty_depend_files,
+      nullptr, mutable_cf_options.prefix_extractor.get(), nullptr, nullptr,
+      false, &arena, true, inputs.level));
   if (!iter->status().ok()) {
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: Read map sst error %s.",
                      cf_name.c_str(), iter->status().getState());
@@ -1007,7 +1004,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
   }
   SstVarieties compaction_varieties = kGeneralSst;
   uint32_t max_subcompactions = 0;
-  if (mutable_cf_options.enable_lazy_compaction) {
+  if (mutable_cf_options.enable_lazy_compaction && output_level != 0) {
     compaction_varieties = kMapSst;
     max_subcompactions = 1;
   }
@@ -1156,7 +1153,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
 
   SstVarieties compaction_varieties = kGeneralSst;
   uint32_t max_subcompactions = 0;
-  if (mutable_cf_options.enable_lazy_compaction) {
+  if (mutable_cf_options.enable_lazy_compaction && output_level != 0) {
     compaction_varieties = kMapSst;
     max_subcompactions = 1;
   }
@@ -1283,7 +1280,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
       GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
   SstVarieties compaction_varieties = kGeneralSst;
   uint32_t max_subcompactions = 0;
-  if (mutable_cf_options.enable_lazy_compaction) {
+  if (mutable_cf_options.enable_lazy_compaction && output_level != 0) {
     compaction_varieties = kMapSst;
     max_subcompactions = 1;
   }

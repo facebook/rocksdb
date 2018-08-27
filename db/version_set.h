@@ -25,6 +25,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -252,7 +253,7 @@ class VersionStorageInfo {
   bool has_space_amplification() const {
     return !has_space_amplification_.empty();
   }
-
+  
   bool has_space_amplification(int level) const {
     return has_space_amplification_.find(level) !=
            has_space_amplification_.end();

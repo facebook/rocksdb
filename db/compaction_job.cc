@@ -1232,9 +1232,11 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
   // Used for write properties
   std::vector<uint64_t> sst_depend;
+  size_t sst_read_amp = 1;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
-      new SSTLinkPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend));
+      new SstVarietyPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend,
+                                               &sst_read_amp));
 
   auto& s = sub_compact->status;
   s = OpenCompactionOutputFile(sub_compact, &collectors);

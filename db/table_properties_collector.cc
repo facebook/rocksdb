@@ -69,32 +69,39 @@ Status SstVarietyPropertiesCollector::Finish(
   properties->insert(
       {SSTVarietiesTablePropertiesNames::kSstVariety, sst_variety_value});
 
-  std::string sst_takeover_value;
-  PutVarint64(&sst_takeover_value, sst_depend_->size());
+  std::string sst_depend;
+  PutVarint64(&sst_depend, sst_depend_->size());
   for (auto sst_id : *sst_depend_) {
-    PutVarint64(&sst_takeover_value, sst_id);
+    PutVarint64(&sst_depend, sst_id);
   }
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstDepend, sst_takeover_value});
+      {SSTVarietiesTablePropertiesNames::kSstDepend, sst_depend});
+
+  std::string sst_read_amp;
+  PutVarint64(&sst_read_amp, *sst_read_amp_);
+  
+  properties->insert(
+      {SSTVarietiesTablePropertiesNames::kSstReadAmp, sst_read_amp});
 
   return Status::OK();
 }
 
 UserCollectedProperties
 SstVarietyPropertiesCollector::GetReadableProperties() const {
-  std::string sst_takeover_value;
+  std::string sst_depend;
   if (sst_depend_->empty()) {
-    sst_takeover_value += "[]";
+    sst_depend += "[]";
   } else {
-    sst_takeover_value += '[';
+    sst_depend += '[';
     for (auto sst_id : *sst_depend_) {
-      sst_takeover_value += ToString(sst_id);
-      sst_takeover_value += ',';
+      sst_depend += ToString(sst_id);
+      sst_depend += ',';
     }
-    sst_takeover_value.back() = ']';
+    sst_depend.back() = ']';
   }
   return {{"kSstVariety", ToString((int)sst_variety_)},
-          {"kSstDepend", sst_takeover_value}};
+          {"kSstDepend", sst_depend},
+          {"kSstReadAmp", ToString(*sst_read_amp_)}};
 }
 
 namespace {
@@ -146,6 +153,8 @@ const std::string SSTVarietiesTablePropertiesNames::kSstVariety =
     "rocksdb.sst.variety";
 const std::string SSTVarietiesTablePropertiesNames::kSstDepend =
     "rocksdb.sst.depend";
+const std::string SSTVarietiesTablePropertiesNames::kSstReadAmp =
+    "rocksdb.sst.read_amp";
 
 uint64_t GetDeletedKeys(
     const UserCollectedProperties& props) {
@@ -191,6 +200,13 @@ std::vector<uint64_t> GetSstDepend(
     result.emplace_back(sst_id);
   }
   return result;
+}
+
+size_t GetSstReadAmp(
+    const UserCollectedProperties& props) {
+  bool ignore;
+  return GetUint64Property(
+      props, SSTVarietiesTablePropertiesNames::kSstReadAmp, &ignore);
 }
 
 }  // namespace rocksdb

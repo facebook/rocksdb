@@ -191,6 +191,8 @@ class MapSstElementIterator {
    return sst_depend_build_;
  }
 
+ size_t GetSstReadAmp() const { return sst_read_amp_; }
+
  private:
   void PrepareNext() {
     if (where_ == ranges_.end()) {
@@ -286,6 +288,7 @@ class MapSstElementIterator {
       }
     }
     map_elements_.no_records_ = no_records;
+    sst_read_amp_ = std::max(sst_read_amp_, map_elements_.link_.size());
     map_elements_.Value(&buffer_);  // Encode value
   }
 
@@ -297,6 +300,7 @@ class MapSstElementIterator {
   std::vector<RangeWithDepend>::const_iterator where_;
   const std::vector<RangeWithDepend>& ranges_;
   std::unordered_set<uint64_t> sst_depend_build_;
+  size_t sst_read_amp_ = 0;
   IteratorCache& iterator_cache_;
   const InternalKeyComparator& icomp_;
 };
@@ -751,9 +755,11 @@ Status MapBuilder::WriteOutputFile(
 
   // Used for write properties
   std::vector<uint64_t> sst_depend;
+  size_t sst_read_amp = 1;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
   collectors.emplace_back(
-      new SSTLinkPropertiesCollectorFactory((uint8_t)kMapSst, &sst_depend));
+      new SstVarietyPropertiesCollectorFactory((uint8_t)kMapSst, &sst_depend,
+                                               &sst_read_amp));
 
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
@@ -837,6 +843,7 @@ Status MapBuilder::WriteOutputFile(
   sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
                     sst_depend_build.end());
   std::sort(sst_depend.begin(), sst_depend.end());
+  sst_read_amp = range_iter->GetSstReadAmp();
 
   // Map sst don't write tombstones
   file_meta->marked_for_compaction = builder->NeedCompact();

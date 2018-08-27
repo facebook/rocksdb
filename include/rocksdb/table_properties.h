@@ -220,7 +220,9 @@ struct TableProperties {
 extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
 extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
                                  bool* property_present);
-uint8_t GetSstVariety(const UserCollectedProperties&);
-std::vector<uint64_t> GetSstDepend(const UserCollectedProperties&);
+extern uint8_t GetSstVariety(const UserCollectedProperties&);
+extern std::vector<uint64_t> GetSstDepend(
+    const UserCollectedProperties& props);
+extern size_t GetSstReadAmp(const UserCollectedProperties& props);
 
 }  // namespace rocksdb
