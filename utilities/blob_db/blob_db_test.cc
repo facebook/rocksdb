@@ -1413,6 +1413,11 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
   ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  // Make sure we don't return garbage value after blob file being evicted,
+  // but the blob index still exists in the LSM tree.
+  std::string val = "";
+  ASSERT_TRUE(blob_db_->Get(ReadOptions(), "foo", &val).IsNotFound());
+  ASSERT_EQ("", val);
 }
 
 TEST_F(BlobDBTest, DisableFileDeletions) {

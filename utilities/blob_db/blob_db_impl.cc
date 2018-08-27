@@ -1115,9 +1115,10 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
+  PinnableSlice index_entry;
   Status s;
   bool is_blob_index = false;
-  s = db_impl_->GetImpl(ro, column_family, key, value,
+  s = db_impl_->GetImpl(ro, column_family, key, &index_entry,
                         nullptr /*value_found*/, nullptr /*read_callback*/,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
@@ -1125,16 +1126,19 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   if (expiration != nullptr) {
     *expiration = kNoExpiration;
   }
-  if (s.ok() && is_blob_index) {
-    std::string index_entry = value->ToString();
-    value->Reset();
-    s = GetBlobValue(key, index_entry, value, expiration);
+  RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
+  if (s.ok()) {
+    if (is_blob_index) {
+      s = GetBlobValue(key, index_entry, value, expiration);
+    } else {
+      // The index entry is the value itself in this case.
+      value->PinSelf(index_entry);
+    }
+    RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
   }
-  RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
-  RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   return s;
 }
 
