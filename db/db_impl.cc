@@ -348,9 +348,12 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
-    auto cfd = PopFirstFromFlushQueue();
-    if (cfd->Unref()) {
-      delete cfd;
+    const FlushRequest& flush_req = PopFirstFromFlushQueue();
+    for (const auto& iter : flush_req) {
+      ColumnFamilyData* cfd = iter.first;
+      if (cfd->Unref()) {
+        delete cfd;
+      }
     }
   }
   while (!compaction_queue_.empty()) {
@@ -3149,7 +3152,8 @@ Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
   return s;
 }
 
-Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
+                                        const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);

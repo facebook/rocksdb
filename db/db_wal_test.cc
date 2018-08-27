@@ -815,7 +815,7 @@ class RecoveryTestHelper {
       unique_ptr<WritableFile> file;
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
       unique_ptr<WritableFileWriter> file_writer(
-          new WritableFileWriter(std::move(file), env_options));
+          new WritableFileWriter(std::move(file), fname, env_options));
       current_log_writer.reset(
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0));

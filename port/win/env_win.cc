@@ -716,30 +716,27 @@ Status WinEnvIO::LinkFile(const std::string& src,
   return result;
 }
 
-Status WinEnvIO::NumFileLinks(const std::string& fname, 
-  uint64_t* count) {
+Status WinEnvIO::NumFileLinks(const std::string& fname, uint64_t* count) {
   Status s;
-  HANDLE handle = ::CreateFileA(fname.c_str(), 0,
-    FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
-    NULL,
-    OPEN_EXISTING,
-    FILE_FLAG_BACKUP_SEMANTICS,
-    NULL);
+  HANDLE handle = ::CreateFileA(
+      fname.c_str(), 0, FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+      NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
 
   if (INVALID_HANDLE_VALUE == handle) {
     auto lastError = GetLastError();
-    s = IOErrorFromWindowsError(
-      "NumFileLinks: " + fname, lastError);
+    s = IOErrorFromWindowsError("NumFileLinks: " + fname, lastError);
     return s;
   }
   UniqueCloseHandlePtr handle_guard(handle, CloseHandleFunc);
   FILE_STANDARD_INFO standard_info;
-  if (0 != GetFileInformationByHandleEx(handle, FileStandardInfo, 
-                                        &standard_info, sizeof(standard_info))) {
+  if (0 != GetFileInformationByHandleEx(handle, FileStandardInfo,
+                                        &standard_info,
+                                        sizeof(standard_info))) {
     *count = standard_info.NumberOfLinks;
   } else {
     auto lastError = GetLastError();
-    s = IOErrorFromWindowsError("GetFileInformationByHandleEx: " + fname, lastError);
+    s = IOErrorFromWindowsError("GetFileInformationByHandleEx: " + fname,
+                                lastError);
   }
   return s;
 }

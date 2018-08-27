@@ -183,7 +183,8 @@ class VectorIterator : public InternalIterator {
   std::vector<std::string> values_;
   size_t current_;
 };
-extern WritableFileWriter* GetWritableFileWriter(WritableFile* wf);
+extern WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
+                                                 const std::string& fname);
 
 extern RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf);
 

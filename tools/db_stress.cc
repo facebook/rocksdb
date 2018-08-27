@@ -419,6 +419,10 @@ DEFINE_int32(acquire_snapshot_one_in, 0,
              "If non-zero, then acquires a snapshot once every N operations on "
              "average.");
 
+DEFINE_bool(compare_full_db_state_snapshot, false,
+            "If set we compare state of entire db (in one of the threads) with"
+            "each snapshot.");
+
 DEFINE_uint64(snapshot_hold_ops, 0,
               "If non-zero, then releases snapshots N operations after they're "
               "acquired.");
@@ -591,7 +595,7 @@ enum RepFactory StringToRepFactory(const char* ctype) {
 #ifdef _MSC_VER
 #pragma warning(push)
 // truncation of constant value on static_cast
-#pragma warning(disable: 4309)
+#pragma warning(disable : 4309)
 #endif
 bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
   std::string ret = src.ToString();
@@ -649,6 +653,18 @@ static std::string Key(int64_t val) {
     big_endian_key[i] = little_endian_key[sizeof(val) - 1 - i];
   }
   return big_endian_key;
+}
+
+static bool GetIntVal(std::string big_endian_key, uint64_t *key_p) {
+  unsigned int size_key = sizeof(*key_p);
+  assert(big_endian_key.size() == size_key);
+  std::string little_endian_key;
+  little_endian_key.resize(size_key);
+  for (size_t i = 0 ; i < size_key; ++i) {
+    little_endian_key[i] = big_endian_key[size_key - 1 - i];
+  }
+  Slice little_endian_slice = Slice(little_endian_key);
+  return GetFixed64(&little_endian_slice, key_p);
 }
 
 static std::string StringToHex(const std::string& str) {
@@ -1207,6 +1223,8 @@ struct ThreadState {
     Status status;
     // The value of the Get
     std::string value;
+    // optional state of all keys in the db
+    std::vector<bool> *key_vec;
   };
   std::queue<std::pair<uint64_t, SnapshotState> > snapshot_queue;
 
@@ -1221,7 +1239,9 @@ class DbStressListener : public EventListener {
                    const std::vector<ColumnFamilyDescriptor>& column_families)
       : db_name_(db_name), db_paths_(db_paths),
         column_families_(column_families) {}
-  virtual ~DbStressListener() {}
+  virtual ~DbStressListener() {
+    assert(num_pending_file_creations_ == 0);
+  }
 #ifndef ROCKSDB_LITE
   virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
@@ -1246,16 +1266,23 @@ class DbStressListener : public EventListener {
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 
+  virtual void OnTableFileCreationStarted(
+      const TableFileCreationBriefInfo& /*info*/) override {
+    ++num_pending_file_creations_;
+  }
   virtual void OnTableFileCreated(const TableFileCreationInfo& info) override {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
-    VerifyFilePath(info.file_path);
+    if (info.file_size) {
+      VerifyFilePath(info.file_path);
+    }
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
     if (info.status.ok() && info.file_size > 0) {
       assert(info.table_properties.data_size > 0);
       assert(info.table_properties.raw_key_size > 0);
       assert(info.table_properties.num_entries > 0);
     }
+    --num_pending_file_creations_;
   }
 
  protected:
@@ -1328,6 +1355,7 @@ class DbStressListener : public EventListener {
   std::string db_name_;
   std::vector<DbPath> db_paths_;
   std::vector<ColumnFamilyDescriptor> column_families_;
+  std::atomic<int> num_pending_file_creations_;
 };
 
 }  // namespace
@@ -1703,6 +1731,21 @@ class StressTest {
                                   ")");
       }
     }
+    if (snap_state.key_vec != nullptr) {
+      std::unique_ptr<Iterator> iterator(db->NewIterator(ropt));
+      std::unique_ptr<std::vector<bool>> tmp_bitvec(new std::vector<bool>(FLAGS_max_key));
+      for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+        uint64_t key_val;
+        if (GetIntVal(iterator->key().ToString(), &key_val)) {
+          (*tmp_bitvec.get())[key_val] = true;
+        }
+      }
+      if (!std::equal(snap_state.key_vec->begin(),
+                      snap_state.key_vec->end(),
+                      tmp_bitvec.get()->begin())) {
+        return Status::Corruption("Found inconsistent keys at this snapshot");
+      }
+    }
     return Status::OK();
   }
 
@@ -1786,6 +1829,7 @@ class StressTest {
           while (!thread->snapshot_queue.empty()) {
             db_->ReleaseSnapshot(
                 thread->snapshot_queue.front().second.snapshot);
+            delete thread->snapshot_queue.front().second.key_vec;
             thread->snapshot_queue.pop();
           }
           thread->shared->IncVotedReopen();
@@ -1960,9 +2004,23 @@ class StressTest {
         // will later read the same key before releasing the snapshot and verify
         // that the results are the same.
         auto status_at = db_->Get(ropt, column_family, key, &value_at);
+        std::vector<bool> *key_vec = nullptr;
+
+        if (FLAGS_compare_full_db_state_snapshot &&
+            (thread->tid == 0)) {
+          key_vec = new std::vector<bool>(FLAGS_max_key);
+          std::unique_ptr<Iterator> iterator(db_->NewIterator(ropt));
+          for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+            uint64_t key_val;
+            if (GetIntVal(iterator->key().ToString(), &key_val)) {
+              (*key_vec)[key_val] = true;
+            }
+          }
+        }
+
         ThreadState::SnapshotState snap_state = {
             snapshot, rand_column_family, column_family->GetName(),
-            keystr,   status_at,          value_at};
+            keystr,   status_at,          value_at, key_vec};
         thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             snap_state);
@@ -1980,6 +2038,7 @@ class StressTest {
           VerificationAbort(shared, "Snapshot gave inconsistent state", s);
         }
         db_->ReleaseSnapshot(snap_state.snapshot);
+        delete snap_state.key_vec;
         thread->snapshot_queue.pop();
       }
 
@@ -1997,14 +2056,14 @@ class StressTest {
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
-            value, lock);
+                value, lock);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
         TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
       } else if (delBound <= prob_op && prob_op < delRangeBound) {
         // OPERATION delete range
         TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
-            lock);
+                        lock);
       } else {
         // OPERATION iterate
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
@@ -2022,8 +2081,7 @@ class StressTest {
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
 
   virtual std::vector<int> GenerateColumnFamilies(
-      const int /* num_column_families */,
-      int rand_column_family) const {
+      const int /* num_column_families */, int rand_column_family) const {
     return {rand_column_family};
   }
 

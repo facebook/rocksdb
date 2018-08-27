@@ -70,10 +70,10 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
 
 // Same as GenerateRandomKVs but the values are BlockHandle
 void GenerateRandomKBHs(std::vector<std::string> *keys,
-                       std::vector<BlockHandle> *values, const int from,
-                       const int len, const int step = 1,
-                       const int padding_size = 0,
-                       const int keys_share_prefix = 1) {
+                        std::vector<BlockHandle> *values, const int from,
+                        const int len, const int step = 1,
+                        const int padding_size = 0,
+                        const int keys_share_prefix = 1) {
   Random rnd(302);
   uint64_t offset = 0;
 

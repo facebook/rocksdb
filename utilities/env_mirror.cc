@@ -64,7 +64,8 @@ class RandomAccessFileMirror : public RandomAccessFile {
   std::string fname;
   explicit RandomAccessFileMirror(std::string f) : fname(f) {}
 
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override {
     Status as = a_->Read(offset, n, result, scratch);
     if (as == Status::OK()) {
       char* bscratch = new char[n];

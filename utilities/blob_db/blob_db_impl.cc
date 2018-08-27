@@ -338,7 +338,7 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   }
 
   std::unique_ptr<WritableFileWriter> fwriter;
-  fwriter.reset(new WritableFileWriter(std::move(wfile), env_options_));
+  fwriter.reset(new WritableFileWriter(std::move(wfile), fpath, env_options_));
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {
@@ -562,8 +562,8 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
-    Status s = blob_db_impl_->PutBlobValue(options_, key, value,
-                                           kNoExpiration, &batch_);
+    Status s = blob_db_impl_->PutBlobValue(options_, key, value, kNoExpiration,
+                                           &batch_);
     return s;
   }
 
@@ -771,9 +771,11 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
     return raw;
   }
   StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  CompressionType ct = bdb_options_.compression;
-  CompressionContext compression_ctx(ct);
-  CompressBlock(raw, compression_ctx, &ct, kBlockBasedTableVersionFormat,
+  CompressionType type = bdb_options_.compression;
+  CompressionOptions opts;
+  CompressionContext context(type);
+  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type);
+  CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat,
                 compression_output);
   return *compression_output;
 }
@@ -1106,9 +1108,11 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     {
       StopWatch decompression_sw(env_, statistics_,
                                  BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext uncompression_ctx(bfile->compression());
+      UncompressionContext context(bfile->compression());
+      UncompressionInfo info(context, CompressionDict::GetEmptyDict(),
+                             bfile->compression());
       s = UncompressBlockContentsForCompressionType(
-          uncompression_ctx, blob_value.data(), blob_value.size(), &contents,
+          info, blob_value.data(), blob_value.size(), &contents,
           kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
     }
     value->PinSelf(contents.data);

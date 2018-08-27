@@ -791,7 +791,7 @@ Status MapBuilder::WriteOutputFile(
   // map sst always small
   writable_file->SetPreallocationBlockSize(4ULL << 20);
   std::unique_ptr<WritableFileWriter> outfile(
-      new WritableFileWriter(std::move(writable_file), env_options_, stats_));
+      new WritableFileWriter(std::move(writable_file), fname, env_options_, stats_));
 
   uint64_t output_file_creation_time = bound_builder.creation_time;
   if (output_file_creation_time == 0) {

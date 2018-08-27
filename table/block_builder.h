@@ -60,7 +60,7 @@ class BlockBuilder {
 
  private:
   const int          block_restart_interval_;
-  //TODO(myabandeh): put it into a separate IndexBlockBuilder
+  // TODO(myabandeh): put it into a separate IndexBlockBuilder
   const bool         use_delta_encoding_;
   // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values
   const bool use_value_delta_encoding_;

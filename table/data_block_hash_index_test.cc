@@ -553,7 +553,8 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   EnvOptions soptions;
 
   soptions.use_mmap_reads = ioptions.allow_mmap_reads;
-  file_writer.reset(test::GetWritableFileWriter(new test::StringSink()));
+  file_writer.reset(
+      test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
   unique_ptr<TableBuilder> builder;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;

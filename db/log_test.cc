@@ -159,7 +159,7 @@ class LogTest : public ::testing::TestWithParam<int> {
   LogTest()
       : reader_contents_(),
         dest_holder_(test::GetWritableFileWriter(
-            new test::StringSink(&reader_contents_))),
+            new test::StringSink(&reader_contents_), "" /* don't care */)),
         source_holder_(test::GetSequentialFileReader(
             new StringSource(reader_contents_), "" /* file name */)),
         writer_(std::move(dest_holder_), 123, GetParam()),
@@ -718,7 +718,8 @@ TEST_P(LogTest, Recycle) {
     Write("xxxxxxxxxxxxxxxx");
   }
   unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
-      new test::OverwritingStringSink(get_reader_contents())));
+      new test::OverwritingStringSink(get_reader_contents()),
+      "" /* don't care */));
   Writer recycle_writer(std::move(dest_holder), 123, true);
   recycle_writer.AddRecord(Slice("foooo"));
   recycle_writer.AddRecord(Slice("bar"));
