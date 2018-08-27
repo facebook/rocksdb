@@ -359,8 +359,9 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
   ASSERT_EQ(1, to_flush.size());
 
-  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
-                                       to_flush, &to_delete);
+  MutableCFOptions mutable_cf_options(options);
+  s = Mock_InstallMemtableFlushResults(&list, mutable_cf_options, to_flush,
+                                       &to_delete);
   ASSERT_OK(s);
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_EQ(1, list.NumFlushed());
@@ -409,8 +410,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_EQ(1, to_flush.size());
 
   // Flush second memtable
-  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
-                                       to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, mutable_cf_options, to_flush,
+                                       &to_delete);
   ASSERT_OK(s);
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_EQ(2, list.NumFlushed());
@@ -631,8 +632,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Flush the 4 memtables that were picked in to_flush
-  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
-                                       to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, mutable_cf_options, to_flush,
+                                       &to_delete);
   ASSERT_OK(s);
 
   // Note:  now to_flush contains tables[0,1,2,4].  to_flush2 contains
@@ -652,7 +653,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Flush the 1 memtable that was picked in to_flush2
   s = MemTableListTest::Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options), to_flush2, &to_delete);
+      &list, mutable_cf_options, to_flush2, &to_delete);
   ASSERT_OK(s);
 
   // This will actually install 2 tables.  The 1 we told it to flush, and also
