@@ -1131,6 +1131,7 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
     if (is_blob_index) {
       s = GetBlobValue(key, index_entry, value, expiration);
     } else {
+      // The index entry is the value itself in this case.
       value->PinSelf(index_entry);
     }
     RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
