@@ -144,6 +144,14 @@ class MemTableRep {
   // or any writes done directly to entries accessed through the iterator.)
   virtual void MarkReadOnly() { }
 
+  // Notify this table rep that it has been flushed to stable storage.
+  // By default, does nothing.
+  //
+  // Invariant: MarkReadOnly() is called, before MarkFlushed().
+  // Note that this method if overridden, should not run for an extended period
+  // of time. Otherwise, RocksDB may be blocked.
+  virtual void MarkFlushed() { }
+
   // Look up key from the mem table, since the first key in the mem table whose
   // user_key matches the one given k, call the function callback_func(), with
   // callback_args directly forwarded as the first parameter, and the mem table

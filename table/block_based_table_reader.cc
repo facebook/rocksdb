@@ -1226,9 +1226,12 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
-  UncompressionContext uncompresssion_ctx(compressed_block->compression_type(),
-                                          compression_dict);
-  s = UncompressBlockContents(uncompresssion_ctx, compressed_block->data(),
+  UncompressionContext context(compressed_block->compression_type());
+  CompressionDict dict;
+  dict.Init(compression_dict, CompressionDict::Mode::kUncompression,
+            compressed_block->compression_type());
+  UncompressionInfo info(context, dict, compressed_block->compression_type());
+  s = UncompressBlockContents(info, compressed_block->data(),
                               compressed_block->size(), &contents,
                               format_version, ioptions);
 
@@ -1301,11 +1304,13 @@ Status BlockBasedTable::PutDataBlockToCache(
   BlockContents contents;
   Statistics* statistics = ioptions.statistics;
   if (raw_block->compression_type() != kNoCompression) {
-    UncompressionContext uncompression_ctx(raw_block->compression_type(),
-                                           compression_dict);
-    s = UncompressBlockContents(uncompression_ctx, raw_block->data(),
-                                raw_block->size(), &contents, format_version,
-                                ioptions);
+    UncompressionContext context(raw_block->compression_type());
+    CompressionDict dict;
+    dict.Init(compression_dict, CompressionDict::Mode::kUncompression,
+              raw_block->compression_type());
+    UncompressionInfo info(context, dict, raw_block->compression_type());
+    s = UncompressBlockContents(info, raw_block->data(), raw_block->size(),
+                                &contents, format_version, ioptions);
   }
   if (!s.ok()) {
     delete raw_block;

@@ -122,6 +122,7 @@ LIB_SOURCES =                                                   \
   table/plain_table_reader.cc                                   \
   table/sst_file_writer.cc                                      \
   table/table_properties.cc                                     \
+  tools/trace_analyzer_tool.cc                                  \
   table/two_level_iterator.cc                                   \
   tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
@@ -161,6 +162,7 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_compaction_filter.cc                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
+  utilities/blob_db/blob_db_impl_filesnapshot.cc                \
   utilities/blob_db/blob_file.cc                                \
   utilities/blob_db/blob_log_format.cc                          \
   utilities/blob_db/blob_log_reader.cc                          \
@@ -232,6 +234,8 @@ TOOL_LIB_SOURCES = \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
   utilities/blob_db/blob_dump_tool.cc                           \
+
+ANALYZER_LIB_SOURCES = \
   tools/trace_analyzer_tool.cc					\
 
 MOCK_LIB_SOURCES = \

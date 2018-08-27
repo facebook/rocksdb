@@ -125,6 +125,7 @@ class RandomAccessFileReader {
 class WritableFileWriter {
  private:
   std::unique_ptr<WritableFile> writable_file_;
+  std::string file_name_;
   AlignedBuffer           buf_;
   size_t                  max_buffer_size_;
   // Actually written data size can be used for truncate
@@ -144,8 +145,10 @@ class WritableFileWriter {
 
  public:
   WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                     const EnvOptions& options, Statistics* stats = nullptr)
+                     const std::string& _file_name, const EnvOptions& options,
+                     Statistics* stats = nullptr)
       : writable_file_(std::move(file)),
+        file_name_(_file_name),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
@@ -168,6 +171,8 @@ class WritableFileWriter {
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
   ~WritableFileWriter() { Close(); }
+
+  std::string file_name() const { return file_name_; }
 
   Status Append(const Slice& data);
 

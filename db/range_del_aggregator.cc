@@ -76,7 +76,9 @@ class UncollapsedRangeDelMap : public RangeDelMap {
     return false;
   }
 
-  void AddTombstone(RangeTombstone tombstone) override { rep_.emplace(tombstone); }
+  void AddTombstone(RangeTombstone tombstone) override {
+    rep_.emplace(tombstone);
+  }
 
   size_t Size() const override { return rep_.size(); }
 

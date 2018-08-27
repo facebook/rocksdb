@@ -248,6 +248,7 @@ void MemTableListVersion::Remove(MemTable* m,
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   memlist_.remove(m);
 
+  m->MarkFlushed();
   if (max_write_buffer_number_to_maintain_ > 0) {
     memlist_history_.push_front(m);
     TrimHistory(to_delete);

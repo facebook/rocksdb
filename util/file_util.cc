@@ -42,7 +42,8 @@ Status CopyFile(Env* env, const std::string& source,
       }
     }
     src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
-    dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+    dest_writer.reset(
+        new WritableFileWriter(std::move(destfile), destination, soptions));
   }
 
   char buffer[4096];
@@ -77,7 +78,8 @@ Status CreateFile(Env* env, const std::string& destination,
   if (!s.ok()) {
     return s;
   }
-  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+  dest_writer.reset(
+      new WritableFileWriter(std::move(destfile), destination, soptions));
   return dest_writer->Append(Slice(contents));
 }
 
