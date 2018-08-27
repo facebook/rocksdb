@@ -1413,6 +1413,9 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
   ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  std::string val = "";
+  ASSERT_TRUE(blob_db_->Get(ReadOptions(), "foo", &val).IsNotFound());
+  ASSERT_EQ("", val);
 }
 
 TEST_F(BlobDBTest, DisableFileDeletions) {
