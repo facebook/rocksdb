@@ -72,7 +72,9 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     }
   }
   std::vector<Status> statuses(keys.size(), Status::NotFound());
-  assert(values->size() == keys.size());
+  if (values->size() != keys.size()) {
+    return statuses;
+  }
   int idx = 0;
   for (auto* r : reader_list) {
     if (r != nullptr) {

@@ -158,6 +158,7 @@ class BlobDB : public StackableDB {
       const ReadOptions& options,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override = 0;
+  // TODO (yiwu): add support for MultiGet which takes PinnableSlice
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,

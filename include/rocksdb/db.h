@@ -373,7 +373,7 @@ class DB {
       if (s[i].ok() && pinnable_vector[i].IsPinned()) {
         (*values)[i].assign(pinnable_vector[i].data(), pinnable_vector[i].size());
       }
-    }  // else value is already assigned
+    }
     pinnable_vector.clear();
     return s;
   }
