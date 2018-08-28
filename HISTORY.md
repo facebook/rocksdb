@@ -6,6 +6,7 @@
 ### New Features
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
+* Sync CURRENT file contents during checkpoint.
 
 ## 5.16.0 (8/21/2018)
 ### Public API Change

@@ -74,7 +74,7 @@ TEST_F(RepairTest, CorruptManifest) {
 
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
-  CreateFile(env_, manifest_path, "blah");
+  CreateFile(env_, manifest_path, "blah", false /* use_fsync */);
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
@@ -153,7 +153,7 @@ TEST_F(RepairTest, CorruptSst) {
   Flush();
   auto sst_path = GetFirstSstPath();
   ASSERT_FALSE(sst_path.empty());
-  CreateFile(env_, sst_path, "blah");
+  CreateFile(env_, sst_path, "blah", false /* use_fsync */);
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
