@@ -371,10 +371,11 @@ endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
+TOOLLIBOBJECTS = $(TOOL_LIB_SOURCES:.cc=.o)
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
-TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(LIBOBJECTS) $(GTEST)
+TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(TOOLLIBOBJECTS) $(GTEST)
 VALGRIND_ERROR = 2
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
