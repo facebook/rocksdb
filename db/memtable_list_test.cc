@@ -795,7 +795,7 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
   // For each column family, determine the memtables to flush
   autovector<uint64_t> flush_memtable_ids;
   for (int i = 0; i != num_cfs; ++i) {
-    flush_memtable_ids.push_back(i % num_tables_per_cf);
+    flush_memtable_ids.push_back(num_tables_per_cf - 1);
   }
 
   // Pick memtables to flush
@@ -806,11 +806,7 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
     ASSERT_EQ(flush_memtable_ids[i] - 0 + 1, flush_candidates[i].size());
     ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
     ASSERT_FALSE(lists[i]->HasFlushRequested());
-    if (flush_memtable_ids[i] == static_cast<uint64_t>(num_tables_per_cf)) {
-      ASSERT_FALSE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
-    } else {
-      ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
-    }
+    ASSERT_FALSE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
     to_flush.emplace_back(&flush_candidates[i]);
   }
 
@@ -818,7 +814,9 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
                                        to_flush, &to_delete);
   ASSERT_OK(s);
 
+  to_delete.clear();
   for (auto list : lists) {
+    list->current()->Unref(&to_delete);
     delete list;
   }
   for (auto& mutable_cf_options : mutable_cf_options_list) {
@@ -830,7 +828,7 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
   for (const auto& m : to_delete) {
     // Refcount should be 0 after calling InstallMemtableFlushResults.
     // Verify this by Ref'ing and then Unref'ing.
-    m->Unref();
+    m->Ref();
     ASSERT_EQ(m, m->Unref());
     delete m;
   }
