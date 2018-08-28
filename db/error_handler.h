@@ -53,7 +53,7 @@ class ErrorHandler {
 
     bool IsRecoveryInProgress() { return recovery_in_prog_; }
 
-    Status RecoverFromBGError(bool exclusive = false);
+    Status RecoverFromBGError(bool is_manual = false);
     void CancelErrorRecovery();
 
    private:

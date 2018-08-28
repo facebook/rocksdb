@@ -15,7 +15,7 @@ namespace rocksdb {
 
 void CancelAllBackgroundWork(DB* db, bool wait) {
   (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
-      ->CancelAllBackgroundWork(wait, true /*shutdown*/);
+      ->CancelAllBackgroundWork(wait);
 }
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,

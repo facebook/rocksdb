@@ -33,7 +33,8 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
       cv_(&mu_),
       closing_(false),
       reserved_disk_buffer_(0),
-      free_space_trigger_(0) {
+      free_space_trigger_(0),
+      cur_instance_(nullptr) {
   bg_thread_.reset(new port::Thread(&SstFileManagerImpl::ClearError, this));
 }
 
@@ -152,17 +153,11 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
 
   // Update cur_compactions_reserved_size_ so concurrent compaction
   // don't max out space
-  // needed_headroom_ is based on current size reserved by compactions,
-  // minus any files created by running compactions as they would count
-  // against the reserved size.
-  cur_compactions_reserved_size_ += size_added_by_compaction;
   size_t needed_headroom =
-      cur_compactions_reserved_size_ - in_progress_files_size_ +
-      (compaction_buffer_size_ > 0 ? compaction_buffer_size_
-                                   : reserved_disk_buffer_);
+      cur_compactions_reserved_size_ + size_added_by_compaction +
+      compaction_buffer_size_;
   if (max_allowed_space_ != 0 &&
       (needed_headroom + total_files_size_ > max_allowed_space_)) {
-    cur_compactions_reserved_size_ -= size_added_by_compaction;
     return false;
   }
 
@@ -176,18 +171,27 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
                       inputs[0][0]->fd.GetPathId());
     uint64_t free_space = 0;
     env_->GetFreeSpace(fn, &free_space);
-    if (free_space < needed_headroom) {
+    // needed_headroom is based on current size reserved by compactions,
+    // minus any files created by running compactions as they would count
+    // against the reserved size. If user didn't specify any compaction
+    // buffer, add reserved_disk_buffer_ that's calculated by default so the
+    // compaction doesn't end up leaving nothing for logs and flush SSTs
+    if (compaction_buffer_size_ == 0) {
+      needed_headroom += reserved_disk_buffer_;
+    }
+    needed_headroom -= in_progress_files_size_;
+    if (free_space < needed_headroom + size_added_by_compaction) {
       // We hit the condition of not enough disk space
-      cur_compactions_reserved_size_ -= size_added_by_compaction;
       ROCKS_LOG_ERROR(logger_, "free space [%d bytes] is less than "
           "needed headroom [%d bytes]\n", free_space, needed_headroom);
       return false;
     }
-  } else {
-    // Take a snapshot of cur_compactions_reserved_size_ for when we encounter
-    // a NoSpace error.
-    free_space_trigger_ = cur_compactions_reserved_size_;
   }
+
+  cur_compactions_reserved_size_ += size_added_by_compaction;
+  // Take a snapshot of cur_compactions_reserved_size_ for when we encounter
+  // a NoSpace error.
+  free_space_trigger_ = cur_compactions_reserved_size_;
   return true;
 }
 
@@ -241,10 +245,6 @@ void SstFileManagerImpl::ClearError() {
   while (true) {
     MutexLock l(&mu_);
 
-    while (error_handler_list_.empty() && !closing_) {
-      cv_.Wait();
-    }
-
     if (closing_) {
       return;
     }
@@ -252,8 +252,12 @@ void SstFileManagerImpl::ClearError() {
     uint64_t free_space;
     Status s = env_->GetFreeSpace(path_, &free_space);
     if (s.ok()) {
+      // In case of multi-DB instances, some of them may have experienced a
+      // soft error and some a hard error. In the SstFileManagerImpl, a hard
+      // error will basically override previously reported soft errors. Once
+      // we clear the hard error, we don't keep track of previous errors for
+      // now
       if (bg_err_.severity() == Status::Severity::kHardError) {
-        // Give priority to hard errors
         if (free_space < reserved_disk_buffer_) {
           ROCKS_LOG_ERROR(logger_, "free space [%d bytes] is less than "
               "required disk buffer [%d bytes]\n", free_space,
@@ -272,38 +276,34 @@ void SstFileManagerImpl::ClearError() {
       }
     }
 
-    if (s.ok()) {
-      if (!error_handler_list_.empty()) {
-        ErrorHandler* handler = error_handler_list_.front();
+    // Someone could have called CancelErrorRecovery() and the list could have
+    // become empty, so check again here
+    if (s.ok() && !error_handler_list_.empty()) {
+      cur_instance_ = error_handler_list_.front();
+      // Resume() might try to flush memtable and can fail again with
+      // NoSpace. If that happens, we abort the recovery here and start
+      // over.
+      mu_.Unlock();
+      s = cur_instance_->RecoverFromBGError();
+      mu_.Lock();
+      cur_instance_ = nullptr;
+      if (s.ok() || s.IsShutdownInProgress() ||
+          (!s.ok() && s.severity() >= Status::Severity::kFatalError)) {
+        // If shutdown is in progress, abandon this handler instance
+        // and continue with the others
         error_handler_list_.pop_front();
-        // Resume() might try to flush memtable and can fail again with
-        // NoSpace. If that happens, we abort the recovery here and start
-        // over.
-        mu_.Unlock();
-        s = handler->RecoverFromBGError();
-        mu_.Lock();
-        if (!s.ok()) {
-          // If shutdown is in progress, abandon this handler instance
-          // and continue with the others
-          if (!s.IsShutdownInProgress()) {
-            if (s.severity() < Status::Severity::kFatalError) {
-              // Abort and try again later
-              error_handler_list_.push_front(handler);
-            }
-          }
-        }
       }
     }
 
-    if (error_handler_list_.empty()) {
-      ROCKS_LOG_INFO(logger_, "Clearing error\n");
-      bg_err_ = Status::OK();
-    }
-
-    if (!s.ok() && !error_handler_list_.empty()) {
-      // If recovery failed, reschedule after 5 seconds
+    if (!error_handler_list_.empty()) {
+      // If there are more instances to be recovered, reschedule after 5
+      // seconds
       int64_t wait_until = env_->NowMicros() + 5000000;
       cv_.TimedWait(wait_until);
+    } else {
+      ROCKS_LOG_INFO(logger_, "Clearing error\n");
+      bg_err_ = Status::OK();
+      return;
     }
   }
 }
@@ -330,7 +330,11 @@ void SstFileManagerImpl::StartErrorRecovery(ErrorHandler* handler,
   // and recover from this condition
   if (error_handler_list_.empty()) {
     error_handler_list_.push_back(handler);
-    cv_.SignalAll();
+    if (bg_thread_) {
+      bg_thread_->join();
+    }
+    // Start a new thread. The previous one may have exited.
+    bg_thread_.reset(new port::Thread(&SstFileManagerImpl::ClearError, this));
   } else {
     // Check if this DB instance is already in the list
     for (auto iter = error_handler_list_.begin();
@@ -345,6 +349,11 @@ void SstFileManagerImpl::StartErrorRecovery(ErrorHandler* handler,
 
 bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
   MutexLock l(&mu_);
+
+  if (cur_instance_ == handler) {
+    // This instance is currently busy attempting to recover
+    return false;
+  }
 
   for (auto iter = error_handler_list_.begin();
        iter != error_handler_list_.end(); ++iter) {

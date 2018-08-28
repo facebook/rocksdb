@@ -173,6 +173,8 @@ class SstFileManagerImpl : public SstFileManager {
   uint64_t free_space_trigger_;
   // List of database error handler instances tracked by this sst file manager
   std::list<ErrorHandler*> error_handler_list_;
+  // Pointer to ErrorHandler instance that is currently processing recovery
+  ErrorHandler* cur_instance_;
 };
 
 }  // namespace rocksdb

@@ -512,7 +512,7 @@ class DBImpl : public DB {
     return immutable_db_options_;
   }
 
-  void CancelAllBackgroundWork(bool wait, bool shutdown);
+  void CancelAllBackgroundWork(bool wait);
 
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.
@@ -1084,6 +1084,8 @@ class DBImpl : public DB {
 
   Status FlushAllCFs(FlushReason flush_reason);
 
+  void WaitForBackgroundWork();
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
@@ -1540,6 +1542,14 @@ class DBImpl : public DB {
   bool closed_;
 
   ErrorHandler error_handler_;
+
+  // Flag to indicate that the DB instance shutdown has been initiated. This
+  // different from shutting_down_ atomic in that it is set at the beginning
+  // of shutdown sequence, specifically in order to prevent any background
+  // error recovery from going on in parallel. The latter, shutting_down_,
+  // is set a little later during the shutdown after scheduling memtable
+  // flushes
+  bool shutdown_flag_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

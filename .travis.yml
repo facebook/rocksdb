@@ -1,4 +1,4 @@
-sudo: true
+sudo: false
 dist: trusty
 language: cpp
 os:
@@ -26,7 +26,6 @@ addons:
       - libsnappy-dev
       - mingw-w64
       - zlib1g-dev
-      - gdb
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
@@ -74,15 +73,11 @@ install:
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
       mkdir cmake-dist && curl -sfSL https://cmake.org/files/v3.8/cmake-3.8.1-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
     fi
-  - if [ "${TRAVIS_OS_NAME}" == linux ]; then
-      sudo apt-get install -y gdb;
-    fi
 
 before_script:
   # Increase the maximum number of open file descriptors, since some tests use
   # more FDs than the default limit.
   - ulimit -n 8192
-  - ulimit -c unlimited -S
 
 script:
   - ${CXX} --version
@@ -121,7 +116,6 @@ script:
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release && make -j4 rocksdb rocksdbjni
       ;;
     esac
-  - for i in $(find ./ -maxdepth 1 -name 'core*' -print); do gdb ./error_handler_test core* -ex "thread apply all bt" -ex "set pagination 0" -batch; done;
 notifications:
     email:
       - leveldb@fb.com

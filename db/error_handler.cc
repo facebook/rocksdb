@@ -122,7 +122,7 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
 
 void ErrorHandler::CancelErrorRecovery() {
 #ifndef ROCKSDB_LITE
-  InstrumentedMutexLock l(db_mutex_);
+  db_mutex_->AssertHeld();
 
   if (recovery_in_prog_) {
     // We'll release the lock before calling sfm, so make sure no new
@@ -308,11 +308,12 @@ Status ErrorHandler::ClearBGError() {
 #endif
 }
 
-Status ErrorHandler::RecoverFromBGError(bool exclusive) {
+Status ErrorHandler::RecoverFromBGError(bool is_manual) {
 #ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
-  if (exclusive) {
-    // If exclusive is set, its a manual recovery
+  if (is_manual) {
+    // If its a manual recovery and there's a background recovery in progress
+    // return busy status
     if (recovery_in_prog_) {
       return Status::Busy();
     }
@@ -325,21 +326,20 @@ Status ErrorHandler::RecoverFromBGError(bool exclusive) {
     return ClearBGError();
   }
 
-  db_mutex_->Unlock();
-  db_->CancelAllBackgroundWork(true, false);
-  db_mutex_->Lock();
-
   // Reset recovery_error_. We will use this to record any errors that happen
   // during the recovery process. While recovering, the only operations that
   // can generate background errors should be the flush operations
   recovery_error_ = Status::OK();
   Status s = db_->ResumeImpl();
-  if (exclusive || s.IsShutdownInProgress()) {
+  // For both manual recovery and shutdown case, set recovery_in_prog_ to
+  // false. For automatic background recovery, leave it as is regardless of
+  // success or failure as it will be retried
+  if (is_manual || s.IsShutdownInProgress()) {
     recovery_in_prog_ = false;
   }
   return s;
 #else
-  (void)exclusive;
+  (void)is_manual;
   return bg_error_;
 #endif
 }

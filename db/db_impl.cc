@@ -217,7 +217,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
-      error_handler_(this, immutable_db_options_, &mutex_) {
+      error_handler_(this, immutable_db_options_, &mutex_),
+      shutdown_flag_(false) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -270,13 +271,25 @@ Status DBImpl::Resume() {
   return s;
 }
 
+// This function implements the guts of recovery from a background error. It
+// is eventually called for both manual as well as automatic recovery. It does
+// the following -
+// 1. Wait for currently scheduled background flush/compaction to exit, in
+//    order to inadvertently causing an error and thinking recovery failed
+// 2. Flush memtables if there's any data for all the CFs. This may result
+//    another error, which will be saved by error_handler_ and reported later
+//    as the recovery status
+// 3. Find and delete any obsolete files
+// 4. Schedule compactions if needed for all the CFs. This is needed as the
+//    flush in the prior step might have been a no-op for some CFs, which
+//    means a new super version wouldn't have been installed
 Status DBImpl::ResumeImpl() {
   mutex_.AssertHeld();
+  WaitForBackgroundWork();
 
-  bool shutdown = shutting_down_.load(std::memory_order_acquire);
   Status bg_error = error_handler_.GetBGError();
   Status s;
-  if (shutdown) {
+  if (shutdown_flag_) {
     // Returning shutdown status to SFM during auto recovery will cause it
     // to abort the recovery and allow the shutdown to progress
     s = Status::ShutdownInProgress();
@@ -317,8 +330,7 @@ Status DBImpl::ResumeImpl() {
   mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
-  shutdown = shutting_down_.load(std::memory_order_acquire);
-  if (shutdown) {
+  if (shutdown_flag_) {
     s = Status::ShutdownInProgress();
   }
   if (s.ok()) {
@@ -336,35 +348,7 @@ Status DBImpl::ResumeImpl() {
   return s;
 }
 
-// Will lock the mutex_,  will wait for completion if wait is true
-void DBImpl::CancelAllBackgroundWork(bool wait, bool shutdown) {
-  InstrumentedMutexLock l(&mutex_);
-
-  if (shutdown) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Shutdown: canceling all background work");
-
-    if (!shutting_down_.load(std::memory_order_acquire) &&
-        has_unpersisted_data_.load(std::memory_order_relaxed) &&
-        !mutable_db_options_.avoid_flush_during_shutdown) {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          cfd->Ref();
-          mutex_.Unlock();
-          FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-          mutex_.Lock();
-          cfd->Unref();
-        }
-      }
-      versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-    }
-
-    shutting_down_.store(true, std::memory_order_release);
-    bg_cv_.SignalAll();
-  }
-  if (!wait) {
-    return;
-  }
+void DBImpl::WaitForBackgroundWork() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_) {
@@ -372,12 +356,51 @@ void DBImpl::CancelAllBackgroundWork(bool wait, bool shutdown) {
   }
 }
 
+// Will lock the mutex_,  will wait for completion if wait is true
+void DBImpl::CancelAllBackgroundWork(bool wait) {
+  InstrumentedMutexLock l(&mutex_);
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Shutdown: canceling all background work");
+
+  if (!shutting_down_.load(std::memory_order_acquire) &&
+      has_unpersisted_data_.load(std::memory_order_relaxed) &&
+      !mutable_db_options_.avoid_flush_during_shutdown) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
+        cfd->Ref();
+        mutex_.Unlock();
+        FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+        mutex_.Lock();
+        cfd->Unref();
+      }
+    }
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
+  }
+
+  shutting_down_.store(true, std::memory_order_release);
+  bg_cv_.SignalAll();
+  if (!wait) {
+    return;
+  }
+  WaitForBackgroundWork();
+}
+
 Status DBImpl::CloseHelper() {
+  // Guarantee that there is no background error recovery in progress before
+  // continuing with the shutdown
+  mutex_.Lock();
+  shutdown_flag_ = true;
+  error_handler_.CancelErrorRecovery();
+  while (error_handler_.IsRecoveryInProgress()) {
+    bg_cv_.Wait();
+  }
+  mutex_.Unlock();
+
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
-  CancelAllBackgroundWork(false, true);
-  error_handler_.CancelErrorRecovery();
+  CancelAllBackgroundWork(false);
   int bottom_compactions_unscheduled =
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
