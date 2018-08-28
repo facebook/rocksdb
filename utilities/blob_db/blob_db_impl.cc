@@ -1280,7 +1280,6 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
                    ") visible to oldest snapshot %" PRIu64 ".",
                    bfile->BlobFileNumber(), obsolete_sequence, oldest_snapshot);
   }
-  SanityCheck(false);
   return visible;
 }
 
