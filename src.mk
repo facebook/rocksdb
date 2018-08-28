@@ -61,6 +61,7 @@ LIB_SOURCES =                                                   \
   env/env_encryption.cc                                         \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
+  $(SPDK_ROOT_DIR)/lib/rocksdb/env_spdk.cc                      \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   memtable/alloc_tracker.cc                                     \
