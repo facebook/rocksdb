@@ -374,7 +374,7 @@ MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
-TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(GTEST)
+TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(LIBOBJECTS) $(GTEST)
 VALGRIND_ERROR = 2
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
