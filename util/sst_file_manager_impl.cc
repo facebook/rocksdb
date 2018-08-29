@@ -32,10 +32,10 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                         max_trash_db_ratio, bytes_max_delete_chunk),
       cv_(&mu_),
       closing_(false),
+      bg_thread_(nullptr),
       reserved_disk_buffer_(0),
       free_space_trigger_(0),
       cur_instance_(nullptr) {
-  bg_thread_.reset(new port::Thread(&SstFileManagerImpl::ClearError, this));
 }
 
 SstFileManagerImpl::~SstFileManagerImpl() {
@@ -300,7 +300,11 @@ void SstFileManagerImpl::ClearError() {
       // seconds
       int64_t wait_until = env_->NowMicros() + 5000000;
       cv_.TimedWait(wait_until);
-    } else {
+    }
+
+    // Check again for error_handler_list_ empty, as a DB instance shutdown
+    // could have removed it from the queue while we were in timed wait
+    if (error_handler_list_.empty()) {
       ROCKS_LOG_INFO(logger_, "Clearing error\n");
       bg_err_ = Status::OK();
       return;
@@ -330,11 +334,16 @@ void SstFileManagerImpl::StartErrorRecovery(ErrorHandler* handler,
   // and recover from this condition
   if (error_handler_list_.empty()) {
     error_handler_list_.push_back(handler);
+    // Release lock before calling join. Its ok to do so because
+    // error_handler_list_ is now non-empty, so no other invocation of this
+    // function will execute this piece of code
+    mu_.Unlock();
     if (bg_thread_) {
       bg_thread_->join();
     }
-    // Start a new thread. The previous one may have exited.
+    // Start a new thread. The previous one would have exited.
     bg_thread_.reset(new port::Thread(&SstFileManagerImpl::ClearError, this));
+    mu_.Lock();
   } else {
     // Check if this DB instance is already in the list
     for (auto iter = error_handler_list_.begin();

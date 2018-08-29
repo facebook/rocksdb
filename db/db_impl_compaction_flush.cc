@@ -967,15 +967,16 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   return s;
 }
 
+
 Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
-  Status ret;
+  Status s;
   WriteContext context;
   WriteThread::Writer w;
 
   mutex_.AssertHeld();
   write_thread_.EnterUnbatched(&w, &mutex_);
 
-  std::vector<std::pair<ColumnFamilyData*, uint64_t>> cfd_id_pairs;
+  FlushRequest flush_req;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
         cached_recoverable_state_empty_.load()) {
@@ -984,44 +985,48 @@ Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
     }
 
     // SwitchMemtable() will release and reacquire mutex during execution
-    Status s;
     s = SwitchMemtable(cfd, &context);
     if (!s.ok()) {
-      ret = s;
       break;
     }
 
     cfd->imm()->FlushRequested();
 
-    // schedule flush
-    SchedulePendingFlush(cfd, flush_reason);
+    flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
+  }
+
+  // schedule flush
+  if (s.ok() && !flush_req.empty()) {
+    SchedulePendingFlush(flush_req, flush_reason);
     MaybeScheduleFlushOrCompaction();
-    cfd_id_pairs.emplace_back(
-        std::make_pair(cfd, cfd->imm()->GetLatestMemTableID()));
   }
 
   write_thread_.ExitUnbatched(&w);
 
-  for (auto& pair : cfd_id_pairs) {
-    auto cfd = pair.first;
-    auto flush_memtable_id = pair.second;
-    while (cfd->imm()->NumNotFlushed() > 0 &&
-           cfd->imm()->GetEarliestMemTableID() <= flush_memtable_id) {
-      if (!error_handler_.GetRecoveryError().ok()) {
-        break;
+  if (s.ok()) {
+    for (auto& flush : flush_req) {
+      auto cfd = flush.first;
+      auto flush_memtable_id = flush.second;
+      while (cfd->imm()->NumNotFlushed() > 0 &&
+             cfd->imm()->GetEarliestMemTableID() <= flush_memtable_id) {
+        if (!error_handler_.GetRecoveryError().ok()) {
+          break;
+        }
+        if (cfd->IsDropped()) {
+          // FlushJob cannot flush a dropped CF, if we did not break here
+          // we will loop forever since cfd->imm()->NumNotFlushed() will never
+          // drop to zero
+          continue;
+        }
+        cfd->Ref();
+        bg_cv_.Wait();
+        cfd->Unref();
       }
-      if (cfd->IsDropped()) {
-        // FlushJob cannot flush a dropped CF, if we did not break here
-        // we will loop forever since cfd->imm()->NumNotFlushed() will never
-        // drop to zero
-        continue;
-      }
-      cfd->Ref();
-      bg_cv_.Wait();
-      cfd->Unref();
     }
   }
-  return ret;
+
+  flush_req.clear();
+  return s;
 }
 
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
@@ -1533,13 +1538,15 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     }
     status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                          job_context, log_buffer);
+    // All the CFDs in the FlushReq must have the same flush reason, so just
+    // grab the first one
+    *reason = bg_flush_args[0].cfd_->GetFlushReason();
     for (auto& arg : bg_flush_args) {
       ColumnFamilyData* cfd = arg.cfd_;
       if (cfd->Unref()) {
         delete cfd;
         arg.cfd_ = nullptr;
       }
-    *reason = cfd->GetFlushReason();
     }
   }
   return status;
