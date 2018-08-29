@@ -1719,7 +1719,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   }
 
   // flush only cfa memtable
-  s = db_impl->TEST_FlushMemTable(true, cfa);
+  s = db_impl->TEST_FlushMemTable(true, false, cfa);
   ASSERT_OK(s);
 
   switch (txn_db_options.write_policy) {
@@ -1738,7 +1738,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   }
 
   // flush only cfb memtable
-  s = db_impl->TEST_FlushMemTable(true, cfb);
+  s = db_impl->TEST_FlushMemTable(true, false, cfb);
   ASSERT_OK(s);
 
   // should show not dependency on logs
@@ -3788,7 +3788,7 @@ TEST_P(TransactionTest, SavepointTest3) {
 
   s = txn1->Put("A", "");
   ASSERT_OK(s);
-  
+
   s = txn1->PopSavePoint();  // Still no SavePoint present
   ASSERT_TRUE(s.IsNotFound());
 
@@ -3798,21 +3798,21 @@ TEST_P(TransactionTest, SavepointTest3) {
   ASSERT_OK(s);
 
   s = txn1->PopSavePoint();  // Remove 1
-  ASSERT_TRUE(txn1->RollbackToSavePoint().IsNotFound()); 
+  ASSERT_TRUE(txn1->RollbackToSavePoint().IsNotFound());
 
-  // Verify that "A" is still locked 
+  // Verify that "A" is still locked
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn2);
 
   s = txn2->Put("A", "a2");
   ASSERT_TRUE(s.IsTimedOut());
   delete txn2;
-  
+
   txn1->SetSavePoint();  // 2
 
   s = txn1->Put("B", "b");
   ASSERT_OK(s);
-  
+
   txn1->SetSavePoint();  // 3
 
   s = txn1->Put("B", "b2");
@@ -3822,7 +3822,7 @@ TEST_P(TransactionTest, SavepointTest3) {
 
   s = txn1->PopSavePoint();
   ASSERT_OK(s);
-  
+
   s = txn1->PopSavePoint();
   ASSERT_TRUE(s.IsNotFound());
 
@@ -3836,12 +3836,12 @@ TEST_P(TransactionTest, SavepointTest3) {
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a", value);
-  
+
   // tnx1 should have set "B" to just "b"
   s = db->Get(read_options, "B", &value);
   ASSERT_OK(s);
   ASSERT_EQ("b", value);
-  
+
   s = db->Get(read_options, "C", &value);
   ASSERT_TRUE(s.IsNotFound());
 }
@@ -5513,7 +5513,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     db->FlushWAL(true);
     // Flush only cf 1
     reinterpret_cast<DBImpl*>(db->GetRootDB())
-        ->TEST_FlushMemTable(true, handles[1]);
+        ->TEST_FlushMemTable(true, false, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5551,7 +5551,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     reinterpret_cast<DBImpl*>(db->GetRootDB())
-        ->TEST_FlushMemTable(true, handles[1]);
+        ->TEST_FlushMemTable(true, false, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5584,7 +5584,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     reinterpret_cast<DBImpl*>(db->GetRootDB())
-        ->TEST_FlushMemTable(true, handles[1]);
+        ->TEST_FlushMemTable(true, false, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5611,7 +5611,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     reinterpret_cast<DBImpl*>(db->GetRootDB())
-        ->TEST_FlushMemTable(true, handles[1]);
+        ->TEST_FlushMemTable(true, false, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -5638,7 +5638,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     reinterpret_cast<DBImpl*>(db->GetRootDB())
-        ->TEST_FlushMemTable(true, handles[1]);
+        ->TEST_FlushMemTable(true, false, handles[1]);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
