@@ -336,12 +336,18 @@ endif()
 
 # Used to run CI build and tests so we can run faster
 option(OPTDBG "Build optimized debug build with MSVC" OFF)
+option(WITH_RUNTIME_DEBUG "build with debug version of runtime library" ON)
 if(MSVC)
   if(OPTDBG)
     message(STATUS "Debug optimization is enabled")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /${RUNTIME_LIBRARY}d")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt")
   else()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /${RUNTIME_LIBRARY}d")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm")
+  endif()
+  if(WITH_RUNTIME_DEBUG)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}d")
+  else()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}")
   endif()
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /${RUNTIME_LIBRARY}")
 
@@ -614,6 +620,7 @@ set(SOURCES
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
+        utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc

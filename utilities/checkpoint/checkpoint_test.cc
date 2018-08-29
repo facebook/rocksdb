@@ -17,12 +17,13 @@
 #include <thread>
 #include <utility>
 #include "db/db_impl.h"
-#include "port/stack_trace.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/fault_injection_test_env.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 
@@ -583,6 +584,32 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
   thread.join();
+}
+
+TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
+  Options options = CurrentOptions();
+  std::unique_ptr<FaultInjectionTestEnv> env(new FaultInjectionTestEnv(env_));
+  options.env = env.get();
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  env->DropUnsyncedFileData();
+
+  // make sure it's openable even though whatever data that wasn't synced got
+  // dropped.
+  options.env = env_;
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "key1", &get_result));
+  ASSERT_EQ("val1", get_result);
+  delete snapshot_db;
+  delete db_;
+  db_ = nullptr;
 }
 
 }  // namespace rocksdb

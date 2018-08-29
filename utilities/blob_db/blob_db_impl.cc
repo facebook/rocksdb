@@ -621,39 +621,6 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   return db_->Write(options, blob_inserter.batch());
 }
 
-Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
-                                uint64_t* manifest_file_size,
-                                bool flush_memtable) {
-  // Hold a lock in the beginning to avoid updates to base DB during the call
-  ReadLock rl(&mutex_);
-  Status s = db_->GetLiveFiles(ret, manifest_file_size, flush_memtable);
-  if (!s.ok()) {
-    return s;
-  }
-  ret.reserve(ret.size() + blob_files_.size());
-  for (auto bfile_pair : blob_files_) {
-    auto blob_file = bfile_pair.second;
-    ret.emplace_back(blob_file->PathName());
-  }
-  return Status::OK();
-}
-
-void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
-  // Hold a lock in the beginning to avoid updates to base DB during the call
-  ReadLock rl(&mutex_);
-  db_->GetLiveFilesMetaData(metadata);
-  for (auto bfile_pair : blob_files_) {
-    auto blob_file = bfile_pair.second;
-    LiveFileMetaData filemetadata;
-    filemetadata.size = blob_file->GetFileSize();
-    filemetadata.name = blob_file->PathName();
-    auto cfh =
-        reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
-    filemetadata.column_family_name = cfh->GetName();
-    metadata->emplace_back(filemetadata);
-  }
-}
-
 Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
   return PutUntil(options, key, value, kNoExpiration);
@@ -1148,9 +1115,10 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
+  PinnableSlice index_entry;
   Status s;
   bool is_blob_index = false;
-  s = db_impl_->GetImpl(ro, column_family, key, value,
+  s = db_impl_->GetImpl(ro, column_family, key, &index_entry,
                         nullptr /*value_found*/, nullptr /*read_callback*/,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
@@ -1158,16 +1126,19 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   if (expiration != nullptr) {
     *expiration = kNoExpiration;
   }
-  if (s.ok() && is_blob_index) {
-    std::string index_entry = value->ToString();
-    value->Reset();
-    s = GetBlobValue(key, index_entry, value, expiration);
+  RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
+  if (s.ok()) {
+    if (is_blob_index) {
+      s = GetBlobValue(key, index_entry, value, expiration);
+    } else {
+      // The index entry is the value itself in this case.
+      value->PinSelf(index_entry);
+    }
+    RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
   }
-  RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
-  RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   return s;
 }
 
@@ -1684,16 +1655,21 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 }
 
 std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
-  if (aborted) return std::make_pair(false, -1);
+  if (aborted) {
+    return std::make_pair(false, -1);
+  }
 
-  {
-    ReadLock rl(&mutex_);
-    if (obsolete_files_.empty()) return std::make_pair(true, -1);
+  MutexLock delete_file_lock(&delete_file_mutex_);
+  if (disable_file_deletions_ > 0) {
+    return std::make_pair(true, -1);
   }
 
   std::list<std::shared_ptr<BlobFile>> tobsolete;
   {
     WriteLock wl(&mutex_);
+    if (obsolete_files_.empty()) {
+      return std::make_pair(true, -1);
+    }
     tobsolete.swap(obsolete_files_);
   }
 
