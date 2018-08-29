@@ -417,7 +417,9 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   for (int i = 0; static_cast<int>(cf_meta.file_count) < kSlowdownTrigger * 10;
        ++i) {
     Put(1, ToString(i), std::string(10000, 'x'), WriteOptions());
-    db_->Flush(FlushOptions(), handles_[1]);
+    FlushOptions fo;
+    fo.allow_write_stall = true;
+    db_->Flush(fo, handles_[1]);
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
