@@ -782,8 +782,10 @@ class PosixEnv : public Env {
     {
       IOSTATS_TIMER_GUARD(open_nanos);
       f = fopen(fname.c_str(), "w"
-#if defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2, 7)
+#ifdef __GLIBC_PREREQ
+#if __GLIBC_PREREQ(2, 7)
           "e" // glibc extension to enable O_CLOEXEC
+#endif
 #endif
           );
     }
