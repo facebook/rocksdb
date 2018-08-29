@@ -102,6 +102,18 @@ class PosixFileLock : public FileLock {
   std::string filename;
 };
 
+int cloexec_flags(int flags, const EnvOptions* options) {
+  // If the system supports opening the file with cloexec enabled,
+  // do so, as this avoids a race condition if a db is opened around
+  // the same time that a child process is forked
+#ifdef O_CLOEXEC
+  if (options == nullptr || options->set_fd_cloexec) {
+    flags |= O_CLOEXEC;
+  }
+#endif
+  return flags;
+}
+
 class PosixEnv : public Env {
  public:
   PosixEnv();
@@ -133,7 +145,7 @@ class PosixEnv : public Env {
                                    const EnvOptions& options) override {
     result->reset();
     int fd = -1;
-    int flags = O_RDONLY;
+    int flags = cloexec_flags(O_RDONLY, &options);
     FILE* file = nullptr;
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
@@ -184,7 +196,8 @@ class PosixEnv : public Env {
     result->reset();
     Status s;
     int fd;
-    int flags = O_RDONLY;
+    int flags = cloexec_flags(O_RDONLY, &options);
+
     if (options.use_direct_reads && !options.use_mmap_reads) {
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
@@ -265,6 +278,8 @@ class PosixEnv : public Env {
     } else {
       flags |= O_WRONLY;
     }
+
+    flags = cloexec_flags(flags, &options);
 
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
@@ -354,6 +369,8 @@ class PosixEnv : public Env {
       flags |= O_WRONLY;
     }
 
+    flags = cloexec_flags(flags, &options);
+
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
       fd = open(old_fname.c_str(), flags,
@@ -415,9 +432,12 @@ class PosixEnv : public Env {
                                  unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) override {
     int fd = -1;
+    int flags = cloexec_flags(O_RDWR, &options);
+
     while (fd < 0) {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_RDWR, GetDBFileMode(allow_non_owner_access_));
+
+      fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
       if (fd < 0) {
         // Error while opening the file
         if (errno == EINTR) {
@@ -437,9 +457,11 @@ class PosixEnv : public Env {
       unique_ptr<MemoryMappedFileBuffer>* result) override {
     int fd = -1;
     Status status;
+    int flags = cloexec_flags(O_RDWR, nullptr);
+
     while (fd < 0) {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_RDWR, 0644);
+      fd = open(fname.c_str(), flags, 0644);
       if (fd < 0) {
         // Error while opening the file
         if (errno == EINTR) {
@@ -477,9 +499,10 @@ class PosixEnv : public Env {
                               unique_ptr<Directory>* result) override {
     result->reset();
     int fd;
+    int flags = cloexec_flags(0, nullptr);
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(name.c_str(), 0);
+      fd = open(name.c_str(), flags);
     }
     if (fd < 0) {
       return IOError("While open directory", name, errno);
@@ -663,9 +686,11 @@ class PosixEnv : public Env {
     }
 
     int fd;
+    int flags = cloexec_flags(O_RDWR | O_CREAT, nullptr);
+
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
+      fd = open(fname.c_str(), flags, 0644);
     }
     if (fd < 0) {
       result = IOError("while open a file for lock", fname, errno);
@@ -756,7 +781,13 @@ class PosixEnv : public Env {
     FILE* f;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(), "w");
+      f = fopen(fname.c_str(), "w"
+#ifdef __GLIBC_PREREQ
+#if __GLIBC_PREREQ(2, 7)
+          "e" // glibc extension to enable O_CLOEXEC
+#endif
+#endif
+          );
     }
     if (f == nullptr) {
       result->reset();
