@@ -3651,7 +3651,6 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
 
   //used for the delayable flushes
   FlushOptions flush_opts;
-  flush_opts.wait = false;
   flush_opts.allow_write_stall = true;
   for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
     for (int j = 0; j < 2; ++j) {
