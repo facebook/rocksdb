@@ -1,3 +1,5 @@
+load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+
 REPO_PATH = package_name() + "/"
 
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
@@ -1095,4 +1097,3 @@ if not is_opt_mode:
           deps = [":" + test_bin],
           command = [TEST_RUNNER, BUCK_BINS + test_bin]
         )
-

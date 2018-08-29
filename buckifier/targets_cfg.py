@@ -2,7 +2,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-rocksdb_target_header = """REPO_PATH = package_name() + "/"
+rocksdb_target_header = """
+load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
+
+REPO_PATH = package_name() + "/"
 
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 
