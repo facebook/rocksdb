@@ -1143,13 +1143,13 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
 }
 
 std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
-  if (aborted) return std::make_pair(false, -1);
+  if (aborted) {
+    return std::make_pair(false, -1);
+  }
 
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
-
   ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" PRIu64,
                  blob_files_.size());
-
   ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" PRIu64,
                  open_ttl_files_.size());
 
@@ -1157,14 +1157,33 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
     assert(!bfile->Immutable());
   }
 
-  uint64_t epoch_now = EpochNow();
+  uint64_t now = EpochNow();
 
-  for (auto bfile_pair : blob_files_) {
-    auto bfile = bfile_pair.second;
-    ROCKS_LOG_INFO(
-        db_options_.info_log, "Blob File %s %" PRIu64 " %" PRIu64 " %" PRIu64,
-        bfile->PathName().c_str(), bfile->GetFileSize(), bfile->BlobCount(),
-        (bfile->expiration_range_.second - epoch_now));
+  for (auto blob_file_pair : blob_files_) {
+    auto blob_file = blob_file_pair.second;
+    char buf[1000];
+    int pos = snprintf(buf, sizeof(buf),
+                       "Blob file %" PRIu64 ", size %" PRIu64
+                       ", blob count %" PRIu64 ", immutable %d",
+                       blob_file->BlobFileNumber(), blob_file->GetFileSize(),
+                       blob_file->BlobCount(), blob_file->Immutable());
+    if (blob_file->HasTTL()) {
+      auto expiration_range = blob_file->GetExpirationRange();
+      pos += snprintf(buf + pos, sizeof(buf) - pos,
+                      ", expiration range (%" PRIu64 ", %" PRIu64 ")",
+                      expiration_range.first, expiration_range.second);
+      if (!blob_file->Obsolete()) {
+        pos += snprintf(buf + pos, sizeof(buf) - pos,
+                        ", expire in %" PRIu64 " seconds",
+                        expiration_range.second - now);
+      }
+    }
+    if (blob_file->Obsolete()) {
+      pos += snprintf(buf + pos, sizeof(buf) - pos, ", obsolete at %" PRIu64,
+                      blob_file->GetObsoleteSequence());
+    }
+    snprintf(buf + pos, sizeof(buf) - pos, ".");
+    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf);
   }
 
   // reschedule
@@ -1254,7 +1273,14 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
       oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
     }
   }
-  return oldest_snapshot < obsolete_sequence;
+  bool visible = oldest_snapshot < obsolete_sequence;
+  if (visible) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Obsolete blob file %" PRIu64 " (obsolete at %" PRIu64
+                   ") visible to oldest snapshot %" PRIu64 ".",
+                   bfile->BlobFileNumber(), obsolete_sequence, oldest_snapshot);
+  }
+  return visible;
 }
 
 std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
