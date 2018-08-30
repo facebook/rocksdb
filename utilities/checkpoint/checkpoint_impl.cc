@@ -120,7 +120,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-          return CreateFile(db_->GetEnv(), full_private_path + fname, contents);
+          return CreateFile(db_->GetEnv(), full_private_path + fname, contents,
+                            db_options.use_fsync);
         } /* create_file_cb */,
         &sequence_number, log_size_for_flush);
     // we copied all the files, enable file deletions

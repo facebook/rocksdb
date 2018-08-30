@@ -1115,9 +1115,10 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
+  PinnableSlice index_entry;
   Status s;
   bool is_blob_index = false;
-  s = db_impl_->GetImpl(ro, column_family, key, value,
+  s = db_impl_->GetImpl(ro, column_family, key, &index_entry,
                         nullptr /*value_found*/, nullptr /*read_callback*/,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
@@ -1125,27 +1126,30 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   if (expiration != nullptr) {
     *expiration = kNoExpiration;
   }
-  if (s.ok() && is_blob_index) {
-    std::string index_entry = value->ToString();
-    value->Reset();
-    s = GetBlobValue(key, index_entry, value, expiration);
+  RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
+  if (s.ok()) {
+    if (is_blob_index) {
+      s = GetBlobValue(key, index_entry, value, expiration);
+    } else {
+      // The index entry is the value itself in this case.
+      value->PinSelf(index_entry);
+    }
+    RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
   }
-  RecordTick(statistics_, BLOB_DB_NUM_KEYS_READ);
-  RecordTick(statistics_, BLOB_DB_BYTES_READ, value->size());
   return s;
 }
 
 std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
-  if (aborted) return std::make_pair(false, -1);
+  if (aborted) {
+    return std::make_pair(false, -1);
+  }
 
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
-
   ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" PRIu64,
                  blob_files_.size());
-
   ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" PRIu64,
                  open_ttl_files_.size());
 
@@ -1153,14 +1157,33 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
     assert(!bfile->Immutable());
   }
 
-  uint64_t epoch_now = EpochNow();
+  uint64_t now = EpochNow();
 
-  for (auto bfile_pair : blob_files_) {
-    auto bfile = bfile_pair.second;
-    ROCKS_LOG_INFO(
-        db_options_.info_log, "Blob File %s %" PRIu64 " %" PRIu64 " %" PRIu64,
-        bfile->PathName().c_str(), bfile->GetFileSize(), bfile->BlobCount(),
-        (bfile->expiration_range_.second - epoch_now));
+  for (auto blob_file_pair : blob_files_) {
+    auto blob_file = blob_file_pair.second;
+    char buf[1000];
+    int pos = snprintf(buf, sizeof(buf),
+                       "Blob file %" PRIu64 ", size %" PRIu64
+                       ", blob count %" PRIu64 ", immutable %d",
+                       blob_file->BlobFileNumber(), blob_file->GetFileSize(),
+                       blob_file->BlobCount(), blob_file->Immutable());
+    if (blob_file->HasTTL()) {
+      auto expiration_range = blob_file->GetExpirationRange();
+      pos += snprintf(buf + pos, sizeof(buf) - pos,
+                      ", expiration range (%" PRIu64 ", %" PRIu64 ")",
+                      expiration_range.first, expiration_range.second);
+      if (!blob_file->Obsolete()) {
+        pos += snprintf(buf + pos, sizeof(buf) - pos,
+                        ", expire in %" PRIu64 " seconds",
+                        expiration_range.second - now);
+      }
+    }
+    if (blob_file->Obsolete()) {
+      pos += snprintf(buf + pos, sizeof(buf) - pos, ", obsolete at %" PRIu64,
+                      blob_file->GetObsoleteSequence());
+    }
+    snprintf(buf + pos, sizeof(buf) - pos, ".");
+    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf);
   }
 
   // reschedule
@@ -1250,7 +1273,14 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
       oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
     }
   }
-  return oldest_snapshot < obsolete_sequence;
+  bool visible = oldest_snapshot < obsolete_sequence;
+  if (visible) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Obsolete blob file %" PRIu64 " (obsolete at %" PRIu64
+                   ") visible to oldest snapshot %" PRIu64 ".",
+                   bfile->BlobFileNumber(), obsolete_sequence, oldest_snapshot);
+  }
+  return visible;
 }
 
 std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
