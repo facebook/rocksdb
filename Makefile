@@ -371,11 +371,10 @@ endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
-TOOLLIBOBJECTS = $(TOOL_LIB_SOURCES:.cc=.o)
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
-TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(TOOLLIBOBJECTS) $(GTEST)
+TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(GTEST)
 VALGRIND_ERROR = 2
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
@@ -1003,8 +1002,10 @@ unity.a: unity.o
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ unity.o
 
+
+TOOLLIBOBJECTS = $(TOOL_LIB_SOURCES:.cc=.o)
 # try compiling db_test with unity
-unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) unity.a
+unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) $(TOOLLIBOBJECTS) unity.a
 	$(AM_LINK)
 	./unity_test
 
