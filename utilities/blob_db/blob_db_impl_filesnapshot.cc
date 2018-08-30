@@ -77,9 +77,9 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
   ret.reserve(ret.size() + blob_files_.size());
   for (auto bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
-    // Path should be relative to db_name.
+    // Path should be relative to db_name, but begin with slash.
     ret.emplace_back(
-        BlobFileName(bdb_options_.blob_dir, blob_file->BlobFileNumber()));
+        BlobFileName("/" + bdb_options_.blob_dir, blob_file->BlobFileNumber()));
   }
   return Status::OK();
 }
@@ -94,8 +94,9 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
     filemetadata.size = blob_file->GetFileSize();
+    // Path should be relative to db_name, but begin with slash.
     filemetadata.name =
-        BlobFileName(bdb_options_.blob_dir, blob_file->BlobFileNumber());
+        BlobFileName("/" + bdb_options_.blob_dir, blob_file->BlobFileNumber());
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
     filemetadata.column_family_name = cfh->GetName();
     metadata->emplace_back(filemetadata);
