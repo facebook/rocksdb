@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.15.8 (8/31/2018)
+### Bug Fixes
+* Further avoid creating empty SSTs and subsequently deleting them during compaction.
+
 ## 5.15.7 (8/24/2018)
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
