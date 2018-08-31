@@ -116,6 +116,22 @@ private:
   std::vector<std::atomic<int>> compaction_completed_;
 };
 
+class SstStatsCollector : public EventListener {
+ public:
+  SstStatsCollector() : num_ssts_creation_started_(0) {}
+
+  void OnTableFileCreationStarted(const TableFileCreationBriefInfo& /* info */) override {
+    ++num_ssts_creation_started_;
+  }
+
+  int num_ssts_creation_started() {
+    return num_ssts_creation_started_;
+  }
+
+ private:
+  std::atomic<int> num_ssts_creation_started_;
+};
+
 static const int kCDTValueSize = 1000;
 static const int kCDTKeysPerBuffer = 4;
 static const int kCDTNumLevels = 8;
@@ -3820,6 +3836,30 @@ TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {
       "DBCompactionTest::CompactFilesOutputRangeConflict:Thread2End");
 
   bg_thread.join();
+}
+
+TEST_F(DBCompactionTest, CompactionHasEmptyOutput) {
+  Options options = CurrentOptions();
+  SstStatsCollector* collector = new SstStatsCollector();
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(collector);
+  Reopen(options);
+
+  // Make sure the L0 files overlap to prevent trivial move.
+  ASSERT_OK(Put("a", "val"));
+  ASSERT_OK(Put("b", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("a"));
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Flush());
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+
+  // Expect one file creation to start for each flush, and zero for compaction
+  // since no keys are written.
+  ASSERT_EQ(2, collector->num_ssts_creation_started());
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
