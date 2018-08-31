@@ -489,9 +489,9 @@ class MapSstIterator final : public InternalIterator {
           continue;
         }
       }
-      auto key = it->key();
-      if (icomp.Compare(key, largest_key_) < include_largest_) {
-        min_heap_.push(HeapElement{it, key});
+      auto k = it->key();
+      if (icomp.Compare(k, largest_key_) < include_largest_) {
+        min_heap_.push(HeapElement{it, k});
       }
     }
   }
@@ -516,18 +516,18 @@ class MapSstIterator final : public InternalIterator {
           continue;
         }
       }
-      auto key = it->key();
-      if (icomp.Compare(smallest_key_, key) < include_smallest_) {
-        max_heap_.push(HeapElement{it, key});
+      auto k = it->key();
+      if (icomp.Compare(smallest_key_, k) < include_smallest_) {
+        max_heap_.push(HeapElement{it, k});
       }
     }
   }
 
   bool IsInRange() {
     auto& icomp = min_heap_.comparator().internal_comparator();
-    auto key = max_heap_.top().key;
-    return icomp.Compare(smallest_key_, key) < include_smallest_ &&
-           icomp.Compare(key, largest_key_) < include_largest_;
+    auto k = max_heap_.top().key;
+    return icomp.Compare(smallest_key_, k) < include_smallest_ &&
+           icomp.Compare(k, largest_key_) < include_largest_;
   }
 
  public:

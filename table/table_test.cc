@@ -334,7 +334,8 @@ class TableConstructor: public Constructor {
             ioptions, moptions, internal_comparator,
             &int_tbl_prop_collector_factories, options.compression,
             CompressionOptions(), nullptr /* compression_dict */,
-            false /* skip_filters */, column_family_name, level_),
+            false /* skip_filters */, false /* ignore_key_tyoe */,
+            column_family_name, level_),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
@@ -2564,7 +2565,8 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
       TableBuilderOptions(
           ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
           kNoCompression, CompressionOptions(), nullptr /* compression_dict */,
-          false /* skip_filters */, column_family_name, unknown_level),
+          false /* skip_filters */, false /* ignore_key_type */,
+          column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3168,7 +3170,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
                           CompressionOptions(), nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name, -1),
+                          false /* skip_filters */, false /* ignore_key_type */,
+                          column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3348,7 +3351,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
                           CompressionOptions(), nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name, -1),
+                          false /* skip_filters */, false /* ignore_key_type */,
+                          column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3441,7 +3445,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
                           CompressionOptions(), nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name, -1),
+                          false /* skip_filters */, false /* ignore_key_type */,
+                          column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 

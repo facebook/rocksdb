@@ -329,7 +329,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       }
     }
   }
-  if (c == nullptr) {
+  if (c == nullptr && table_cache_ != nullptr) {
     c = PickGeneralCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
   }
 
@@ -542,9 +542,6 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
                      cf_name.c_str(), iter->status().getState());
     return nullptr;
   }
-  MapSstElement map_element;
-  RangeStorage range;
-  std::multimap<size_t, InternalKey, std::greater<size_t>> link_count_map;
   auto range_size = [](const MapSstElement& range) {
     size_t sum = 0;
     size_t max = 0;
@@ -559,6 +556,9 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     key.assign(ukey.data(), ukey.size());
   };
 
+  std::multimap<size_t, InternalKey, std::greater<size_t>> link_count_map;
+  MapSstElement map_element;
+  RangeStorage range;
   auto uc = ioptions_.internal_comparator.user_comparator();
   bool has_start = false;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -761,7 +761,7 @@ namespace {
 //
 Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, double score, unsigned int ratio,
+    VersionStorageInfo* vstorage, double score, unsigned int /*ratio*/,
     unsigned int max_number_of_files_to_compact,
     const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer) {
   unsigned int min_merge_width =

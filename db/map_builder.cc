@@ -529,7 +529,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   auto& icomp = cfd->internal_comparator();
   DependFileMap empty_delend_files;
-  auto& depend_files = vstorage->depend_files();
 
   auto create_iterator = [&](const FileMetaData* f,
                              const DependFileMap& depend_files, Arena* arena,
@@ -550,7 +549,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                false /* skip_filters */, -1);
   };
 
-  IteratorCache iterator_cache(depend_files, &create_iterator,
+  IteratorCache iterator_cache(vstorage->depend_files(), &create_iterator,
                                c_style_callback(create_iterator));
 
   std::list<std::vector<RangeWithDepend>> level_ranges;
