@@ -344,60 +344,12 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     CleanupSuperVersion(super_version);
   }
 
-  if (!options.allow_write_stall && flush_needed) {
-    InstrumentedMutexLock l(&mutex_);
-    uint64_t orig_active_memtable_id = cfd->mem()->GetID();
-    WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
-    do {
-      if (write_stall_condition != WriteStallCondition::kNormal) {
-        TEST_SYNC_POINT("DBImpl::CompactRange:StallWait");
-        ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                       "[%s] CompactRange waiting on stall conditions to clear",
-                       cfd->GetName().c_str());
-        bg_cv_.Wait();
-      }
-      if (cfd->IsDropped() || shutting_down_.load(std::memory_order_acquire)) {
-        return Status::ShutdownInProgress();
-      }
-
-      uint64_t earliest_memtable_id =
-          std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
-      if (earliest_memtable_id > orig_active_memtable_id) {
-        // We waited so long that the memtable we were originally waiting on was
-        // flushed.
-        flush_needed = false;
-        break;
-      }
-
-      const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
-      const auto* vstorage = cfd->current()->storage_info();
-
-      // Skip stalling check if we're below auto-flush and auto-compaction
-      // triggers. If it stalled in these conditions, that'd mean the stall
-      // triggers are so low that stalling is needed for any background work. In
-      // that case we shouldn't wait since background work won't be scheduled.
-      if (cfd->imm()->NumNotFlushed() <
-              cfd->ioptions()->min_write_buffer_number_to_merge &&
-          vstorage->l0_delay_trigger_count() <
-              mutable_cf_options.level0_file_num_compaction_trigger) {
-        break;
-      }
-
-      // check whether one extra immutable memtable or an extra L0 file would
-      // cause write stalling mode to be entered. It could still enter stall
-      // mode due to pending compaction bytes, but that's less common
-      write_stall_condition =
-          ColumnFamilyData::GetWriteStallConditionAndCause(
-              cfd->imm()->NumNotFlushed() + 1,
-              vstorage->l0_delay_trigger_count() + 1,
-              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
-              .first;
-    } while (write_stall_condition != WriteStallCondition::kNormal);
-  }
-  TEST_SYNC_POINT("DBImpl::CompactRange:StallWaitDone");
   Status s;
   if (flush_needed) {
-    s = FlushMemTable(cfd, FlushOptions(), FlushReason::kManualCompaction);
+    FlushOptions fo;
+    fo.allow_write_stall = options.allow_write_stall;
+    s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
+      false /* writes_stopped*/);
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;
@@ -1097,6 +1049,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
   uint64_t flush_memtable_id = 0;
+  if (!flush_options.allow_write_stall) {
+    bool flush_needed = true;
+    s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
+    TEST_SYNC_POINT("DBImpl::FlushMemTable:StallWaitDone");
+    if (!s.ok() || !flush_needed) {
+      return s;
+    }
+  }
   FlushRequest flush_req;
   {
     WriteContext context;
@@ -1139,6 +1099,69 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
+}
+
+// Calling FlushMemTable(), whether from DB::Flush() or from Backup Engine, can
+// cause write stall, for example if one memtable is being flushed already.
+// This method tries to avoid write stall (similar to CompactRange() behavior)
+// it emulates how the SuperVersion / LSM would change if flush happens, checks
+// it against various constrains and delays flush if it'd cause write stall.
+// Called should check status and flush_needed to see if flush already happened.
+Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
+    bool* flush_needed) {
+  {
+    *flush_needed = true;
+    InstrumentedMutexLock l(&mutex_);
+    uint64_t orig_active_memtable_id = cfd->mem()->GetID();
+    WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
+    do {
+      if (write_stall_condition != WriteStallCondition::kNormal) {
+        TEST_SYNC_POINT("DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait");
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[%s] WaitUntilFlushWouldNotStallWrites"
+                       " waiting on stall conditions to clear",
+                       cfd->GetName().c_str());
+        bg_cv_.Wait();
+      }
+      if (cfd->IsDropped() || shutting_down_.load(std::memory_order_acquire)) {
+        return Status::ShutdownInProgress();
+      }
+
+      uint64_t earliest_memtable_id =
+          std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
+      if (earliest_memtable_id > orig_active_memtable_id) {
+        // We waited so long that the memtable we were originally waiting on was
+        // flushed.
+        *flush_needed = false;
+        return Status::OK();
+      }
+
+      const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+      const auto* vstorage = cfd->current()->storage_info();
+
+      // Skip stalling check if we're below auto-flush and auto-compaction
+      // triggers. If it stalled in these conditions, that'd mean the stall
+      // triggers are so low that stalling is needed for any background work. In
+      // that case we shouldn't wait since background work won't be scheduled.
+      if (cfd->imm()->NumNotFlushed() <
+              cfd->ioptions()->min_write_buffer_number_to_merge &&
+          vstorage->l0_delay_trigger_count() <
+              mutable_cf_options.level0_file_num_compaction_trigger) {
+        break;
+      }
+
+      // check whether one extra immutable memtable or an extra L0 file would
+      // cause write stalling mode to be entered. It could still enter stall
+      // mode due to pending compaction bytes, but that's less common
+      write_stall_condition =
+          ColumnFamilyData::GetWriteStallConditionAndCause(
+              cfd->imm()->NumNotFlushed() + 1,
+              vstorage->l0_delay_trigger_count() + 1,
+              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
+              .first;
+    } while (write_stall_condition != WriteStallCondition::kNormal);
+  }
+  return Status::OK();
 }
 
 // Wait for memtables to be flushed for multiple column families.
