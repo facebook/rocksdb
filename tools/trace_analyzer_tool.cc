@@ -185,7 +185,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
   return (op1 * op2);
 }
 
-void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
+void DecodeCFAndKeyFromString(std::string& buffer, uint32_t* cf_id, Slice* key) {
   Slice buf(buffer);
   GetFixed32(&buf, cf_id);
   GetLengthPrefixedSlice(&buf, key);
@@ -459,7 +459,7 @@ Status TraceAnalyzer::StartProcessing() {
     } else if (trace.type == kTraceGet) {
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
       total_gets_++;
 
       s = HandleGet(cf_id, key.ToString(), trace.ts, 1);
@@ -471,7 +471,7 @@ Status TraceAnalyzer::StartProcessing() {
                trace.type == kTraceIteratorSeekForPrev) {
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
       s = HandleIter(cf_id, key.ToString(), trace.ts, trace.type);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
