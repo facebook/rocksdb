@@ -80,6 +80,13 @@ std::string BlobFileName(const std::string& blobdirname, uint64_t number) {
   return MakeFileName(blobdirname, number, kRocksDBBlobFileExt.c_str());
 }
 
+std::string BlobFileName(const std::string& dbname, const std::string& blob_dir,
+                         uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(dbname + "/" + blob_dir, number,
+                      kRocksDBBlobFileExt.c_str());
+}
+
 std::string ArchivalDirectory(const std::string& dir) {
   return dir + "/" + ARCHIVAL_DIR;
 }
