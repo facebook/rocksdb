@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.14.4 (8/31/2018)
+### Bug Fixes
+* Suppress leak warning for clang(LLVM) ASAN
+
 ## 5.14.3 (7/30/2018)
 ### New Features
 * reduce file tail prefetch when not reading index/filter blocks.
