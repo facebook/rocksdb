@@ -1238,7 +1238,8 @@ class DbStressListener : public EventListener {
                    const std::vector<DbPath>& db_paths,
                    const std::vector<ColumnFamilyDescriptor>& column_families)
       : db_name_(db_name), db_paths_(db_paths),
-        column_families_(column_families) {}
+        column_families_(column_families),
+        num_pending_file_creations_(0) {}
   virtual ~DbStressListener() {
     assert(num_pending_file_creations_ == 0);
   }
