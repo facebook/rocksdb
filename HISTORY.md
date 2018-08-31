@@ -3,6 +3,7 @@
 ### New Features
 * Introduced `CacheAllocator`, which lets the user specify custom allocator for memory in block cache.
 * Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context.
+* With level_compaction_dynamic_level_bytes = true, level multiplier may be adjusted automatically when Level 0 to 1 compaction is lagged behind.
 
 ### Bug Fixes
 * Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.

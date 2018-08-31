@@ -268,6 +268,93 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLargeLevel) {
   ASSERT_EQ(0, logger_->log_count);
 }
 
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 40000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  Add(0, 1U, "1", "2", 10000U);
+  Add(0, 2U, "1", "2", 10000U);
+  Add(0, 3U, "1", "2", 10000U);
+
+  Add(5, 4U, "1", "2", 1286250U);
+  Add(4, 5U, "1", "2", 200000U);
+  Add(3, 6U, "1", "2", 40000U);
+  Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(2, vstorage_.base_level());
+  // level multiplier should be 3.5
+  ASSERT_EQ(vstorage_.level_multiplier(), 5.0);
+  // Level size should be around 30,000, 105,000, 367,500
+  ASSERT_EQ(40000U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
+  ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
+}
+
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 10000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  Add(0, 11U, "1", "2", 10000U);
+  Add(0, 12U, "1", "2", 10000U);
+  Add(0, 13U, "1", "2", 10000U);
+
+  Add(5, 4U, "1", "2", 1286250U);
+  Add(4, 5U, "1", "2", 200000U);
+  Add(3, 6U, "1", "2", 40000U);
+  Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(2, vstorage_.base_level());
+  // level multiplier should be 3.5
+  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
+  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
+  // Level size should be around 30,000, 105,000, 367,500
+  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
+  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+}
+
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 10000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+
+  Add(0, 11U, "1", "2", 5000U);
+  Add(0, 12U, "1", "2", 5000U);
+  Add(0, 13U, "1", "2", 5000U);
+  Add(0, 14U, "1", "2", 5000U);
+  Add(0, 15U, "1", "2", 5000U);
+  Add(0, 16U, "1", "2", 5000U);
+
+  Add(5, 4U, "1", "2", 1286250U);
+  Add(4, 5U, "1", "2", 200000U);
+  Add(3, 6U, "1", "2", 40000U);
+  Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(2, vstorage_.base_level());
+  // level multiplier should be 3.5
+  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
+  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
+  // Level size should be around 30,000, 105,000, 367,500
+  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
+  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+}
+
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
   // Test whether the overlaps are detected as expected
   Add(1, 1U, "4", "7", 1U);  // Perfect overlap with last level
