@@ -822,8 +822,9 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   ASSERT_TRUE(blob_db_->Get(ReadOptions(), "k1", &value).IsNotFound());
   ASSERT_TRUE(
       blob_db_->Get(ReadOptions(), handle, "k", &value).IsNotSupported());
-  auto statuses = blob_db_->MultiGet(ReadOptions(), {default_handle, handle},
-                                     {"k1", "k2"}, &values);
+  std::vector<Status> statuses(2);
+  blob_db_->MultiGet(ReadOptions(), {default_handle, handle}, {"k1", "k2"},
+                     &values, statuses);
   ASSERT_EQ(2, statuses.size());
   ASSERT_TRUE(statuses[0].IsNotSupported());
   ASSERT_TRUE(statuses[1].IsNotSupported());

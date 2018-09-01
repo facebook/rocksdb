@@ -54,11 +54,11 @@ class DBWithTTLImpl : public DBWithTTL {
                      PinnableSlice* value) override;
 
   using StackableDB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<PinnableSlice>* values) override;
+  virtual void MultiGet(const ReadOptions& options,
+                        const std::vector<ColumnFamilyHandle*>& column_family,
+                        const std::vector<Slice>& keys,
+                        std::vector<PinnableSlice>* values,
+                        std::vector<Status>& statuses) override;
 
   using StackableDB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,

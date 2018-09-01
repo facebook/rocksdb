@@ -114,11 +114,11 @@ class DBImpl : public DB {
                  bool* is_blob_index = nullptr);
 
   using DB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<PinnableSlice>* values) override;
+  virtual void MultiGet(const ReadOptions& options,
+                        const std::vector<ColumnFamilyHandle*>& column_family,
+                        const std::vector<Slice>& keys,
+                        std::vector<PinnableSlice>* values,
+                        std::vector<Status>& statuses) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,

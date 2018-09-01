@@ -159,24 +159,26 @@ class BlobDB : public StackableDB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override = 0;
   // TODO (yiwu): add support for MultiGet which takes PinnableSlice
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Slice>& keys,
-      std::vector<PinnableSlice>* values) override {
+  virtual void MultiGet(const ReadOptions& options,
+                        const std::vector<ColumnFamilyHandle*>& column_families,
+                        const std::vector<Slice>& keys,
+                        std::vector<PinnableSlice>* values,
+                        std::vector<Status>& statuses) override {
     for (auto column_family : column_families) {
       if (column_family != DefaultColumnFamily()) {
-        return std::vector<Status>(
-            column_families.size(),
-            Status::NotSupported(
-                "Blob DB doesn't support non-default column family."));
+        for (size_t i = 0; i < column_families.size(); ++i) {
+          statuses[i] = Status::NotSupported(
+              "Blob DB doesn't support non-default column family.");
+        }
+        return;
       }
     }
     std::vector<std::string> string_values;
     for (size_t i = 0; i < values->size(); ++i) {
       string_values.push_back(*(*values)[i].GetSelf());
     }
-    return MultiGet(options, keys, &string_values);
+    statuses = MultiGet(options, keys, &string_values);
+    return;
   }
 
   using rocksdb::StackableDB::SingleDelete;

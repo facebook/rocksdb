@@ -214,11 +214,12 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
   return StripTS(value);
 }
 
-std::vector<Status> DBWithTTLImpl::MultiGet(
+void DBWithTTLImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
-  auto statuses = db_->MultiGet(options, column_family, keys, values);
+    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values,
+    std::vector<Status>& statuses) {
+  db_->MultiGet(options, column_family, keys, values, statuses);
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {
       continue;
@@ -229,7 +230,7 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     }
     statuses[i] = StripTS(&(*values)[i]);
   }
-  return statuses;
+  return;
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,

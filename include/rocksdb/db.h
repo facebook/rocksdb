@@ -367,15 +367,17 @@ class DB {
       assert(!pinnable_vector[i].IsPinned());
       pinnable_vector[i].ResetSelf(&(*values)[i]);
     }
-    std::vector<Status> s = MultiGet(options, column_family, keys, &pinnable_vector);
-    assert(s.size() == pinnable_vector.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-      if (s[i].ok() && pinnable_vector[i].IsPinned()) {
-        (*values)[i].assign(pinnable_vector[i].data(), pinnable_vector[i].size());
+    std::vector<Status> statuses(keys.size());
+    MultiGet(options, column_family, keys, &pinnable_vector, statuses);
+    assert(statuses.size() == pinnable_vector.size());
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      if (statuses[i].ok() && pinnable_vector[i].IsPinned()) {
+        (*values)[i].assign(pinnable_vector[i].data(),
+                            pinnable_vector[i].size());
       }
     }
     pinnable_vector.clear();
-    return s;
+    return statuses;
   }
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
                                        const std::vector<Slice>& keys,
@@ -384,10 +386,12 @@ class DB {
                                  keys.size(), DefaultColumnFamily()),
                     keys, values);
   }
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) = 0;
+  // TODO(Zhongyi): make values reference not pointer?
+  virtual void MultiGet(const ReadOptions& options,
+                        const std::vector<ColumnFamilyHandle*>& column_family,
+                        const std::vector<Slice>& keys,
+                        std::vector<PinnableSlice>* values,
+                        std::vector<Status>& statuses) = 0;
 
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key

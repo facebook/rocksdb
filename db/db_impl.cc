@@ -1177,10 +1177,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
-std::vector<Status> DBImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_family,
+                      const std::vector<Slice>& keys,
+                      std::vector<PinnableSlice>* values,
+                      std::vector<Status>& statuses) {
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -1221,7 +1222,7 @@ std::vector<Status> DBImpl::MultiGet(
   MergeContext merge_context;
 
   size_t num_keys = keys.size();
-  std::vector<Status> stat_list(num_keys);
+  // std::vector<Status> statuses(num_keys);
   assert(values->size() == num_keys);
 
   // Keep track of bytes that we read for statistics-recording later
@@ -1235,7 +1236,7 @@ std::vector<Status> DBImpl::MultiGet(
   size_t num_found = 0;
   for (size_t i = 0; i < num_keys; ++i) {
     merge_context.Clear();
-    Status& s = stat_list[i];
+    Status& s = statuses[i];
     PinnableSlice* pinnable_val = &(*values)[i];
 
     LookupKey lkey(keys[i], snapshot);
@@ -1307,7 +1308,7 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
 
-  return stat_list;
+  return;
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,

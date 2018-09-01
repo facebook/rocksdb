@@ -25,11 +25,11 @@ class CompactedDBImpl : public DBImpl {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
   using DB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>&,
-      const std::vector<Slice>& keys, std::vector<PinnableSlice>* values)
-    override;
+  void MultiGet(const ReadOptions& options,
+                const std::vector<ColumnFamilyHandle*>&,
+                const std::vector<Slice>& keys,
+                std::vector<PinnableSlice>* values,
+                std::vector<Status>& statuses) override;
 
   using DBImpl::Put;
   virtual Status Put(const WriteOptions& /*options*/,

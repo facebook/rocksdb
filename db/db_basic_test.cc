@@ -746,7 +746,8 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
     get_perf_context()->Reset();
-    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    std::vector<Status> s(keys.size());
+    db_->MultiGet(ReadOptions(), cfs, keys, &values, s);
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_STREQ(values[0].data(), "v1");
     ASSERT_STREQ(values[1].data(), "v2");
@@ -773,7 +774,8 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     std::vector<Slice> keys;
     std::vector<PinnableSlice> values;
     std::vector<ColumnFamilyHandle*> cfs;
-    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    std::vector<Status> s;
+    db_->MultiGet(ReadOptions(), cfs, keys, &values, s);
     ASSERT_EQ(s.size(), 0U);
 
     // Empty Database, Empty Key Set
@@ -781,7 +783,7 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     options.create_if_missing = true;
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
+    db_->MultiGet(ReadOptions(), cfs, keys, &values, s);
     ASSERT_EQ(s.size(), 0U);
 
     // Empty Database, Search for Keys
@@ -791,7 +793,8 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     cfs.push_back(handles_[0]);
     cfs.push_back(handles_[1]);
     std::vector<PinnableSlice> values2(2);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values2);
+    s.resize(2);
+    db_->MultiGet(ReadOptions(), cfs, keys, &values2, s);
     ASSERT_EQ(static_cast<int>(s.size()), 2);
     ASSERT_TRUE(s[0].IsNotFound() && s[1].IsNotFound());
   } while (ChangeCompactOptions());

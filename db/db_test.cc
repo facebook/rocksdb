@@ -339,8 +339,9 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       multiget_keys.push_back("foo");
       multiget_keys.push_back("bar");
       std::vector<PinnableSlice> multiget_values(multiget_keys.size());
-      auto statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
+      std::vector<Status> statuses(multiget_keys.size());
+      db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values,
+                    statuses);
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[0].IsNotFound());
         ASSERT_TRUE(statuses[1].IsNotFound());
@@ -371,8 +372,10 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       multiget_cfs.push_back(handles_[1]);
       multiget_keys.push_back("rocksdb");
       std::vector<PinnableSlice> multiget_values2(multiget_keys.size());
-      statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values2);
+      statuses.clear();
+      statuses.resize(multiget_keys.size());
+      db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values2,
+                    statuses);
       ASSERT_TRUE(statuses[0].ok());
       ASSERT_STREQ("first", multiget_values2[0].data());
       ASSERT_TRUE(statuses[1].ok());
@@ -401,8 +404,10 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       ASSERT_EQ(value, "hello");
 
       std::vector<PinnableSlice> multiget_values3(multiget_keys.size());
-      statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values3);
+      statuses.clear();
+      statuses.resize(multiget_keys.size());
+      db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values3,
+                    statuses);
       ASSERT_TRUE(statuses[0].IsNotFound());
       if (wopt.disableWAL) {
         ASSERT_TRUE(statuses[1].ok());
@@ -2020,8 +2025,9 @@ static void MTThreadBody(void* arg) {
       // same)
       std::vector<Slice> keys(kColumnFamilies, Slice(keybuf));
       std::vector<PinnableSlice> values(keys.size());
-      std::vector<Status> statuses =
-          db->MultiGet(ReadOptions(), t->state->test->handles_, keys, &values);
+      std::vector<Status> statuses(keys.size());
+      db->MultiGet(ReadOptions(), t->state->test->handles_, keys, &values,
+                   statuses);
       Status s = statuses[0];
       // all statuses have to be the same
       for (size_t i = 1; i < statuses.size(); ++i) {
@@ -2257,14 +2263,14 @@ class ModelDB : public DB {
   }
 
   using DB::MultiGet;
-  virtual std::vector<Status> MultiGet(
+  virtual void MultiGet(
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_family*/,
-      const std::vector<Slice>& keys,
-      std::vector<PinnableSlice>* /*values*/) override {
+      const std::vector<Slice>& keys, std::vector<PinnableSlice>* /*values*/,
+      std::vector<Status>& /*statuses*/) override {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
-    return s;
+    return;
   }
 
 #ifndef ROCKSDB_LITE

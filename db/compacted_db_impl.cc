@@ -57,9 +57,11 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
   return Status::NotFound();
 }
 
-std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
-    const std::vector<ColumnFamilyHandle*>&,
-    const std::vector<Slice>& keys, std::vector<PinnableSlice>* values) {
+void CompactedDBImpl::MultiGet(const ReadOptions& options,
+                               const std::vector<ColumnFamilyHandle*>&,
+                               const std::vector<Slice>& keys,
+                               std::vector<PinnableSlice>* values,
+                               std::vector<Status>& statuses) {
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
     const FdWithKeyRange& f = files_.files[FindFile(key)];
@@ -71,9 +73,11 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
       reader_list.push_back(f.fd.table_reader);
     }
   }
-  std::vector<Status> statuses(keys.size(), Status::NotFound());
-  if (values->size() != keys.size()) {
-    return statuses;
+  if (values->size() != keys.size() || values->size() != statuses.size()) {
+    return;
+  }
+  for (size_t i = 0; i < statuses.size(); ++i) {
+    statuses[i] = Status::NotFound();
   }
   int idx = 0;
   for (auto* r : reader_list) {
@@ -89,7 +93,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     }
     ++idx;
   }
-  return statuses;
+  return;
 }
 
 Status CompactedDBImpl::Init(const Options& options) {
