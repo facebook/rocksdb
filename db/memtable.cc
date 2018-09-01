@@ -101,7 +101,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       env_(ioptions.env),
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
-      oldest_key_time_(std::numeric_limits<uint64_t>::max()) {
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()),
+      next_(nullptr) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());

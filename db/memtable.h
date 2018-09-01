@@ -455,6 +455,8 @@ class MemTable {
   // Memtable id to track flush.
   uint64_t id_ = 0;
 
+  MemTable* next_;
+
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;
 

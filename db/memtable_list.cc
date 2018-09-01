@@ -269,6 +269,8 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
+bool MemTableList::atomic_flush_commit_in_progress_ = false;
+
 Status MemTableList::InstallMemtableFlushResults(
     autovector<MemTableList*>& imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
@@ -281,83 +283,188 @@ Status MemTableList::InstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  // flush was successful
-  autovector<autovector<VersionEdit*>> edit_lists;
-  uint32_t num_entries = 0;
-  for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
-    autovector<VersionEdit*> edit_list;
-    for (size_t i = 0; i != mems_list[k]->size(); ++i) {
-      assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
-      if (i == 0) {
-        edit_list.push_back((*mems_list[k])[i]->GetEdits());
-        ++num_entries;
+  {
+    // Link the first MemTables of an atomic flush.
+    MemTable* head = nullptr;
+    MemTable* mem = nullptr;
+    for (const auto& mems : mems_list) {
+      if (head == nullptr && !mems->empty()) {
+        head = mems->front();
       }
+      if (mems->empty()) {
+        continue;
+      }
+      if (mem != nullptr) {
+        mem->next_ = mems->front();
+      }
+      mem = mems->front();
+    }
+    if (mem != nullptr) {
+      mem->next_ = head;
+    }
+  }
+
+  int num = static_cast<int>(imm_lists.size());
+  assert(num == static_cast<int>(cfds.size()));
+  for (int k = 0; k != num; ++k) {
+    for (int i = 0; i != static_cast<int>(mems_list[k]->size()); ++i) {
+      assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
       (*mems_list[k])[i]->flush_completed_ = true;
       (*mems_list[k])[i]->file_number_ = file_meta[k].fd.GetNumber();
     }
-    edit_lists.emplace_back(edit_list);
   }
 
-  uint32_t remaining = num_entries;
-  for (auto& edit_list : edit_lists) {
-    assert(static_cast<int>(edit_list.size()) == 1);
-    edit_list[0]->MarkAtomicGroup(--remaining);
+  Status s;
+  if (atomic_flush_commit_in_progress_) {
+    return s;
   }
-  assert(0 == remaining);
 
-  if (vset->db_options()->allow_2pc) {
-    int num = static_cast<int>(imm_lists.size());
-    assert(num == static_cast<int>(cfds.size()));
-    assert(num == static_cast<int>(mems_list.size()));
-    assert(num == static_cast<int>(edit_lists.size()));
+  atomic_flush_commit_in_progress_ = true;
+
+  while (s.ok()) {
+    std::unordered_map<MemTable*, int> mem_to_idx;
+    int count = 0;
+    autovector<int> next;
     for (int i = 0; i != num; ++i) {
-      auto& edit_list = edit_lists[i];
-      auto cfd = cfds[i];
-      auto& mems = mems_list[i];
-      assert(!edit_list.empty());
-      edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-          vset, *cfd, edit_list, *mems, prep_tracker));
+      const std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
+      if (!memlist.empty()) {
+        const auto it = memlist.rbegin();
+        if ((*it)->flush_completed_) {
+          mem_to_idx.insert({*it, i});
+          ++count;
+        }
+      }
+      next.push_back(-1);
     }
-  }
-  // This can release and re-acquire the mutex.
-  Status s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                               db_directory);
-  for (auto imm : imm_lists) {
-    imm->InstallNewVersion();
-  }
-  uint64_t mem_id = 1;
-  if (s.ok()) {
-    for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
-      for (auto m : *mems_list[k]) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Level-0 commit table #%" PRIu64
-                         ": memtable #%" PRIu64 " done",
-                         cfds[k]->GetName().c_str(), m->file_number_, mem_id);
-        assert(m->file_number_ > 0);
-        imm_lists[k]->current_->Remove(m, to_delete);
-        ++mem_id;
+    if (0 == count) {
+      // Nothing to commit
+      break;
+    }
+    for (int i = 0; i != num; ++i) {
+      const std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
+      if (!memlist.empty()) {
+        const auto it = memlist.rbegin();
+        assert((*it)->next_ != nullptr);
+        if ((*it)->flush_completed_) {
+          const auto next_it = mem_to_idx.find((*it)->next_);
+          assert(next_it != mem_to_idx.end());
+          next[i] = next_it->second;
+        }
       }
     }
-  } else {
-    for (int k = 0; k != static_cast<int>(mems_list.size()); ++k) {
-      for (int i = 0; i != static_cast<int>(mems_list[k]->size()); ++i) {
-        MemTable* m = (*mems_list[k])[i];
-        // commit failed, and we have to restore the state so that future flush
-        // can retry.
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "Level-0 commit table #%" PRIu64 ": memtable #%" PRIu64
-                         " failed",
-                         m->file_number_, mem_id);
-        m->flush_completed_ = false;
-        m->flush_in_progress_ = false;
-        m->edit_.Clear();
-        imm_lists[k]->num_flush_not_started_++;
-        m->file_number_ = 0;
-        ++mem_id;
+    while (count > 0) {
+      int k = 0;
+      while (k < num && next[k] < 0) {
+        ++k;
       }
-      imm_lists[k]->imm_flush_needed.store(true, std::memory_order_release);
+      if (k == num) {
+        break;
+      }
+
+      autovector<int> idx;
+      int head = k;
+      do {
+        int prev = k;
+        idx.push_back(k);
+        k = next[k];
+        next[prev] = -1;
+      } while (k != head);
+
+      uint32_t num_entries = 0;
+      autovector<ColumnFamilyData*> tmp_cfds;
+      autovector<const MutableCFOptions*> tmp_mutable_cf_options_list;
+      std::vector<autovector<MemTable*>> memtables_to_flush;
+      autovector<autovector<VersionEdit*>> edit_lists;
+      for (auto i : idx) {
+        tmp_cfds.push_back(cfds[i]);
+        tmp_mutable_cf_options_list.push_back(mutable_cf_options_list[i]);
+        const std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
+        uint64_t batch_file_number = 0;
+        autovector<MemTable*> tmp_mems;
+        autovector<VersionEdit*> edits;
+        for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+          MemTable* m = *it;
+          if (!m->flush_completed_ || (it != memlist.rbegin() &&
+                                       m->file_number_ != batch_file_number)) {
+            break;
+          }
+          if (it == memlist.rbegin()) {
+            batch_file_number = m->file_number_;
+            edits.push_back(m->GetEdits());
+            ++num_entries;
+          }
+          tmp_mems.push_back(m);
+        }
+        edit_lists.push_back(edits);
+        memtables_to_flush.push_back(tmp_mems);
+      }
+
+      uint32_t remaining = num_entries;
+      for (auto& edit_list : edit_lists) {
+        assert(static_cast<int>(edit_list.size()) == 1);
+        edit_list[0]->MarkAtomicGroup(--remaining);
+      }
+      assert(remaining == 0);
+
+      if (vset->db_options()->allow_2pc) {
+        size_t batch_sz = idx.size();
+        assert(batch_sz > 0);
+        assert(batch_sz == tmp_cfds.size());
+        assert(batch_sz == edit_lists.size());
+        assert(batch_sz == memtables_to_flush.size());
+        for (int i = 0; i != static_cast<int>(batch_sz); ++i) {
+          auto& edit_list = edit_lists[i];
+          assert(!edit_list.empty());
+          edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
+              vset, *tmp_cfds[i], edit_list, memtables_to_flush[i],
+              prep_tracker));
+        }
+      }
+      s = vset->LogAndApply(tmp_cfds, tmp_mutable_cf_options_list, edit_lists,
+                            mu, db_directory);
+      for (auto i : idx) {
+        imm_lists[i]->InstallNewVersion();
+      }
+      if (s.ok()) {
+        for (auto i : idx) {
+          if (tmp_cfds[i]->IsDropped()) {
+            continue;
+          }
+          for (auto m : memtables_to_flush[i]) {
+            assert(m->file_number_ > 0);
+            uint64_t mem_id = m->GetID();
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             ": memtable #%" PRIu64 " done",
+                             tmp_cfds[i]->GetName().c_str(), m->file_number_,
+                             mem_id);
+            imm_lists[i]->current_->Remove(m, to_delete);
+          }
+        }
+      } else {
+        for (auto i : idx) {
+          for (auto m : memtables_to_flush[i]) {
+            uint64_t mem_id = m->GetID();
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             ": memtable #%" PRIu64 " failed",
+                             tmp_cfds[i]->GetName().c_str(), m->file_number_,
+                             mem_id);
+            m->flush_completed_ = false;
+            m->flush_in_progress_ = false;
+            m->edit_.Clear();
+            m->file_number_ = 0;
+            imm_lists[i]->num_flush_not_started_++;
+          }
+          imm_lists[i]->imm_flush_needed.store(true, std::memory_order_release);
+        }
+      }
+
+      count -= static_cast<int>(idx.size());
     }
   }
+
+  atomic_flush_commit_in_progress_ = false;
   return s;
 }
 

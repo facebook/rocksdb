@@ -334,17 +334,21 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
 
     autovector<const autovector<MemTable*>*> mems_list;
-    autovector<MemTableList*> imm_lists;
-    autovector<const MutableCFOptions*> mutable_cf_options_list;
     for (int i = 0; i != num_cfs; ++i) {
       const auto& mems = jobs[i].GetMemTables();
       mems_list.emplace_back(&mems);
-      imm_lists.emplace_back(cfds[i]->imm());
-      mutable_cf_options_list.emplace_back(
-          cfds[i]->GetLatestMutableCFOptions());
     }
+    autovector<ColumnFamilyData*> all_cfds;
+    autovector<MemTableList*> imm_lists;
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      all_cfds.emplace_back(cfd);
+      imm_lists.emplace_back(cfd->imm());
+      mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
+    }
+
     s = MemTableList::InstallMemtableFlushResults(
-        imm_lists, cfds, mutable_cf_options_list, mems_list,
+        imm_lists, all_cfds, mutable_cf_options_list, mems_list,
         &logs_with_prep_tracker_, versions_.get(), &mutex_, file_meta,
         &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
   }

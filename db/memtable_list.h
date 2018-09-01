@@ -278,6 +278,8 @@ class MemTableList {
   }
 
  private:
+  static bool atomic_flush_commit_in_progress_;
+
   // DB mutex held
   void InstallNewVersion();
 
