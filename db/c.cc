@@ -2402,7 +2402,7 @@ void rocksdb_options_set_bytes_per_sync(
 
 void rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t* opt,
                                                        uint64_t v) {
-  opt->rep.writable_file_max_buffer_size = v;
+  opt->rep.writable_file_max_buffer_size = static_cast<size_t>(v);
 }
 
 void rocksdb_options_set_allow_concurrent_memtable_write(rocksdb_options_t* opt,

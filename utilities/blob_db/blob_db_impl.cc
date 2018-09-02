@@ -1008,14 +1008,14 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   uint64_t record_size = sizeof(uint32_t) + key.size() + blob_index.size();
 
   // Allocate the buffer. This is safe in C++11
-  std::string buffer_str(record_size, static_cast<char>(0));
+  std::string buffer_str(static_cast<size_t>(record_size), static_cast<char>(0));
   char* buffer = &buffer_str[0];
 
   // A partial blob record contain checksum, key and value.
   Slice blob_record;
   {
     StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-    s = reader->Read(record_offset, record_size, &blob_record, buffer);
+    s = reader->Read(record_offset, static_cast<size_t>(record_size), &blob_record, buffer);
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
   if (!s.ok()) {
@@ -1041,7 +1041,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
   Slice crc_slice(blob_record.data(), sizeof(uint32_t));
   Slice blob_value(blob_record.data() + sizeof(uint32_t) + key.size(),
-                   blob_index.size());
+                   static_cast<size_t>(blob_index.size()));
   uint32_t crc_exp;
   if (!GetFixed32(&crc_slice, &crc_exp)) {
     ROCKS_LOG_DEBUG(db_options_.info_log,

@@ -260,7 +260,7 @@ Status WinMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
     *result = Slice();
     return IOError(filename_, EINVAL);
   } else if (offset + n > length_) {
-    n = length_ - offset;
+    n = length_ - static_cast<size_t>(offset);
   }
   *result =
     Slice(reinterpret_cast<const char*>(mapped_region_)+offset, n);
@@ -317,7 +317,7 @@ Status WinMmapFile::MapNewRegion() {
 
   assert(mapped_begin_ == nullptr);
 
-  size_t minDiskSize = file_offset_ + view_size_;
+  size_t minDiskSize = static_cast<size_t>(file_offset_) + view_size_;
 
   if (minDiskSize > reserved_size_) {
     status = Allocate(file_offset_, view_size_);
@@ -579,7 +579,7 @@ Status WinMmapFile::Allocate(uint64_t offset, uint64_t len) {
   // Make sure that we reserve an aligned amount of space
   // since the reservation block size is driven outside so we want
   // to check if we are ok with reservation here
-  size_t spaceToReserve = Roundup(offset + len, view_size_);
+  size_t spaceToReserve = Roundup(static_cast<size_t>(offset + len), view_size_);
   // Nothing to do
   if (spaceToReserve <= reserved_size_) {
     return status;
@@ -656,14 +656,14 @@ Status WinSequentialFile::PositionedRead(uint64_t offset, size_t n, Slice* resul
     return Status::NotSupported("This function is only used for direct_io");
   }
 
-  if (!IsSectorAligned(offset) ||
+  if (!IsSectorAligned(static_cast<size_t>(offset)) ||
       !IsSectorAligned(n)) {
       return Status::InvalidArgument(
         "WinSequentialFile::PositionedRead: offset is not properly aligned");
   }
 
   size_t bytes_read = 0; // out param
-  s = PositionedReadInternal(scratch, n, offset, bytes_read);
+  s = PositionedReadInternal(scratch, static_cast<size_t>(n), offset, bytes_read);
   *result = Slice(scratch, bytes_read);
   return s;
 }
@@ -721,7 +721,7 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
 
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
-    if (!IsSectorAligned(offset) ||
+    if (!IsSectorAligned(static_cast<size_t>(offset)) ||
         !IsAligned(alignment_, scratch)) {
       return Status::InvalidArgument(
         "WinRandomAccessImpl::ReadImpl: offset or scratch is not properly aligned");
@@ -818,7 +818,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
     // to the end of the file
     assert(IsSectorAligned(next_write_offset_));
     if (!IsSectorAligned(data.size()) ||
-        !IsAligned(GetAlignement(), data.data())) {
+        !IsAligned(static_cast<size_t>(GetAlignement()), data.data())) {
       s = Status::InvalidArgument(
         "WriteData must be page aligned, size must be sector aligned");
     } else {
@@ -857,9 +857,9 @@ inline
 Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset) {
 
   if(file_data_->use_direct_io()) {
-    if (!IsSectorAligned(offset) ||
+    if (!IsSectorAligned(static_cast<size_t>(offset)) ||
         !IsSectorAligned(data.size()) ||
-        !IsAligned(GetAlignement(), data.data())) {
+        !IsAligned(static_cast<size_t>(GetAlignement()), data.data())) {
       return Status::InvalidArgument(
         "Data and offset must be page aligned, size must be sector aligned");
     }
@@ -944,7 +944,7 @@ Status WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
   // Make sure that we reserve an aligned amount of space
   // since the reservation block size is driven outside so we want
   // to check if we are ok with reservation here
-  size_t spaceToReserve = Roundup(offset + len, alignment_);
+  size_t spaceToReserve = Roundup(static_cast<size_t>(offset + len), static_cast<size_t>(alignment_));
   // Nothing to do
   if (spaceToReserve <= reservedsize_) {
     return status;
@@ -977,7 +977,7 @@ WinWritableFile::~WinWritableFile() {
 bool WinWritableFile::use_direct_io() const { return WinFileData::use_direct_io(); }
 
 size_t WinWritableFile::GetRequiredBufferAlignment() const {
-  return GetAlignement();
+  return static_cast<size_t>(GetAlignement());
 }
 
 Status WinWritableFile::Append(const Slice& data) {
@@ -1037,7 +1037,7 @@ WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile,
 bool WinRandomRWFile::use_direct_io() const { return WinFileData::use_direct_io(); }
 
 size_t WinRandomRWFile::GetRequiredBufferAlignment() const {
-  return GetAlignement();
+  return static_cast<size_t>(GetAlignement());
 }
 
 Status WinRandomRWFile::Write(uint64_t offset, const Slice & data) {

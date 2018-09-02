@@ -781,7 +781,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
   if (rate_limiter) {
-    copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
+    copy_file_buffer_size_ = static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
   }
 
   // A set into which we will insert the dst_paths that are calculated for live
@@ -1078,7 +1078,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(
 
   RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
   if (rate_limiter) {
-    copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
+    copy_file_buffer_size_ = static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
   }
   Status s;
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
@@ -1231,7 +1231,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
     if (!src.empty()) {
       size_t buffer_to_read = (copy_file_buffer_size_ < size_limit)
                                   ? copy_file_buffer_size_
-                                  : size_limit;
+                                  : static_cast<size_t>(size_limit);
       s = src_reader->Read(buffer_to_read, &data, buf.get());
       processed_buffer_size += buffer_to_read;
     } else {
@@ -1426,7 +1426,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
       return Status::Incomplete("Backup stopped");
     }
     size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
-      copy_file_buffer_size_ : size_limit;
+      copy_file_buffer_size_ : static_cast<size_t>(size_limit);
     s = src_reader->Read(buffer_to_read, &data, buf.get());
 
     if (!s.ok()) {

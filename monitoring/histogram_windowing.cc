@@ -17,7 +17,7 @@ namespace rocksdb {
 
 HistogramWindowingImpl::HistogramWindowingImpl() {
   env_ = Env::Default();
-  window_stats_.reset(new HistogramStat[num_windows_]);
+  window_stats_.reset(new HistogramStat[static_cast<size_t>(num_windows_)]);
   Clear();
 }
 
@@ -29,7 +29,7 @@ HistogramWindowingImpl::HistogramWindowingImpl(
       micros_per_window_(micros_per_window),
       min_num_per_window_(min_num_per_window) {
   env_ = Env::Default();
-  window_stats_.reset(new HistogramStat[num_windows_]);
+  window_stats_.reset(new HistogramStat[static_cast<size_t>(num_windows_)]);
   Clear();
 }
 
