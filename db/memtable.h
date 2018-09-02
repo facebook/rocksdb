@@ -383,6 +383,12 @@ class MemTable {
 
   uint64_t GetID() const { return id_; }
 
+  void TEST_SetNext(MemTable* next) { next_ = next; }
+
+  void TEST_SetFlushCompleted(bool completed) { flush_completed_ = completed; }
+
+  void TEST_SetFileNumber(uint64_t file_num) { file_number_ = file_num; }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -455,6 +461,7 @@ class MemTable {
   // Memtable id to track flush.
   uint64_t id_ = 0;
 
+  // Currently used to link next memtables in the same atomic flush
   MemTable* next_;
 
   // Returns a heuristic flush decision

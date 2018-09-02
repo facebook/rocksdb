@@ -282,22 +282,19 @@ Status MemTableList::InstallMemtableFlushResults(
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
-
   {
-    // Link the first MemTables of an atomic flush.
-    MemTable* head = nullptr;
     MemTable* mem = nullptr;
+    MemTable* head = nullptr;
     for (const auto& mems : mems_list) {
-      if (head == nullptr && !mems->empty()) {
-        head = mems->front();
+      if (!mems->empty()) {
+        if (head == nullptr) {
+          head = mems->front();
+        }
+        if (mem != nullptr) {
+          mem->next_ = mems->front();
+        }
+        mem = mems->front();
       }
-      if (mems->empty()) {
-        continue;
-      }
-      if (mem != nullptr) {
-        mem->next_ = mems->front();
-      }
-      mem = mems->front();
     }
     if (mem != nullptr) {
       mem->next_ = head;
@@ -323,7 +320,6 @@ Status MemTableList::InstallMemtableFlushResults(
 
   while (s.ok()) {
     std::unordered_map<MemTable*, int> mem_to_idx;
-    int count = 0;
     autovector<int> next;
     for (int i = 0; i != num; ++i) {
       const std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
@@ -331,12 +327,11 @@ Status MemTableList::InstallMemtableFlushResults(
         const auto it = memlist.rbegin();
         if ((*it)->flush_completed_) {
           mem_to_idx.insert({*it, i});
-          ++count;
         }
       }
       next.push_back(-1);
     }
-    if (0 == count) {
+    if (mem_to_idx.empty()) {
       // Nothing to commit
       break;
     }
@@ -347,12 +342,13 @@ Status MemTableList::InstallMemtableFlushResults(
         assert((*it)->next_ != nullptr);
         if ((*it)->flush_completed_) {
           const auto next_it = mem_to_idx.find((*it)->next_);
-          assert(next_it != mem_to_idx.end());
-          next[i] = next_it->second;
+          if (next_it != mem_to_idx.end()) {
+            next[i] = next_it->second;
+          }
         }
       }
     }
-    while (count > 0) {
+    while (true) {
       int k = 0;
       while (k < num && next[k] < 0) {
         ++k;
@@ -364,11 +360,17 @@ Status MemTableList::InstallMemtableFlushResults(
       autovector<int> idx;
       int head = k;
       do {
-        int prev = k;
         idx.push_back(k);
         k = next[k];
-        next[prev] = -1;
-      } while (k != head);
+      } while (k != head && k >= 0);
+
+      for (auto i : idx) {
+        next[i] = -1;
+      }
+
+      if (k < 0) {
+        continue;
+      }
 
       uint32_t num_entries = 0;
       autovector<ColumnFamilyData*> tmp_cfds;
@@ -426,7 +428,7 @@ Status MemTableList::InstallMemtableFlushResults(
         imm_lists[i]->InstallNewVersion();
       }
       if (s.ok()) {
-        for (auto i : idx) {
+        for (int i = 0; i != static_cast<int>(idx.size()); ++i) {
           if (tmp_cfds[i]->IsDropped()) {
             continue;
           }
@@ -438,11 +440,11 @@ Status MemTableList::InstallMemtableFlushResults(
                              ": memtable #%" PRIu64 " done",
                              tmp_cfds[i]->GetName().c_str(), m->file_number_,
                              mem_id);
-            imm_lists[i]->current_->Remove(m, to_delete);
+            imm_lists[idx[i]]->current_->Remove(m, to_delete);
           }
         }
       } else {
-        for (auto i : idx) {
+        for (int i =0; i != static_cast<int>(idx.size()); ++i) {
           for (auto m : memtables_to_flush[i]) {
             uint64_t mem_id = m->GetID();
             ROCKS_LOG_BUFFER(log_buffer,
@@ -454,13 +456,11 @@ Status MemTableList::InstallMemtableFlushResults(
             m->flush_in_progress_ = false;
             m->edit_.Clear();
             m->file_number_ = 0;
-            imm_lists[i]->num_flush_not_started_++;
+            imm_lists[idx[i]]->num_flush_not_started_++;
           }
-          imm_lists[i]->imm_flush_needed.store(true, std::memory_order_release);
+          imm_lists[idx[i]]->imm_flush_needed.store(true, std::memory_order_release);
         }
       }
-
-      count -= static_cast<int>(idx.size());
     }
   }
 

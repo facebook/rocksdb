@@ -166,7 +166,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
                                        mutable_cf_options);
     if (made_progress) {
-      *made_progress = 1;
+      *made_progress = true;
     }
     VersionStorageInfo::LevelSummaryStorage tmp;
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
@@ -259,13 +259,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   autovector<Directory*> distinct_output_dirs;
   std::vector<FlushJob> jobs;
   int num_cfs = static_cast<int>(cfds.size());
-  // If we reach here, there must be more than one column family in the flush
-  // request. Therefore, we need more superversion_contexts in job_context.
-  // Since superversion_contexts[0] has already created a new superversion, we
-  // create superversions for other elements in superversion_contexts.
-  for (int i = 1; i != num_cfs; ++i) {
-    job_context->superversion_contexts.emplace_back(SuperVersionContext(true));
-  }
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
     Directory* data_dir = GetDataDir(cfd, 0U);
@@ -329,28 +322,33 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
-        dir->Fsync();
+        s = dir->Fsync();
+        if (!s.ok()) {
+          break;
+        }
       }
     }
 
-    autovector<const autovector<MemTable*>*> mems_list;
-    for (int i = 0; i != num_cfs; ++i) {
-      const auto& mems = jobs[i].GetMemTables();
-      mems_list.emplace_back(&mems);
-    }
-    autovector<ColumnFamilyData*> all_cfds;
-    autovector<MemTableList*> imm_lists;
-    autovector<const MutableCFOptions*> mutable_cf_options_list;
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      all_cfds.emplace_back(cfd);
-      imm_lists.emplace_back(cfd->imm());
-      mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
-    }
+    if (s.ok()) {
+      autovector<const autovector<MemTable*>*> mems_list;
+      for (int i = 0; i != num_cfs; ++i) {
+        const auto& mems = jobs[i].GetMemTables();
+        mems_list.emplace_back(&mems);
+      }
+      autovector<ColumnFamilyData*> all_cfds;
+      autovector<MemTableList*> imm_lists;
+      autovector<const MutableCFOptions*> mutable_cf_options_list;
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        all_cfds.emplace_back(cfd);
+        imm_lists.emplace_back(cfd->imm());
+        mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
+      }
 
-    s = MemTableList::InstallMemtableFlushResults(
-        imm_lists, all_cfds, mutable_cf_options_list, mems_list,
-        &logs_with_prep_tracker_, versions_.get(), &mutex_, file_meta,
-        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
+      s = MemTableList::InstallMemtableFlushResults(
+          imm_lists, all_cfds, mutable_cf_options_list, mems_list,
+          &logs_with_prep_tracker_, versions_.get(), &mutex_, file_meta,
+          &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
+    }
   }
 
   if (s.ok()) {
@@ -364,7 +362,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
                        cfds[i]->current()->storage_info()->LevelSummary(&tmp));
     }
     if (made_progress) {
-      *made_progress = 1;
+      *made_progress = true;
     }
 #ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
