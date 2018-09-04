@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <mutex>
 #include <string>
 
 #include "rocksdb/options.h"
@@ -153,11 +154,16 @@ struct CompressionDict {
  public:
   static const CompressionDict& GetEmptyDict() {
     static CompressionDict empty_dict{};
-    static bool init = false;
-    if (!init) {
-      empty_dict.Init(Slice() /* dict */, Mode::kEmpty,
-                      false /* use_zstd_trainer */);
-      init = true;
+    static std::once_flag init_flag;
+    static std::atomic<bool> inited{false};
+    if (!inited.load()) {
+      std::call_once(init_flag, [] {
+	  empty_dict.Init(Slice() /* dict */, Mode::kEmpty,
+			  false /* use_zstd_trainer */);
+	  inited.store(true);
+	});
+    } else {
+      // A fast path that std::call_once() doesn't always have for some reason.
     }
     return empty_dict;
   }
