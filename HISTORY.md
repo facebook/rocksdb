@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+### 5.15.9 (9/4/2018)
+### Bug Fixes
+* Fix compilation errors on OS X clang due to '-Wsuggest-override'.
+
 ## 5.15.8 (8/31/2018)
 ### Bug Fixes
 * Further avoid creating empty SSTs and subsequently deleting them during compaction.
