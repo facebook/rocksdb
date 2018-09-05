@@ -6,8 +6,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
-#define STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -1289,5 +1288,3 @@ struct IngestExternalFileOptions {
 struct TraceOptions {};
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

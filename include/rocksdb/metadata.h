@@ -65,7 +65,7 @@ struct SstFileMetaData {
         num_reads_sampled(0),
         being_compacted(false) {}
   SstFileMetaData(const std::string& _file_name, const std::string& _path,
-                  uint64_t _size, SequenceNumber _smallest_seqno,
+                  size_t _size, SequenceNumber _smallest_seqno,
                   SequenceNumber _largest_seqno,
                   const std::string& _smallestkey,
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
@@ -81,7 +81,7 @@ struct SstFileMetaData {
         being_compacted(_being_compacted) {}
 
   // File size in bytes.
-  uint64_t size;
+  size_t size;
   // The name of the file.
   std::string name;
   // The full path where the file locates.

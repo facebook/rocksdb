@@ -354,8 +354,8 @@ class SpatialIndexCursor : public Cursor {
       : value_getter_(value_getter), valid_(true) {
     // calculate quad keys we'll need to query
     std::vector<uint64_t> quad_keys;
-    quad_keys.reserve((tile_bbox.max_x - tile_bbox.min_x + 1) *
-                      (tile_bbox.max_y - tile_bbox.min_y + 1));
+    quad_keys.reserve(static_cast<size_t>((tile_bbox.max_x - tile_bbox.min_x + 1) *
+                      (tile_bbox.max_y - tile_bbox.min_y + 1)));
     for (uint64_t x = tile_bbox.min_x; x <= tile_bbox.max_x; ++x) {
       for (uint64_t y = tile_bbox.min_y; y <= tile_bbox.max_y; ++y) {
         quad_keys.push_back(GetQuadKeyFromTile(x, y, tile_bits));
@@ -791,7 +791,7 @@ Status SpatialDB::Create(
   db_options.create_missing_column_families = true;
   db_options.error_if_exists = true;
 
-  auto block_cache = NewLRUCache(options.cache_size);
+  auto block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   ColumnFamilyOptions column_family_options =
       GetColumnFamilyOptions(options, block_cache);
 
@@ -832,7 +832,7 @@ Status SpatialDB::Create(
 Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
                        SpatialDB** db, bool read_only) {
   DBOptions db_options = GetDBOptionsFromSpatialDBOptions(options);
-  auto block_cache = NewLRUCache(options.cache_size);
+  auto block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   ColumnFamilyOptions column_family_options =
       GetColumnFamilyOptions(options, block_cache);
 

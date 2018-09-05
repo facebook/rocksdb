@@ -237,7 +237,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
 
   size_t const files_keep_num =
-      db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size;
+      static_cast<size_t>(db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size);
   if (log_files_num <= files_keep_num) {
     return;
   }
@@ -352,7 +352,7 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
   // Binary Search. avoid opening all files.
   while (end >= start) {
     int64_t mid = start + (end - start) / 2;  // Avoid overflow.
-    SequenceNumber current_seq_num = all_logs.at(mid)->StartSequence();
+    SequenceNumber current_seq_num = all_logs.at(static_cast<size_t>(mid))->StartSequence();
     if (current_seq_num == target) {
       end = mid;
       break;
@@ -363,7 +363,7 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
     }
   }
   // end could be -ve.
-  size_t start_index = std::max(static_cast<int64_t>(0), end);
+  size_t start_index = static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
   // The last wal file is always included
   all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();

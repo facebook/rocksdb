@@ -104,7 +104,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   if (files_->size() <= startFileIndex) {
     return;
   }
-  Status s = OpenLogReader(files_->at(startFileIndex).get());
+  Status s = OpenLogReader(files_->at(static_cast<size_t>(startFileIndex)).get());
   if (!s.ok()) {
     currentStatus_ = s;
     reporter_.Info(currentStatus_.ToString().c_str());

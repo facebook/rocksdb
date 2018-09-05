@@ -42,9 +42,6 @@
   (5) All of the pointer arguments must be non-NULL.
 */
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_C_H_
-#define STORAGE_ROCKSDB_INCLUDE_C_H_
-
 #pragma once
 
 #ifdef _WIN32
@@ -1678,5 +1675,3 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif
-
-#endif  /* STORAGE_ROCKSDB_INCLUDE_C_H_ */
