@@ -142,8 +142,8 @@ struct TransactionOptions {
   // application knows that the transaction would not have any conflict with
   // concurrent transactions. It could also be used during recovery if (i)
   // application guarantees no conflict between prepared transactions in the WAL
-  // (ii) application guratnees that recovered transactions will be rolled
-  // back/commit before new transactions start. 
+  // (ii) application guarantees that recovered transactions will be rolled
+  // back/commit before new transactions start.
   // Default: false
   bool skip_concurrency_control = false;
 };
