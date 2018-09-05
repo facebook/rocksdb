@@ -612,7 +612,11 @@ void txn_write_kv_parts_helper(JNIEnv* env,
                                const jint& jkey_parts_len,
                                const jobjectArray& jvalue_parts,
                                const jint& jvalue_parts_len) {
+#ifndef DEBUG
+  (void) jvalue_parts_len;
+#else
   assert(jkey_parts_len == jvalue_parts_len);
+#endif
 
   auto key_parts = std::vector<rocksdb::Slice>();
   auto value_parts = std::vector<rocksdb::Slice>();
