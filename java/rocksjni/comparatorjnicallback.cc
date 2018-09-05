@@ -93,15 +93,6 @@ int BaseComparatorJniCallback::CompareNoLock(JNIEnv* env, const jobject& jSliceA
 									 jSliceA,
 									 jSliceB);
 
-	if (jSliceA != nullptr) {
-          // free ASAP
-        env->DeleteLocalRef(jSliceA);
-    }
-
-    if (jSliceB != nullptr) {
-         // free ASAP
-        env->DeleteLocalRef(jSliceB);
-    }
 
 	return result;
 }
@@ -119,13 +110,16 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   //EMC Wayne Gao fix the concurrent list performance issue
   //
   bool bMemOK = true;
-  jobject jSliceA = env->NewLocalRef(SliceJni::construct0(env)); 
+  jobject jSliceA = nullptr;
+  jobject jSliceB = nullptr;
+
+  jSliceA = env->NewLocalRef(SliceJni::construct0(env)); 
   if(jSliceA == nullptr) {
     // if there is no Memory, use global variable with lock
 	bMemOK = false;
   }
   
-  jobject jSliceB = env->NewLocalRef(SliceJni::construct0(env));
+  jSliceB = env->NewLocalRef(SliceJni::construct0(env));
   if(jSliceB == nullptr) {
     // exception thrown: OutOfMemoryError
 	bMemOK = false;
@@ -170,6 +164,16 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 		  m_jSliceB);
 
 	  mtx_compare.get()->Unlock();
+  }
+
+  if (jSliceA != nullptr) {
+	  // free ASAP
+	  env->DeleteLocalRef(jSliceA);
+  }
+
+  if (jSliceB != nullptr) {
+	  // free ASAP
+	  env->DeleteLocalRef(jSliceB);
   }
 
   if(env->ExceptionCheck()) {
