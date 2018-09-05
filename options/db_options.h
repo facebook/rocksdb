@@ -78,6 +78,7 @@ struct ImmutableDBOptions {
   bool preserve_deletes;
   bool two_write_queues;
   bool manual_wal_flush;
+  std::shared_ptr<ExternalFlushManager> external_flush_manager;
 };
 
 struct MutableDBOptions {

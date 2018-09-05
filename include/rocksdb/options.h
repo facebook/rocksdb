@@ -36,6 +36,7 @@ class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
 class Env;
+class ExternalFlushManager;
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
 class FilterPolicy;
@@ -944,6 +945,10 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  // Use to control the order and grouping of column families to flush.
+  // Default: nullptr
+  std::shared_ptr<ExternalFlushManager> external_flush_manager = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
