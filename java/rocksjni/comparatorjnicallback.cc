@@ -63,7 +63,9 @@ const char* BaseComparatorJniCallback::Name() const {
 }
 
 
-int BaseComparatorJniCallback::CompareNoLock(const jobject& jSliceA, const jobject& jSliceB, const Slice& a, const Slice& b) const;
+int BaseComparatorJniCallback::CompareNoLock(JNIEnv* env, const jobject& jSliceA, const jobject& jSliceB, 
+											 const Slice& a, const Slice& b,
+											 jboolean attached_thread) const
 {
     bool pending_exception =
     AbstractSliceJni::setHandle(env, jSliceA, &a, JNI_FALSE);
@@ -117,21 +119,23 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   //EMC Wayne Gao fix the concurrent list performance issue
   //
   bool bMemOK = true;
-  jSliceA = env->NewLocalRef(SliceJni::construct0(env)); 
+  jobject jSliceA = env->NewLocalRef(SliceJni::construct0(env)); 
   if(jSliceA == nullptr) {
     // if there is no Memory, use global variable with lock
-	bMemOK = fasle;
+	bMemOK = false;
   }
   
-  jSliceB = env->NewLocalRef(SliceJni::construct0(env));
+  jobject jSliceB = env->NewLocalRef(SliceJni::construct0(env));
   if(jSliceB == nullptr) {
     // exception thrown: OutOfMemoryError
-	bMemOK = fasle;
+	bMemOK = false;
   }
+
+  jint result = 0;
 
   if(bMemOK)
   {	 
-    jint result = CompareNoLock(jSliceA, jSliceB, a, b);
+    result = CompareNoLock(env, jSliceA, jSliceB, a, b, attached_thread);
   }
   else
   {
@@ -161,7 +165,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 		return 0;
 	  }
 
-	  jint result =
+	  result =
 		env->CallIntMethod(m_jcallback_obj, m_jCompareMethodId, m_jSliceA,
 		  m_jSliceB);
 

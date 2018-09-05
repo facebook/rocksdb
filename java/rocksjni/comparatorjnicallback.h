@@ -53,7 +53,9 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
       const ComparatorJniCallbackOptions* copt);
     virtual const char* Name() const;
     virtual int Compare(const Slice& a, const Slice& b) const;
-	virtual int CompareNoLock(const jobject& jSliceA, const jobject& jSliceB, const Slice& a, const Slice& b) const;
+	virtual int CompareNoLock(JNIEnv* env, const jobject& jSliceA, const jobject& jSliceB,
+		const Slice& a, const Slice& b,
+		jboolean attached_thread) const;
     virtual void FindShortestSeparator(
       std::string* start, const Slice& limit) const;
     virtual void FindShortSuccessor(std::string* key) const;
