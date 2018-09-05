@@ -6,10 +6,10 @@
 #pragma once
 #ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
 #define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
-#define MAX_PERF_CONTEXT_LEVELS 16
 
 #include <stdint.h>
 #include <string>
+#include <map>
 
 #include "rocksdb/perf_level.h"
 
@@ -190,7 +190,7 @@ struct PerfContext {
   uint64_t env_lock_file_nanos;
   uint64_t env_unlock_file_nanos;
   uint64_t env_new_logger_nanos;
-  PerfContextByLevel* perf_context_by_level;
+  std::map<uint32_t, PerfContextByLevel*>* level_to_perf_context;
   bool per_level_perf_context_enabled;
 };
 

@@ -104,12 +104,11 @@ void PerfContext::Reset() {
   env_lock_file_nanos = 0;
   env_unlock_file_nanos = 0;
   env_new_logger_nanos = 0;
-  // TODO: or simply delete perf_context_by_level?
-  if (per_level_perf_context_enabled && perf_context_by_level) {
-    for (size_t i = 0; i < MAX_PERF_CONTEXT_LEVELS; ++i) {
-      perf_context_by_level->bloom_filter_useful = 0;
-      perf_context_by_level->bloom_filter_full_positive = 0;
-      perf_context_by_level->bloom_filter_full_true_positive = 0;
+  if (per_level_perf_context_enabled && level_to_perf_context) {
+    for (auto iter = level_to_perf_context->begin(); iter != level_to_perf_context->end(); ++iter) {
+      iter->second->bloom_filter_useful = 0;
+      iter->second->bloom_filter_full_positive = 0;
+      iter->second->bloom_filter_full_true_positive = 0;
     }
   }
   per_level_perf_context_enabled = false;
@@ -121,14 +120,44 @@ void PerfContext::Reset() {
     ss << #counter << " = " << counter << ", ";  \
   }
 
-#define PERF_CONTEXT_BY_LEVEL_OUTPUT(counter)                     \
+#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)         \
   if (!exclude_zero_counters && per_level_perf_context_enabled && \
-      perf_context_by_level) { \
+      level_to_perf_context) {                                    \
     ss << #counter << " = ";                                      \
-    for (size_t i = 0; i < MAX_PERF_CONTEXT_LEVELS; ++i) {        \
-      ss << perf_context_by_level[i].counter << ", ";             \
+    for (auto iter = level_to_perf_context->begin();              \
+         iter != level_to_perf_context->end(); ++iter) {          \
+      if (iter->second) {                                         \
+        ss << iter->second->counter << ", ";                      \
+      }                                                           \
     }                                                             \
   }
+
+#define PERF_CONTEXT_BY_LEVEL_OUTPUT_FULL(level)                            \
+  if (!exclude_zero_counters && per_level_perf_context_enabled &&           \
+      level_to_perf_context && (*level_to_perf_context.contains(level)) &&  \
+      (*level_to_perf_context)[level]) {                                    \
+    ss << "all by level counters for level " << #level << " : " \
+    << "bloom_filter_useful = " \
+    << (*level_to_perf_context)[level]->bloom_filter_useful << "," \
+    << "bloom_filter_full_positive = " \
+    << (*level_to_perf_context)[level]->bloom_filter_full_positive << "," \
+    << "bloom_filter_full_true_positive = " \
+    << (*level_to_perf_context)[level]->bloom_filter_full_true_positive << ",";\
+  }
+
+#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ALL_LEVELS()                            \
+  if (!exclude_zero_counters && per_level_perf_context_enabled &&            \
+      level_to_perf_context) {                                               \
+    for (auto iter = level_to_perf_context->begin();                         \
+         iter != level_to_perf_context->end(); ++iter) {                     \
+      ss << "all by level counters for level " << iter->first << " : "       \
+         << "bloom_filter_useful = " << iter->second->bloom_filter_useful << \
+         ","  << "bloom_filter_full_positive = " <<                          \
+         iter->second->bloom_filter_full_positive << "," <<                  \
+         "bloom_filter_full_true_positive = "                                \
+         << iter->second->bloom_filter_full_true_positive << ",";            \
+     }                                                                       \
+}
 
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #ifdef NPERF_CONTEXT
@@ -204,16 +233,14 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(env_lock_file_nanos);
   PERF_CONTEXT_OUTPUT(env_unlock_file_nanos);
   PERF_CONTEXT_OUTPUT(env_new_logger_nanos);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT(bloom_filter_useful);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT(bloom_filter_full_positive);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT(bloom_filter_full_true_positive);
+  PERF_CONTEXT_BY_LEVEL_OUTPUT_ALL_LEVELS();
   return ss.str();
 #endif
 }
 
-void PerfContext::EnablePerLevelPerfContext(){
-  if (!perf_context_by_level) {
-    perf_context_by_level = new PerfContextByLevel[MAX_PERF_CONTEXT_LEVELS];
+void PerfContext::EnablePerLevelPerfContext() {
+  if (!level_to_perf_context) {
+    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel*>();
   }
   per_level_perf_context_enabled = true;
 }
@@ -223,10 +250,14 @@ void PerfContext::DisablePerLevelPerfContext(){
 }
 
 void PerfContext::ClearPerLevelPerfContext(){
-  if (perf_context_by_level) {
-    delete perf_context_by_level;
-    perf_context_by_level = nullptr;
+  for (auto iter = level_to_perf_context->begin(); iter != level_to_perf_context->end(); ++iter) {
+    if (iter->second) {
+      delete iter->second;
+    }
   }
+  level_to_perf_context->clear();
+  delete level_to_perf_context;
+  level_to_perf_context = nullptr;
   per_level_perf_context_enabled = false;
 }
 
