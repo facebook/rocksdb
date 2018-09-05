@@ -62,6 +62,48 @@ const char* BaseComparatorJniCallback::Name() const {
   return m_name.get();
 }
 
+
+int BaseComparatorJniCallback::CompareNoLock(const jobject& jSliceA, const jobject& jSliceB, const Slice& a, const Slice& b) const;
+{
+    bool pending_exception =
+    AbstractSliceJni::setHandle(env, jSliceA, &a, JNI_FALSE);
+    if(pending_exception) {
+       if(env->ExceptionCheck()) {
+       // exception thrown from setHandle or descendant
+       env->ExceptionDescribe(); // print out exception to stderr
+       }
+       releaseJniEnv(attached_thread);
+       return 0;
+    }
+
+	pending_exception =
+    AbstractSliceJni::setHandle(env, jSliceB, &b, JNI_FALSE);
+	if(pending_exception) {
+		if(env->ExceptionCheck()) {
+		// exception thrown from setHandle or descendant
+		env->ExceptionDescribe(); // print out exception to stderr
+		}
+		releaseJniEnv(attached_thread);
+		return 0;
+	}
+
+	jint result = env->CallIntMethod(m_jcallback_obj, m_jCompareMethodId, 
+									 jSliceA,
+									 jSliceB);
+
+	if (jSliceA != nullptr) {
+          // free ASAP
+        env->DeleteLocalRef(jSliceA);
+    }
+
+    if (jSliceB != nullptr) {
+         // free ASAP
+        env->DeleteLocalRef(jSliceB);
+    }
+
+	return result;
+}
+
 int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   jboolean attached_thread = JNI_FALSE;
   JNIEnv* env = getJniEnv(&attached_thread);
@@ -70,35 +112,61 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   // TODO(adamretter): slice objects can potentially be cached using thread
   // local variables to avoid locking. Could make this configurable depending on
   // performance.
-  mtx_compare.get()->Lock();
-
-  bool pending_exception =
-      AbstractSliceJni::setHandle(env, m_jSliceA, &a, JNI_FALSE);
-  if(pending_exception) {
-    if(env->ExceptionCheck()) {
-      // exception thrown from setHandle or descendant
-      env->ExceptionDescribe(); // print out exception to stderr
-    }
-    releaseJniEnv(attached_thread);
-    return 0;
+  
+  //
+  //EMC Wayne Gao fix the concurrent list performance issue
+  //
+  bool bMemOK = true;
+  jSliceA = env->NewLocalRef(SliceJni::construct0(env)); 
+  if(jSliceA == nullptr) {
+    // if there is no Memory, use global variable with lock
+	bMemOK = fasle;
+  }
+  
+  jSliceB = env->NewLocalRef(SliceJni::construct0(env));
+  if(jSliceB == nullptr) {
+    // exception thrown: OutOfMemoryError
+	bMemOK = fasle;
   }
 
-  pending_exception =
-      AbstractSliceJni::setHandle(env, m_jSliceB, &b, JNI_FALSE);
-  if(pending_exception) {
-    if(env->ExceptionCheck()) {
-      // exception thrown from setHandle or descendant
-      env->ExceptionDescribe(); // print out exception to stderr
-    }
-    releaseJniEnv(attached_thread);
-    return 0;
+  if(bMemOK)
+  {	 
+    jint result = CompareNoLock(jSliceA, jSliceB, a, b);
   }
+  else
+  {
+     //
+     // EMC Wayne Gao fix the concurrent list performance issue, below is original code
+     //
+	  mtx_compare.get()->Lock();  
+	  bool pending_exception =
+		  AbstractSliceJni::setHandle(env, m_jSliceA, &a, JNI_FALSE);
+	  if(pending_exception) {
+		if(env->ExceptionCheck()) {
+		  // exception thrown from setHandle or descendant
+		  env->ExceptionDescribe(); // print out exception to stderr
+		}
+		releaseJniEnv(attached_thread);
+		return 0;
+	  }
 
-  jint result =
-    env->CallIntMethod(m_jcallback_obj, m_jCompareMethodId, m_jSliceA,
-      m_jSliceB);
+	  pending_exception =
+		  AbstractSliceJni::setHandle(env, m_jSliceB, &b, JNI_FALSE);
+	  if(pending_exception) {
+		if(env->ExceptionCheck()) {
+		  // exception thrown from setHandle or descendant
+		  env->ExceptionDescribe(); // print out exception to stderr
+		}
+		releaseJniEnv(attached_thread);
+		return 0;
+	  }
 
-  mtx_compare.get()->Unlock();
+	  jint result =
+		env->CallIntMethod(m_jcallback_obj, m_jCompareMethodId, m_jSliceA,
+		  m_jSliceB);
+
+	  mtx_compare.get()->Unlock();
+  }
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallIntMethod
