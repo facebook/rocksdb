@@ -306,7 +306,11 @@ rocksdb::Status WriteBatchHandlerJniCallback::PutBlobIndexCF(uint32_t column_fam
 }
 
 rocksdb::Status WriteBatchHandlerJniCallback::MarkBeginPrepare(bool unprepare) {
+#ifndef DEBUG
+  (void) unprepare;
+#else
   assert(!unprepare);
+#endif
   m_env->CallVoidMethod(m_jcallback_obj, m_jMarkBeginPrepareMethodId);
 
   // check for Exception, in-particular RocksDBException
