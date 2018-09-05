@@ -292,6 +292,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   autovector<FileMetaData> file_meta;
   Status s;
+  assert(num_cfs == static_cast<int>(jobs.size()));
+
   // TODO (yanqin): parallelize jobs with threads.
   for (int i = 0; i != num_cfs; ++i) {
     auto& job = jobs[i];
@@ -352,6 +354,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
+    assert(num_cfs ==
+           static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],

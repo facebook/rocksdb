@@ -168,6 +168,72 @@ TEST_F(FlushJobTest, NonEmpty) {
   job_context.Clean();
 }
 
+TEST_F(FlushJobTest, FlushSomeMemTables) {
+  const int num_mems = 2;
+  const int num_mems_to_flush = 1;
+  const int num_keys_per_table = 100;
+  JobContext job_context(0);
+  ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
+  std::vector<uint64_t> memtable_ids;
+  std::vector<MemTable*> new_mems;
+  for (int i = 0; i != num_mems; ++i) {
+    MemTable* mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                              kMaxSequenceNumber);
+    mem->SetID(i);
+    mem->Ref();
+    new_mems.emplace_back(mem);
+    memtable_ids.push_back(mem->GetID());
+
+    for (int j = 0; j < num_keys_per_table; ++j) {
+      std::string key(ToString(j + i * num_keys_per_table));
+      std::string value("value" + key);
+      mem->Add(SequenceNumber(j + i * num_keys_per_table), kTypeValue, key,
+               value);
+    }
+  }
+
+  autovector<MemTable*> to_delete;
+  for (auto mem : new_mems) {
+    cfd->imm()->Add(mem, &to_delete);
+  }
+
+  EventLogger event_logger(db_options_.info_log.get());
+  SnapshotChecker* snapshot_checker = nullptr;  // not relavant
+
+  assert(memtable_ids.size() == static_cast<size_t>(num_mems));
+  uint64_t smallest_memtable_id = memtable_ids.front();
+  uint64_t flush_memtable_id = smallest_memtable_id + num_mems_to_flush - 1;
+
+  FlushJob flush_job(
+      dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
+      *cfd->GetLatestMutableCFOptions(), &flush_memtable_id, env_options_,
+      versions_.get(), &mutex_, &shutting_down_, {}, kMaxSequenceNumber,
+      snapshot_checker, &job_context, nullptr, nullptr, nullptr, kNoCompression,
+      db_options_.statistics.get(), &event_logger, true,
+      true /* sync_output_directory */, true /* write_manifest */);
+  HistogramData hist;
+  FileMetaData file_meta;
+  mutex_.Lock();
+  flush_job.PickMemTable();
+  ASSERT_OK(flush_job.Run(nullptr /* prep_tracker */, &file_meta));
+  mutex_.Unlock();
+  db_options_.statistics->histogramData(FLUSH_TIME, &hist);
+  ASSERT_GT(hist.average, 0.0);
+
+  ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
+  ASSERT_EQ(ToString(num_mems_to_flush * num_keys_per_table - 1),
+            file_meta.largest.user_key().ToString());
+  ASSERT_EQ(0, file_meta.fd.smallest_seqno);
+  ASSERT_EQ(SequenceNumber(num_mems_to_flush * num_keys_per_table - 1),
+            file_meta.fd.largest_seqno);
+
+  for (auto m : to_delete) {
+    delete m;
+  }
+  to_delete.clear();
+  job_context.Clean();
+}
+
 TEST_F(FlushJobTest, Snapshots) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();

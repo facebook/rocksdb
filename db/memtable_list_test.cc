@@ -845,12 +845,14 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
       if (prev_memtable_ids.empty()) {
         ASSERT_EQ(flush_memtable_ids[i] - 0 + 1, flush_candidates[i].size());
       } else {
-        ASSERT_EQ(flush_memtable_ids[i] - prev_memtable_ids[i], flush_candidates[i].size());
+        ASSERT_EQ(flush_memtable_ids[i] - prev_memtable_ids[i],
+                  flush_candidates[i].size());
       }
       ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
       ASSERT_FALSE(lists[i]->HasFlushRequested());
       if (flush_memtable_ids[i] == num_tables_per_cf - 1) {
-        ASSERT_FALSE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
+        ASSERT_FALSE(
+            lists[i]->imm_flush_needed.load(std::memory_order_acquire));
       } else {
         ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
       }
@@ -918,6 +920,9 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
       mutable_cf_options = nullptr;
     }
   }
+  // All memtables in tables array must have been flushed, thus ready to be
+  // deleted.
+  ASSERT_EQ(to_delete.size(), tables.size() * tables.front().size());
   for (const auto& m : to_delete) {
     // Refcount should be 0 after calling InstallMemtableFlushResults.
     // Verify this by Ref'ing and then Unref'ing.

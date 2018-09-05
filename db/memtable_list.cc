@@ -408,12 +408,13 @@ Status MemTableList::InstallMemtableFlushResults(
       }
       assert(remaining == 0);
 
+      size_t batch_sz = idx.size();
+      assert(batch_sz > 0);
+      assert(batch_sz == memtables_to_flush.size());
+      assert(batch_sz == tmp_cfds.size());
+      assert(batch_sz == edit_lists.size());
+
       if (vset->db_options()->allow_2pc) {
-        size_t batch_sz = idx.size();
-        assert(batch_sz > 0);
-        assert(batch_sz == tmp_cfds.size());
-        assert(batch_sz == edit_lists.size());
-        assert(batch_sz == memtables_to_flush.size());
         for (int i = 0; i != static_cast<int>(batch_sz); ++i) {
           auto& edit_list = edit_lists[i];
           assert(!edit_list.empty());
@@ -428,7 +429,7 @@ Status MemTableList::InstallMemtableFlushResults(
         imm_lists[i]->InstallNewVersion();
       }
       if (s.ok()) {
-        for (int i = 0; i != static_cast<int>(idx.size()); ++i) {
+        for (size_t i = 0; i != batch_sz; ++i) {
           if (tmp_cfds[i]->IsDropped()) {
             continue;
           }
@@ -444,7 +445,7 @@ Status MemTableList::InstallMemtableFlushResults(
           }
         }
       } else {
-        for (int i =0; i != static_cast<int>(idx.size()); ++i) {
+        for (size_t i = 0; i != batch_sz; ++i) {
           for (auto m : memtables_to_flush[i]) {
             uint64_t mem_id = m->GetID();
             ROCKS_LOG_BUFFER(log_buffer,
@@ -458,7 +459,8 @@ Status MemTableList::InstallMemtableFlushResults(
             m->file_number_ = 0;
             imm_lists[idx[i]]->num_flush_not_started_++;
           }
-          imm_lists[idx[i]]->imm_flush_needed.store(true, std::memory_order_release);
+          imm_lists[idx[i]]->imm_flush_needed.store(true,
+                                                    std::memory_order_release);
         }
       }
     }
