@@ -738,11 +738,9 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
     return raw;
   }
   StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  CompressionType type = bdb_options_.compression;
-  CompressionOptions opts;
-  CompressionContext context(type);
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type);
-  CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat,
+  CompressionType ct = bdb_options_.compression;
+  CompressionContext compression_ctx(ct);
+  CompressBlock(raw, compression_ctx, &ct, kBlockBasedTableVersionFormat,
                 compression_output);
   return *compression_output;
 }
@@ -1075,11 +1073,9 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     {
       StopWatch decompression_sw(env_, statistics_,
                                  BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(bfile->compression());
-      UncompressionInfo info(context, CompressionDict::GetEmptyDict(),
-                             bfile->compression());
+      UncompressionContext uncompression_ctx(bfile->compression());
       s = UncompressBlockContentsForCompressionType(
-          info, blob_value.data(), blob_value.size(), &contents,
+          uncompression_ctx, blob_value.data(), blob_value.size(), &contents,
           kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
     }
     value->PinSelf(contents.data);
