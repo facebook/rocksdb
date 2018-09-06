@@ -9,7 +9,10 @@
 
 #include "db/version_set.h"
 #include "db/log_writer.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
+#include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/string_util.h"
 #include "util/testharness.h"

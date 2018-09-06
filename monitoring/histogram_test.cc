@@ -5,6 +5,7 @@
 //
 #include <cmath>
 
+#include "rocksdb/statistics.h"
 #include "monitoring/histogram.h"
 #include "monitoring/histogram_windowing.h"
 #include "util/testharness.h"

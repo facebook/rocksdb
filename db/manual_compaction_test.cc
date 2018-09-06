@@ -6,10 +6,10 @@
 // Test for issue 178: a manual compaction causes deleted data to reappear.
 #include <iostream>
 #include <sstream>
-#include <cstdlib>
 
 #include "rocksdb/db.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
 #include "util/testharness.h"

@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "db/internal_stats.h"
+#include "db/range_del_aggregator.h"
 #include "port/stack_trace.h"
 
 namespace rocksdb {

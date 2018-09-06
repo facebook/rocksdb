@@ -7,6 +7,7 @@
 #include "utilities/geodb/geodb_impl.h"
 
 #include <cctype>
+#include "rocksdb/write_batch.h"
 #include "util/testharness.h"
 
 namespace rocksdb {

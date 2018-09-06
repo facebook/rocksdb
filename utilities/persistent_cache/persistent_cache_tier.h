@@ -7,16 +7,13 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <limits>
-#include <list>
-#include <map>
-#include <string>
-#include <vector>
-
-#include "monitoring/histogram.h"
-#include "rocksdb/env.h"
+//#include "monitoring/histogram.h"
+//#include "rocksdb/env.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/status.h"
+
+#include <limits>
+#include <list>
 
 // Persistent Cache
 //

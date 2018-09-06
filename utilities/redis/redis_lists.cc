@@ -24,7 +24,9 @@
 #ifndef ROCKSDB_LITE
 
 #include "redis_lists.h"
+#include "redis_list_iterator.h"
 
+#include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
 
 #include <iostream>

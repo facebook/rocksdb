@@ -7,6 +7,9 @@
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
+#include "db/read_callback.h"
+#include "db/snapshot_checker.h"
+#include "db/table_cache.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"

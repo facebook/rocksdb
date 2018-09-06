@@ -33,7 +33,8 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
-#include <inttypes.h>
+#include <cinttypes>
+#include <unordered_set>
 
 namespace rocksdb {
 

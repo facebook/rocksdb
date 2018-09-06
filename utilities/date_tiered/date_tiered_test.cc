@@ -8,10 +8,10 @@
 #include <unistd.h>
 #endif
 
-#include <map>
-#include <memory>
-
+#include "rocksdb/db.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/date_tiered_db.h"
 #include "util/logging.h"
 #include "util/string_util.h"

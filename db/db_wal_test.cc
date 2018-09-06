@@ -11,7 +11,9 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "util/fault_injection_test_env.h"
+#include "util/file_reader_writer.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {

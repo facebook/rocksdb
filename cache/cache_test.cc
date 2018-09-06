@@ -14,6 +14,8 @@
 #include "util/string_util.h"
 #include "util/testharness.h"
 
+#include <forward_list>
+
 namespace rocksdb {
 
 // Conversions between numeric keys/values and the types expected by Cache.

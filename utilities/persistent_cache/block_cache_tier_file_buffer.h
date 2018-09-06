@@ -4,11 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <list>
-#include <memory>
-#include <string>
-
-#include "include/rocksdb/comparator.h"
+#include "rocksdb/comparator.h"
 #include "util/arena.h"
 #include "util/mutexlock.h"
 

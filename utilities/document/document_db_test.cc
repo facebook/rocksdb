@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/json_document.h"
 #include "rocksdb/utilities/document_db.h"
 

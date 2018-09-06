@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <atomic>
+#include <cassert>
 
 #include "util/mutexlock.h"
 

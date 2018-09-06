@@ -3,12 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #include <array>
-#include <map>
-#include <string>
 
 #include "memtable/stl_wrappers.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/write_batch.h"
 #include "util/hash.h"
 #include "util/kv_map.h"
 #include "util/string_util.h"

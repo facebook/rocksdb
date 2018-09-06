@@ -5,6 +5,7 @@
 
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"

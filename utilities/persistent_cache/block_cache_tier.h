@@ -10,30 +10,12 @@
 #include <unistd.h>
 #endif // ! OS_WIN
 
-#include <atomic>
-#include <list>
-#include <memory>
-#include <set>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <thread>
-
-#include "rocksdb/cache.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/persistent_cache.h"
-
 #include "utilities/persistent_cache/block_cache_tier_file.h"
+#include "utilities/persistent_cache/block_cache_tier_file_buffer.h"
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
+#include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
-
-#include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
-#include "port/port.h"
-#include "util/arena.h"
-#include "util/coding.h"
-#include "util/crc32c.h"
-#include "util/mutexlock.h"
 
 namespace rocksdb {
 

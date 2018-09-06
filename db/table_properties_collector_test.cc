@@ -3,17 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <map>
-#include <memory>
-#include <string>
-#include <utility>
-#include <vector>
-
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
+#include "rocksdb/flush_block_policy.h"
 #include "table/block_based_table_factory.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"

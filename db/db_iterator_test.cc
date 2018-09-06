@@ -11,8 +11,10 @@
 
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
+#include "db/read_callback.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
 

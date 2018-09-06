@@ -8,6 +8,7 @@
 
 namespace rocksdb {
 
+class DBImpl;
 class InstrumentedMutex;
 
 struct ImmutableDBOptions;

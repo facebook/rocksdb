@@ -7,12 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdio.h>
-
 #include <algorithm>
-#include <string>
 
 #include "db/db_test_util.h"
+#include "db/internal_stats.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"

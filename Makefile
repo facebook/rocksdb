@@ -693,6 +693,7 @@ dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 # creates static library and programs
 release:
+	$(MAKE) clean
 	DEBUG_LEVEL=0 $(MAKE) static_lib tools db_bench
 
 coverage:

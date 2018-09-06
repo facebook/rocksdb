@@ -4,9 +4,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <map>
-#include <memory>
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/string_util.h"
 #include "util/testharness.h"

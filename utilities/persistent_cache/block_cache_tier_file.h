@@ -6,17 +6,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <list>
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
-
-#include "utilities/persistent_cache/block_cache_tier_file_buffer.h"
+//#include "utilities/persistent_cache/block_cache_tier_file_buffer.h"
+//#include "utilities/persistent_cache/lrulist.h"
+//#include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "utilities/persistent_cache/lrulist.h"
-#include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
 #include "port/port.h"
@@ -47,7 +40,11 @@
 //
 namespace rocksdb {
 
+class CacheWriteBuffer;
+class CacheWriteBufferAllocator;
+class PersistentCacheTier;
 class WriteableCacheFile;
+
 struct BlockInfo;
 
 // Represents a logical record on device

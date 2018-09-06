@@ -11,11 +11,11 @@
 #ifndef ROCKSDB_LITE
 #pragma once
 
-#include "rocksdb/db.h"
-#include "redis_list_iterator.h"
-#include "redis_list_exception.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
+
+class DB;
 
 /// The Redis functionality (see http://redis.io/commands#list)
 /// All functions may THROW a RedisListException

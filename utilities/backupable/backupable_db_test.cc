@@ -20,6 +20,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"

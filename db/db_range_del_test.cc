@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
+#include "db/table_cache.h"
 #include "port/stack_trace.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"

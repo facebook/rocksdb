@@ -20,6 +20,7 @@
 #include <iostream>
 #include <cctype>
 
+#include "rocksdb/write_batch.h"
 #include "redis_lists.h"
 #include "util/testharness.h"
 #include "util/random.h"

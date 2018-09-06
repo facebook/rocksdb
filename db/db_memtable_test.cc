@@ -3,14 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <memory>
-#include <string>
-
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/merge_context.h"
+#include "db/range_del_aggregator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/write_buffer_manager.h"
 
 namespace rocksdb {
 

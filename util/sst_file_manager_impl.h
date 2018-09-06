@@ -7,14 +7,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-
 #include "port/port.h"
 
 #include "db/compaction.h"
 #include "db/error_handler.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/delete_scheduler.h"
+
+#include <unordered_set>
+#include <list>
 
 namespace rocksdb {
 

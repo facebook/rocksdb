@@ -4,11 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/compaction_picker.h"
-#include <limits>
-#include <string>
-#include <utility>
+
 #include "db/compaction.h"
 #include "db/compaction_picker_universal.h"
+#include "db/version_set.h"
 
 #include "util/logging.h"
 #include "util/string_util.h"

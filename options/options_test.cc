@@ -11,11 +11,6 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <cctype>
-#include <cstring>
-#include <unordered_map>
-#include <inttypes.h>
-
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"
 #include "options/options_helper.h"
@@ -25,6 +20,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
+#include "table/block_based_table_factory.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"

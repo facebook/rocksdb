@@ -7,16 +7,16 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <assert.h>
-#include <list>
-#include <vector>
-
 #ifdef OS_LINUX
 #include <sys/mman.h>
 #endif
 
-#include "include/rocksdb/env.h"
+#include "rocksdb/env.h"
 #include "util/mutexlock.h"
+
+#include <cassert>
+#include <list>
+#include <vector>
 
 namespace rocksdb {
 

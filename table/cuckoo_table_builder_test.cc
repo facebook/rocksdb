@@ -5,11 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <vector>
-#include <string>
-#include <map>
-#include <utility>
-
+#include "rocksdb/db.h"
+#include "rocksdb/write_batch.h"
+#include "options/cf_options.h"
 #include "table/meta_blocks.h"
 #include "table/cuckoo_table_builder.h"
 #include "util/file_reader_writer.h"

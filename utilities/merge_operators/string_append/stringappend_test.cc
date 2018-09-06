@@ -7,10 +7,11 @@
 */
 
 #include <iostream>
-#include <map>
 
 #include "rocksdb/db.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"

@@ -5,10 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <vector>
-#include <string>
-#include <set>
-
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/spatial_db.h"
 #include "util/compression.h"
 #include "util/testharness.h"

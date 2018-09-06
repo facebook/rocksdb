@@ -12,8 +12,10 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
+#include "rocksdb/write_batch.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -24,7 +26,7 @@ TEST_F(SliceTransformTest, CapPrefixTransform) {
   std::string s;
   s = "abcdefge";
 
-  unique_ptr<const SliceTransform> transform;
+  std::unique_ptr<const SliceTransform> transform;
 
   transform.reset(NewCappedPrefixTransform(6));
   ASSERT_EQ(transform->Transform(s).ToString(), "abcdef");
@@ -115,7 +117,7 @@ TEST_F(SliceTransformDBTest, CapPrefix) {
   ASSERT_OK(db()->Put(wo, "foo3", "bar3"));
   ASSERT_OK(db()->Flush(fo));
 
-  unique_ptr<Iterator> iter(db()->NewIterator(ro));
+  std::unique_ptr<Iterator> iter(db()->NewIterator(ro));
 
   iter->Seek("foo");
   ASSERT_OK(iter->status());

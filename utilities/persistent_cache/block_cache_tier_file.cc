@@ -9,13 +9,12 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-#include <functional>
-#include <memory>
-#include <vector>
 
-#include "port/port.h"
-#include "util/crc32c.h"
+#include "utilities/persistent_cache/block_cache_tier_file_buffer.h"
+#include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "util/logging.h"
+
+#include <functional>
 
 namespace rocksdb {
 

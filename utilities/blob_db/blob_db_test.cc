@@ -22,6 +22,7 @@
 #include "util/testharness.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/blob_db/blob_file.h"
 #include "utilities/blob_db/blob_index.h"
 
 namespace rocksdb {

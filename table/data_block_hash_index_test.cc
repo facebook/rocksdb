@@ -3,16 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <cstdlib>
-#include <string>
-#include <unordered_map>
-
+#include "db/table_properties_collector.h"
+#include "options/cf_options.h"
 #include "rocksdb/slice.h"
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/data_block_hash_index.h"
+#include "table/filter_block.h"
 #include "table/get_context.h"
+#include "table/table_builder.h"
+#include "util/file_reader_writer.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

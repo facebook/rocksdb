@@ -8,6 +8,7 @@
 #include "db/event_helpers.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 
