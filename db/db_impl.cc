@@ -2413,7 +2413,7 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  char* buffer = reinterpret_cast<char*>(alloca(file_size));
+  char* buffer = reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
   Slice id;
   s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
   if (!s.ok()) {

@@ -44,9 +44,9 @@ class BlockCacheTier : public PersistentCacheTier {
  public:
   explicit BlockCacheTier(const PersistentCacheConfig& opt)
       : opt_(opt),
-        insert_ops_(opt_.max_write_pipeline_backlog_size),
+        insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
-        writer_(this, opt_.writer_qdepth, opt_.writer_dispatch_size) {
+        writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
     Info(opt_.log, "Initializing allocator. size=%d B count=%d",
          opt_.write_buffer_size, opt_.write_buffer_count());
   }

@@ -18,8 +18,7 @@
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONSTREAM_H
-#define FBSON_FBSONSTREAM_H
+#pragma once
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -178,5 +177,3 @@ class FbsonOutStream : public std::ostream {
 };
 
 } // namespace fbson
-
-#endif // FBSON_FBSONSTREAM_H
