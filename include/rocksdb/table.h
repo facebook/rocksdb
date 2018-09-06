@@ -16,6 +16,7 @@
 //   https://github.com/facebook/rocksdb/wiki/A-Tutorial-of-RocksDB-SST-formats#wiki-examples
 
 #pragma once
+
 #include <memory>
 #include <string>
 #include <unordered_map>

@@ -11,8 +11,7 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
-#ifndef UTIL_FAULT_INJECTION_TEST_ENV_H_
-#define UTIL_FAULT_INJECTION_TEST_ENV_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -171,5 +170,3 @@ class FaultInjectionTestEnv : public EnvWrapper {
 };
 
 }  // namespace rocksdb
-
-#endif  // UTIL_FAULT_INJECTION_TEST_ENV_H_

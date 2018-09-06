@@ -1094,7 +1094,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (tail_prefetch_stats != nullptr) {
       assert(prefetch_buffer->min_offset_read() < file_size);
       tail_prefetch_stats->RecordEffectiveSize(
-          file_size - prefetch_buffer->min_offset_read());
+				static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
     }
     *table_reader = std::move(new_table);
   }

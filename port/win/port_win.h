@@ -9,8 +9,7 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#ifndef STORAGE_LEVELDB_PORT_PORT_WIN_H_
-#define STORAGE_LEVELDB_PORT_PORT_WIN_H_
+#pragma once
 
 // Always want minimum headers
 #ifndef WIN32_LEAN_AND_MEAN
@@ -341,5 +340,3 @@ using port::pthread_getspecific;
 using port::truncate;
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_PORT_PORT_WIN_H_
