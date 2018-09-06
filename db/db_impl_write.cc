@@ -16,6 +16,7 @@
 #include "db/event_helpers.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
+#include "rocksdb/flush_manager.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -1064,6 +1065,8 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
                  oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
+
+  // TODO (yanqin) add invocation of FlushManager
   FlushRequest flush_req;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
@@ -1104,28 +1107,52 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   ColumnFamilyData* cfd_picked = nullptr;
+  std::vector<std::vector<uint32_t>> to_flush;
+  // Elements in cfds must be unique.
+  autovector<ColumnFamilyData*> cfds;
   SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
 
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->IsDropped()) {
-      continue;
-    }
-    if (!cfd->mem()->IsEmpty()) {
-      // We only consider active mem table, hoping immutable memtable is
-      // already in the process of flushing.
-      uint64_t seq = cfd->mem()->GetCreationSeq();
-      if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-        cfd_picked = cfd;
-        seq_num_for_cf_picked = seq;
+  if (immutable_db_options_.flush_manager != nullptr) {
+    immutable_db_options_.flush_manager->PickColumnFamiliesToFlush(&to_flush);
+    for (const auto& ids : to_flush) {
+      for (const auto id : ids) {
+        bool found = false;
+        ColumnFamilyData* tmp_cfd =
+            versions_->GetColumnFamilySet()->GetColumnFamily(id);
+        for (auto cfd : cfds) {
+          if (cfd == tmp_cfd) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          cfds.push_back(tmp_cfd);
+        }
       }
+    }
+  } else {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (!cfd->mem()->IsEmpty()) {
+        // We only consider active mem table, hoping immutable memtable is
+        // already in the process of flushing.
+        uint64_t seq = cfd->mem()->GetCreationSeq();
+        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+          cfd_picked = cfd;
+          seq_num_for_cf_picked = seq;
+        }
+      }
+    }
+
+    if (cfd_picked != nullptr) {
+      cfds.push_back(cfd_picked);
+      to_flush.resize(1);
+      to_flush[0].emplace_back(cfd_picked->GetID());
     }
   }
 
-  autovector<ColumnFamilyData*> cfds;
-  if (cfd_picked != nullptr) {
-    cfds.push_back(cfd_picked);
-  }
-  FlushRequest flush_req;
   for (const auto cfd : cfds) {
     cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
@@ -1133,12 +1160,19 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (!status.ok()) {
       break;
     }
-    uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-    cfd->imm()->FlushRequested();
-    flush_req.emplace_back(cfd, flush_memtable_id);
   }
   if (status.ok()) {
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    for (const auto& ids : to_flush) {
+      FlushRequest req;
+      for (const auto id : ids) {
+        ColumnFamilyData* cfd =
+            versions_->GetColumnFamilySet()->GetColumnFamily(id);
+        uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+        cfd->imm()->FlushRequested();
+        req.emplace_back(cfd, flush_memtable_id);
+      }
+      SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1234,6 +1268,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
+  // TODO (yanqin) add invocation of FlushManager
   ColumnFamilyData* cfd;
   FlushRequest flush_req;
   Status status;

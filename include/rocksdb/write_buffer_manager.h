@@ -38,6 +38,7 @@ class WriteBufferManager {
     return memory_active_.load(std::memory_order_relaxed);
   }
   size_t buffer_size() const { return buffer_size_; }
+  size_t mutable_limit() const { return mutable_limit_; }
 
   // Should only be called from write thread
   bool ShouldFlush() const {

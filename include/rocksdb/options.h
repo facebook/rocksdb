@@ -47,6 +47,7 @@ class Slice;
 class Statistics;
 class InternalKeyComparator;
 class WalFilter;
+class FlushManager;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -943,6 +944,8 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  std::shared_ptr<FlushManager> flush_manager = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

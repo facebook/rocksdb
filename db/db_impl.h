@@ -963,6 +963,10 @@ class DBImpl : public DB {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids);
 
+  Status WaitForFlushMemTablesWithLock(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const uint64_t*>& flush_memtable_ids);
+
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
 

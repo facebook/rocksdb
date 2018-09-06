@@ -205,6 +205,8 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
   Status s;
+  int count = 0;
+  const int sz = static_cast<const int>(bg_flush_args.size());
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
     const MutableCFOptions& mutable_cf_options =
@@ -216,6 +218,14 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     if (!s.ok()) {
       break;
     }
+    if (count != sz - 1) {
+      uint64_t memtable_id = arg.memtable_id_;
+      s = WaitForFlushMemTablesWithLock({cfd}, {&memtable_id});
+      if (!s.ok()) {
+        break;
+      }
+    }
+    ++count;
   }
   return s;
 }
@@ -1047,6 +1057,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
+  // TODO (yanqin) add invocation of FlushManager
   Status s;
   uint64_t flush_memtable_id = 0;
   if (!flush_options.allow_write_stall) {
@@ -1175,9 +1186,16 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids) {
-  int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
+  return WaitForFlushMemTablesWithLock(cfds, flush_memtable_ids);
+}
+
+Status DBImpl::WaitForFlushMemTablesWithLock(
+    const autovector<ColumnFamilyData*>& cfds,
+    const autovector<const uint64_t*>& flush_memtable_ids) {
+  mutex_.AssertHeld();
+  int num = static_cast<int>(cfds.size());
   while (!error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
