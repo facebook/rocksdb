@@ -49,7 +49,7 @@ public:
 	{
 		
 		lInited = 0;
-		if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm!=null)
+		if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm!= nullptr)
 		{
 			jboolean attached_thread = JNI_FALSE;
 
@@ -61,14 +61,14 @@ public:
 			JniUtil::releaseJniEnv(m_jvm, attached_thread);
 
 			delete m_jvm;
-			m_jvm = null;
+			m_jvm = nullptr;
 
 		}
 	}
 
 	volatile long lInited = 0;
 	volatile long lObjAssigned = 0;
-	JavaVM* m_jvm = null;
+	JavaVM* m_jvm = nullptr;
 	jobject m_jSlice = nullptr;
 };
 
