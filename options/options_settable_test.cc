@@ -200,6 +200,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
+      {offsetof(struct DBOptions, external_flush_manager),
+       sizeof(std::shared_ptr<ExternalFlushManager>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

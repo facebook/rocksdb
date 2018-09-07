@@ -14,6 +14,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/external_flush_manager.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 #include "util/logging.h"
@@ -85,7 +86,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_ingest_behind(options.allow_ingest_behind),
       preserve_deletes(options.preserve_deletes),
       two_write_queues(options.two_write_queues),
-      manual_wal_flush(options.manual_wal_flush) {
+      manual_wal_flush(options.manual_wal_flush),
+      external_flush_manager(options.external_flush_manager) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

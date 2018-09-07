@@ -20,6 +20,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
+#include "rocksdb/external_flush_manager.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
@@ -1048,7 +1049,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
-  uint64_t flush_memtable_id = 0;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
     s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
@@ -1057,7 +1057,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return s;
     }
   }
-  FlushRequest flush_req;
+  autovector<FlushRequest, 1> flush_reqs;
+  std::vector<uint32_t> cf_ids;
+  std::vector<std::vector<uint32_t>> to_flush;
+  if (immutable_db_options_.external_flush_manager) {
+    size_t num_cfs = versions_->GetColumnFamilySet()->NumberOfColumnFamilies();
+    cf_ids.reserve(num_cfs);
+  }
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -1067,19 +1073,47 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
-      s = SwitchMemtable(cfd, &context);
-      flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      flush_req.emplace_back(cfd, flush_memtable_id);
+    if (immutable_db_options_.external_flush_manager) {
+      for (ColumnFamilyData* tmp_cfd : *versions_->GetColumnFamilySet()) {
+        if (tmp_cfd->imm()->NumNotFlushed() != 0 ||
+            !tmp_cfd->mem()->IsEmpty() ||
+            !cached_recoverable_state_empty_.load()) {
+          cf_ids.push_back(tmp_cfd->GetID());
+        }
+      }
+      immutable_db_options_.external_flush_manager->PickColumnFamiliesToFlush(
+          cf_ids, &to_flush);
+      for (const auto& elem : to_flush) {
+        FlushRequest req;
+        for (const auto cf_id : elem) {
+          ColumnFamilyData* tmp_cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+          uint64_t flush_memtable_id = tmp_cfd->imm()->GetLatestMemTableID();
+          req.emplace_back(tmp_cfd, flush_memtable_id);
+        }
+        if (!req.empty()) {
+          flush_reqs.emplace_back(req);
+        }
+      }
+    } else {
+      FlushRequest req;
+      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          !cached_recoverable_state_empty_.load()) {
+        s = SwitchMemtable(cfd, &context);
+        uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+        req.emplace_back(cfd, flush_memtable_id);
+        flush_reqs.emplace_back(req);
+      }
     }
 
-    if (s.ok() && !flush_req.empty()) {
-      for (auto& elem : flush_req) {
-        ColumnFamilyData* loop_cfd = elem.first;
-        loop_cfd->imm()->FlushRequested();
+    if (s.ok() && !flush_reqs.empty()) {
+      for (const auto& flush_req : flush_reqs) {
+        for (const auto& elem : flush_req) {
+          ColumnFamilyData* tmp_cfd = elem.first;
+          tmp_cfd->imm()->FlushRequested();
+        }
+        SchedulePendingFlush(flush_req, flush_reason);
       }
-      SchedulePendingFlush(flush_req, flush_reason);
       MaybeScheduleFlushOrCompaction();
     }
 
@@ -1091,9 +1125,25 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   if (s.ok() && flush_options.wait) {
     autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
-    for (auto& iter : flush_req) {
-      cfds.push_back(iter.first);
-      flush_memtable_ids.push_back(&(iter.second));
+    for (const auto& flush_req : flush_reqs) {
+      for (auto& iter : flush_req) {
+        ColumnFamilyData* tmp_cfd = iter.first;
+        uint64_t flush_memtable_id = iter.second;
+        bool found = false;
+        for (int i = 0; i != static_cast<int>(cfds.size()); ++i) {
+          if (cfds[i] == tmp_cfd) {
+            found = true;
+            if (*flush_memtable_ids[i] < flush_memtable_id) {
+              flush_memtable_ids[i] = &(iter.second);
+            }
+            break;
+          }
+        }
+        if (!found) {
+          cfds.push_back(iter.first);
+          flush_memtable_ids.push_back(&(iter.second));
+        }
+      }
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
