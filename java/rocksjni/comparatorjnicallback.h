@@ -12,10 +12,14 @@
 #include <jni.h>
 #include <memory>
 #include <string>
+#include <map>
 #include "rocksjni/jnicallback.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
+
+
+using namespace std;
 
 namespace rocksdb {
 
@@ -29,6 +33,43 @@ struct ComparatorJniCallbackOptions {
 
   ComparatorJniCallbackOptions() : use_adaptive_mutex(false) {
   }
+};
+
+//
+//wgao Thread Local class that hold jobject
+//
+class ThreadLocalJObject {
+public:
+	ThreadLocalJObject() {
+		lInited = 1;
+
+	}
+
+	~ThreadLocalJObject()
+	{
+		
+		lInited = 0;
+		if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm!=null)
+		{
+			jboolean attached_thread = JNI_FALSE;
+
+			JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+			assert(env != nullptr);
+			// free ASAP after thread detach this thread local obj
+			env->DeleteLocalRef(m_jSlice);	
+
+			JniUtil::releaseJniEnv(m_jvm, attached_thread);
+
+			delete m_jvm;
+			m_jvm = null;
+
+		}
+	}
+
+	volatile long lInited = 0;
+	volatile long lObjAssigned = 0;
+	JavaVM* m_jvm = null;
+	jobject m_jSlice = nullptr;
 };
 
 /**
@@ -69,6 +110,11 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
     jmethodID m_jCompareMethodId;
     jmethodID m_jFindShortestSeparatorMethodId;
     jmethodID m_jFindShortSuccessorMethodId;
+
+	// wgao used for synchronisation in thread local map method
+	std::unique_ptr<port::Mutex> mtx_threadMap;
+	map<std::string, int> mapThread2SliceObjectA;
+	map<std::string, jobject> mapThread2SliceObjectB;
 
  protected:
     jobject m_jSliceA;

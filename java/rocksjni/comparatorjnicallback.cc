@@ -8,14 +8,21 @@
 
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
+#include <sstream>
+#include <string>
+#include <iosfwd>
 
 namespace rocksdb {
+
+
+
 BaseComparatorJniCallback::BaseComparatorJniCallback(
     JNIEnv* env, jobject jComparator,
     const ComparatorJniCallbackOptions* copt)
     : JniCallback(env, jComparator),
     mtx_compare(new port::Mutex(copt->use_adaptive_mutex)),
-    mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)) {
+    mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)),
+	mtx_threadMap(new port::Mutex(true)) {//wgao use spin mutex here because it will be very fast
 
   // Note: The name of a Comparator will not change during it's lifetime,
   // so we cache it in a global var
@@ -62,6 +69,11 @@ const char* BaseComparatorJniCallback::Name() const {
   return m_name.get();
 }
 
+//
+//wgao thread local jobject
+//
+static thread_local ThreadLocalJObject jObjA;
+static thread_local ThreadLocalJObject jObjB;
 
 int BaseComparatorJniCallback::CompareNoLock(JNIEnv* env, const jobject& jSliceA, const jobject& jSliceB, 
 											 const Slice& a, const Slice& b,
@@ -109,25 +121,69 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   //
   //EMC Wayne Gao fix the concurrent list performance issue
   //
+  auto this_id = std::this_thread::get_id();
+  std::stringstream sID;
+  sID << this_id;
+  string sThreadID = sID.str();
+  map<string, int>::iterator it;
   bool bMemOK = true;
   jobject jSliceA = nullptr;
   jobject jSliceB = nullptr;
 
-  jSliceA = env->NewLocalRef(SliceJni::construct0(env)); 
-  if(jSliceA == nullptr) {
-    // if there is no Memory, use global variable with lock
-	bMemOK = false;
+  //
+  //wgao new thread will new local ref, existing thread will resue thread local cache
+  //
+  if (jObjA.lObjAssigned == 0)
+  {
+	  jObjA.m_jSlice = env->NewLocalRef(SliceJni::construct0(env));
+	  if (jObjA.m_jSlice == nullptr) {
+		  // exception thrown: OutOfMemoryError
+		  bMemOK = false;
+	  }
+	  else
+	  {
+		  jObjA.m_jvm = new JavaVM();
+		  const jint rs = env->GetJavaVM(&jObjA.m_jvm);
+		  if (rs != JNI_OK) {
+			  // exception thrown
+			  jObjA.m_jvm = null;
+		  }
+
+		  jObjA.lObjAssigned = 1;
+	  }
+  }
+  else
+  {
+	  jSliceA = jObjA.m_jSlice;
+  }
+
+  if (jObjB.lObjAssigned == 0)
+  {
+	  jObjB.m_jSlice = env->NewLocalRef(SliceJni::construct0(env));
+	  if (jObjB.m_jSlice == nullptr) {
+		  // exception thrown: OutOfMemoryError
+		  bMemOK = false;
+	  }
+	  else
+	  {
+		  jObjB.m_jvm = new JavaVM();
+		  const jint rs = env->GetJavaVM(&jObjB.m_jvm);
+		  if (rs != JNI_OK) {
+			  // exception thrown
+			  jObjB.m_jvm = null;
+		  }
+
+		  jObjB.lObjAssigned = 1;
+	  }
+  }
+  else
+  {
+	  jSliceB = jObjB.m_jSlice;
   }
   
-  jSliceB = env->NewLocalRef(SliceJni::construct0(env));
-  if(jSliceB == nullptr) {
-    // exception thrown: OutOfMemoryError
-	bMemOK = false;
-  }
-
   jint result = 0;
 
-  if(bMemOK)
+  if(bMemOK && jSliceA!=nullptr && jSliceB!=nullptr)
   {	 
     result = CompareNoLock(env, jSliceA, jSliceB, a, b, attached_thread);
   }
@@ -166,15 +222,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 	  mtx_compare.get()->Unlock();
   }
 
-  if (jSliceA != nullptr) {
-	  // free ASAP
-	  env->DeleteLocalRef(jSliceA);
-  }
 
-  if (jSliceB != nullptr) {
-	  // free ASAP
-	  env->DeleteLocalRef(jSliceB);
-  }
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallIntMethod
