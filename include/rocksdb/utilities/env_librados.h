@@ -173,4 +173,3 @@ class EnvLibrados : public EnvWrapper {
   friend class LibradosWritableFile;
 };
 }
-#endif
