@@ -142,12 +142,12 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 	  }
 	  else
 	  {
-		  jObjA.m_jvm = new JavaVM();
-		  const jint rs = env->GetJavaVM(&jObjA.m_jvm);
-		  if (rs != JNI_OK) {
-			  // exception thrown
-			  jObjA.m_jvm = nullptr;
-		  }
+		  //jObjA.m_jvm = new JavaVM();
+		  //const jint rs = env->GetJavaVM(&jObjA.m_jvm);
+		  //if (rs != JNI_OK) {
+			 // // exception thrown
+			 // jObjA.m_jvm = nullptr;
+		  //}
 
 		  jObjA.lObjAssigned = 1;
 	  }
@@ -166,12 +166,12 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 	  }
 	  else
 	  {
-		  jObjB.m_jvm = new JavaVM();
-		  const jint rs = env->GetJavaVM(&jObjB.m_jvm);
-		  if (rs != JNI_OK) {
-			  // exception thrown
-			  jObjB.m_jvm = nullptr;
-		  }
+		  //jObjB.m_jvm = new JavaVM();
+		  //const jint rs = env->GetJavaVM(&jObjB.m_jvm);
+		  //if (rs != JNI_OK) {
+			 // // exception thrown
+			 // jObjB.m_jvm = nullptr;
+		  //}
 
 		  jObjB.lObjAssigned = 1;
 	  }

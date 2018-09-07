@@ -19,6 +19,7 @@
 #include "port/port.h"
 
 
+
 using namespace std;
 
 namespace rocksdb {
@@ -51,17 +52,17 @@ public:
 		lInited = 0;
 		if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm!= nullptr)
 		{
-			jboolean attached_thread = JNI_FALSE;
+			//jboolean attached_thread = JNI_FALSE;
 
-			JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
-			assert(env != nullptr);
-			// free ASAP after thread detach this thread local obj
-			env->DeleteLocalRef(m_jSlice);	
+			//JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+			//assert(env != nullptr);
+			//// free ASAP after thread detach this thread local obj
+			//env->DeleteLocalRef(m_jSlice);	
 
-			JniUtil::releaseJniEnv(m_jvm, attached_thread);
+			//JniUtil::releaseJniEnv(m_jvm, attached_thread);
 
-			delete m_jvm;
-			m_jvm = nullptr;
+			//delete m_jvm;
+			//m_jvm = nullptr;
 
 		}
 	}
