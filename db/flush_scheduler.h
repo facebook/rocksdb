@@ -9,10 +9,15 @@
 #include <atomic>
 #include <mutex>
 #include <set>
+#include <vector>
+
+#include "rocksdb/flush_manager.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
 class ColumnFamilyData;
+class ColumnFamilySet;
 
 // Unless otherwise noted, all methods on FlushScheduler should be called
 // only with the DB mutex held or from a single-threaded recovery context.
@@ -43,6 +48,53 @@ class FlushScheduler {
   std::mutex checking_mutex_;
   std::set<ColumnFamilyData*> checking_set_;
 #endif  // NDEBUG
+};
+
+class InternalFlushManager : public FlushManager {
+ public:
+  virtual ~InternalFlushManager() {}
+
+  virtual void PickColumnFamiliesToFlush(
+      std::vector<std::vector<uint32_t>>* /* to_flush */) override {}
+
+  virtual void OnManualFlush(ColumnFamilySet& column_family_set,
+                             ColumnFamilyData* cfd,
+                             std::atomic<bool>& cached_recoverable_state_empty,
+                             autovector<ColumnFamilyData*>* cfds_picked) = 0;
+
+  virtual void OnSwitchWAL(ColumnFamilySet& column_family_set,
+                           uint64_t oldest_alive_log,
+                           autovector<ColumnFamilyData*>* cfds_picked) = 0;
+
+  virtual void OnHandleWriteBufferFull(
+      ColumnFamilySet& column_family_set,
+      autovector<ColumnFamilyData*>* cfds_picked) = 0;
+
+  virtual void OnScheduleFlushes(
+      ColumnFamilySet& column_family_set, FlushScheduler& scheduler,
+      autovector<ColumnFamilyData*>* cfds_picked) = 0;
+};
+
+class DefaultFlushManager : public InternalFlushManager {
+ public:
+  virtual ~DefaultFlushManager() {}
+
+  virtual void OnManualFlush(
+      ColumnFamilySet& /* column_family_set */, ColumnFamilyData* cfd,
+      std::atomic<bool>& cached_recoverable_state_empty,
+      autovector<ColumnFamilyData*>* cfds_picked) override;
+
+  virtual void OnSwitchWAL(ColumnFamilySet& column_family_set,
+                           uint64_t oldest_alive_log,
+                           autovector<ColumnFamilyData*>* cfds_picked) override;
+
+  virtual void OnHandleWriteBufferFull(
+      ColumnFamilySet& column_family_set,
+      autovector<ColumnFamilyData*>* cfds_picked) override;
+
+  virtual void OnScheduleFlushes(
+      ColumnFamilySet& column_family_set, FlushScheduler& scheduler,
+      autovector<ColumnFamilyData*>* cfds_picked) override;
 };
 
 }  // namespace rocksdb

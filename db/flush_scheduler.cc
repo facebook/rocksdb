@@ -85,4 +85,62 @@ void FlushScheduler::Clear() {
   assert(head_.load(std::memory_order_relaxed) == nullptr);
 }
 
+void DefaultFlushManager::OnManualFlush(
+    ColumnFamilySet& /* column_family_set */, ColumnFamilyData* cfd,
+    std::atomic<bool>& cached_recoverable_state_empty,
+    autovector<ColumnFamilyData*>* cfds_picked) {
+  if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+      !cached_recoverable_state_empty.load()) {
+    cfds_picked->emplace_back(cfd);
+  }
+}
+
+void DefaultFlushManager::OnSwitchWAL(
+    ColumnFamilySet& column_family_set, uint64_t oldest_alive_log,
+    autovector<ColumnFamilyData*>* cfds_picked) {
+  for (ColumnFamilyData* cfd : column_family_set) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
+      cfds_picked->emplace_back(cfd);
+    }
+  }
+}
+
+void DefaultFlushManager::OnHandleWriteBufferFull(
+    ColumnFamilySet& column_family_set,
+    autovector<ColumnFamilyData*>* cfds_picked) {
+  ColumnFamilyData* cfd_picked = nullptr;
+  SequenceNumber seqno_for_cf_picked = kMaxSequenceNumber;
+  for (ColumnFamilyData* cfd : column_family_set) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (!cfd->mem()->IsEmpty()) {
+      // We only consider active mem table, hoping immutable memtable is
+      // already in the process of flushing.
+      uint64_t seq = cfd->mem()->GetCreationSeq();
+      if (cfd_picked == nullptr || seq < seqno_for_cf_picked) {
+        cfd_picked = cfd;
+        seqno_for_cf_picked = seq;
+      }
+    }
+  }
+  if (cfd_picked != nullptr) {
+    cfds_picked->emplace_back(cfd_picked);
+  }
+}
+
+void DefaultFlushManager::OnScheduleFlushes(
+    ColumnFamilySet& /* column_family_set */, FlushScheduler& scheduler,
+    autovector<ColumnFamilyData*>* cfds_picked) {
+  ColumnFamilyData* cfd = nullptr;
+  while ((cfd = scheduler.TakeNextColumnFamily()) != nullptr) {
+    cfds_picked->emplace_back(cfd);
+  }
+}
+
+FlushManager* NewDefaultFlushManager() { return new DefaultFlushManager(); }
+
 }  // namespace rocksdb

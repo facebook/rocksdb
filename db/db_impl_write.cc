@@ -1066,20 +1066,20 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
 
-  // TODO (yanqin) add invocation of FlushManager
+  autovector<ColumnFamilyData*> cfds;
   FlushRequest flush_req;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->IsDropped()) {
-      continue;
+  auto ifm = dynamic_cast<InternalFlushManager*>(
+      immutable_db_options_.flush_manager.get());
+  if (ifm != nullptr) {
+    ifm->OnSwitchWAL(*versions_->GetColumnFamilySet(), oldest_alive_log, &cfds);
+  }
+  for (auto cfd : cfds) {
+    status = SwitchMemtable(cfd, write_context);
+    if (!status.ok()) {
+      break;
     }
-    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
-      status = SwitchMemtable(cfd, write_context);
-      if (!status.ok()) {
-        break;
-      }
-      flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
-      cfd->imm()->FlushRequested();
-    }
+    flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
+    cfd->imm()->FlushRequested();
   }
   if (status.ok()) {
     SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
@@ -1106,13 +1106,15 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
-  ColumnFamilyData* cfd_picked = nullptr;
   std::vector<std::vector<uint32_t>> to_flush;
   // Elements in cfds must be unique.
   autovector<ColumnFamilyData*> cfds;
-  SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
-
-  if (immutable_db_options_.flush_manager != nullptr) {
+  auto ifm = dynamic_cast<InternalFlushManager*>(
+      immutable_db_options_.flush_manager.get());
+  if (ifm != nullptr) {
+    ifm->OnHandleWriteBufferFull(*versions_->GetColumnFamilySet(), &cfds);
+  } else {
+    assert(immutable_db_options_.flush_manager != nullptr);
     immutable_db_options_.flush_manager->PickColumnFamiliesToFlush(&to_flush);
     for (const auto& ids : to_flush) {
       for (const auto id : ids) {
@@ -1130,27 +1132,6 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
         }
       }
     }
-  } else {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (!cfd->mem()->IsEmpty()) {
-        // We only consider active mem table, hoping immutable memtable is
-        // already in the process of flushing.
-        uint64_t seq = cfd->mem()->GetCreationSeq();
-        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-          cfd_picked = cfd;
-          seq_num_for_cf_picked = seq;
-        }
-      }
-    }
-
-    if (cfd_picked != nullptr) {
-      cfds.push_back(cfd_picked);
-      to_flush.resize(1);
-      to_flush[0].emplace_back(cfd_picked->GetID());
-    }
   }
 
   for (const auto cfd : cfds) {
@@ -1161,17 +1142,28 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       break;
     }
   }
+
   if (status.ok()) {
-    for (const auto& ids : to_flush) {
+    if (ifm != nullptr) {
       FlushRequest req;
-      for (const auto id : ids) {
-        ColumnFamilyData* cfd =
-            versions_->GetColumnFamilySet()->GetColumnFamily(id);
+      for (const auto cfd : cfds) {
         uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         cfd->imm()->FlushRequested();
         req.emplace_back(cfd, flush_memtable_id);
       }
       SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
+    } else {
+      for (const auto& ids : to_flush) {
+        FlushRequest req;
+        for (const auto id : ids) {
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+          cfd->imm()->FlushRequested();
+          req.emplace_back(cfd, flush_memtable_id);
+        }
+        SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
+      }
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -1268,11 +1260,16 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
-  // TODO (yanqin) add invocation of FlushManager
-  ColumnFamilyData* cfd;
+  autovector<ColumnFamilyData*> cfds;
+  auto ifm = dynamic_cast<InternalFlushManager*>(
+      immutable_db_options_.flush_manager.get());
+  if (ifm != nullptr) {
+    ifm->OnScheduleFlushes(*versions_->GetColumnFamilySet(), flush_scheduler_,
+                           &cfds);
+  }
   FlushRequest flush_req;
   Status status;
-  while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+  for (auto cfd : cfds) {
     status = SwitchMemtable(cfd, context);
     bool should_schedule = true;
     if (cfd->Unref()) {

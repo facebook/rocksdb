@@ -1059,7 +1059,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              FlushReason flush_reason, bool writes_stopped) {
   // TODO (yanqin) add invocation of FlushManager
   Status s;
-  uint64_t flush_memtable_id = 0;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
     s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
@@ -1069,6 +1068,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
   }
   FlushRequest flush_req;
+  autovector<ColumnFamilyData*> cfds;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -1078,10 +1078,19 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
-      s = SwitchMemtable(cfd, &context);
-      flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+    auto ifm = dynamic_cast<InternalFlushManager*>(
+        immutable_db_options_.flush_manager.get());
+    if (ifm != nullptr) {
+      ifm->OnManualFlush(*versions_->GetColumnFamilySet(), cfd,
+                         cached_recoverable_state_empty_, &cfds);
+    }
+
+    for (auto tmp_cfd : cfds) {
+      s = SwitchMemtable(tmp_cfd, &context);
+      if (!s.ok()) {
+        break;
+      }
+      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
       flush_req.emplace_back(cfd, flush_memtable_id);
     }
 
@@ -1100,10 +1109,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   }
 
   if (s.ok() && flush_options.wait) {
-    autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
-      cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);

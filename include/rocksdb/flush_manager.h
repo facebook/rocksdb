@@ -14,4 +14,6 @@ class FlushManager {
       std::vector<std::vector<uint32_t>>* to_flush) = 0;
 };
 
+extern FlushManager* NewDefaultFlushManager();
+
 }  // namespace rocksdb

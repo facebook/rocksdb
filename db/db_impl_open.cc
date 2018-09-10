@@ -136,6 +136,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 #endif
 
+  if (nullptr == result.flush_manager) {
+    result.flush_manager.reset(NewDefaultFlushManager());
+  }
+
   return result;
 }
 
