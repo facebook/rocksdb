@@ -1155,10 +1155,10 @@ Options GetRocksDBOptionsFromOptions(const DocumentDBOptions& options) {
   Options rocksdb_options;
   rocksdb_options.max_background_compactions = options.background_threads - 1;
   rocksdb_options.max_background_flushes = 1;
-  rocksdb_options.write_buffer_size = options.memtable_size;
+  rocksdb_options.write_buffer_size = static_cast<size_t>(options.memtable_size);
   rocksdb_options.max_write_buffer_number = 6;
   BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(options.cache_size);
+  table_options.block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   rocksdb_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   return rocksdb_options;
 }

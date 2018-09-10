@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
-#define STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
+#pragma once
 
 #include <atomic>
 #include <cstddef>
@@ -673,5 +672,3 @@ class Statistics {
 std::shared_ptr<Statistics> CreateDBStatistics();
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_

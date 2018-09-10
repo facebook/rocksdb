@@ -55,8 +55,7 @@
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONDOCUMENT_H
-#define FBSON_FBSONDOCUMENT_H
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -889,5 +888,3 @@ inline FbsonValue* FbsonValue::findPath(const char* key_path,
 #pragma pack(pop)
 
 } // namespace fbson
-
-#endif // FBSON_FBSONDOCUMENT_H

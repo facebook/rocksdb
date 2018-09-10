@@ -346,7 +346,7 @@ class CollapsedRangeDelMap : public RangeDelMap {
     }
   }
 
-  size_t Size() const override { return rep_.size() - 1; }
+  size_t Size() const override { return rep_.empty() ? 0 : rep_.size() - 1; }
 
   void InvalidatePosition() override { iter_ = rep_.end(); }
 
@@ -495,7 +495,8 @@ Status RangeDelAggregator::AddTombstones(
         tombstone.end_key_ = largest->user_key();
       }
     }
-    GetRangeDelMap(tombstone.seq_).AddTombstone(std::move(tombstone));
+    auto seq = tombstone.seq_;
+    GetRangeDelMap(seq).AddTombstone(std::move(tombstone));
     input->Next();
   }
   if (!first_iter) {

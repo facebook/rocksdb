@@ -49,7 +49,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   // increasing.
   size_t new_compact_bytes_per_del_file = 0;
   for (span_len = 1; span_len < level_files.size(); ++span_len) {
-    compact_bytes += level_files[span_len]->fd.file_size;
+    compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
     new_compact_bytes_per_del_file = compact_bytes / span_len;
     if (level_files[span_len]->being_compacted ||
         new_compact_bytes_per_del_file > compact_bytes_per_del_file) {

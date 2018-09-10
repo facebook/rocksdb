@@ -17,8 +17,7 @@
 // Most people will want to use the builtin bloom filter support (see
 // NewBloomFilterPolicy() below).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
-#define STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
+#pragma once
 
 #include <memory>
 #include <stdexcept>
@@ -149,5 +148,3 @@ class FilterPolicy {
 extern const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
     bool use_block_based_builder = true);
 }
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_

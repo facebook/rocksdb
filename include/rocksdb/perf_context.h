@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
-#define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
+#pragma once
 
 #include <stdint.h>
 #include <string>
@@ -176,5 +175,3 @@ struct PerfContext {
 PerfContext* get_perf_context();
 
 }
-
-#endif
