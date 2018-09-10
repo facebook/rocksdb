@@ -133,6 +133,14 @@ Status PessimisticTransactionDB::Initialize(
     WriteOptions w_options;
     w_options.sync = true;
     TransactionOptions t_options;
+    // This would help avoiding deadlock for keys that although exist in the WAL
+    // did not go through concurrency control. This includes the merge that
+    // MyRocks uses for auto-inc columns. It is safe to do so, since (i) if
+    // there is a conflict between the keys of two transactions that must be
+    // avoided, it is already avoided by the application, MyRocks, before the
+    // restart (ii) application, MyRocks, guarntees to rollback/commit the
+    // recovered transactions before new transactions start.
+    t_options.skip_concurrency_control = true;
 
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
