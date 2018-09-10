@@ -19,6 +19,10 @@
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 
+// Range Locking:
+#include <locktree/locktree.h>
+#include <locktree/lock_request.h>
+
 namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
@@ -50,6 +54,69 @@ struct TrackedTrxInfo {
 
 class Slice;
 class PessimisticTransactionDB;
+
+/*
+  psergey: this should be 
+*/
+class BaseLockMgr {
+ public:
+  virtual void AddColumnFamily(uint32_t column_family_id) = 0;
+  virtual void RemoveColumnFamily(uint32_t column_family_id) = 0;
+
+  virtual
+  Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
+                 const std::string& key, Env* env, bool exclusive) = 0;
+  virtual
+  void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
+              Env* env) = 0;
+  virtual 
+  void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
+              const std::string& key, Env* env)=0;
+
+  virtual ~BaseLockMgr(){}
+};
+
+using namespace toku;
+
+
+/*
+  A lock manager that supports Range-based locking.
+*/
+class RangeLockMgr :public BaseLockMgr {
+ public:
+  void AddColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
+  void RemoveColumnFamily(uint32_t column_family_id) override { /* do nothing */ }
+
+  Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
+                 const std::string& key, Env* env, bool exclusive) override ;
+  
+  void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
+              Env* env) override ;
+  void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
+              const std::string& key, Env* env) override ;
+
+  RangeLockMgr() 
+  {
+    ltm.create(on_create, on_destroy, on_escalate, NULL);
+    toku::comparator cmp;
+    cmp.create(toku_builtin_compare_fun, NULL);
+    DICTIONARY_ID dict_id = { .dictid = 1 };
+    lt= ltm.get_lt(dict_id, cmp , /* on_create_extra*/nullptr);
+
+  }
+
+ private:
+  toku::locktree_manager ltm;
+  toku::locktree *lt; // only one tree for now
+  
+  // Callbacks
+  static int  on_create(locktree *lt, void *extra) { return 0; /* no error */ }
+  static void on_destroy(locktree *lt) {}
+  static void on_escalate(TXNID txnid, const locktree *lt, 
+                          const range_buffer &buffer, void *extra) {}
+
+};
+
 
 class TransactionLockMgr {
  public:

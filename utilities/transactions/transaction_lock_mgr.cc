@@ -306,6 +306,35 @@ Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
                             timeout, std::move(lock_info));
 }
 
+
+// psergey: new code:
+//   (TODO: the below ignores column_family_id !)
+Status RangeLockMgr::TryLock(PessimisticTransaction* txn, 
+                               uint32_t column_family_id,
+                               const std::string& key, Env* env, bool exclusive)
+{
+  toku::lock_request request;
+  request.create();
+  DBT key_dbt; 
+
+  toku_fill_dbt(&key_dbt, key.data(), key.size());
+  request.set(lt, txn->GetID(), &key_dbt, &key_dbt, toku::lock_request::WRITE,
+              false /* not a big txn */, nullptr /*client_extra*/);
+  
+  const uint64_t wait_time_msec=1000*1000*1000;
+  const uint64_t killed_time_msec=1000*1000*1000;
+  request.start();
+  const int r = request.wait(wait_time_msec, killed_time_msec, 
+                             nullptr, /* killed_callback */
+                             nullptr /* lock_wait_needed_callback*/ );
+  request.destroy();
+  if (r != 0)
+    return Status::TimedOut(Status::SubCode::kLockTimeout);
+
+  return Status::OK();
+}
+
+
 // Helper function for TryLock().
 Status TransactionLockMgr::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
@@ -641,6 +670,66 @@ void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
   // Signal waiting threads to retry locking
   stripe->stripe_cv->NotifyAll();
 }
+
+static void 
+another_lock_mgr_release_lock_int(toku::locktree *lt,
+                                  const PessimisticTransaction* txn,
+                                  uint32_t column_family_id,
+                                  const std::string& key)
+{
+  DBT key_dbt; 
+  toku_fill_dbt(&key_dbt, key.data(), key.size());
+  toku::range_buffer range_buf;
+  range_buf.create();
+  range_buf.append(&key_dbt, &key_dbt);
+  lt->release_locks(txn->GetID(), &range_buf);
+  range_buf.destroy();
+}
+
+void RangeLockMgr::UnLock(PessimisticTransaction* txn,
+                            uint32_t column_family_id,
+                            const std::string& key, Env* env) {
+  fprintf(stderr, "RangeLockMgr::UnLock (key)\n");
+  another_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
+  toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
+}
+
+void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
+                            const TransactionKeyMap* key_map, Env* env) {
+
+  fprintf(stderr, "RangeLockMgr::UnLock(key_map)\n");
+
+
+  for (auto& key_map_iter : *key_map) {
+    uint32_t column_family_id = key_map_iter.first;
+    //TODO: ^ What to do about the above? 
+    auto& keys = key_map_iter.second;
+
+    for (auto& key_iter : keys) {
+      const std::string& key = key_iter.first;
+      another_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
+    }
+  }
+
+  toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
+
+#if 0
+   void release_locks(TXNID txnid, const range_buffer *ranges);
+
+    // release all of the locks this txn has ever successfully
+    // acquired and stored in the range buffer for this locktree
+    lt->release_locks(txnid, ranges->buffer);
+    lt->get_manager()->note_mem_released(ranges->buffer->total_memory_size());
+    ranges->buffer->destroy();
+    toku_free(ranges->buffer);
+
+    // all of our locks have been released, so first try to wake up
+    // pending lock requests, then release our reference on the lt
+    toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
+
+#endif
+}
+
 
 void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
                                 const TransactionKeyMap* key_map, Env* env) {

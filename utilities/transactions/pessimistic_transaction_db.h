@@ -168,6 +168,8 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
   TransactionLockMgr lock_mgr_;
 
+  RangeLockMgr range_lock_mgr_;
+
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;
   Transaction* BeginInternalTransaction(const WriteOptions& options);

@@ -298,11 +298,14 @@ class TransactionDB : public StackableDB {
   GetLockStatusData() = 0;
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
+  
 
+  // psergey-TODO: move this elsewhere.
+  bool use_range_locking;
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
-  explicit TransactionDB(DB* db) : StackableDB(db) {}
+  explicit TransactionDB(DB* db) : StackableDB(db), use_range_locking(false) {}
   // No copying allowed
   TransactionDB(const TransactionDB&) = delete;
   void operator=(const TransactionDB&) = delete;

@@ -388,6 +388,7 @@ Status PessimisticTransactionDB::DropColumnFamily(
 
   Status s = db_->DropColumnFamily(column_family);
   if (s.ok()) {
+    //psergey-todo: range_lock_mgr_ ??
     lock_mgr_.RemoveColumnFamily(column_family->GetID());
   }
 
@@ -398,17 +399,27 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
                                          uint32_t cfh_id,
                                          const std::string& key,
                                          bool exclusive) {
-  return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
+  //fprintf(stderr, "AAA: PessimisticTransactionDB::TryLock calling extra lock\n");
+  if (use_range_locking)
+    return range_lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
+  else
+    return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       const TransactionKeyMap* keys) {
-  lock_mgr_.UnLock(txn, keys, GetEnv());
+  if (use_range_locking)
+    range_lock_mgr_.UnLock(txn, keys, GetEnv());
+  else
+    lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       uint32_t cfh_id, const std::string& key) {
-  lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
+  if (use_range_locking)
+    range_lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
+  else
+    lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
 }
 
 // Used when wrapping DB write operations in a transaction
