@@ -183,6 +183,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
 
+  // Refer to TransactionOptions::skip_concurrency_control
+  bool skip_concurrency_control_;
+
   virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
                                   const Slice& key,
                                   SequenceNumber* tracked_at_seq);
