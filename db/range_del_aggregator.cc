@@ -480,18 +480,17 @@ Status RangeDelAggregator::AddTombstones(
       }
     }
     if (largest != nullptr) {
-      // This is subtly correct despite the discrepancy between
-      // FileMetaData::largest being inclusive while RangeTombstone::end_key_
-      // is exclusive. A tombstone will only extend past the bounds of an
-      // sstable if its end-key is the largest key in the table. If that
-      // occurs, the largest key for the table is set based on the smallest
-      // key in the next table in the level. In that case, largest->user_key()
-      // is not actually a key in the current table and thus we can use it as
-      // the exclusive end-key for the tombstone.
-      if (icmp_.user_comparator()->Compare(
-              tombstone.end_key_, largest->user_key()) > 0) {
-        // The largest key should be a tombstone sentinel key.
-        assert(GetInternalKeySeqno(largest->Encode()) == kMaxSequenceNumber);
+      // To safely truncate the range tombstone's end key, it must extend past
+      // the largest key in the sstable (which may have been extended to the
+      // smallest key in the next sstable), and largest must be a tombstone
+      // sentinel key. A range tombstone may straddle two sstables and not be
+      // the tombstone sentinel key in the first sstable if a user-key also
+      // straddles the sstables (possible if there is a snapshot between the
+      // two versions of the user-key), in which case we cannot truncate the
+      // range tombstone.
+      if (icmp_.user_comparator()->Compare(tombstone.end_key_,
+                                           largest->user_key()) > 0 &&
+          GetInternalKeySeqno(largest->Encode()) == kMaxSequenceNumber) {
         tombstone.end_key_ = largest->user_key();
       }
     }
