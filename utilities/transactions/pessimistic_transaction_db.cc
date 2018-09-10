@@ -139,7 +139,7 @@ Status PessimisticTransactionDB::Initialize(
     // there is a conflict between the keys of two transactions that must be
     // avoided, it is already avoided by the application, MyRocks, before the
     // restart (ii) application, MyRocks, guarntees to rollback/commit the
-    // recovered transactions before new trasnactions start.
+    // recovered transactions before new transactions start.
     t_options.skip_concurrency_control = true;
 
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
