@@ -283,6 +283,35 @@ Status MemTableList::InstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
   {
+    // Link the (first) memtables to indicate that they should be committed to
+    // the MANIFEST together.
+    // Let N = imm_lists.size(), M = mems_list.size()
+    // All memtables in mems_list form a group that
+    // should be committed together. Since mems_list[i][0] (i = 0..M-1) store
+    // the version edit information in edit_, we need to link only the first
+    // element in mems_list.
+    //
+    // imm_lists[0]
+    // ...
+    //                            +-----------+
+    //                            V           |
+    //                    +-----------------+ |   +-----------------+
+    // imm_lists[n1]:     | mems_list[0][0] | +-> | mems_list[0][1] | ...
+    // ...                +-----------------+ |   +-----------------+
+    //                            |           |
+    //                            V           |
+    //                    +-----------------+ |   +-----------------+
+    // imm_lists[n2]:     | mems_list[1][0] | +-> | mems_list[1][1] | ...
+    //                    +-----------------+ |   +-----------------+
+    //                            |           |
+    //                            V           |
+    //                    +-----------------+ |
+    // imm_lists[n3]:     |mems_list[M-1][0]| |
+    // ...                +-----------------+ |
+    //                            |           |
+    //                            +-----------+
+    // imm_lists[N - 1]:
+    //
     MemTable* mem = nullptr;
     MemTable* head = nullptr;
     for (const auto& mems : mems_list) {
@@ -349,6 +378,9 @@ Status MemTableList::InstallMemtableFlushResults(
       }
     }
     while (true) {
+      // Try to find a linked list formed by memtables at the rbegin side of
+      // each imm_lists. If such a linked list exist, we have found a new group
+      // to commit to MANIFEST.
       int k = 0;
       while (k < num && next[k] < 0) {
         ++k;
