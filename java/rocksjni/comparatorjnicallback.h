@@ -41,32 +41,11 @@ struct ComparatorJniCallbackOptions {
 //
 class ThreadLocalJObject {
 public:
-	ThreadLocalJObject() {
-		lInited = 1;
+    ThreadLocalJObject();
 
-	}
+	~ThreadLocalJObject();
 
-	~ThreadLocalJObject()
-	{
-		
-		lInited = 0;
-		if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm!= nullptr)
-		{
-			//jboolean attached_thread = JNI_FALSE;
-
-			//JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
-			//assert(env != nullptr);
-			//// free ASAP after thread detach this thread local obj
-			//env->DeleteLocalRef(m_jSlice);	
-
-			//JniUtil::releaseJniEnv(m_jvm, attached_thread);
-
-			//delete m_jvm;
-			//m_jvm = nullptr;
-
-		}
-	}
-
+public:
 	volatile long lInited = 0;
 	volatile long lObjAssigned = 0;
 	JavaVM* m_jvm = nullptr;
@@ -95,14 +74,12 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
       const ComparatorJniCallbackOptions* copt);
     virtual const char* Name() const;
     virtual int Compare(const Slice& a, const Slice& b) const;
-	virtual int CompareNoLock(JNIEnv* env, const jobject& jSliceA, const jobject& jSliceB,
-		const Slice& a, const Slice& b,
-		jboolean attached_thread) const;
+
     virtual void FindShortestSeparator(
       std::string* start, const Slice& limit) const;
     virtual void FindShortSuccessor(std::string* key) const;
 
- private:
+protected:
     // used for synchronisation in compare method
     std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
@@ -129,6 +106,10 @@ class ComparatorJniCallback : public BaseComparatorJniCallback {
         JNIEnv* env, jobject jComparator,
         const ComparatorJniCallbackOptions* copt);
       ~ComparatorJniCallback();
+      virtual int Compare(const Slice& a, const Slice& b) const;
+	  int CompareNoLock(JNIEnv* env, const jobject& jSliceA,
+                                const jobject& jSliceB, const Slice& a,
+                                const Slice& b, jboolean attached_thread) const;
 };
 
 class DirectComparatorJniCallback : public BaseComparatorJniCallback {
