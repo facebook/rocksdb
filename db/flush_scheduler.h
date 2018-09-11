@@ -51,12 +51,12 @@ class FlushScheduler {
 };
 
 // TODO (yanqin) move to a different file.
-class InternalFlushManager : public FlushManager {
+class FlushManager {
  public:
-  explicit InternalFlushManager(FlushManager* external_manager)
+  explicit FlushManager(ExternalFlushManager* external_manager)
       : external_manager_(external_manager) {}
 
-  virtual ~InternalFlushManager() {}
+  virtual ~FlushManager() {}
 
   virtual void OnManualFlush(ColumnFamilySet& column_family_set,
                              ColumnFamilyData* cfd,
@@ -76,13 +76,13 @@ class InternalFlushManager : public FlushManager {
       autovector<ColumnFamilyData*>* cfds_picked) = 0;
 
   // external_manager_ is NOT owned by me.
-  FlushManager* external_manager_;
+  ExternalFlushManager* external_manager_;
 };
 
-class DefaultFlushManager : public InternalFlushManager {
+class DefaultFlushManager : public FlushManager {
  public:
-  explicit DefaultFlushManager(FlushManager* external_manager)
-      : InternalFlushManager(external_manager) {}
+  explicit DefaultFlushManager(ExternalFlushManager* external_manager)
+      : FlushManager(external_manager) {}
 
   virtual ~DefaultFlushManager() {}
 

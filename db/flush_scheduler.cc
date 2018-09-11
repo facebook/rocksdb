@@ -145,7 +145,7 @@ FlushManager* NewDefaultFlushManager() {
   return new DefaultFlushManager(nullptr /* external_manager */);
 }
 
-FlushManager* NewFlushManager(FlushManager* external_manager) {
+FlushManager* NewFlushManager(ExternalFlushManager* external_manager) {
   return new DefaultFlushManager(external_manager);
 }
 

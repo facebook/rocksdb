@@ -1077,12 +1077,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    auto* ifm = static_cast<InternalFlushManager*>(
-        immutable_db_options_.flush_manager.get());
+    FlushManager* ifm = immutable_db_options_.flush_manager.get();
     assert(nullptr != ifm);
 
     if (nullptr == ifm->external_manager_ ||
-        nullptr == ifm->external_manager_->OnManualFlush1) {
+        nullptr == ifm->external_manager_->OnManualFlush) {
       ifm->OnManualFlush(*versions_->GetColumnFamilySet(), cfd,
                          cached_recoverable_state_empty_, &cfds);
     }

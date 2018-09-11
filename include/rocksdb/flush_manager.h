@@ -10,24 +10,27 @@
 
 namespace rocksdb {
 
-class FlushManager {
+class ExternalFlushManager {
  public:
-  virtual ~FlushManager() {}
+  virtual ~ExternalFlushManager() {}
 
-  std::function<void(uint32_t, std::vector<uint32_t>*)> OnManualFlush1;
+  std::function<void(uint32_t, std::vector<std::vector<uint32_t>>*)>
+      OnManualFlush;
 
   std::function<void(std::vector<std::vector<uint32_t>>*)>
-      OnHandleWriteBufferFull1;
+      OnHandleWriteBufferFull;
 
-  std::function<void(std::vector<std::vector<uint32_t>>*)> OnSwitchWAL1;
+  std::function<void(std::vector<std::vector<uint32_t>>*)> OnSwitchWAL;
 
   std::function<void(const std::vector<uint32_t>&,
                      std::vector<std::vector<uint32_t>>*)>
-      OnScheduleFlushes1;
+      OnScheduleFlushes;
 };
+
+class FlushManager;
 
 extern FlushManager* NewDefaultFlushManager();
 
-extern FlushManager* NewFlushManager(FlushManager* mgr);
+extern FlushManager* NewFlushManager(ExternalFlushManager* mgr);
 
 }  // namespace rocksdb
