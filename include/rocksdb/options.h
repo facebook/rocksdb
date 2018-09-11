@@ -677,6 +677,14 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   unsigned int stats_dump_period_sec = 600;
 
+  // if not zero, dump rocksdb.stats to RocksDB every stats_persist_period_sec
+  // Default: 600
+  unsigned int stats_persist_period_sec = 600;
+
+  // max number of stats snapshots to keep in memory
+  // Default: 10
+  unsigned int max_stats_history_count = 10;
+
   // If set true, will hint the underlying file system that the file
   // access pattern is random, when a sst file is opened.
   // Default: true
@@ -1052,6 +1060,12 @@ enum ReadTier {
                           // Note that this ReadTier currently only supports
                           // Get and MultiGet and does not support iterators.
   kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
+};
+
+// Options that controls GetStatsHistory calls
+struct GetStatsOptions {
+  uint64_t start_time;
+  uint64_t end_time;
 };
 
 // Options that control read operations

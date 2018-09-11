@@ -392,10 +392,12 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   // before grabbing db mutex because the actual worker function
   // `DBImpl::DumpStats()` also holds db mutex
   if (thread_dump_stats_ != nullptr) {
-    mutex_.Unlock();
-    thread_dump_stats_->cancel();
-    mutex_.Lock();
+    thread_dump_stats_->cancel(&mutex_);
     thread_dump_stats_.reset();
+  }
+  if (thread_persist_stats_ != nullptr) {
+    thread_persist_stats_->cancel(&mutex_);
+    thread_persist_stats_.reset();
   }
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
@@ -620,6 +622,7 @@ void DBImpl::PrintStatistics() {
 
 void DBImpl::StartTimedTasks() {
   unsigned int stats_dump_period_sec = 0;
+  unsigned int stats_persist_period_sec = 0;
   {
     InstrumentedMutexLock l(&mutex_);
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
@@ -630,7 +633,86 @@ void DBImpl::StartTimedTasks() {
             stats_dump_period_sec * 1000000));
       }
     }
+    stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
+    if (stats_persist_period_sec > 0) {
+      if (!thread_persist_stats_) {
+        thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+            [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+            stats_persist_period_sec * 1000000));
+      }
+    }
   }
+}
+
+void DBImpl::PersistStats() {
+  TEST_SYNC_POINT("DBImpl::PersistStats:1");
+#ifndef ROCKSDB_LITE
+  const DBPropertyInfo* cf_property_info =
+      GetPropertyInfo(DB::Properties::kCFStats);
+  assert(cf_property_info != nullptr);
+  const DBPropertyInfo* db_property_info =
+      GetPropertyInfo(DB::Properties::kDBStats);
+  assert(db_property_info != nullptr);
+  std::map<std::string, std::string> stats_map;
+  if (shutdown_initiated_) {
+    return;
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    default_cf_internal_stats_->GetMapProperty(
+        *db_property_info, DB::Properties::kDBStats, &stats_map);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetMapProperty(
+            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
+            &stats_map);
+      }
+    }
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetMapProperty(
+            *cf_property_info, DB::Properties::kCFFileHistogram, &stats_map);
+      }
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::PersistStats:2");
+  WriteOptions wo;
+  ColumnFamilyOptions cf_options;
+  const uint64_t now_micros = env_->NowMicros();
+  stats_history_[now_micros] = stats_map;
+  // delete older stats snapshots to control memory consumption
+  int num_stats_to_delete =
+      static_cast<int>(stats_history_.size()) -
+      static_cast<int>(mutable_db_options_.max_stats_history_count);
+  if (num_stats_to_delete > 0) {
+    auto it = stats_history_.begin();
+    for (int i = 0; i < num_stats_to_delete; ++i) {
+      if (it != stats_history_.end()) {
+        it = stats_history_.erase(it);
+      }
+    }
+  }
+  // TODO: also persist stats to disk
+#endif  // !ROCKSDB_LITE
+}
+
+std::map<uint64_t, std::map<std::string, std::string> >
+DBImpl::GetStatsHistory(GetStatsOptions& stats_opts) {
+  return FindStatsBetween(stats_opts.start_time, stats_opts.end_time);
+}
+
+std::map<uint64_t, std::map<std::string, std::string> >
+DBImpl::FindStatsBetween(uint64_t start_time, uint64_t end_time) {
+  std::map<uint64_t, std::map<std::string, std::string> > stats_history;
+  // first dump whatever is in-memory that satisfies the time range
+  for (const auto& stats : stats_history_) {
+    if (stats.first >= start_time && stats.first < end_time) {
+      stats_history[stats.first] = stats.second;
+    }
+  }
+  // TODO: if persistent_stats column family is available, create iterator to scan
+  // history and add to stats_history map
+  return stats_history;
 }
 
 void DBImpl::DumpStats() {
@@ -806,9 +888,9 @@ Status DBImpl::SetDBOptions(
       if (new_options.stats_dump_period_sec !=
           mutable_db_options_.stats_dump_period_sec) {
           if (thread_dump_stats_) {
-            mutex_.Unlock();
-            thread_dump_stats_->cancel();
-            mutex_.Lock();
+            // No need to explicitly call mutex_.Unlock as
+            // repeatable_thread->cancel will do that
+            thread_dump_stats_->cancel(&mutex_);
           }
           if (new_options.stats_dump_period_sec > 0) {
             thread_dump_stats_.reset(new rocksdb::RepeatableThread(
@@ -818,6 +900,19 @@ Status DBImpl::SetDBOptions(
           else {
             thread_dump_stats_.reset();
           }
+      }
+      if (new_options.stats_persist_period_sec !=
+          mutable_db_options_.stats_persist_period_sec) {
+        if (thread_persist_stats_) {
+          thread_persist_stats_->cancel(&mutex_);
+        }
+        if (new_options.stats_persist_period_sec > 0) {
+          thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+              [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+              new_options.stats_persist_period_sec * 1000000));
+        } else {
+          thread_persist_stats_.reset();
+        }
       }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);

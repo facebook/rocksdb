@@ -478,7 +478,8 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForTimedTaskRun(std::function<void()> callback) const;
+  void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
+  void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
 
 #endif  // NDEBUG
 
@@ -723,6 +724,10 @@ class DBImpl : public DB {
 
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
+
+  // return a map of DBStats and CFstats, specify time window etc in stats_opts
+  std::map<uint64_t, std::map<std::string, std::string>>
+  GetStatsHistory(GetStatsOptions& stats_opts);
 
  protected:
   Env* const env_;
@@ -1131,6 +1136,9 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
+  // persist stats to column family "_persistent_stats"
+  void PersistStats();
+
   // dump rocksdb.stats to LOG
   void DumpStats();
 
@@ -1294,6 +1302,8 @@ class DBImpl : public DB {
   autovector<log::Writer*> logs_to_free_;
 
   bool is_snapshot_supported_;
+
+  std::map<uint64_t, std::map<std::string, std::string>> stats_history_;
 
   // Class to maintain directories for all database paths other than main one.
   class Directories {
@@ -1540,9 +1550,13 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
-  // handle for scheduling jobs at fixed intervals
+  // handle for scheduling stats dumping at fixed intervals
   // REQUIRES: mutex locked
   std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+
+  // handle for scheduling stats snapshoting at fixed intervals
+  // REQUIRES: mutex locked
+  std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
 
   // No copying allowed
   DBImpl(const DBImpl&);
@@ -1597,6 +1611,9 @@ class DBImpl : public DB {
   Env::WriteLifeTimeHint CalculateWALWriteHint() {
     return Env::WLTH_SHORT;
   }
+
+  std::map<uint64_t, std::map<std::string, std::string>>
+  FindStatsBetween(uint64_t start_time, uint64_t end_time);
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.

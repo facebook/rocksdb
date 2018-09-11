@@ -188,9 +188,11 @@ class Repairer {
     }
 
     if (status.ok()) {
+      mutex_.Lock();
       // Recover using the fresh manifest created by NewDB()
       status =
           vset_.Recover({{kDefaultColumnFamilyName, default_cf_opts_}}, false);
+      mutex_.Unlock();
     }
     if (status.ok()) {
       // Need to scan existing SST files first so the column families are

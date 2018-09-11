@@ -3822,6 +3822,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 
   ImmutableDBOptions db_options(*options);
   ColumnFamilyOptions cf_options(*options);
+  InstrumentedMutex dummy_mutex;
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
@@ -3833,7 +3834,10 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(*options));
   dummy.push_back(dummy_descriptor);
-  status = versions.Recover(dummy);
+  {
+    InstrumentedMutexLock l(&dummy_mutex);
+    status = versions.Recover(dummy);
+  }
   if (!status.ok()) {
     return status;
   }
@@ -3888,7 +3892,6 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 
   MutableCFOptions mutable_cf_options(*options);
   VersionEdit ve;
-  InstrumentedMutex dummy_mutex;
   InstrumentedMutexLock l(&dummy_mutex);
   return versions.LogAndApply(
       versions.GetColumnFamilySet()->GetDefault(),

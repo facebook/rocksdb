@@ -377,6 +377,7 @@ class InternalStats {
 
  private:
   void DumpDBStats(std::string* value);
+  void DumpDBMapStats(std::map<std::string, std::string>* db_stats);
   void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
@@ -496,6 +497,7 @@ class InternalStats {
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
+  bool HandleDBMapStats(std::map<std::string, std::string>* db_stats);
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
   bool HandleAggregatedTablePropertiesAtLevel(std::string* value, Slice suffix);

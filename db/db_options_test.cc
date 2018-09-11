@@ -508,8 +508,8 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
 
   for (int i = 0; i < 20; i++) {
     int num = rand() % 5000 + 1;
-    ASSERT_OK(dbfull()->SetDBOptions(
-        {{"stats_dump_period_sec", std::to_string(num)}}));
+    ASSERT_OK(
+        dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
   }
 }
@@ -530,7 +530,7 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
-  dbfull()->TEST_WaitForTimedTaskRun([&] { mock_env->set_current_time(5); });
+  dbfull()->TEST_WaitForDumpStatsRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
 
   // Test cacel job through SetOptions
@@ -540,6 +540,118 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   ASSERT_EQ(counter, old_val);
   Close();
 }
+
+// Test persistent stats background thread scheduling and cancelling
+TEST_F(DBOptionsTest, StatsPersistScheduling) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
+  int counter = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PersistStats:1", [&](void* /*arg*/) { counter++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  ASSERT_GE(counter, 1);
+
+  // Test cacel job through SetOptions
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
+  int old_counter = counter;
+  env_->SleepForMicroseconds(10000000);
+  ASSERT_EQ(counter, old_counter);
+
+  // Test resume job through SetOptions
+  // TODO(Zhongyi): use mock_time_env for more robust test
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  env_->SleepForMicroseconds(6000000);
+  ASSERT_GE(counter, old_counter);
+
+  Close();
+}
+
+// Test enabling persistent stats for the first time
+TEST_F(DBOptionsTest, PersistentStatsFreshInstall) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 0;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0);  // in seconds
+  options.env = mock_env.get();
+  int counter = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PersistStats:1", [&](void* /*arg*/) { counter++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  ASSERT_GE(counter, 1);
+  Close();
+}
+
+TEST_F(DBOptionsTest, RandomSetStatsPersistPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+
+  for (int i = 0; i < 20; i++) {
+    int num = rand() % 5000 + 1;
+    ASSERT_OK(
+        dbfull()->SetDBOptions({{"stats_persist_period_sec", ToString(num)}}));
+    ASSERT_EQ(num, dbfull()->GetDBOptions().stats_persist_period_sec);
+  }
+}
+
+TEST_F(DBOptionsTest, GetStatsHistory) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  options.env = env_;
+  CreateColumnFamilies({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  GetStatsOptions stats_opts;
+  stats_opts.start_time = 0;
+  stats_opts.end_time = env_->NowMicros();
+  std::map<uint64_t, std::map<std::string, std::string> >
+      stats_history = dbfull()->GetStatsHistory(stats_opts);
+  // disabled stats snapshots
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
+  size_t stats_count = 0;
+  for (const auto& stats : stats_history) {
+    stats_count += stats.second.size();
+  }
+  ASSERT_GE(stats_count, 0);
+  env_->SleepForMicroseconds(8000000);  // Wait a bit and verify no more stats are found
+  stats_opts.end_time = env_->NowMicros();
+  stats_history = dbfull()->GetStatsHistory(stats_opts);
+  size_t stats_count_new = 0;
+  for (const auto& stats : stats_history) {
+    stats_count_new += stats.second.size();
+  }
+  ASSERT_EQ(stats_count_new, stats_count);
+  // test stats history garbage collection
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "1"}}));
+  env_->SleepForMicroseconds(5000000);
+  stats_history = dbfull()->GetStatsHistory(stats_opts);
+  ASSERT_GE(stats_history.size(), 1);
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_stats_history_count", "1"}}));
+  env_->SleepForMicroseconds(2000000);
+  stats_history = dbfull()->GetStatsHistory(stats_opts);
+  ASSERT_LT(stats_history.size(), 2);
+}
+
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();
