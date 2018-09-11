@@ -657,6 +657,9 @@ shared-objects/util/crc32c_ppc.o: util/crc32c_ppc.c
 
 shared-objects/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+shared-objects/util/crc32c_ppc_fast_zero_asm.o: util/crc32c_ppc_fast_zero_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 $(shared_libobjects): shared-objects/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@
@@ -1847,6 +1850,9 @@ jl/crc32c_ppc.o: util/crc32c_ppc.c
 
 jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+jl/crc32c_ppc_fast_zero_asm.o: util/crc32c_ppc_fast_zero_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 java_all_libobjects += $(java_ppc_libobjects)
 endif
 
@@ -1915,6 +1921,9 @@ util/crc32c_ppc.o: util/crc32c_ppc.c
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 
 util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+util/crc32c_ppc_fast_zero_asm.o: util/crc32c_ppc_fast_zero_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 .cc.o:
