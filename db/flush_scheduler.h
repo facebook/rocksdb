@@ -81,7 +81,7 @@ class InternalFlushManager : public FlushManager {
 
 class DefaultFlushManager : public InternalFlushManager {
  public:
-  DefaultFlushManager(FlushManager* external_manager)
+  explicit DefaultFlushManager(FlushManager* external_manager)
       : InternalFlushManager(external_manager) {}
 
   virtual ~DefaultFlushManager() {}
