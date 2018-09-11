@@ -141,6 +141,12 @@ void DefaultFlushManager::OnScheduleFlushes(
   }
 }
 
-FlushManager* NewDefaultFlushManager() { return new DefaultFlushManager(); }
+FlushManager* NewDefaultFlushManager() {
+  return new DefaultFlushManager(nullptr /* external_manager */);
+}
+
+FlushManager* NewFlushManager(FlushManager* external_manager) {
+  return new DefaultFlushManager(external_manager);
+}
 
 }  // namespace rocksdb

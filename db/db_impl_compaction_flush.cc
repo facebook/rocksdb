@@ -206,7 +206,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     JobContext* job_context, LogBuffer* log_buffer) {
   Status s;
   int count = 0;
-  const int sz = static_cast<const int>(bg_flush_args.size());
+  const int sz = static_cast<int>(bg_flush_args.size());
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
     const MutableCFOptions& mutable_cf_options =
@@ -1057,7 +1057,6 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
-  // TODO (yanqin) add invocation of FlushManager
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -1078,9 +1077,12 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    auto ifm = dynamic_cast<InternalFlushManager*>(
+    auto* ifm = static_cast<InternalFlushManager*>(
         immutable_db_options_.flush_manager.get());
-    if (ifm != nullptr) {
+    assert(nullptr != ifm);
+
+    if (nullptr == ifm->external_manager_ ||
+        nullptr == ifm->external_manager_->OnManualFlush1) {
       ifm->OnManualFlush(*versions_->GetColumnFamilySet(), cfd,
                          cached_recoverable_state_empty_, &cfds);
     }

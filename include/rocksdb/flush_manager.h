@@ -5,15 +5,29 @@
 
 #pragma once
 
+#include <functional>
+#include <vector>
+
 namespace rocksdb {
 
 class FlushManager {
  public:
   virtual ~FlushManager() {}
-  virtual void PickColumnFamiliesToFlush(
-      std::vector<std::vector<uint32_t>>* to_flush) = 0;
+
+  std::function<void(uint32_t, std::vector<uint32_t>*)> OnManualFlush1;
+
+  std::function<void(std::vector<std::vector<uint32_t>>*)>
+      OnHandleWriteBufferFull1;
+
+  std::function<void(std::vector<std::vector<uint32_t>>*)> OnSwitchWAL1;
+
+  std::function<void(const std::vector<uint32_t>&,
+                     std::vector<std::vector<uint32_t>>*)>
+      OnScheduleFlushes1;
 };
 
 extern FlushManager* NewDefaultFlushManager();
+
+extern FlushManager* NewFlushManager(FlushManager* mgr);
 
 }  // namespace rocksdb

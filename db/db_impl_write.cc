@@ -1068,9 +1068,12 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
 
   autovector<ColumnFamilyData*> cfds;
   FlushRequest flush_req;
-  auto ifm = dynamic_cast<InternalFlushManager*>(
+
+  auto* ifm = static_cast<InternalFlushManager*>(
       immutable_db_options_.flush_manager.get());
-  if (ifm != nullptr) {
+  assert(nullptr != ifm);
+  if (nullptr == ifm->external_manager_ ||
+      nullptr == ifm->external_manager_->OnScheduleFlushes1) {
     ifm->OnSwitchWAL(*versions_->GetColumnFamilySet(), oldest_alive_log, &cfds);
   }
   for (auto cfd : cfds) {
@@ -1109,13 +1112,14 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   std::vector<std::vector<uint32_t>> to_flush;
   // Elements in cfds must be unique.
   autovector<ColumnFamilyData*> cfds;
-  auto ifm = dynamic_cast<InternalFlushManager*>(
+  auto* ifm = static_cast<InternalFlushManager*>(
       immutable_db_options_.flush_manager.get());
-  if (ifm != nullptr) {
+  assert(ifm != nullptr);
+  if (nullptr == ifm->external_manager_ ||
+      nullptr == ifm->external_manager_->OnHandleWriteBufferFull1) {
     ifm->OnHandleWriteBufferFull(*versions_->GetColumnFamilySet(), &cfds);
   } else {
-    assert(immutable_db_options_.flush_manager != nullptr);
-    immutable_db_options_.flush_manager->PickColumnFamiliesToFlush(&to_flush);
+    ifm->external_manager_->OnHandleWriteBufferFull1(&to_flush);
     for (const auto& ids : to_flush) {
       for (const auto id : ids) {
         bool found = false;
@@ -1144,7 +1148,8 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   }
 
   if (status.ok()) {
-    if (ifm != nullptr) {
+    if (nullptr == ifm->external_manager_ ||
+        nullptr == ifm->external_manager_->OnHandleWriteBufferFull1) {
       FlushRequest req;
       for (const auto cfd : cfds) {
         uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
@@ -1261,9 +1266,12 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
-  auto ifm = dynamic_cast<InternalFlushManager*>(
+  auto* ifm = static_cast<InternalFlushManager*>(
       immutable_db_options_.flush_manager.get());
-  if (ifm != nullptr) {
+  assert(nullptr != ifm);
+
+  if (nullptr == ifm->external_manager_ ||
+      nullptr == ifm->external_manager_->OnScheduleFlushes1) {
     ifm->OnScheduleFlushes(*versions_->GetColumnFamilySet(), flush_scheduler_,
                            &cfds);
   }
