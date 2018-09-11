@@ -362,7 +362,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, &InternalStats::HandleCFFileHistogram, nullptr, nullptr,
           nullptr}},
         {DB::Properties::kDBStats,
-         {false, &InternalStats::HandleDBStats, nullptr, nullptr, nullptr}},
+         {false, &InternalStats::HandleDBStats, nullptr,
+          &InternalStats::HandleDBMapStats, nullptr}},
         {DB::Properties::kSSTables,
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
         {DB::Properties::kAggregatedTableProperties,
@@ -600,6 +601,12 @@ bool InternalStats::HandleCFFileHistogram(std::string* value,
 
 bool InternalStats::HandleDBStats(std::string* value, Slice /*suffix*/) {
   DumpDBStats(value);
+  return true;
+}
+
+bool InternalStats::HandleDBMapStats(
+    std::map<std::string, std::string>* db_stats) {
+  DumpDBMapStats(db_stats);
   return true;
 }
 
@@ -1049,6 +1056,13 @@ void InternalStats::DumpDBStats(std::string* value) {
   db_stats_snapshot_.wal_synced = wal_synced;
   db_stats_snapshot_.write_with_wal = write_with_wal;
   db_stats_snapshot_.write_stall_micros = write_stall_micros;
+}
+
+void InternalStats::DumpDBMapStats(
+    std::map<std::string, std::string>* db_stats) {
+  fprintf(stdout, "in DumpDBMapStats\n");
+  assert(db_stats);
+  return;
 }
 
 /**

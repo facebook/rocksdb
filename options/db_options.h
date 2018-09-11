@@ -97,6 +97,7 @@ struct MutableDBOptions {
   uint64_t max_total_wal_size;
   uint64_t delete_obsolete_files_period_micros;
   unsigned int stats_dump_period_sec;
+  unsigned int stats_persist_period_sec;
   int max_open_files;
   uint64_t bytes_per_sync;
   uint64_t wal_bytes_per_sync;

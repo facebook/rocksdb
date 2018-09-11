@@ -1111,6 +1111,9 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
+  // persist stats to column family "_persistent_stats"
+  void MaybePersistStats();
+
   // dump rocksdb.stats to LOG
   void DumpStats();
 
@@ -1191,6 +1194,7 @@ class DBImpl : public DB {
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
+  ColumnFamilyHandle* persist_stats_cf_handle_;
   InternalStats* default_cf_internal_stats_;
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
@@ -1450,6 +1454,9 @@ class DBImpl : public DB {
 
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
+
+  // last time stats were dumped to LOG
+  std::atomic<uint64_t> last_stats_persist_time_microsec_;
 
   // Each flush or compaction gets its own job id. this counter makes sure
   // they're unique

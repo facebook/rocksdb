@@ -156,6 +156,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       log_dir_synced_(false),
       log_empty_(true),
       default_cf_handle_(nullptr),
+      persist_stats_cf_handle_(nullptr),
       log_sync_cv_(&mutex_),
       total_log_size_(0),
       max_total_in_memory_state_(0),
@@ -182,6 +183,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(env_->NowMicros()),
       last_stats_dump_time_microsec_(0),
+      last_stats_persist_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
       unable_to_release_oldest_log_(false),
@@ -483,10 +485,15 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  if (default_cf_handle_ != nullptr) {
+  if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
     mutex_.Unlock();
-    delete default_cf_handle_;
+    if (default_cf_handle_) {
+      delete default_cf_handle_;
+    }
+    if (persist_stats_cf_handle_) {
+      delete persist_stats_cf_handle_;
+    }
     mutex_.Lock();
   }
 
@@ -631,6 +638,77 @@ void DBImpl::StartTimedTasks() {
             stats_dump_period_sec * 1000000));
       }
     }
+    // TODO: schedule thread to call MaybePersistStats() here
+  }
+}
+
+void DBImpl::MaybePersistStats() {
+  mutex_.Lock();
+  // stats_persist_period_sec controls the frequency of persisting stats to
+  // a special column family "_persistent_stats". The default frequency is
+  // once per minute.
+  unsigned int stats_persist_period_sec =
+      mutable_db_options_.stats_persist_period_sec;
+  mutex_.Unlock();
+  if (stats_persist_period_sec == 0) return;
+  const uint64_t now_micros = env_->NowMicros();
+  if (last_stats_persist_time_microsec_ + stats_persist_period_sec * 1000000 <=
+      now_micros) {
+    // Multiple threads could race in here simultaneously.
+    last_stats_persist_time_microsec_ = now_micros;
+#ifndef ROCKSDB_LITE
+    const DBPropertyInfo* cf_property_info =
+        GetPropertyInfo(DB::Properties::kCFStats);
+    assert(cf_property_info != nullptr);
+    const DBPropertyInfo* db_property_info =
+        GetPropertyInfo(DB::Properties::kDBStats);
+    assert(db_property_info != nullptr);
+    std::map<std::string, std::string> stats_map;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      default_cf_internal_stats_->GetMapProperty(
+          *db_property_info, DB::Properties::kDBStats, &stats_map);
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->initialized()) {
+          // TODO(Zhongyi): OK to call GetMapProperty repeatedly?
+          // exclude cf._persistent_stats here?
+          cfd->internal_stats()->GetMapProperty(
+              *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
+              &stats_map);
+        }
+      }
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->initialized()) {
+          cfd->internal_stats()->GetMapProperty(
+              *cf_property_info, DB::Properties::kCFFileHistogram, &stats_map);
+        }
+      }
+    }
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "------- PERSISTING STATS -------");
+    WriteOptions wo;
+    ColumnFamilyOptions cf_options;
+    std::string persist_stats_cf_name_("cf._persistent_stats");
+    std::string now_micros_string = std::to_string(now_micros);
+    if (!persist_stats_cf_handle_) {
+      Status st = CreateColumnFamily(cf_options, persist_stats_cf_name_,
+                                          &persist_stats_cf_handle_);
+      if (!st.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Persisting stats failed: Failed to create column family cf._persistent_stats.");
+        return;
+      }
+    }
+    for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
+      // how do we maintain a historical view if key/value pairs are overwritten?
+      std::string key = iter->first + now_micros_string;
+      DB::Put(wo, persist_stats_cf_handle_, key,
+              iter->second);
+      fprintf(stdout, "persisting stats: key = %s, value = %s\n", key.c_str(),
+              iter->second.c_str());
+    }
+#endif  // !ROCKSDB_LITE
+    // PrintStatistics();
   }
 }
 

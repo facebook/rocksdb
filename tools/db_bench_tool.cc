@@ -1045,6 +1045,8 @@ DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
 DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 DEFINE_uint64(stats_dump_period_sec, rocksdb::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+DEFINE_uint64(stats_persist_period_sec, rocksdb::Options().stats_persist_period_sec,
+              "Gap between persisting stats in seconds");
 
 enum RepFactory {
   kSkipList,
@@ -3507,6 +3509,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+    options.stats_persist_period_sec =
+        static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
 
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
