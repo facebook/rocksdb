@@ -24,15 +24,15 @@ ThreadLocalJObject::~ThreadLocalJObject() {
   if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm != nullptr) {
     jboolean attached_thread = JNI_FALSE;
 
-    JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
-    assert(env != nullptr);
+	assert(m_pJniEnv != nullptr);
     // free ASAP after thread detach this thread local obj
-    env->DeleteGlobalRef(m_jSlice);
+    m_pJniEnv->DeleteGlobalRef(m_jSlice);
 
     JniUtil::releaseJniEnv(m_jvm, attached_thread);
 
     // delete m_jvm;
     m_jvm = nullptr;
+
   }
 }
 
@@ -41,8 +41,7 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
     const ComparatorJniCallbackOptions* copt)
     : JniCallback(env, jComparator),
     mtx_compare(new port::Mutex(copt->use_adaptive_mutex)),
-    mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)),
-	mtx_threadMap(new port::Mutex(true)) {//wgao use spin mutex here because it will be very fast
+    mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)) {
 
   // Note: The name of a Comparator will not change during it's lifetime,
   // so we cache it in a global var
@@ -408,6 +407,10 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
         jObjA.m_jvm = nullptr;
       }
 
+	  jObjA.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
+
+      assert(jObjA.m_pJniEnv != nullptr);
+
       jObjA.lObjAssigned = 1;
     }
   } else {
@@ -425,6 +428,11 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
         // exception thrown
         jObjB.m_jvm = nullptr;
       }
+
+	  jObjB.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
+
+      assert(jObjB.m_pJniEnv != nullptr);
+
 
       jObjB.lObjAssigned = 1;
     }

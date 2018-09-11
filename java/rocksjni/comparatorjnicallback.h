@@ -48,8 +48,9 @@ public:
 public:
 	volatile long lInited = 0;
 	volatile long lObjAssigned = 0;
-	JavaVM* m_jvm = nullptr;
-	jobject m_jSlice = nullptr;
+	JavaVM* m_jvm     = nullptr;
+    JNIEnv* m_pJniEnv = nullptr;
+	jobject m_jSlice  = nullptr;
 };
 
 /**
@@ -89,10 +90,6 @@ protected:
     jmethodID m_jFindShortestSeparatorMethodId;
     jmethodID m_jFindShortSuccessorMethodId;
 
-	// wgao used for synchronisation in thread local map method
-	std::unique_ptr<port::Mutex> mtx_threadMap;
-	map<std::string, int> mapThread2SliceObjectA;
-	map<std::string, jobject> mapThread2SliceObjectB;
 
  protected:
     jobject m_jSliceA;
