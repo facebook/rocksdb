@@ -356,10 +356,10 @@ void IndexBlockIter::Seek(const Slice& target) {
     ok = PrefixSeek(target, &index);
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 active_comparator_);
+                                 comparator_);
   } else {
     ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               active_comparator_);
+                               comparator_);
   }
 
   if (!ok) {
