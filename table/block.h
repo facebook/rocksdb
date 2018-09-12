@@ -468,7 +468,7 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
                   BlockPrefixIndex* prefix_index, bool key_includes_seq,
                   bool value_is_full, bool block_contents_pinned,
                   DataBlockHashIndex* /*data_block_hash_index*/) {
-    InitializeBase(key_includes_seq_ ? comparator : user_comparator, data,
+    InitializeBase(key_includes_seq ? comparator : user_comparator, data,
                    restarts, num_restarts, kDisableGlobalSequenceNumber,
                    block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
