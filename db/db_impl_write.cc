@@ -14,6 +14,7 @@
 #include <inttypes.h>
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/flush_scheduler.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
 #include "rocksdb/flush_manager.h"
@@ -1074,18 +1075,20 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   ifm->OnSwitchWAL(*versions_->GetColumnFamilySet(), oldest_alive_log, &cfds,
                    &to_flush);
 
-  FlushRequest flush_req;
-
   for (auto cfd : cfds) {
     status = SwitchMemtable(cfd, write_context);
     if (!status.ok()) {
       break;
     }
-    flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
     cfd->imm()->FlushRequested();
   }
   if (status.ok()) {
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    autovector<FlushRequest, 1> requests;
+    ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds, to_flush,
+                               &requests);
+    for (const auto& req : requests) {
+      SchedulePendingFlush(req, FlushReason::kWriteBufferManager);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1124,30 +1127,15 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (!status.ok()) {
       break;
     }
+    cfd->imm()->FlushRequested();
   }
 
   if (status.ok()) {
-    if (nullptr == ifm->external_manager_ ||
-        nullptr == ifm->external_manager_->OnHandleWriteBufferFull) {
-      FlushRequest req;
-      for (const auto cfd : cfds) {
-        uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-        cfd->imm()->FlushRequested();
-        req.emplace_back(cfd, flush_memtable_id);
-      }
+    autovector<FlushRequest, 1> requests;
+    ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds, to_flush,
+                               &requests);
+    for (const auto& req : requests) {
       SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
-    } else {
-      for (const auto& ids : to_flush) {
-        FlushRequest req;
-        for (const auto id : ids) {
-          ColumnFamilyData* cfd =
-              versions_->GetColumnFamilySet()->GetColumnFamily(id);
-          uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-          cfd->imm()->FlushRequested();
-          req.emplace_back(cfd, flush_memtable_id);
-        }
-        SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
-      }
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -1251,25 +1239,24 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ifm->OnScheduleFlushes(*versions_->GetColumnFamilySet(), flush_scheduler_,
                          &cfds, &to_flush);
 
-  FlushRequest flush_req;
   Status status;
-  for (auto cfd : cfds) {
+  for (auto& cfd : cfds) {
     status = SwitchMemtable(cfd, context);
-    bool should_schedule = true;
     if (cfd->Unref()) {
       delete cfd;
-      should_schedule = false;
+      cfd = nullptr;
     }
     if (!status.ok()) {
       break;
     }
-    if (should_schedule) {
-      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      flush_req.emplace_back(cfd, flush_memtable_id);
-    }
   }
   if (status.ok()) {
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    autovector<FlushRequest, 1> requests;
+    ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds, to_flush,
+                               &requests);
+    for (const auto& req : requests) {
+      SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;

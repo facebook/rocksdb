@@ -51,6 +51,15 @@ class FlushScheduler {
 };
 
 // TODO (yanqin) move to a different file.
+//
+// A flush request specifies the column families to flush as well as the
+// largest memtable id to persist for each column family. Once all the
+// memtables whose IDs are smaller than or equal to this per-column-family
+// specified value, this flush request is considered to have completed its
+// work of flushing this column family. After completing the work for all
+// column families in this request, this flush is considered complete.
+typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+
 class FlushManager {
  public:
   explicit FlushManager(ExternalFlushManager* external_manager)
@@ -78,6 +87,11 @@ class FlushManager {
       ColumnFamilySet& column_family_set, FlushScheduler& scheduler,
       autovector<ColumnFamilyData*>* cfds_picked,
       std::vector<std::vector<uint32_t>>* to_flush) = 0;
+
+  void GenerateFlushRequests(ColumnFamilySet& column_family_set,
+                             autovector<ColumnFamilyData*>& cfds,
+                             const std::vector<std::vector<uint32_t>>& to_flush,
+                             autovector<FlushRequest, 1>* requests);
 
  protected:
   void DedupColumnFamilies(ColumnFamilySet& column_family_set,

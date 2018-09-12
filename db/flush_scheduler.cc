@@ -86,6 +86,35 @@ void FlushScheduler::Clear() {
   assert(head_.load(std::memory_order_relaxed) == nullptr);
 }
 
+void FlushManager::GenerateFlushRequests(
+    ColumnFamilySet& column_family_set, autovector<ColumnFamilyData*>& cfds,
+    const std::vector<std::vector<uint32_t>>& to_flush,
+    autovector<FlushRequest, 1>* requests) {
+  if (external_manager_ != nullptr) {
+    for (const auto& ids : to_flush) {
+      FlushRequest req;
+      for (const auto id : ids) {
+        ColumnFamilyData* cfd = column_family_set.GetColumnFamily(id);
+        uint64_t memtable_id = cfd->imm()->GetLatestMemTableID();
+        req.emplace_back(cfd, memtable_id);
+      }
+      requests->emplace_back(req);
+    }
+  } else {
+    FlushRequest req;
+    for (const auto cfd : cfds) {
+      if (cfd == nullptr) {
+        // This is possible since DBImpl::ScheduleFlushes may set cfd to
+        // nullptr if its ref count is 0.
+        continue;
+      }
+      uint64_t memtable_id = cfd->imm()->GetLatestMemTableID();
+      req.emplace_back(cfd, memtable_id);
+    }
+    requests->emplace_back(req);
+  }
+}
+
 void FlushManager::DedupColumnFamilies(
     ColumnFamilySet& column_family_set,
     const std::vector<std::vector<uint32_t>>& to_flush,

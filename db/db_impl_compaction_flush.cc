@@ -16,6 +16,7 @@
 #include "db/builder.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/flush_scheduler.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -1066,9 +1067,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return s;
     }
   }
-  FlushRequest flush_req;
   autovector<ColumnFamilyData*> cfds;
+  autovector<const uint64_t*> flush_memtable_ids;
+  autovector<uint64_t> memtable_ids;
   std::vector<std::vector<uint32_t>> to_flush;
+  autovector<FlushRequest, 1> requests;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -1089,16 +1092,19 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       if (!s.ok()) {
         break;
       }
-      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      flush_req.emplace_back(cfd, flush_memtable_id);
+      tmp_cfd->imm()->FlushRequested();
     }
 
-    if (s.ok() && !flush_req.empty()) {
-      for (auto& elem : flush_req) {
-        ColumnFamilyData* loop_cfd = elem.first;
-        loop_cfd->imm()->FlushRequested();
+    if (s.ok() && !cfds.empty()) {
+      ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds,
+                                 to_flush, &requests);
+      for (const auto& req : requests) {
+        SchedulePendingFlush(req, flush_reason);
       }
-      SchedulePendingFlush(flush_req, flush_reason);
+      for (auto tmp_cfd : cfds) {
+        memtable_ids.emplace_back(tmp_cfd->imm()->GetLatestMemTableID());
+        flush_memtable_ids.emplace_back(&memtable_ids.back());
+      }
       MaybeScheduleFlushOrCompaction();
     }
 
@@ -1108,10 +1114,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   }
 
   if (s.ok() && flush_options.wait) {
-    autovector<const uint64_t*> flush_memtable_ids;
-    for (auto& iter : flush_req) {
-      flush_memtable_ids.push_back(&(iter.second));
-    }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
@@ -1355,7 +1357,7 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
   return cfd;
 }
 
-DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
+FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   FlushRequest flush_req = flush_queue_.front();
   assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));

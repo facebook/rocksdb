@@ -1022,14 +1022,6 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
 
-  // A flush request specifies the column families to flush as well as the
-  // largest memtable id to persist for each column family. Once all the
-  // memtables whose IDs are smaller than or equal to this per-column-family
-  // specified value, this flush request is considered to have completed its
-  // work of flushing this column family. After completing the work for all
-  // column families in this request, this flush is considered complete.
-  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
-
   void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
