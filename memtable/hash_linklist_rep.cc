@@ -845,7 +845,7 @@ MemTableRepFactory* NewHashLinkListRepFactory(
 }
 
 MemTableRepFactory* NewHashLinkListRepFactory(
-    const std::unordered_map<std::string, std::string>& options, Status* s) {
+    const std::unordered_map<std::string, std::string>& options, Status*) {
   auto f = options.begin();
 
   size_t bucket_count = 50000;  // default
