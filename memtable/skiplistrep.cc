@@ -7,6 +7,7 @@
 #include "db/memtable.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace {
@@ -284,6 +285,46 @@ MemTableRep* SkipListFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* /*logger*/) {
   return new SkipListRep(compare, allocator, transform, lookahead_);
+}
+
+Status CreateSkipListRepFactory(
+  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
+  // Expecting format
+  // skip_list:<lookahead>
+  size_t len = opts_list.size();
+  assert(len == 1 || len == 2);
+  assert(opts_list[0] == "skip_list");
+
+  if (2 == len) {
+    size_t lookahead = ParseSizeT(opts_list[1]);
+    *mem_factory = new SkipListFactory(lookahead);
+  } else if (1 == len) {
+    *mem_factory = new SkipListFactory();
+  }
+
+  return Status::OK();
+}
+
+void RegistMemTableRepFactoryCreator(
+    const std::string name,
+    Status (*factory_creator)(
+                std::vector<std::string>, MemTableRepFactory**)) {
+  memtable_rep_factory_info.emplace(name, factory_creator);
+}
+
+Status CreateMemTableRepFactory(
+  std::vector<std::string> opts_list,
+  MemTableRepFactory** mem_factory) {
+  auto find = memtable_rep_factory_info.find(opts_list[0]);
+  if (find == memtable_rep_factory_info.end()) {
+    std::string opts_str;
+    for (auto opt : opts_list) {
+      opts_str.append(opt);
+    }
+    return Status::InvalidArgument("Unrecognized memtable_factory option ",
+                                   opts_str);
+  }
+  return find->second(opts_list, mem_factory);
 }
 
 } // namespace rocksdb

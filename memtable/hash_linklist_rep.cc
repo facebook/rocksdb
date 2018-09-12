@@ -18,6 +18,7 @@
 #include "rocksdb/slice_transform.h"
 #include "util/arena.h"
 #include "util/murmurhash.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace {
@@ -841,6 +842,23 @@ MemTableRepFactory* NewHashLinkListRepFactory(
   return new HashLinkListRepFactory(
       bucket_count, threshold_use_skiplist, huge_page_tlb_size,
       bucket_entries_logging_threshold, if_log_bucket_dist_when_flash);
+}
+
+Status CreateHashLinkListRepFactory(
+  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
+  // Expecting format
+  // hash_linkedlist:<hash_bucket_count>
+  size_t len = opts_list.size();
+  assert(len == 1 || len == 2);
+  assert(opts_list[0] == "hash_linkedlist");
+
+  if (2 == len) {
+    size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+    *mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
+  } else {
+    *mem_factory = NewHashLinkListRepFactory();
+  }
+  return Status::OK();
 }
 
 } // namespace rocksdb

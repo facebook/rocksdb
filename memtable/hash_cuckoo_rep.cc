@@ -21,6 +21,7 @@
 #include "port/port.h"
 #include "rocksdb/memtablerep.h"
 #include "util/murmurhash.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace {
@@ -654,6 +655,24 @@ MemTableRepFactory* NewHashCuckooRepFactory(size_t write_buffer_size,
                                             unsigned int hash_function_count) {
   return new HashCuckooRepFactory(write_buffer_size, average_data_size,
                                   hash_function_count);
+}
+
+Status CreateHashCuckooRepFactory(
+  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
+  // Expecting format
+  // cuckoo:<write_buffer_size>
+  size_t len = opts_list.size();
+  assert(len == 1 || len == 2);
+  assert(opts_list[0] == "cuckoo");
+
+  if (2 == len) {
+    size_t write_buffer_size = ParseSizeT(opts_list[1]);
+    *mem_factory = NewHashCuckooRepFactory(write_buffer_size);
+  } else if (1 == len) {
+    return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                   opts_list[0] + ":" + opts_list[1]);
+  }
+  return Status::OK();
 }
 
 }  // namespace rocksdb

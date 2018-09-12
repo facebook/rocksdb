@@ -17,6 +17,7 @@
 #include "memtable/stl_wrappers.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace {
@@ -298,6 +299,23 @@ MemTableRep* VectorRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform*, Logger* /*logger*/) {
   return new VectorRep(compare, allocator, count_);
+}
+
+Status CreateVectorRepFactory(
+  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
+  // Expecting format
+  // vector:<count>
+  size_t len = opts_list.size();
+  assert(len == 1 || len == 2);
+  assert(opts_list[0] == "vector");
+
+  if (2 == len) {
+    size_t count = ParseSizeT(opts_list[1]);
+    *mem_factory = new VectorRepFactory(count);
+  } else if (1 == len) {
+    *mem_factory = new VectorRepFactory();
+  }
+  return Status::OK();
 }
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

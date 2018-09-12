@@ -40,6 +40,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <rocksdb/slice.h>
+#include <rocksdb/status.h>
+#include <unordered_map>
+#include <vector>
 
 namespace rocksdb {
 
@@ -321,6 +324,9 @@ class VectorRepFactory : public MemTableRepFactory {
   }
 };
 
+extern Status CreateSkipListRepFactory(
+    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
+
 // This class contains a fixed array of buckets, each
 // pointing to a skiplist (null if the bucket is empty).
 // bucket_count: number of fixed array buckets
@@ -331,6 +337,9 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
     size_t bucket_count = 1000000, int32_t skiplist_height = 4,
     int32_t skiplist_branching_factor = 4
 );
+
+extern Status CreateHashSkipListRepFactory(
+    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
 
 // The factory is to create memtables based on a hash table:
 // it contains a fixed array of buckets, each pointing to either a linked list
@@ -353,6 +362,12 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
     int bucket_entries_logging_threshold = 4096,
     bool if_log_bucket_dist_when_flash = true,
     uint32_t threshold_use_skiplist = 256);
+
+extern Status CreateHashLinkListRepFactory(
+    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
+
+extern Status CreateVectorRepFactory(
+    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
 
 // This factory creates a cuckoo-hashing based mem-table representation.
 // Cuckoo-hash is a closed-hash strategy, in which all key/value pairs
@@ -388,5 +403,26 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
 extern MemTableRepFactory* NewHashCuckooRepFactory(
     size_t write_buffer_size, size_t average_data_size = 64,
     unsigned int hash_function_count = 4);
+
+extern Status CreateHashCuckooRepFactory(
+    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
+
+static std::unordered_map<
+    std::string, Status (*)(std::vector<std::string>, MemTableRepFactory**)>
+    memtable_rep_factory_info = {
+    {"skip_list",       &CreateSkipListRepFactory},
+    {"prefix_hash",     &CreateHashSkipListRepFactory},
+    {"hash_linkedlist", &CreateHashLinkListRepFactory},
+    {"vector",          &CreateVectorRepFactory},
+    {"cuckoo",          &CreateHashCuckooRepFactory}
+};
+
+extern void RegistMemTableRepFactoryCreator(const std::string name,
+                                        Status (*factory_creator)(
+                                                std::vector<std::string>, MemTableRepFactory**));
+
+extern Status CreateMemTableRepFactory(
+    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
+
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb

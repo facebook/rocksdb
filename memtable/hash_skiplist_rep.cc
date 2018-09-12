@@ -15,6 +15,7 @@
 #include "rocksdb/slice_transform.h"
 #include "port/port.h"
 #include "util/murmurhash.h"
+#include "util/string_util.h"
 #include "db/memtable.h"
 #include "memtable/skiplist.h"
 
@@ -345,6 +346,23 @@ MemTableRepFactory* NewHashSkipListRepFactory(
     int32_t skiplist_branching_factor) {
   return new HashSkipListRepFactory(bucket_count, skiplist_height,
       skiplist_branching_factor);
+}
+
+Status CreateHashSkipListRepFactory(
+  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
+  // Expecting format
+  // prfix_hash:<hash_bucket_count>
+  size_t len = opts_list.size();
+  assert(len == 1 || len == 2);
+  assert(opts_list[0] == "prefix_hash");
+
+  if (2 == len) {
+    size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+    *mem_factory =  NewHashSkipListRepFactory(hash_bucket_count);
+  } else {
+    *mem_factory = NewHashSkipListRepFactory();
+  }
+  return Status::OK();
 }
 
 } // namespace rocksdb
