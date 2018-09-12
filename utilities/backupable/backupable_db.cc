@@ -874,19 +874,19 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)),
         &backup_private_directory);
     if (backup_private_directory != nullptr) {
-      backup_private_directory->Fsync();
+      s = backup_private_directory->Fsync();
     }
     if (private_directory_ != nullptr) {
-      private_directory_->Fsync();
+      s = private_directory_->Fsync();
     }
     if (meta_directory_ != nullptr) {
-      meta_directory_->Fsync();
+      s = meta_directory_->Fsync();
     }
     if (shared_directory_ != nullptr) {
-      shared_directory_->Fsync();
+      s = shared_directory_->Fsync();
     }
     if (backup_directory_ != nullptr) {
-      backup_directory_->Fsync();
+      s = backup_directory_->Fsync();
     }
   }
 

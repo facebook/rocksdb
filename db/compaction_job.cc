@@ -593,8 +593,9 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
+  Status status;
   if (output_directory_) {
-    output_directory_->Fsync();
+    status = output_directory_->Fsync();
   }
 
   compaction_stats_.micros = env_->NowMicros() - start_micros;
@@ -603,7 +604,6 @@ Status CompactionJob::Run() {
   TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
 
   // Check if any thread encountered an error during execution
-  Status status;
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
       status = state.status;
