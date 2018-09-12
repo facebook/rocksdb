@@ -657,23 +657,34 @@ MemTableRepFactory* NewHashCuckooRepFactory(size_t write_buffer_size,
                                   hash_function_count);
 }
 
-Status CreateHashCuckooRepFactory(
-  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
-  // Expecting format
-  // cuckoo:<write_buffer_size>
-  size_t len = opts_list.size();
-  assert(len == 1 || len == 2);
-  assert(opts_list[0] == "cuckoo");
+static MemTableRepFactory* NewHashCuckooRepFactory(
+    const std::unordered_map<std::string, std::string>& options, Status* s) {
+  auto f = options.begin();
 
-  if (2 == len) {
-    size_t write_buffer_size = ParseSizeT(opts_list[1]);
-    *mem_factory = NewHashCuckooRepFactory(write_buffer_size);
-  } else if (1 == len) {
-    return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                   opts_list[0] + ":" + opts_list[1]);
+  f = options.find("write_buffer_size");
+  if (options.end() == f) {
+    *s = Status::NotFound("HashCuckooRepFactory", "write_buffer_size");
+    return NULL;
   }
-  return Status::OK();
+  auto write_buffer_size = ParseSizeT(f->second);
+
+  f = options.find("average_data_size");
+  size_t average_data_size = 64;  // default
+  if (options.end() != f) {
+    average_data_size = ParseSizeT(f->second);
+  }
+
+  f = options.find("hash_function_count");
+  size_t hash_function_count = 4;  // default
+  if (options.end() != f) {
+    hash_function_count = ParseSizeT(f->second);
+  }
+
+  return new HashCuckooRepFactory(write_buffer_size, average_data_size,
+                                  hash_function_count);
 }
+
+REGISTER_MEM_TABLE_New("cuckoo", HashCuckooRepFactory);
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

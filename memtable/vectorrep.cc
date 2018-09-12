@@ -301,21 +301,17 @@ MemTableRep* VectorRepFactory::CreateMemTableRep(
   return new VectorRep(compare, allocator, count_);
 }
 
-Status CreateVectorRepFactory(
-  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
-  // Expecting format
-  // vector:<count>
-  size_t len = opts_list.size();
-  assert(len == 1 || len == 2);
-  assert(opts_list[0] == "vector");
-
-  if (2 == len) {
-    size_t count = ParseSizeT(opts_list[1]);
-    *mem_factory = new VectorRepFactory(count);
-  } else if (1 == len) {
-    *mem_factory = new VectorRepFactory();
+static MemTableRepFactory* NewVectorRepFactory(
+    const std::unordered_map<std::string, std::string>& options, Status*) {
+  auto f = options.find("count");
+  size_t count = 0;
+  if (options.end() != f) {
+    count = ParseSizeT(f->second);
   }
-  return Status::OK();
+  return new VectorRepFactory(count);
 }
+
+REGISTER_MEM_TABLE_New("vector", VectorRepFactory);
+
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

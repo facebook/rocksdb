@@ -348,22 +348,37 @@ MemTableRepFactory* NewHashSkipListRepFactory(
       skiplist_branching_factor);
 }
 
-Status CreateHashSkipListRepFactory(
-  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
-  // Expecting format
-  // prfix_hash:<hash_bucket_count>
-  size_t len = opts_list.size();
-  assert(len == 1 || len == 2);
-  assert(opts_list[0] == "prefix_hash");
+static MemTableRepFactory* NewHashSkipListRepFactory(
+    const std::unordered_map<std::string, std::string>& options, Status* s) {
+  auto f = options.begin();
 
-  if (2 == len) {
-    size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-    *mem_factory =  NewHashSkipListRepFactory(hash_bucket_count);
-  } else {
-    *mem_factory = NewHashSkipListRepFactory();
+  f = options.find("bucket_count");
+  if (options.end() == f) {
+    *s = Status::NotFound("HashSkipListRepFactory", "bucket_count");
+    return NULL;
   }
-  return Status::OK();
+  auto bucket_count = ParseSizeT(f->second);
+
+  f = options.find("skiplist_height");
+  if (options.end() == f) {
+    *s = Status::NotFound("HashSkipListRepFactory", "skiplist_height");
+    return NULL;
+  }
+  auto skiplist_height = ParseSizeT(f->second);
+
+  f = options.find("skiplist_branching_factor");
+  if (options.end() == f) {
+    *s =
+        Status::NotFound("HashSkipListRepFactory", "skiplist_branching_factor");
+    return NULL;
+  }
+  auto skiplist_branching_factor = ParseSizeT(f->second);
+
+  return new HashSkipListRepFactory(bucket_count, skiplist_height,
+                                    skiplist_branching_factor);
 }
+
+REGISTER_MEM_TABLE_New("prefix_hash", HashSkipListRepFactory);
 
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

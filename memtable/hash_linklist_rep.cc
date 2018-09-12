@@ -844,22 +844,42 @@ MemTableRepFactory* NewHashLinkListRepFactory(
       bucket_entries_logging_threshold, if_log_bucket_dist_when_flash);
 }
 
-Status CreateHashLinkListRepFactory(
-  std::vector<std::string> opts_list, MemTableRepFactory** mem_factory) {
-  // Expecting format
-  // hash_linkedlist:<hash_bucket_count>
-  size_t len = opts_list.size();
-  assert(len == 1 || len == 2);
-  assert(opts_list[0] == "hash_linkedlist");
+MemTableRepFactory* NewHashLinkListRepFactory(
+    const std::unordered_map<std::string, std::string>& options, Status* s) {
+  auto f = options.begin();
 
-  if (2 == len) {
-    size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-    *mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
-  } else {
-    *mem_factory = NewHashLinkListRepFactory();
+  size_t bucket_count = 50000;  // default
+  f = options.find("bucket_count");
+  if (options.end() != f) {
+    bucket_count = ParseSizeT(f->second);
   }
-  return Status::OK();
+  size_t threshold_use_skiplist = 256;  // default
+  f = options.find("threshold_use_skiplist");
+  if (options.end() != f) {
+    threshold_use_skiplist = ParseSizeT(f->second);
+  }
+  size_t huge_page_tlb_size = 0;  // default
+  f = options.find("huge_page_tlb_size");
+  if (options.end() != f) {
+    huge_page_tlb_size = ParseSizeT(f->second);
+  }
+  size_t bucket_entries_logging_threshold = 4096;  // default
+  f = options.find("bucket_entries_logging_threshold");
+  if (options.end() != f) {
+    bucket_entries_logging_threshold = ParseInt(f->second);
+  }
+  bool if_log_bucket_dist_when_flash = true; // default
+  f = options.find("if_log_bucket_dist_when_flash");
+  if (options.end() != f) {
+    if_log_bucket_dist_when_flash =
+        ParseBoolean("if_log_bucket_dist_when_flash", f->second);
+  }
+  return new HashLinkListRepFactory(
+      bucket_count, threshold_use_skiplist, huge_page_tlb_size,
+      bucket_entries_logging_threshold, if_log_bucket_dist_when_flash);
 }
+
+REGISTER_MEM_TABLE_New("hash_linkedlist", HashLinkListRepFactory);
 
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

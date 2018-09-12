@@ -324,9 +324,6 @@ class VectorRepFactory : public MemTableRepFactory {
   }
 };
 
-extern Status CreateSkipListRepFactory(
-    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
-
 // This class contains a fixed array of buckets, each
 // pointing to a skiplist (null if the bucket is empty).
 // bucket_count: number of fixed array buckets
@@ -337,9 +334,6 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
     size_t bucket_count = 1000000, int32_t skiplist_height = 4,
     int32_t skiplist_branching_factor = 4
 );
-
-extern Status CreateHashSkipListRepFactory(
-    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
 
 // The factory is to create memtables based on a hash table:
 // it contains a fixed array of buckets, each pointing to either a linked list
@@ -362,12 +356,6 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
     int bucket_entries_logging_threshold = 4096,
     bool if_log_bucket_dist_when_flash = true,
     uint32_t threshold_use_skiplist = 256);
-
-extern Status CreateHashLinkListRepFactory(
-    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
-
-extern Status CreateVectorRepFactory(
-    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
 
 // This factory creates a cuckoo-hashing based mem-table representation.
 // Cuckoo-hash is a closed-hash strategy, in which all key/value pairs
@@ -404,25 +392,37 @@ extern MemTableRepFactory* NewHashCuckooRepFactory(
     size_t write_buffer_size, size_t average_data_size = 64,
     unsigned int hash_function_count = 4);
 
-extern Status CreateHashCuckooRepFactory(
-    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
-
-static std::unordered_map<
-    std::string, Status (*)(std::vector<std::string>, MemTableRepFactory**)>
-    memtable_rep_factory_info = {
-    {"skip_list",       &CreateSkipListRepFactory},
-    {"prefix_hash",     &CreateHashSkipListRepFactory},
-    {"hash_linkedlist", &CreateHashLinkListRepFactory},
-    {"vector",          &CreateVectorRepFactory},
-    {"cuckoo",          &CreateHashCuckooRepFactory}
+struct MemTableRegister {
+  typedef MemTableRepFactory*
+    (*FactoryCreator)
+    (const std::unordered_map<std::string, std::string>& options, Status*);
+  MemTableRegister(const char* factoryName, FactoryCreator);
 };
+#define REGISTER_MEM_TABLE(factoryName, factoryClass)                      \
+  static MemTableRepFactory* factoryClass##_createFactory                  \
+  (const std::unordered_map<std::string, std::string>& options, Status*) { \
+    return new factoryClass(options);                                      \
+  }                                                                        \
+  REGISTER_MEM_TABLE_EX(factoryName, factoryClass,                         \
+                        factoryClass##_createFactory)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-extern void RegistMemTableRepFactoryCreator(const std::string name,
-                                        Status (*factory_creator)(
-                                                std::vector<std::string>, MemTableRepFactory**));
+#define REGISTER_MEM_TABLE_New(factoryName, factoryClass) \
+        REGISTER_MEM_TABLE_EX(factoryName, factoryClass, New##factoryClass)
 
-extern Status CreateMemTableRepFactory(
-    std::vector<std::string> opts_list, MemTableRepFactory** mem_factory);
+#define REGISTER_MEM_TABLE_EX(factoryName, factoryClass, createFactory) \
+        REGISTER_MEM_TABLE_EZ(factoryName, factoryClass, createFactory)
+
+#define REGISTER_MEM_TABLE_EZ(factoryName, factoryClass, createFactory) \
+    MemTableRegister s_reg_##factoryClass##_##__LINE__              \
+    (factoryName, &createFactory)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+MemTableRepFactory*
+CreateMemTableRepFactory(
+    const std::string& factoryName,
+    const std::unordered_map<std::string, std::string>& options,
+    Status*);
 
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
