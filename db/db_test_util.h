@@ -575,7 +575,7 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
-  std::atomic<size_t> compaction_readahead_size_;
+  std::atomic<size_t> compaction_readahead_size_{};
 };
 
 class MockTimeEnv : public EnvWrapper {
