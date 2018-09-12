@@ -1068,6 +1068,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   }
   FlushRequest flush_req;
   autovector<ColumnFamilyData*> cfds;
+  std::vector<std::vector<uint32_t>> to_flush;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -1080,11 +1081,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     FlushManager* ifm = immutable_db_options_.flush_manager.get();
     assert(nullptr != ifm);
 
-    if (nullptr == ifm->external_manager_ ||
-        nullptr == ifm->external_manager_->OnManualFlush) {
-      ifm->OnManualFlush(*versions_->GetColumnFamilySet(), cfd,
-                         cached_recoverable_state_empty_, &cfds);
-    }
+    ifm->OnManualFlush(*versions_->GetColumnFamilySet(), cfd,
+                       cached_recoverable_state_empty_, &cfds, &to_flush);
 
     for (auto tmp_cfd : cfds) {
       s = SwitchMemtable(tmp_cfd, &context);

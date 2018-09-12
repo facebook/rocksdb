@@ -61,22 +61,32 @@ class FlushManager {
   virtual void OnManualFlush(ColumnFamilySet& column_family_set,
                              ColumnFamilyData* cfd,
                              std::atomic<bool>& cached_recoverable_state_empty,
-                             autovector<ColumnFamilyData*>* cfds_picked) = 0;
+                             autovector<ColumnFamilyData*>* cfds_picked,
+                             std::vector<std::vector<uint32_t>>* to_flush) = 0;
 
   virtual void OnSwitchWAL(ColumnFamilySet& column_family_set,
                            uint64_t oldest_alive_log,
-                           autovector<ColumnFamilyData*>* cfds_picked) = 0;
+                           autovector<ColumnFamilyData*>* cfds_picked,
+                           std::vector<std::vector<uint32_t>>* to_flush) = 0;
 
   virtual void OnHandleWriteBufferFull(
       ColumnFamilySet& column_family_set,
-      autovector<ColumnFamilyData*>* cfds_picked) = 0;
+      autovector<ColumnFamilyData*>* cfds_picked,
+      std::vector<std::vector<uint32_t>>* to_flush) = 0;
 
   virtual void OnScheduleFlushes(
       ColumnFamilySet& column_family_set, FlushScheduler& scheduler,
-      autovector<ColumnFamilyData*>* cfds_picked) = 0;
+      autovector<ColumnFamilyData*>* cfds_picked,
+      std::vector<std::vector<uint32_t>>* to_flush) = 0;
 
+ protected:
+  void DedupColumnFamilies(ColumnFamilySet& column_family_set,
+                           const std::vector<std::vector<uint32_t>>& to_flush,
+                           autovector<ColumnFamilyData*>* unique_cfds);
+
+ public:
   // external_manager_ is NOT owned by me.
-  ExternalFlushManager* external_manager_;
+  ExternalFlushManager* const external_manager_;
 };
 
 class DefaultFlushManager : public FlushManager {
@@ -89,19 +99,23 @@ class DefaultFlushManager : public FlushManager {
   virtual void OnManualFlush(
       ColumnFamilySet& /* column_family_set */, ColumnFamilyData* cfd,
       std::atomic<bool>& cached_recoverable_state_empty,
-      autovector<ColumnFamilyData*>* cfds_picked) override;
+      autovector<ColumnFamilyData*>* cfds_picked,
+      std::vector<std::vector<uint32_t>>* to_flush) override;
 
-  virtual void OnSwitchWAL(ColumnFamilySet& column_family_set,
-                           uint64_t oldest_alive_log,
-                           autovector<ColumnFamilyData*>* cfds_picked) override;
+  virtual void OnSwitchWAL(
+      ColumnFamilySet& column_family_set, uint64_t oldest_alive_log,
+      autovector<ColumnFamilyData*>* cfds_picked,
+      std::vector<std::vector<uint32_t>>* to_flush) override;
 
   virtual void OnHandleWriteBufferFull(
       ColumnFamilySet& column_family_set,
-      autovector<ColumnFamilyData*>* cfds_picked) override;
+      autovector<ColumnFamilyData*>* cfds_picked,
+      std::vector<std::vector<uint32_t>>* to_flush) override;
 
   virtual void OnScheduleFlushes(
       ColumnFamilySet& column_family_set, FlushScheduler& scheduler,
-      autovector<ColumnFamilyData*>* cfds_picked) override;
+      autovector<ColumnFamilyData*>* cfds_picked,
+      std::vector<std::vector<uint32_t>>* to_flush) override;
 };
 
 }  // namespace rocksdb

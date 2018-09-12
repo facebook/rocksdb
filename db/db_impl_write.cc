@@ -1067,14 +1067,15 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   // happen while we're in the write thread
 
   autovector<ColumnFamilyData*> cfds;
-  FlushRequest flush_req;
-
+  std::vector<std::vector<uint32_t>> to_flush;
   FlushManager* ifm = immutable_db_options_.flush_manager.get();
   assert(nullptr != ifm);
-  if (nullptr == ifm->external_manager_ ||
-      nullptr == ifm->external_manager_->OnScheduleFlushes) {
-    ifm->OnSwitchWAL(*versions_->GetColumnFamilySet(), oldest_alive_log, &cfds);
-  }
+
+  ifm->OnSwitchWAL(*versions_->GetColumnFamilySet(), oldest_alive_log, &cfds,
+                   &to_flush);
+
+  FlushRequest flush_req;
+
   for (auto cfd : cfds) {
     status = SwitchMemtable(cfd, write_context);
     if (!status.ok()) {
@@ -1113,28 +1114,8 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   autovector<ColumnFamilyData*> cfds;
   FlushManager* ifm = immutable_db_options_.flush_manager.get();
   assert(ifm != nullptr);
-  if (nullptr == ifm->external_manager_ ||
-      nullptr == ifm->external_manager_->OnHandleWriteBufferFull) {
-    ifm->OnHandleWriteBufferFull(*versions_->GetColumnFamilySet(), &cfds);
-  } else {
-    ifm->external_manager_->OnHandleWriteBufferFull(&to_flush);
-    for (const auto& ids : to_flush) {
-      for (const auto id : ids) {
-        bool found = false;
-        ColumnFamilyData* tmp_cfd =
-            versions_->GetColumnFamilySet()->GetColumnFamily(id);
-        for (auto cfd : cfds) {
-          if (cfd == tmp_cfd) {
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          cfds.push_back(tmp_cfd);
-        }
-      }
-    }
-  }
+  ifm->OnHandleWriteBufferFull(*versions_->GetColumnFamilySet(), &cfds,
+                               &to_flush);
 
   for (const auto cfd : cfds) {
     cfd->Ref();
@@ -1264,14 +1245,12 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
+  std::vector<std::vector<uint32_t>> to_flush;
   FlushManager* ifm = immutable_db_options_.flush_manager.get();
   assert(nullptr != ifm);
+  ifm->OnScheduleFlushes(*versions_->GetColumnFamilySet(), flush_scheduler_,
+                         &cfds, &to_flush);
 
-  if (nullptr == ifm->external_manager_ ||
-      nullptr == ifm->external_manager_->OnScheduleFlushes) {
-    ifm->OnScheduleFlushes(*versions_->GetColumnFamilySet(), flush_scheduler_,
-                           &cfds);
-  }
   FlushRequest flush_req;
   Status status;
   for (auto cfd : cfds) {
