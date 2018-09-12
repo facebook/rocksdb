@@ -38,7 +38,8 @@ TransactionID PessimisticTransaction::GenTxnID() {
 PessimisticTransaction::PessimisticTransaction(
     TransactionDB* txn_db, const WriteOptions& write_options,
     const TransactionOptions& txn_options)
-    : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
+    : TransactionBaseImpl(txn_db->GetRootDB(),
+                          write_options, txn_options.index_type),
       txn_db_impl_(nullptr),
       expiration_time_(0),
       txn_id_(0),

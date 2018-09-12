@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 
 // Database with Transaction support.
 //
@@ -137,6 +138,9 @@ struct TransactionOptions {
 
   // The maximum number of bytes used for the write batch. 0 means no limit.
   size_t max_write_batch_size = 0;
+
+  // Set index factory for WriteBatchWithIndex
+  const rocksdb::WriteBatchEntryIndexFactory* index_type = nullptr;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
