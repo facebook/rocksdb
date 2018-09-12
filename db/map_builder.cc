@@ -497,7 +497,7 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
 
 MapBuilder::MapBuilder(
     int job_id, const ImmutableDBOptions& db_options,
-    const EnvOptions env_options, VersionSet* versions,
+    const EnvOptions& env_options, VersionSet* versions,
     Statistics* stats, InstrumentedMutex* db_mutex,
     const std::vector<SequenceNumber>& existing_snapshots,
     std::shared_ptr<Cache> table_cache, const std::string& dbname)
@@ -506,7 +506,7 @@ MapBuilder::MapBuilder(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
-      env_optiosn_for_read_(
+      env_options_for_read_(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       stats_(stats),
@@ -539,7 +539,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     read_options.total_order_seek = true;
 
     return cfd->table_cache()->NewIterator(
-               read_options, env_optiosn_for_read_,
+               read_options, env_options_for_read_,
                cfd->internal_comparator(), *f,
                f->sst_variety == kMapSst ? empty_delend_files : depend_files,
                nullptr,
@@ -738,7 +738,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       }
     }
     for (auto f : added_files) {
-      edit->AddFile(vstorage->num_levels(), *f);
+      edit->AddFile(-1, *f);
     }
     edit->AddFile(output_level, *file_meta);
   }

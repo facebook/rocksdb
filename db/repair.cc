@@ -582,9 +582,6 @@ class Repairer {
       }
     }
 
-    t->meta.sst_variety = GetSstVariety(props->user_collected_properties);
-    t->meta.sst_depend = GetSstDepend(props->user_collected_properties);
-
     if (status.ok()) {
       // Use empty depend files to disable map or link sst forward calls.
       // P.S. depend files in VersionStorage has not build yet ...
@@ -628,6 +625,9 @@ class Repairer {
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,
                      status.ToString().c_str());
+
+      t->meta.sst_variety = GetSstVariety(props->user_collected_properties);
+      t->meta.sst_depend = GetSstDepend(props->user_collected_properties);
     }
     return status;
   }
@@ -666,7 +666,7 @@ class Repairer {
         int level = 0;
         if (depend_set.count(table->meta.fd.GetNumber()) > 0) {
           // This sst should insert into depend level
-          level = default_cf_iopts_.num_levels;
+          level = -1;
         }
         edit.AddFile(level, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
                      table->meta.fd.GetFileSize(), table->meta.smallest,

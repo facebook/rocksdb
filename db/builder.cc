@@ -128,7 +128,7 @@ Status BuildTable(
           int_tbl_prop_collector_factories, column_family_id,
           column_family_name, file_writer.get(), compression, compression_opts,
           level, nullptr /* compression_dict */, false /* skip_filters */,
-          creation_time, oldest_key_time);
+          false /* ignore_key_type */, creation_time, oldest_key_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

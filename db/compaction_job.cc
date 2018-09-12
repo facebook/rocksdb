@@ -363,7 +363,7 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
-      env_optiosn_for_read_(
+      env_options_for_read_(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
@@ -883,7 +883,7 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
+      sub_compact->compaction, range_del_agg.get(), env_options_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -1116,9 +1116,11 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
         if (c_iter->Valid()) {
           next_key = &c_iter->key();
         }
-        // Make sure end don't split user_key, otherwise it will make range del
-        // expose deleted keys
-        if (next_key != nullptr &&
+        // compaction_picker use user_key boundary, single user_key in multi
+        // sst will make picker pick one or more unnecessary sst file(s) ???
+        // And it will make range del expose deleted keys. (Fixed in #4356 ?)
+        if (mutable_cf_options->enable_lazy_compaction &&
+            next_key != nullptr &&
             cfd->user_comparator()->Compare(
                 ExtractUserKey(*next_key),
                 sub_compact->outputs.back().meta.largest.user_key()) == 0) {
@@ -1228,7 +1230,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
+      sub_compact->compaction, range_del_agg.get(), env_options_for_read_));
 
   // Used for write properties
   std::vector<uint64_t> sst_depend;
@@ -1778,7 +1780,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), &sub_compact->compression_dict,
-      skip_filters, output_file_creation_time));
+      skip_filters, false /* ignore_key_type */, output_file_creation_time));
   LogFlush(db_options_.info_log);
   return s;
 }

@@ -310,7 +310,7 @@ class VersionBuilder::Rep {
             UnloadSstDepend(f, depend_map_);
             depend_changed = true;
           }
-          depend_files_.push_back(f);
+          depend_files_.emplace_back(f);
           levels_[level].added_files.erase(exising);
         }
       } else {
@@ -347,11 +347,11 @@ class VersionBuilder::Rep {
     // Add new files
     for (const auto& new_file : edit->GetNewFiles()) {
       const int level = new_file.first;
-      if (level <= num_levels_) {
+      if (level < num_levels_) {
         FileMetaData* f = new FileMetaData(new_file.second);
         f->refs = 1;
 
-        if (level < num_levels_) {
+        if (level != -1) {
           assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
                  levels_[level].added_files.end());
           assert(depend_map_.count(f->fd.GetNumber()) == 0);
@@ -362,7 +362,7 @@ class VersionBuilder::Rep {
             depend_changed = true;
           }
         } else {
-          depend_files_.push_back(f);
+          depend_files_.emplace_back(f);
         }
       } else {
         uint64_t number = new_file.second.fd.GetNumber();
@@ -413,13 +413,13 @@ class VersionBuilder::Rep {
 
     // Apply added depend files
     for (auto f : depend_files_) {
-      vstorage->AddFile(num_levels_, f, info_log_);
+      vstorage->AddFile(-1, f, info_log_);
       UnrefFile(f);
     }
     depend_files_.clear();
 
     // Deep copy base depend files to deleted files
-    auto deleted_files = base_vstorage_->LevelFiles(num_levels_);
+    auto deleted_files = base_vstorage_->LevelFiles(-1);
 
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
@@ -493,7 +493,7 @@ class VersionBuilder::Rep {
       for (; depend_file_count < mid; ++depend_file_count) {
         auto f = deleted_files[depend_file_count];
         // got a depend file !
-        vstorage->AddFile(num_levels_, f, info_log_);
+        vstorage->AddFile(-1, f, info_log_);
         LoadSstDepend(f, depend_map_);
       }
     }

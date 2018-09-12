@@ -38,7 +38,7 @@ class VersionBuilderTest : public testing::Test {
   }
 
   ~VersionBuilderTest() {
-    for (int i = 0; i <= vstorage_.num_levels(); i++) {
+    for (int i = -1; i < vstorage_.num_levels(); i++) {
       for (auto* f : vstorage_.LevelFiles(i)) {
         if (--f->refs == 0) {
           delete f;
@@ -59,7 +59,7 @@ class VersionBuilderTest : public testing::Test {
            bool sampled = false, SequenceNumber smallest_seqno = 0,
            SequenceNumber largest_seqno = 0, uint8_t sst_variety = 0,
            const std::vector<uint64_t>& sst_depend = {}) {
-    assert(level <= vstorage_.num_levels());
+    assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData;
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = GetInternalKey(smallest, smallest_seq);
@@ -91,7 +91,7 @@ class VersionBuilderTest : public testing::Test {
 };
 
 void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
-  for (int i = 0; i <= new_vstorage->num_levels(); i++) {
+  for (int i = -1; i < new_vstorage->num_levels(); i++) {
     for (auto* f : new_vstorage->LevelFiles(i)) {
       if (--f->refs == 0) {
         delete f;
@@ -203,8 +203,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
   Add(5, 26U, "150", "170", 100U);
   Add(5, 27U, "171", "179", 100U);
 
-  Add(vstorage_.num_levels(), 4U, "90", "119", 100U);
-  Add(vstorage_.num_levels(), 5U, "120", "149", 100U);
+  Add(-1, 4U, "90", "119", 100U);
+  Add(-1, 5U, "120", "149", 100U);
 
   UpdateVersionStorageInfo();
 
@@ -258,22 +258,19 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic3) {
                        GetInternalKey("149"), 2, 2, false, 0, {});
 
   
-  version_edit.AddFile(vstorage_.num_levels(), 2U, 0, 100U,
-                       GetInternalKey("100"), GetInternalKey("109"), 2, 2,
-                       false, 0, {});
-  version_edit.AddFile(vstorage_.num_levels(), 4U, 0, 50U,
-                       GetInternalKey("100"), GetInternalKey("114"), 2, 2,
-                       false, 1, {2U});
-  version_edit.AddFile(vstorage_.num_levels(), 5U, 0, 50U,
-                       GetInternalKey("115"), GetInternalKey("119"), 2, 2,
-                       false, 0, {});
+  version_edit.AddFile(-1, 2U, 0, 100U, GetInternalKey("100"),
+                       GetInternalKey("109"), 2, 2, false, 0, {});
+  version_edit.AddFile(-1, 4U, 0, 50U, GetInternalKey("100"),
+                       GetInternalKey("114"), 2, 2, false, 1, {2U});
+  version_edit.AddFile(-1, 5U, 0, 50U, GetInternalKey("115"),
+                       GetInternalKey("119"), 2, 2, false, 0, {});
   version_builder.Apply(&version_edit);
 
   VersionEdit version_edit2;
   version_edit2.AddFile(2, 21U, 0, 100U, GetInternalKey("110"),
                         GetInternalKey("159"), 2, 2, false, 1,
                         {11U, 12U, 13U, 14U, 15U});
-  Add(vstorage_.num_levels(), 31U, "115", "119", 50U);
+  Add(-1, 31U, "115", "119", 50U);
   version_edit2.DeleteFile(1, 11U);
   version_edit2.DeleteFile(1, 12U);
   version_edit2.DeleteFile(1, 13U);

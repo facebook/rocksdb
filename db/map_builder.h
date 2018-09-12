@@ -33,7 +33,7 @@ class MapBuilder {
  public:
   // All params are reference
   MapBuilder(int job_id, const ImmutableDBOptions& db_options,
-             const EnvOptions env_options, VersionSet* versions,
+             const EnvOptions& env_options, VersionSet* versions,
              Statistics* stats, InstrumentedMutex* db_mutex,
              const std::vector<SequenceNumber>& existing_snapshots,
              std::shared_ptr<Cache> table_cache,  const std::string& dbname);
@@ -72,7 +72,7 @@ class MapBuilder {
 
   Env* env_;
   // env_option optimized for compaction table reads
-  EnvOptions env_optiosn_for_read_;
+  EnvOptions env_options_for_read_;
   VersionSet* versions_;
   Statistics* stats_;
   InstrumentedMutex* db_mutex_;

@@ -342,7 +342,7 @@ class FilePicker {
 };
 }  // anonymous namespace
 
-VersionStorageInfo::~VersionStorageInfo() { delete[] files_; }
+VersionStorageInfo::~VersionStorageInfo() { delete[] --files_; }
 
 Version::~Version() {
   assert(refs_ == 0);
@@ -352,8 +352,7 @@ Version::~Version() {
   next_->prev_ = prev_;
 
   // Drop references to files
-  // here use level less or EQUAL num_levels for clean depend files
-  for (int level = 0; level <= storage_info_.num_levels_; level++) {
+  for (int level = -1; level < storage_info_.num_levels_; level++) {
     for (size_t i = 0; i < storage_info_.files_[level].size(); i++) {
       FileMetaData* f = storage_info_.files_[level][i];
       assert(f->refs > 0);
@@ -1134,6 +1133,7 @@ VersionStorageInfo::VersionStorageInfo(
       finalized_(false),
       is_pick_fail_(false),
       force_consistency_checks_(_force_consistency_checks) {
+  ++files_; // level -1 used for depend files
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -1387,9 +1387,8 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
     // compensated_file_size, making lower-level to higher-level compaction
     // will be triggered, which creates higher-level files whose num_deletions
     // will be updated here.
-    // here use level less or EQUAL num_levels for include depend files
-    for (int level = 0;
-         level <= storage_info_.num_levels_ && init_count < kMaxInitCount;
+    for (int level = -1;
+         level < storage_info_.num_levels_ && init_count < kMaxInitCount;
          ++level) {
       for (auto* file_meta : storage_info_.files_[level]) {
         if (MaybeInitializeFileMetaData(file_meta)) {
@@ -1414,8 +1413,8 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
     // load the table-property of a file in higher-level to initialize
     // that value.
     // here use level start from num_levels for include depend files
-    for (int level = storage_info_.num_levels_;
-         storage_info_.accumulated_raw_value_size_ == 0 && level >= 0;
+    for (int level = storage_info_.num_levels_ - 1;
+         storage_info_.accumulated_raw_value_size_ == 0 && level >= -1;
          --level) {
       for (int i = static_cast<int>(storage_info_.files_[level].size()) - 1;
            storage_info_.accumulated_raw_value_size_ == 0 && i >= 0; --i) {
@@ -1779,7 +1778,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   auto* level_files = &files_[level];
   // Must not overlap
 #ifndef NDEBUG
-  if (level > 0 && level < num_levels_ && !level_files->empty() &&
+  if (level > 0 && !level_files->empty() &&
       internal_comparator_->Compare(level_files->back()->largest,
                                     f->smallest) >= 0) {
     auto* f2 = level_files->back();
@@ -1800,7 +1799,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
 #endif
   f->refs++;
   level_files->push_back(f);
-  if (level == num_levels_) {
+  if (level == -1) {
     depend_files_.emplace(f->fd.GetNumber(), f);
   } else if (f->sst_variety != 0) {
     has_space_amplification_.emplace(level);
@@ -2690,7 +2689,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
 }
 
 void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
-  for (int level = 0; level <= storage_info_.num_levels(); level++) {
+  for (int level = -1; level < storage_info_.num_levels(); level++) {
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (const auto& file : files) {
       live->push_back(file->fd);
@@ -3777,7 +3776,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   // however, all levels bigger or equal to new_levels will be empty
   std::vector<FileMetaData*>* new_files_list =
       new std::vector<FileMetaData*>[current_levels + 1];
-  for (int i = 0; i < new_levels - 1; i++) {
+  ++new_files_list;
+  for (int i = -1; i < new_levels - 1; i++) {
     new_files_list[i] = vstorage->LevelFiles(i);
   }
 
@@ -3785,10 +3785,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
     new_files_list[new_levels - 1] = vstorage->LevelFiles(first_nonempty_level);
   }
 
-  // Keep the depend layer sst files
-  new_files_list[new_levels] = vstorage->LevelFiles(current_levels);
-
-  delete[] vstorage -> files_;
+  delete[] --vstorage->files_;
   vstorage->files_ = new_files_list;
   vstorage->num_levels_ = new_levels;
 
@@ -4062,7 +4059,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
 
-      for (int level = 0; level <= cfd->NumberLevels(); level++) {
+      for (int level = -1; level < cfd->NumberLevels(); level++) {
         for (const auto& f :
              cfd->current()->storage_info()->LevelFiles(level)) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
@@ -4237,7 +4234,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
     for (Version* v = dummy_versions->next_; v != dummy_versions;
          v = v->next_) {
       const auto* vstorage = v->storage_info();
-      for (int level = 0; level <= vstorage->num_levels(); level++) {
+      for (int level = -1; level < vstorage->num_levels(); level++) {
         total_files += vstorage->LevelFiles(level).size();
       }
     }
