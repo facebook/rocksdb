@@ -34,9 +34,8 @@ class MapBuilder {
   // All params are reference
   MapBuilder(int job_id, const ImmutableDBOptions& db_options,
              const EnvOptions& env_options, VersionSet* versions,
-             Statistics* stats, InstrumentedMutex* db_mutex,
-             const std::vector<SequenceNumber>& existing_snapshots,
-             std::shared_ptr<Cache> table_cache,  const std::string& dbname);
+             Statistics* stats, std::shared_ptr<Cache> table_cache,
+             const std::string& dbname);
 
   // no copy/move
   MapBuilder(MapBuilder&& job) = delete;
@@ -75,8 +74,6 @@ class MapBuilder {
   EnvOptions env_options_for_read_;
   VersionSet* versions_;
   Statistics* stats_;
-  InstrumentedMutex* db_mutex_;
-  const std::vector<SequenceNumber>& existing_snapshots_;
   std::shared_ptr<Cache> table_cache_;
 };
 

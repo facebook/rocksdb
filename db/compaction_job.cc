@@ -1608,8 +1608,7 @@ Status CompactionJob::InstallCompactionResults(
       compaction->compaction_varieties() == kMapSst) {
 
     MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
-                           stats_, db_mutex_, existing_snapshots_,
-                           table_cache_, dbname_);
+                           stats_, table_cache_, dbname_);
     auto cfd = compaction->column_family_data();
     auto vstorage = compaction->input_version()->storage_info();
     std::unique_ptr<TableProperties> prop;

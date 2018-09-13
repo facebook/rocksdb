@@ -498,9 +498,8 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
 MapBuilder::MapBuilder(
     int job_id, const ImmutableDBOptions& db_options,
     const EnvOptions& env_options, VersionSet* versions,
-    Statistics* stats, InstrumentedMutex* db_mutex,
-    const std::vector<SequenceNumber>& existing_snapshots,
-    std::shared_ptr<Cache> table_cache, const std::string& dbname)
+    Statistics* stats, std::shared_ptr<Cache> table_cache,
+    const std::string& dbname)
     : job_id_(job_id),
       dbname_(dbname),
       db_options_(db_options),
@@ -510,8 +509,6 @@ MapBuilder::MapBuilder(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       stats_(stats),
-      db_mutex_(db_mutex),
-      existing_snapshots_(std::move(existing_snapshots)),
       table_cache_(std::move(table_cache)) {}
 
 Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
