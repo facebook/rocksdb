@@ -255,7 +255,7 @@ if(FAIL_ON_WARNINGS)
 endif()
 
 if(MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /FR")
 endif()
 
 option(WITH_ASAN "build with ASAN" OFF)
