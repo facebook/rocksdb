@@ -11,8 +11,13 @@
 
 namespace rocksdb {
 
+// Argument for FlushManager to communicate with DB
 struct FlushCallbackArg {
+  // IN: IDs of column families that are candidates for flush
   std::vector<uint32_t> candidates;
+  // OUT: vectors of column families that must be flushed sequentially. For
+  // example, {{1, 2}, {1, 3, 4}} specifies that cf1 and cf2 must be flushed
+  // sequentially with cf1 first. Cf1, cf3 and cf4 must be flushed in order.
   std::vector<std::vector<uint32_t>> to_flush;
 };
 

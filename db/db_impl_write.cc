@@ -1069,28 +1069,29 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
 
   autovector<ColumnFamilyData*> cfds;
   FlushCallbackArg flush_cb_arg;
-
   FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
-  bool use_flush_manager = false;
-  if (flush_manager != nullptr) {
-    use_flush_manager = true;
-    status = flush_manager->OnSwitchWAL(&flush_cb_arg);
-    if (status.IsNotSupported()) {
-      status = Status::OK();
-      use_flush_manager = false;
+
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
+      cfds.emplace_back(cfd);
+      if (flush_manager != nullptr) {
+        flush_cb_arg.candidates.emplace_back(cfd->GetID());
+      }
     }
   }
 
-  if (use_flush_manager) {
-    GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
-  } else {
-    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (cfd->OldestLogToKeep() <= oldest_alive_log) {
-        cfds.emplace_back(cfd);
-      }
+  bool use_flush_manager = false;
+  if (flush_manager != nullptr) {
+    status = flush_manager->OnSwitchWAL(&flush_cb_arg);
+    if (status.IsNotSupported()) {
+      status = Status::OK();
+    } else if (status.ok()) {
+      cfds.clear();
+      use_flush_manager = true;
+      GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
     }
   }
 
@@ -1131,11 +1132,31 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
+  ColumnFamilyData* cfd_picked = nullptr;
+  SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
   FlushCallbackArg flush_cb_arg;
   // Elements in cfds must be unique.
   autovector<ColumnFamilyData*> cfds;
-
   FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
+
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (!cfd->mem()->IsEmpty()) {
+      // We only consider active mem table, hoping immutable memtable is
+      // already in the process of flushing.
+      if (flush_manager != nullptr) {
+        flush_cb_arg.candidates.emplace_back(cfd->GetID());
+      }
+      uint64_t seq = cfd->mem()->GetCreationSeq();
+      if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+        cfd_picked = cfd;
+        seq_num_for_cf_picked = seq;
+      }
+    }
+  }
+
   bool use_flush_manager = false;
   if (flush_manager != nullptr) {
     use_flush_manager = true;
@@ -1143,31 +1164,13 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (status.IsNotSupported()) {
       status = Status::OK();
       use_flush_manager = false;
+    } else if (status.ok()) {
+      use_flush_manager = true;
+      GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
     }
-  }
-
-  if (use_flush_manager) {
-    GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
   } else {
-    ColumnFamilyData* cfd_picked = nullptr;
-    SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
-
-    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (!cfd->mem()->IsEmpty()) {
-        // We only consider active mem table, hoping immutable memtable is
-        // already in the process of flushing.
-        uint64_t seq = cfd->mem()->GetCreationSeq();
-        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-          cfd_picked = cfd;
-          seq_num_for_cf_picked = seq;
-        }
-      }
-    }
     if (cfd_picked != nullptr) {
-      cfds.push_back(cfd_picked);
+      cfds.emplace_back(cfd_picked);
     }
   }
 
@@ -1285,43 +1288,40 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
-
+  FlushCallbackArg flush_cb_arg;
   ColumnFamilyData* tmp_cfd = nullptr;
+  FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
+
   while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
     cfds.emplace_back(tmp_cfd);
+    if (flush_manager != nullptr) {
+      flush_cb_arg.candidates.emplace_back(tmp_cfd->GetID());
+    }
   }
 
   Status status;
-  FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
-  FlushCallbackArg flush_cb_arg;
   bool use_flush_manager = false;
   if (flush_manager != nullptr) {
-    use_flush_manager = true;
-    for (auto cfd : cfds) {
-      flush_cb_arg.candidates.emplace_back(cfd->GetID());
-    }
     status = flush_manager->OnScheduleFlushes(&flush_cb_arg);
     if (status.IsNotSupported()) {
       status = Status::OK();
-      use_flush_manager = false;
-    }
-  }
-
-  if (use_flush_manager) {
-    std::unordered_set<uint32_t> cf_id_set;
-    for (auto cfd : cfds) {
-      cf_id_set.insert(cfd->GetID());
-    }
-    cfds.clear();
-    GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
-    for (auto cfd : cfds) {
-      cf_id_set.erase(cfd->GetID());
-    }
-    // Put the unpicked column families back to list
-    for (auto id : cf_id_set) {
-      ColumnFamilyData* cfd =
-          versions_->GetColumnFamilySet()->GetColumnFamily(id);
-      flush_scheduler_.ScheduleFlush(cfd);
+    } else if (status.ok()) {
+      use_flush_manager = true;
+      std::unordered_set<uint32_t> cf_id_set;
+      for (auto cfd : cfds) {
+        cf_id_set.insert(cfd->GetID());
+      }
+      cfds.clear();
+      GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
+      for (auto cfd : cfds) {
+        cf_id_set.erase(cfd->GetID());
+      }
+      // Put the unpicked column families back to list
+      for (auto id : cf_id_set) {
+        ColumnFamilyData* cfd =
+            versions_->GetColumnFamilySet()->GetColumnFamily(id);
+        flush_scheduler_.ScheduleFlush(cfd);
+      }
     }
   }
 
