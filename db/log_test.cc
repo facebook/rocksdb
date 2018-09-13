@@ -163,8 +163,8 @@ class LogTest : public ::testing::TestWithParam<int> {
         source_holder_(test::GetSequentialFileReader(
             new StringSource(reader_contents_), "" /* file name */)),
         writer_(std::move(dest_holder_), 123, GetParam()),
-        reader_(nullptr, std::move(source_holder_), &report_, true /*checksum*/,
-                123) {
+        reader_(nullptr, std::move(source_holder_), &report_,
+                true /* checksum */, 123 /* log_number */) {
     int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
     initial_offset_last_record_offsets_[0] = 0;
     initial_offset_last_record_offsets_[1] = header_size + 10000;
