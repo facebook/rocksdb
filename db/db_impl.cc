@@ -26,6 +26,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include <functional>
+#include <memory>
 
 #include "db/builder.h"
 #include "db/compaction_job.h"
@@ -1327,6 +1329,137 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
+template <class T, std::size_t N, class Allocator = std::allocator<T>>
+class stack_allocator : public Allocator
+{
+    public:
+
+    typedef typename std::allocator_traits<Allocator>::value_type value_type;
+    typedef typename std::allocator_traits<Allocator>::pointer pointer;
+    typedef typename std::allocator_traits<Allocator>::const_pointer const_pointer;
+    typedef typename Allocator::reference reference;
+    typedef typename Allocator::const_reference const_reference;
+    typedef typename std::allocator_traits<Allocator>::size_type size_type;
+    typedef typename std::allocator_traits<Allocator>::difference_type difference_type;
+
+    typedef typename std::allocator_traits<Allocator>::const_void_pointer const_void_pointer;
+    typedef Allocator allocator_type;
+
+    public:
+
+    explicit stack_allocator(const allocator_type& alloc = allocator_type())
+        : m_allocator(alloc), m_begin(nullptr), m_end(nullptr), m_stack_pointer(nullptr)
+    { }
+
+    explicit stack_allocator(pointer buffer, const allocator_type& alloc = allocator_type())
+        : m_allocator(alloc), m_begin(buffer), m_end(buffer + N),
+            m_stack_pointer(buffer)
+    { }
+
+    template <class U>
+    stack_allocator(const stack_allocator<U, N, Allocator>& other)
+        : m_allocator(other.m_allocator), m_begin(other.m_begin), m_end(other.m_end),
+            m_stack_pointer(other.m_stack_pointer)
+    { }
+
+    constexpr static size_type capacity()
+    {
+        return N;
+    }
+
+    pointer allocate(size_type n, const_void_pointer hint = const_void_pointer())
+    {
+        if (n <= size_type(std::distance(m_stack_pointer, m_end)))
+        {
+            pointer result = m_stack_pointer;
+            m_stack_pointer += n;
+            return result;
+        }
+
+        return m_allocator.allocate(n, hint);
+    }
+
+    void deallocate(pointer p, size_type n)
+    {
+        if (pointer_to_internal_buffer(p))
+        {
+            m_stack_pointer -= n;
+        }
+        else m_allocator.deallocate(p, n);
+    }
+
+    size_type max_size() const noexcept
+    {
+        return m_allocator.max_size();
+    }
+
+    template <class U, class... Args>
+    void construct(U* p, Args&&... args)
+    {
+        m_allocator.construct(p, std::forward<Args>(args)...);
+    }
+
+    template <class U>
+    void destroy(U* p)
+    {
+        m_allocator.destroy(p);
+    }
+
+    pointer address(reference x) const noexcept
+    {
+        if (pointer_to_internal_buffer(std::addressof(x)))
+        {
+            return std::addressof(x);
+        }
+
+        return m_allocator.address(x);
+    }
+
+    const_pointer address(const_reference x) const noexcept
+    {
+        if (pointer_to_internal_buffer(std::addressof(x)))
+        {
+            return std::addressof(x);
+        }
+
+        return m_allocator.address(x);
+    }
+
+    template <class U>
+    struct rebind { typedef stack_allocator<U, N, allocator_type> other; };
+
+    pointer buffer() const noexcept
+    {
+        return m_begin;
+    }
+
+    private:
+
+    bool pointer_to_internal_buffer(const_pointer p) const
+    {
+        return (!(std::less<const_pointer>()(p, m_begin)) && (std::less<const_pointer>()(p, m_end)));
+    }
+
+    allocator_type m_allocator;
+    pointer m_begin;
+    pointer m_end;
+    pointer m_stack_pointer;
+};
+
+template <class T1, std::size_t N, class Allocator, class T2>
+bool operator == (const stack_allocator<T1, N, Allocator>& lhs,
+    const stack_allocator<T2, N, Allocator>& rhs) noexcept
+{
+    return lhs.buffer() == rhs.buffer();
+}
+
+template <class T1, std::size_t N, class Allocator, class T2>
+bool operator != (const stack_allocator<T1, N, Allocator>& lhs,
+    const stack_allocator<T2, N, Allocator>& rhs) noexcept
+{
+    return !(lhs == rhs);
+}
+
 std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
@@ -1341,19 +1474,19 @@ std::vector<Status> DBImpl::MultiGet(
     ColumnFamilyData* cfd;
     SuperVersion* super_version;
   };
-  std::unordered_map<uint32_t, MultiGetColumnFamilyData*> multiget_cf_data;
+  std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(column_family.size());
   // fill up and allocate outside of mutex
   for (auto cf : column_family) {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
     auto cfd = cfh->cfd();
     if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
-      auto mgcfd = new MultiGetColumnFamilyData();
-      mgcfd->cfd = cfd;
+      struct MultiGetColumnFamilyData mgcfd;
+      mgcfd.cfd = cfd;
+      mgcfd.super_version = nullptr;
       multiget_cf_data.insert({cfd->GetID(), mgcfd});
     }
   }
 
-  mutex_.Lock();
   if (read_options.snapshot != nullptr) {
     snapshot =
         reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
@@ -1362,11 +1495,48 @@ std::vector<Status> DBImpl::MultiGet(
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
   }
-  for (auto mgd_iter : multiget_cf_data) {
-    mgd_iter.second->super_version =
-        mgd_iter.second->cfd->GetSuperVersion()->Ref();
+
+  {
+    static const int num_retries = 5;
+    for (auto i=0; i<num_retries; ++i) {
+      bool retry = false;
+      for (auto mgd_iter = multiget_cf_data.begin();
+           mgd_iter != multiget_cf_data.end(); ++mgd_iter) {
+        auto super_version = mgd_iter->second.super_version;
+        auto cfd = mgd_iter->second.cfd;
+        if (super_version != nullptr) {
+          ReturnAndCleanupSuperVersion(cfd, super_version);
+        }
+        mgd_iter->second.super_version =
+          GetAndRefSuperVersion(mgd_iter->second.cfd);
+        if (read_options.snapshot != nullptr || i == num_retries - 1) {
+          continue;
+        }
+        // We could get the earliest sequence number for the whole list of
+        // memtables, which will include immutable memtables as well, but that
+        // might be tricky to maintain in case we decide, in future, to do
+        // memtable compaction.
+        auto seq = mgd_iter->second.super_version->mem->GetEarliestSequenceNumber();
+        if (seq > snapshot) {
+          if (i == num_retries - 2) {
+            mutex_.Lock();
+          }
+          snapshot = last_seq_same_as_publish_seq_
+                        ? versions_->LastSequence()
+                        : versions_->LastPublishedSequence();
+          retry = true;
+          break;
+        }
+    //        mgd_iter->second.cfd->GetSuperVersion()->Ref();
+      }
+      if (!retry) {
+        if (i == num_retries - 1) {
+          mutex_.Unlock();
+        }
+        break;
+      }
+    }
   }
-  mutex_.Unlock();
 
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
@@ -1396,7 +1566,7 @@ std::vector<Status> DBImpl::MultiGet(
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
-    auto super_version = mgd->super_version;
+    auto super_version = mgd.super_version;
     bool skip_memtable =
         (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
@@ -1433,22 +1603,21 @@ std::vector<Status> DBImpl::MultiGet(
   autovector<SuperVersion*> superversions_to_delete;
 
   // TODO(icanadi) do we need lock here or just around Cleanup()?
-  mutex_.Lock();
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;
-    if (mgd->super_version->Unref()) {
-      mgd->super_version->Cleanup();
-      superversions_to_delete.push_back(mgd->super_version);
-    }
+    ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
+//    if (mgd.super_version->Unref()) {
+//      mgd.super_version->Cleanup();
+//      superversions_to_delete.push_back(mgd.super_version);
+//    }
   }
-  mutex_.Unlock();
 
-  for (auto td : superversions_to_delete) {
-    delete td;
-  }
-  for (auto mgd : multiget_cf_data) {
-    delete mgd.second;
-  }
+//  for (auto td : superversions_to_delete) {
+//    delete td;
+//  }
+//  for (auto mgd : multiget_cf_data) {
+//    delete mgd.second;
+//  }
 
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
