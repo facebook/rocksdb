@@ -295,6 +295,6 @@ static MemTableRepFactory* NewSkipListFactory(
   return new SkipListFactory(lookahead);
 }
 
-REGISTER_MEM_TABLE_New("skip_list", SkipListFactory);
+ROCKSDB_REGISTER_MEM_TABLE("skip_list", SkipListFactory);
 
 } // namespace rocksdb

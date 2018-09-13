@@ -879,7 +879,7 @@ MemTableRepFactory* NewHashLinkListRepFactory(
       bucket_entries_logging_threshold, if_log_bucket_dist_when_flash);
 }
 
-REGISTER_MEM_TABLE_New("hash_linkedlist", HashLinkListRepFactory);
+ROCKSDB_REGISTER_MEM_TABLE("hash_linkedlist", HashLinkListRepFactory);
 
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

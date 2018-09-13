@@ -311,7 +311,7 @@ static MemTableRepFactory* NewVectorRepFactory(
   return new VectorRepFactory(count);
 }
 
-REGISTER_MEM_TABLE_New("vector", VectorRepFactory);
+ROCKSDB_REGISTER_MEM_TABLE("vector", VectorRepFactory);
 
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

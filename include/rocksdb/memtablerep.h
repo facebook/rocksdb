@@ -396,31 +396,23 @@ struct MemTableRegister {
   typedef MemTableRepFactory*
     (*FactoryCreator)
     (const std::unordered_map<std::string, std::string>& options, Status*);
-  MemTableRegister(const char* factoryName, FactoryCreator);
+  MemTableRegister(const char* name, FactoryCreator);
 };
-#define REGISTER_MEM_TABLE(factoryName, factoryClass)                      \
-  static MemTableRepFactory* factoryClass##_createFactory                  \
-  (const std::unordered_map<std::string, std::string>& options, Status*) { \
-    return new factoryClass(options);                                      \
-  }                                                                        \
-  REGISTER_MEM_TABLE_EX(factoryName, factoryClass,                         \
-                        factoryClass##_createFactory)
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#define REGISTER_MEM_TABLE_New(factoryName, factoryClass) \
-        REGISTER_MEM_TABLE_EX(factoryName, factoryClass, New##factoryClass)
+#define ROCKSDB_REGISTER_MEM_TABLE(name, clazz) \
+        ROCKSDB_REGISTER_MEM_TABLE_EX(name, clazz, New##clazz)
 
-#define REGISTER_MEM_TABLE_EX(factoryName, factoryClass, createFactory) \
-        REGISTER_MEM_TABLE_EZ(factoryName, factoryClass, createFactory)
+#define ROCKSDB_REGISTER_MEM_TABLE_EX(name, clazz, creator) \
+        ROCKSDB_REGISTER_MEM_TABLE_EZ(name, clazz, creator, a1); \
+        ROCKSDB_REGISTER_MEM_TABLE_EZ(#clazz, clazz, creator, a2)
 
-#define REGISTER_MEM_TABLE_EZ(factoryName, factoryClass, createFactory) \
-    MemTableRegister s_reg_##factoryClass##_##__LINE__              \
-    (factoryName, &createFactory)
+#define ROCKSDB_REGISTER_MEM_TABLE_EZ(name, clazz, creator, sig) \
+    MemTableRegister s_reg_##clazz##_##sig(name, &creator)
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 MemTableRepFactory*
 CreateMemTableRepFactory(
-    const std::string& factoryName,
+    const std::string& name,
     const std::unordered_map<std::string, std::string>& options,
     Status*);
 

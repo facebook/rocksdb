@@ -684,7 +684,7 @@ static MemTableRepFactory* NewHashCuckooRepFactory(
                                   hash_function_count);
 }
 
-REGISTER_MEM_TABLE_New("cuckoo", HashCuckooRepFactory);
+ROCKSDB_REGISTER_MEM_TABLE("cuckoo", HashCuckooRepFactory);
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

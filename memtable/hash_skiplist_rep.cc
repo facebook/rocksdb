@@ -378,7 +378,7 @@ static MemTableRepFactory* NewHashSkipListRepFactory(
                                     skiplist_branching_factor);
 }
 
-REGISTER_MEM_TABLE_New("prefix_hash", HashSkipListRepFactory);
+ROCKSDB_REGISTER_MEM_TABLE("prefix_hash", HashSkipListRepFactory);
 
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE
