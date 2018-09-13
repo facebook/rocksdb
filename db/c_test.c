@@ -1334,6 +1334,47 @@ int main(int argc, char** argv) {
     rocksdb_destroy_db(options, dbname, &err);
   }
 
+  // Check memory usage stats
+  StartPhase("approximate_memory_usage");
+  {
+    // Create database
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_memory_consumers_t* consumers;
+    consumers = rocksdb_memory_consumers_create();
+    rocksdb_memory_consumers_add_db(consumers, db);
+    rocksdb_memory_consumers_add_cache(consumers, cache);
+
+    // take memory usage report before write-read operation
+    rocksdb_memory_usage_t* mu1;
+    mu1 = rocksdb_approximate_memory_usage_create(consumers, &err);
+    CheckNoError(err);
+
+    // Put data (this should affect memtables)
+    rocksdb_put(db, woptions, "memory", 6, "test", 4, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "memory", "test");
+
+    // take memory usage report after write-read operation
+    rocksdb_memory_usage_t* mu2;
+    mu2 = rocksdb_approximate_memory_usage_create(consumers, &err);
+    CheckNoError(err);
+
+    // amount of memory used within memtables should grow
+    CheckCondition(rocksdb_approximate_memory_usage_get_mem_table_total(mu2) >=
+                   rocksdb_approximate_memory_usage_get_mem_table_total(mu1));
+    CheckCondition(rocksdb_approximate_memory_usage_get_mem_table_unflushed(mu2) >=
+                   rocksdb_approximate_memory_usage_get_mem_table_unflushed(mu1));
+
+    rocksdb_memory_consumers_destroy(consumers);
+    rocksdb_approximate_memory_usage_destroy(mu1);
+    rocksdb_approximate_memory_usage_destroy(mu2);
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("cuckoo_options");
   {
     rocksdb_cuckoo_table_options_t* cuckoo_options;
@@ -1675,7 +1716,7 @@ int main(int argc, char** argv) {
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
   }
-  
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
