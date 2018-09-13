@@ -876,16 +876,16 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     if (backup_private_directory != nullptr) {
       s = backup_private_directory->Fsync();
     }
-    if (private_directory_ != nullptr) {
+    if (s.ok() && private_directory_ != nullptr) {
       s = private_directory_->Fsync();
     }
-    if (meta_directory_ != nullptr) {
+    if (s.ok() && meta_directory_ != nullptr) {
       s = meta_directory_->Fsync();
     }
-    if (shared_directory_ != nullptr) {
+    if (s.ok() && shared_directory_ != nullptr) {
       s = shared_directory_->Fsync();
     }
-    if (backup_directory_ != nullptr) {
+    if (s.ok() && backup_directory_ != nullptr) {
       s = backup_directory_->Fsync();
     }
   }
