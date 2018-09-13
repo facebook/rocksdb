@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+### 5.15.10 (9/13/2018)
+### Bug Fixes
+* Fix RocksDB Java build and tests.
+
 ### 5.15.9 (9/4/2018)
 ### Bug Fixes
 * Fix compilation errors on OS X clang due to '-Wsuggest-override'.
