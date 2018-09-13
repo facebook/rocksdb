@@ -286,7 +286,17 @@ void SstFileManagerImpl::ClearError() {
       mu_.Unlock();
       s = cur_instance_->RecoverFromBGError();
       mu_.Lock();
+      // Check for error again, since the instance may have recovered but
+      // immediately got another error. If that's the case, and the new
+      // error is also a NoSpace() non-fatal error, leave the instance in
+      // the list
+      Status err = cur_instance_->GetBGError();
+      if (err == Status::NoSpace() &&
+          err.severity() < Status::Severity::kFatalError) {
+        s = err;
+      }
       cur_instance_ = nullptr;
+
       if (s.ok() || s.IsShutdownInProgress() ||
           (!s.ok() && s.severity() >= Status::Severity::kFatalError)) {
         // If shutdown is in progress, abandon this handler instance

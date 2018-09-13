@@ -1530,6 +1530,13 @@ class DBImpl : public DB {
   // flush/compaction and if it is not provided vis SnapshotChecker, we should
   // disable gc to be safe.
   const bool use_custom_gc_;
+  // Flag to indicate that the DB instance shutdown has been initiated. This
+  // different from shutting_down_ atomic in that it is set at the beginning
+  // of shutdown sequence, specifically in order to prevent any background
+  // error recovery from going on in parallel. The latter, shutting_down_,
+  // is set a little later during the shutdown after scheduling memtable
+  // flushes
+  bool shutdown_initiated_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()
   // to advance this seqnum. Default value is 0 which means ALL deletes are
@@ -1542,14 +1549,6 @@ class DBImpl : public DB {
   bool closed_;
 
   ErrorHandler error_handler_;
-
-  // Flag to indicate that the DB instance shutdown has been initiated. This
-  // different from shutting_down_ atomic in that it is set at the beginning
-  // of shutdown sequence, specifically in order to prevent any background
-  // error recovery from going on in parallel. The latter, shutting_down_,
-  // is set a little later during the shutdown after scheduling memtable
-  // flushes
-  bool shutdown_flag_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

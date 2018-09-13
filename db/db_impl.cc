@@ -215,10 +215,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
       use_custom_gc_(seq_per_batch),
+      shutdown_initiated_(false),
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
-      error_handler_(this, immutable_db_options_, &mutex_),
-      shutdown_flag_(false) {
+      error_handler_(this, immutable_db_options_, &mutex_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -289,7 +289,7 @@ Status DBImpl::ResumeImpl() {
 
   Status bg_error = error_handler_.GetBGError();
   Status s;
-  if (shutdown_flag_) {
+  if (shutdown_initiated_) {
     // Returning shutdown status to SFM during auto recovery will cause it
     // to abort the recovery and allow the shutdown to progress
     s = Status::ShutdownInProgress();
@@ -330,7 +330,7 @@ Status DBImpl::ResumeImpl() {
   mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
-  if (shutdown_flag_) {
+  if (shutdown_initiated_) {
     s = Status::ShutdownInProgress();
   }
   if (s.ok()) {
@@ -390,7 +390,7 @@ Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
   mutex_.Lock();
-  shutdown_flag_ = true;
+  shutdown_initiated_ = true;
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();
