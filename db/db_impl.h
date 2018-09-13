@@ -967,6 +967,11 @@ class DBImpl : public DB {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids);
 
+  // Return all the column family data in unique_cfds excluding duplicates
+  void GetUniqueColumnFamilies(
+      const std::vector<std::vector<uint32_t>>& to_flush,
+      autovector<ColumnFamilyData*>* unique_cfds);
+
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
 
@@ -1021,6 +1026,23 @@ class DBImpl : public DB {
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
+
+  // A flush request specifies the column families to flush as well as the
+  // largest memtable id to persist for each column family. Once all the
+  // memtables whose IDs are smaller than or equal to this per-column-family
+  // specified value, this flush request is considered to have completed its
+  // work of flushing this column family. After completing the work for all
+  // column families in this request, this flush is considered complete.
+  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+
+  void GenerateCustomFlushRequests(
+      const std::vector<std::vector<uint32_t>>& to_flush,
+      autovector<FlushRequest, 1>* requests);
+
+  void GenerateFlushRequests(bool use_flush_manager,
+                             const std::vector<std::vector<uint32_t>>& to_flush,
+                             const autovector<ColumnFamilyData*>& cfds,
+                             autovector<FlushRequest, 1>* requests);
 
   void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 

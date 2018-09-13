@@ -5,32 +5,32 @@
 
 #pragma once
 
-#include <functional>
 #include <vector>
+
+#include "rocksdb/status.h"
 
 namespace rocksdb {
 
-class ExternalFlushManager {
- public:
-  virtual ~ExternalFlushManager() {}
-
-  std::function<void(uint32_t, std::vector<std::vector<uint32_t>>*)>
-      OnManualFlush;
-
-  std::function<void(std::vector<std::vector<uint32_t>>*)>
-      OnHandleWriteBufferFull;
-
-  std::function<void(std::vector<std::vector<uint32_t>>*)> OnSwitchWAL;
-
-  std::function<void(const std::vector<uint32_t>&,
-                     std::vector<std::vector<uint32_t>>*)>
-      OnScheduleFlushes;
+struct FlushCallbackArg {
+  std::vector<uint32_t> candidates;
+  std::vector<std::vector<uint32_t>> to_flush;
 };
 
-class FlushManager;
+class FlushManager {
+ public:
+  virtual ~FlushManager() {}
 
-extern FlushManager* NewDefaultFlushManager();
+  virtual Status OnHandleWriteBufferFull(FlushCallbackArg* /* arg */) {
+    return Status::NotSupported("Not implemented");
+  }
 
-extern FlushManager* NewFlushManager(ExternalFlushManager* mgr);
+  virtual Status OnSwitchWAL(FlushCallbackArg* /* arg */) {
+    return Status::NotSupported("Not implemented");
+  }
+
+  virtual Status OnScheduleFlushes(FlushCallbackArg* /* arg */) {
+    return Status::NotSupported("Not implemented");
+  }
+};
 
 }  // namespace rocksdb

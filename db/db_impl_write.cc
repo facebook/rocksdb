@@ -12,9 +12,9 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include <unordered_set>
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
-#include "db/flush_scheduler.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
 #include "rocksdb/flush_manager.h"
@@ -1068,12 +1068,31 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   // happen while we're in the write thread
 
   autovector<ColumnFamilyData*> cfds;
-  std::vector<std::vector<uint32_t>> to_flush;
-  FlushManager* ifm = immutable_db_options_.flush_manager.get();
-  assert(nullptr != ifm);
+  FlushCallbackArg flush_cb_arg;
 
-  ifm->OnSwitchWAL(*versions_->GetColumnFamilySet(), oldest_alive_log, &cfds,
-                   &to_flush);
+  FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
+  bool use_flush_manager = false;
+  if (flush_manager != nullptr) {
+    use_flush_manager = true;
+    status = flush_manager->OnSwitchWAL(&flush_cb_arg);
+    if (status.IsNotSupported()) {
+      status = Status::OK();
+      use_flush_manager = false;
+    }
+  }
+
+  if (use_flush_manager) {
+    GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
+  } else {
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (cfd->OldestLogToKeep() <= oldest_alive_log) {
+        cfds.emplace_back(cfd);
+      }
+    }
+  }
 
   for (auto cfd : cfds) {
     status = SwitchMemtable(cfd, write_context);
@@ -1083,10 +1102,10 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     cfd->imm()->FlushRequested();
   }
   if (status.ok()) {
-    autovector<FlushRequest, 1> requests;
-    ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds, to_flush,
-                               &requests);
-    for (const auto& req : requests) {
+    autovector<FlushRequest, 1> flush_reqs;
+    GenerateFlushRequests(use_flush_manager, flush_cb_arg.to_flush, cfds,
+                          &flush_reqs);
+    for (const auto& req : flush_reqs) {
       SchedulePendingFlush(req, FlushReason::kWriteBufferManager);
     }
     MaybeScheduleFlushOrCompaction();
@@ -1112,13 +1131,45 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
-  std::vector<std::vector<uint32_t>> to_flush;
+  FlushCallbackArg flush_cb_arg;
   // Elements in cfds must be unique.
   autovector<ColumnFamilyData*> cfds;
-  FlushManager* ifm = immutable_db_options_.flush_manager.get();
-  assert(ifm != nullptr);
-  ifm->OnHandleWriteBufferFull(*versions_->GetColumnFamilySet(), &cfds,
-                               &to_flush);
+
+  FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
+  bool use_flush_manager = false;
+  if (flush_manager != nullptr) {
+    use_flush_manager = true;
+    status = flush_manager->OnHandleWriteBufferFull(&flush_cb_arg);
+    if (status.IsNotSupported()) {
+      status = Status::OK();
+      use_flush_manager = false;
+    }
+  }
+
+  if (use_flush_manager) {
+    GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
+  } else {
+    ColumnFamilyData* cfd_picked = nullptr;
+    SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
+
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (!cfd->mem()->IsEmpty()) {
+        // We only consider active mem table, hoping immutable memtable is
+        // already in the process of flushing.
+        uint64_t seq = cfd->mem()->GetCreationSeq();
+        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+          cfd_picked = cfd;
+          seq_num_for_cf_picked = seq;
+        }
+      }
+    }
+    if (cfd_picked != nullptr) {
+      cfds.push_back(cfd_picked);
+    }
+  }
 
   for (const auto cfd : cfds) {
     cfd->Ref();
@@ -1131,14 +1182,15 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   }
 
   if (status.ok()) {
-    autovector<FlushRequest, 1> requests;
-    ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds, to_flush,
-                               &requests);
-    for (const auto& req : requests) {
+    autovector<FlushRequest, 1> flush_reqs;
+    GenerateFlushRequests(use_flush_manager, flush_cb_arg.to_flush, cfds,
+                          &flush_reqs);
+    for (const auto& req : flush_reqs) {
       SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
     }
     MaybeScheduleFlushOrCompaction();
   }
+
   return status;
 }
 
@@ -1233,13 +1285,46 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
-  std::vector<std::vector<uint32_t>> to_flush;
-  FlushManager* ifm = immutable_db_options_.flush_manager.get();
-  assert(nullptr != ifm);
-  ifm->OnScheduleFlushes(*versions_->GetColumnFamilySet(), flush_scheduler_,
-                         &cfds, &to_flush);
+
+  ColumnFamilyData* tmp_cfd = nullptr;
+  while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+    cfds.emplace_back(tmp_cfd);
+  }
 
   Status status;
+  FlushManager* flush_manager = immutable_db_options_.flush_manager.get();
+  FlushCallbackArg flush_cb_arg;
+  bool use_flush_manager = false;
+  if (flush_manager != nullptr) {
+    use_flush_manager = true;
+    for (auto cfd : cfds) {
+      flush_cb_arg.candidates.emplace_back(cfd->GetID());
+    }
+    status = flush_manager->OnScheduleFlushes(&flush_cb_arg);
+    if (status.IsNotSupported()) {
+      status = Status::OK();
+      use_flush_manager = false;
+    }
+  }
+
+  if (use_flush_manager) {
+    std::unordered_set<uint32_t> cf_id_set;
+    for (auto cfd : cfds) {
+      cf_id_set.insert(cfd->GetID());
+    }
+    cfds.clear();
+    GetUniqueColumnFamilies(flush_cb_arg.to_flush, &cfds);
+    for (auto cfd : cfds) {
+      cf_id_set.erase(cfd->GetID());
+    }
+    // Put the unpicked column families back to list
+    for (auto id : cf_id_set) {
+      ColumnFamilyData* cfd =
+          versions_->GetColumnFamilySet()->GetColumnFamily(id);
+      flush_scheduler_.ScheduleFlush(cfd);
+    }
+  }
+
   for (auto& cfd : cfds) {
     status = SwitchMemtable(cfd, context);
     if (cfd->Unref()) {
@@ -1250,16 +1335,69 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       break;
     }
   }
+
   if (status.ok()) {
-    autovector<FlushRequest, 1> requests;
-    ifm->GenerateFlushRequests(*versions_->GetColumnFamilySet(), cfds, to_flush,
-                               &requests);
-    for (const auto& req : requests) {
+    autovector<FlushRequest, 1> flush_reqs;
+    GenerateFlushRequests(use_flush_manager, flush_cb_arg.to_flush, cfds,
+                          &flush_reqs);
+    for (const auto& req : flush_reqs) {
       SchedulePendingFlush(req, FlushReason::kWriteBufferFull);
     }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
+}
+
+void DBImpl::GetUniqueColumnFamilies(
+    const std::vector<std::vector<uint32_t>>& to_flush,
+    autovector<ColumnFamilyData*>* unique_cfds) {
+  std::unordered_set<uint32_t> unique_ids;
+  for (const auto& ids : to_flush) {
+    for (const auto id : ids) {
+      auto iter = unique_ids.find(id);
+      if (iter == unique_ids.end()) {
+        ColumnFamilyData* cfd =
+            versions_->GetColumnFamilySet()->GetColumnFamily(id);
+        unique_cfds->push_back(cfd);
+        unique_ids.insert(id);
+      }
+    }
+  }
+}
+
+void DBImpl::GenerateCustomFlushRequests(
+    const std::vector<std::vector<uint32_t>>& to_flush,
+    autovector<FlushRequest, 1>* requests) {
+  for (const auto& ids : to_flush) {
+    FlushRequest req;
+    for (const auto id : ids) {
+      ColumnFamilyData* cfd =
+          versions_->GetColumnFamilySet()->GetColumnFamily(id);
+      uint64_t memtable_id = cfd->imm()->GetLatestMemTableID();
+      req.emplace_back(cfd, memtable_id);
+    }
+    requests->emplace_back(req);
+  }
+}
+
+void DBImpl::GenerateFlushRequests(
+    bool use_flush_manager, const std::vector<std::vector<uint32_t>>& to_flush,
+    const autovector<ColumnFamilyData*>& cfds,
+    autovector<FlushRequest, 1>* requests) {
+  if (use_flush_manager) {
+    GenerateCustomFlushRequests(to_flush, requests);
+  } else {
+    FlushRequest flush_req;
+    for (const auto cfd : cfds) {
+      if (nullptr == cfd) {
+        // cfd may be nullptr, see DBImpl::ScheduleFlushes
+        continue;
+      }
+      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      flush_req.emplace_back(cfd, flush_memtable_id);
+    }
+    requests->emplace_back(flush_req);
+  }
 }
 
 #ifndef ROCKSDB_LITE
