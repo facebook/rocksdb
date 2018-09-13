@@ -1732,7 +1732,10 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
   // directory change. Fsync
   if (file_deleted) {
-    dir_ent_->Fsync();
+    Status s = dir_ent_->Fsync();
+    if (!s.ok()) {
+      return std::make_pair(false, -1);
+    }
   }
 
   // put files back into obsolete if for some reason, delete failed
