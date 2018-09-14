@@ -124,20 +124,18 @@ void ErrorHandler::CancelErrorRecovery() {
 #ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
 
-  if (recovery_in_prog_) {
-    // We'll release the lock before calling sfm, so make sure no new
-    // recovery gets scheduled at that point
-    auto_recovery_ = false;
-    SstFileManagerImpl* sfm = reinterpret_cast<SstFileManagerImpl*>(
-        db_options_.sst_file_manager.get());
-    if (sfm) {
-      // This may or may not cancel a pending recovery
-      db_mutex_->Unlock();
-      bool cancelled = sfm->CancelErrorRecovery(this);
-      db_mutex_->Lock();
-      if (cancelled) {
-        recovery_in_prog_ = false;
-      }
+  // We'll release the lock before calling sfm, so make sure no new
+  // recovery gets scheduled at that point
+  auto_recovery_ = false;
+  SstFileManagerImpl* sfm = reinterpret_cast<SstFileManagerImpl*>(
+      db_options_.sst_file_manager.get());
+  if (sfm) {
+    // This may or may not cancel a pending recovery
+    db_mutex_->Unlock();
+    bool cancelled = sfm->CancelErrorRecovery(this);
+    db_mutex_->Lock();
+    if (cancelled) {
+      recovery_in_prog_ = false;
     }
   }
 #endif
@@ -331,10 +329,11 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // can generate background errors should be the flush operations
   recovery_error_ = Status::OK();
   Status s = db_->ResumeImpl();
-  // For both manual recovery and shutdown case, set recovery_in_prog_ to
-  // false. For automatic background recovery, leave it as is regardless of
-  // success or failure as it will be retried
-  if (is_manual || s.IsShutdownInProgress()) {
+  // For manual recover, shutdown, and fatal error  cases, set
+  // recovery_in_prog_ to false. For automatic background recovery, leave it
+  // as is regardless of success or failure as it will be retried
+  if (is_manual || s.IsShutdownInProgress() ||
+      bg_error_.severity() >= Status::Severity::kFatalError) {
     recovery_in_prog_ = false;
   }
   return s;

@@ -286,16 +286,20 @@ void SstFileManagerImpl::ClearError() {
       mu_.Unlock();
       s = cur_instance_->RecoverFromBGError();
       mu_.Lock();
-      // Check for error again, since the instance may have recovered but
-      // immediately got another error. If that's the case, and the new
-      // error is also a NoSpace() non-fatal error, leave the instance in
-      // the list
-      Status err = cur_instance_->GetBGError();
-      if (err == Status::NoSpace() &&
-          err.severity() < Status::Severity::kFatalError) {
-        s = err;
+      // The DB instance might have been deleted while we were waiting for
+      // the mutex, so check cur_instance_ to make sure its still non-null
+      if (cur_instance_) {
+        // Check for error again, since the instance may have recovered but
+        // immediately got another error. If that's the case, and the new
+        // error is also a NoSpace() non-fatal error, leave the instance in
+        // the list
+        Status err = cur_instance_->GetBGError();
+        if (s.ok() && err == Status::NoSpace() &&
+            err.severity() < Status::Severity::kFatalError) {
+          s = err;
+        }
+        cur_instance_ = nullptr;
       }
-      cur_instance_ = nullptr;
 
       if (s.ok() || s.IsShutdownInProgress() ||
           (!s.ok() && s.severity() >= Status::Severity::kFatalError)) {
@@ -371,6 +375,8 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
 
   if (cur_instance_ == handler) {
     // This instance is currently busy attempting to recover
+    // Nullify it so the recovery thread doesn't attempt to access it again
+    cur_instance_ = nullptr;
     return false;
   }
 
