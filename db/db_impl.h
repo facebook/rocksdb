@@ -1055,6 +1055,12 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
+  bool TryAddCompactionTask(const std::string& device_name, bool force, 
+                            LogBuffer* log_buffer);
+
+  void SubtractCompactionTask(const std::string& device_name,
+                              LogBuffer* log_buffer);
+
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG

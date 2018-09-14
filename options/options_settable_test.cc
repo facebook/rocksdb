@@ -350,6 +350,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<TableFactory>)},
       {offset_of(&ColumnFamilyOptions::cf_paths),
        sizeof(std::vector<DbPath>)},
+      {offset_of(&ColumnFamilyOptions::device_name),
+       sizeof(std::string)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -388,6 +390,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->soft_rate_limit = 0;
   options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
+  options->device_name = "FOO";
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =

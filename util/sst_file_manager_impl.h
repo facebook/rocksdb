@@ -34,13 +34,13 @@ class SstFileManagerImpl : public SstFileManager {
   ~SstFileManagerImpl();
 
   // DB will call OnAddFile whenever a new sst file is added.
-  Status OnAddFile(const std::string& file_path, bool compaction = false);
+  virtual Status OnAddFile(const std::string& file_path, bool compaction = false);
 
   // DB will call OnDeleteFile whenever an sst file is deleted.
-  Status OnDeleteFile(const std::string& file_path);
+  virtual Status OnDeleteFile(const std::string& file_path);
 
   // DB will call OnMoveFile whenever an sst file is move to a new path.
-  Status OnMoveFile(const std::string& old_path, const std::string& new_path,
+  virtual Status OnMoveFile(const std::string& old_path, const std::string& new_path,
                     uint64_t* file_size = nullptr);
 
   // Update the maximum allowed space that should be used by RocksDB, if
@@ -68,15 +68,15 @@ class SstFileManagerImpl : public SstFileManager {
   // estimates how much space is currently being used by compactions (i.e.
   // if a compaction has started, this function bumps the used space by
   // the full compaction size).
-  bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
-                               const std::vector<CompactionInputFiles>& inputs,
-                               Status bg_error);
+  virtual bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
+                                       const std::vector<CompactionInputFiles>& inputs,
+                                       Status bg_error);
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction
   // finishes
-  void OnCompactionCompletion(Compaction* c);
+  virtual void OnCompactionCompletion(Compaction* c);
 
-  uint64_t GetCompactionsReservedSize();
+  virtual uint64_t GetCompactionsReservedSize();
 
   // Return the total size of all tracked files.
   uint64_t GetTotalSize() override;
@@ -85,31 +85,54 @@ class SstFileManagerImpl : public SstFileManager {
   std::unordered_map<std::string, uint64_t> GetTrackedFiles() override;
 
   // Return delete rate limit in bytes per second.
-  virtual int64_t GetDeleteRateBytesPerSecond() override;
+  int64_t GetDeleteRateBytesPerSecond() override;
 
   // Update the delete rate limit in bytes per second.
-  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
+  void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
 
   // Return trash/DB size ratio where new files will be deleted immediately
-  virtual double GetMaxTrashDBRatio() override;
+  double GetMaxTrashDBRatio() override;
 
   // Update trash/DB size ratio where new files will be deleted immediately
-  virtual void SetMaxTrashDBRatio(double ratio) override;
+  void SetMaxTrashDBRatio(double ratio) override;
 
   // Return the total size of trash files
   uint64_t GetTotalTrashSize() override;
 
+  // Set per device limited outstanding compaction task.
+  // limit <= 0 means no limitation
+  void SetMaxOutstandingCompaction(const std::string& device_name, 
+                                   int limit) override;
+
+  // Reset limited outstanding compaction for all devices, there will be
+  // no limitation after the function called.
+  void ResetMaxOutstandingCompaction() override;
+
+  // Get number of outstanding compaction on the device.
+  virtual int GetOutstandingCompactionTasks(const std::string& device_name);
+
+  // Try to add a compaction task on the device.
+  // Returns true if succeed. It bypasses check and always succeeds when force == true.
+  // Number of outstanding tasks after operation is returned.
+  virtual bool TryAddCompactionTask(const std::string& device_name, bool force, 
+                                    int& tasks);
+
+  // Call this API after compaction, pairing with successful TryAddCompactionTask call,
+  // So it can go back to capacity.
+  // Number of outstanding tasks after operation is returned.
+  virtual void SubtractCompactionTask(const std::string& device_name, int& tasks);
+
   // Called by each DB instance using this sst file manager to reserve
   // disk buffer space for recovery from out of space errors
-  void ReserveDiskBuffer(uint64_t buffer, const std::string& path);
+  virtual void ReserveDiskBuffer(uint64_t buffer, const std::string& path);
 
   // Set a flag upon encountering disk full. May enqueue the ErrorHandler
   // instance for background polling and recovery
-  void StartErrorRecovery(ErrorHandler* db, Status bg_error);
+  virtual void StartErrorRecovery(ErrorHandler* db, Status bg_error);
 
   // Remove the given Errorhandler instance from the recovery queue. Its
   // not guaranteed
-  bool CancelErrorRecovery(ErrorHandler* db);
+  virtual bool CancelErrorRecovery(ErrorHandler* db);
 
   // Mark file as trash and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path,
@@ -119,7 +142,7 @@ class SstFileManagerImpl : public SstFileManager {
   // destructor to be called.
   virtual void WaitForEmptyTrash();
 
-  DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
+  virtual DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
   // Stop the error recovery background thread. This should be called only
   // once in the object's lifetime, and before the destructor
@@ -179,6 +202,10 @@ class SstFileManagerImpl : public SstFileManager {
   std::list<ErrorHandler*> error_handler_list_;
   // Pointer to ErrorHandler instance that is currently processing recovery
   ErrorHandler* cur_instance_;
+  // Max outstanding compaction per device
+  std::unordered_map<std::string, int> max_outstanding_compaction_;
+  // Outstanding compaction per device
+  std::unordered_map<std::string, int> outstanding_compaction_;
 };
 
 }  // namespace rocksdb

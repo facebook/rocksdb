@@ -120,6 +120,8 @@ struct ImmutableCFOptions {
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
   std::vector<DbPath> cf_paths;
+
+  std::string device_name;
 };
 
 struct MutableCFOptions {
