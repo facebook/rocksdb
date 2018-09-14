@@ -53,7 +53,7 @@ class Reader {
   Reader(std::shared_ptr<Logger> info_log,
          // @lint-ignore TXT2 T25377293 Grandfathered in
          unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num);
+         bool checksum, uint64_t log_num, bool retry_after_eof);
 
   ~Reader();
 
@@ -110,6 +110,8 @@ class Reader {
   // Whether this is a recycled log file
   bool recycled_;
 
+  const bool retry_after_eof_;
+
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
@@ -133,6 +135,9 @@ class Reader {
 
   // Read some more
   bool ReadMore(size_t* drop_size, int *error);
+
+  // Read some more with retries
+  bool ReadMoreWithRetries(size_t* drop_size, int* error);
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.

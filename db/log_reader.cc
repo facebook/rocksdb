@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <chrono>
+#include <thread>
+
 #include "db/log_reader.h"
 
 #include <stdio.h>
@@ -24,7 +27,7 @@ Reader::Reporter::~Reporter() {
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
-               bool checksum, uint64_t log_num)
+               bool checksum, uint64_t log_num, bool retry_after_eof)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -37,7 +40,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
-      recycled_(false) {}
+      recycled_(false),
+      retry_after_eof_(retry_after_eof) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -208,7 +212,8 @@ void Reader::UnmarkEOF() {
 
   eof_ = false;
 
-  if (eof_offset_ == 0) {
+  // If retry_after_eof_ is true, we have to proceed to read anyway.
+  if (!retry_after_eof_ && eof_offset_ == 0) {
     return;
   }
 
@@ -308,12 +313,45 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
   }
 }
 
+bool Reader::ReadMoreWithRetries(size_t* drop_size, int* error) {
+  if (!read_error_) {
+    // At this point, eof_ must be false
+    buffer_.clear();
+    Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
+    end_of_buffer_offset_ += buffer_.size();
+    if (!status.ok()) {
+      buffer_.clear();
+      ReportDrop(kBlockSize, status);
+      read_error_ = true;
+      *error = kBadHeader;
+      return false;
+    }
+    if (buffer_.size() == static_cast<size_t>(kBlockSize)) {
+      return true;
+    }
+    eof_ = true;
+    while (eof_ && !read_error_) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      UnmarkEOF();  // This may update eof_ and read_error_
+    }
+    if (!read_error_) {
+      return true;
+    }
+  }
+  // If we reach this point, then read_error_ is true.
+  *drop_size = buffer_.size();
+  *error = kBadHeader;
+  buffer_.clear();
+  return false;
+}
+
 unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
     // We need at least the minimum header size
     if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
       int r;
-      if (!ReadMore(drop_size, &r)) {
+      if ((!retry_after_eof_ && !ReadMore(drop_size, &r)) ||
+          (retry_after_eof_ && !ReadMoreWithRetries(drop_size, &r))) {
         return r;
       }
       continue;
@@ -334,7 +372,8 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
         int r;
-        if (!ReadMore(drop_size, &r)) {
+        if ((!retry_after_eof_ && !ReadMore(drop_size, &r)) ||
+            (retry_after_eof_ && !ReadMoreWithRetries(drop_size, &r))) {
           return r;
         }
         continue;
