@@ -157,7 +157,9 @@ Status GetMemTableRepFactoryFromString(
     }
   } else {
     std::unordered_map<std::string, std::string> opts_map;
-    StringToMap(opts_list[1], &opts_map);
+    if (2 == len) {
+      StringToMap(opts_list[1], &opts_map);
+    }
     Status s;
     mem_factory = CreateMemTableRepFactory(opts_list[0], opts_map, &s);
     if (!mem_factory)
