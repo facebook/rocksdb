@@ -279,15 +279,19 @@ void SstFileManagerImpl::ClearError() {
     // Someone could have called CancelErrorRecovery() and the list could have
     // become empty, so check again here
     if (s.ok() && !error_handler_list_.empty()) {
-      cur_instance_ = error_handler_list_.front();
-      // Resume() might try to flush memtable and can fail again with
-      // NoSpace. If that happens, we abort the recovery here and start
-      // over.
+      auto error_handler = error_handler_list_.front();
+      // Since we will release the mutex, set cur_instance_ to signal to the
+      // shutdown thread, if it calls // CancelErrorRecovery() the meantime,
+      // to indicate that this DB instance is busy. The DB instance is
+      // guaranteed to not be deleted before RecoverFromBGError() returns,
+      // since the ErrorHandler::recovery_in_prog_ flag would be true
+      cur_instance_ = error_handler;
       mu_.Unlock();
-      s = cur_instance_->RecoverFromBGError();
+      s = error_handler->RecoverFromBGError();
       mu_.Lock();
-      // The DB instance might have been deleted while we were waiting for
-      // the mutex, so check cur_instance_ to make sure its still non-null
+      // The DB instance might have been deleted while we were
+      // waiting for the mutex, so check cur_instance_ to make sure its
+      // still non-null
       if (cur_instance_) {
         // Check for error again, since the instance may have recovered but
         // immediately got another error. If that's the case, and the new
