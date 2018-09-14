@@ -31,13 +31,13 @@ class HashSkipListRep : public MemTableRep {
 
   virtual void Insert(KeyHandle handle) override;
 
-  virtual bool Contains(const char* key) const override;
+  virtual bool Contains(const Slice& internal_key) const override;
 
   virtual size_t ApproximateMemoryUsage() override;
 
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg,
-                                         const char* entry)) override;
+                                         const KeyValuePair*)) override;
 
   virtual ~HashSkipListRep();
 
@@ -270,19 +270,21 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
 
 void HashSkipListRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
-  assert(!Contains(key));
-  auto transformed = transform_->Transform(UserKey(key));
+  Slice internal_key = GetLengthPrefixedSlice(key);
+  assert(!Contains(internal_key));
+  auto transformed = transform_->Transform(ExtractUserKey(internal_key));
   auto bucket = GetInitializedBucket(transformed);
   bucket->Insert(key);
 }
 
-bool HashSkipListRep::Contains(const char* key) const {
-  auto transformed = transform_->Transform(UserKey(key));
+bool HashSkipListRep::Contains(const Slice& internal_key) const {
+  auto transformed = transform_->Transform(ExtractUserKey(internal_key));
   auto bucket = GetBucket(transformed);
   if (bucket == nullptr) {
     return false;
   }
-  return bucket->Contains(key);
+  std::string memtable_key;
+  return bucket->Contains(EncodeKey(&memtable_key, internal_key));
 }
 
 size_t HashSkipListRep::ApproximateMemoryUsage() {
@@ -290,13 +292,15 @@ size_t HashSkipListRep::ApproximateMemoryUsage() {
 }
 
 void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
-                          bool (*callback_func)(void* arg, const char* entry)) {
+                          bool (*callback_func)(void* arg,
+                                                const KeyValuePair*)) {
   auto transformed = transform_->Transform(k.user_key());
   auto bucket = GetBucket(transformed);
   if (bucket != nullptr) {
+    EncodedKeyValuePair pair;
     Bucket::Iterator iter(bucket);
     for (iter.Seek(k.memtable_key().data());
-         iter.Valid() && callback_func(callback_args, iter.key());
+         iter.Valid() && callback_func(callback_args, pair.SetKey(iter.key()));
          iter.Next()) {
     }
   }

@@ -127,6 +127,7 @@ struct MutableCFOptions {
       : write_buffer_size(options.write_buffer_size),
         max_write_buffer_number(options.max_write_buffer_number),
         arena_block_size(options.arena_block_size),
+        memtable_factory(options.memtable_factory),
         memtable_prefix_bloom_size_ratio(
             options.memtable_prefix_bloom_size_ratio),
         memtable_huge_page_size(options.memtable_huge_page_size),
@@ -210,6 +211,7 @@ struct MutableCFOptions {
   size_t write_buffer_size;
   int max_write_buffer_number;
   size_t arena_block_size;
+  std::shared_ptr<MemTableRepFactory> memtable_factory;
   double memtable_prefix_bloom_size_ratio;
   size_t memtable_huge_page_size;
   size_t max_successive_merges;
