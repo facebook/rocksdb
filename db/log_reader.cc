@@ -286,7 +286,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
       read_error_ = true;
       *error = kEof;
       return false;
-    } else if (buffer_.size() < (size_t)kBlockSize) {
+    } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
       eof_ = true;
       eof_offset_ = buffer_.size();
     }
@@ -311,7 +311,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
 unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
     // We need at least the minimum header size
-    if (buffer_.size() < (size_t)kHeaderSize) {
+    if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
       int r;
       if (!ReadMore(drop_size, &r)) {
         return r;
@@ -332,7 +332,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       }
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
-      if (buffer_.size() < (size_t)kRecyclableHeaderSize) {
+      if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
         int r;
         if (!ReadMore(drop_size, &r)) {
           return r;
