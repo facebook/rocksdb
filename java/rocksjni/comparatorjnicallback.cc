@@ -23,7 +23,7 @@ ThreadLocalJObject::~ThreadLocalJObject() {
 	  lInited = 0;
 	  if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm != nullptr) 
 	  {
-			jboolean attached_thread = JNI_FALSE;
+			//jboolean attached_thread = JNI_FALSE;
 
 			assert(m_pJniEnv != nullptr);
 			// free ASAP after thread detach this thread local obj
