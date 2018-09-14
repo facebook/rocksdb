@@ -1732,7 +1732,11 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
   // directory change. Fsync
   if (file_deleted) {
-    dir_ent_->Fsync();
+    Status s = dir_ent_->Fsync();
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log, "Failed to sync dir %s: %s",
+                      blob_dir_.c_str(), s.ToString().c_str());
+    }
   }
 
   // put files back into obsolete if for some reason, delete failed
