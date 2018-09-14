@@ -377,7 +377,7 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   }
   if (s.ok()) {
     if (directory_to_fsync != nullptr) {
-      directory_to_fsync->Fsync();
+      s = directory_to_fsync->Fsync();
     }
   } else {
     env->DeleteFile(tmp);
