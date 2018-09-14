@@ -706,6 +706,9 @@ Status WinEnvIO::LinkFile(const std::string& src,
 
   if (!CreateHardLinkA(target.c_str(), src.c_str(), NULL)) {
     DWORD lastError = GetLastError();
+    if (lastError == ERROR_NOT_SAME_DEVICE) {
+      return Status::NotSupported("No cross FS links allowed");
+    }
 
     std::string text("Failed to link: ");
     text.append(src).append(" to: ").append(target);
