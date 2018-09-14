@@ -6,21 +6,21 @@ namespace rocksdb {
 static std::unordered_map<std::string, MemTableRegister::FactoryCreator>
 memtable_factory_map;
 
-MemTableRegister::MemTableRegister(const char* factoryName, FactoryCreator fc) {
-  auto ib = memtable_factory_map.insert(std::make_pair(factoryName, fc));
+MemTableRegister::MemTableRegister(const char* name, FactoryCreator fc) {
+  auto ib = memtable_factory_map.insert(std::make_pair(name, fc));
   if (!ib.second) {
-    fprintf(stderr, "ERROR: duplicate MemTable name: %s\n", factoryName);
+    fprintf(stderr, "ERROR: duplicate MemTable name: %s\n", name);
   }
 }
 
 MemTableRepFactory* CreateMemTableRepFactory(
-    const std::string& factoryName,
+    const std::string& name,
     const std::unordered_map<std::string, std::string>& options, Status* s) {
-  auto f = memtable_factory_map.find(factoryName);
+  auto f = memtable_factory_map.find(name);
   if (memtable_factory_map.end() != f) {
     return f->second(options, s);
   }
-  *s = Status::NotFound();
+  *s = Status::NotFound("CreateMemTableRepFactory", name);
   return NULL;
 }
 
