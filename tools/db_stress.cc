@@ -1975,8 +1975,7 @@ class StressTest {
         FlushOptions flush_opts;
         Status status = db_->Flush(flush_opts, column_family);
         if (!status.ok()) {
-          printf("Unable to perform Flush(): %s\n",
-                 status.ToString().c_str());
+          printf("Unable to perform Flush(): %s\n", status.ToString().c_str());
         }
       }
 
