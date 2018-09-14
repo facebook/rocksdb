@@ -517,11 +517,11 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          SstVarieties compaction_varieties, int output_level,
                          uint32_t output_path_id, VersionStorageInfo* vstorage,
                          ColumnFamilyData* cfd, VersionEdit* edit,
-                         FileMetaData* file_meta,
-                         std::unique_ptr<TableProperties>* porp) {
+                         FileMetaData* file_meta_ptr,
+                         std::unique_ptr<TableProperties>* prop_ptr) {
 
   assert(compaction_varieties != kMapSst ||
-         (deleted_range.empty() && added_files.empty()));
+         deleted_range.empty() || added_files.empty());
   assert(compaction_varieties != kLinkSst || !added_files.empty());
 
   auto& icomp = cfd->internal_comparator();
@@ -624,7 +624,6 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   if (!level_ranges.empty() && !deleted_range.empty() &&
       compaction_varieties != kLinkSst) {
-    assert(compaction_varieties == kGeneralSst);
     std::vector<RangeWithDepend> ranges;
     ranges.reserve(deleted_range.size());
     for (auto& r : deleted_range) {
@@ -725,8 +724,12 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                                  const RangeWithDepend& f2) {
                           return icomp.Compare(f1.point[1], f2.point[1]) < 0;
                         }));
+
+  FileMetaData file_meta;
+  std::unique_ptr<TableProperties> prop;
+
   s = WriteOutputFile(bound_builder, output_iter.get(), output_path_id, cfd,
-                      file_meta, porp);
+                      &file_meta, &prop);
 
   if (s.ok()) {
     for (auto& input_level : inputs) {
@@ -737,7 +740,13 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     for (auto f : added_files) {
       edit->AddFile(-1, *f);
     }
-    edit->AddFile(output_level, *file_meta);
+    edit->AddFile(output_level, file_meta);
+  }
+  if (file_meta_ptr != nullptr) {
+    *file_meta_ptr = std::move(file_meta);
+  }
+  if (prop_ptr != nullptr) {
+    prop_ptr->swap(prop);
   }
   return s;
 }
@@ -747,7 +756,7 @@ Status MapBuilder::WriteOutputFile(
     const FileMetaDataBoundBuilder& bound_builder,
     MapSstElementIterator* range_iter, uint32_t output_path_id,
     ColumnFamilyData* cfd, FileMetaData* file_meta,
-    std::unique_ptr<TableProperties>* porp) {
+    std::unique_ptr<TableProperties>* prop) {
 
   // Used for write properties
   std::vector<uint64_t> sst_depend;
@@ -864,7 +873,7 @@ Status MapBuilder::WriteOutputFile(
   outfile.reset();
 
   if (s.ok()) {
-    porp->reset(new TableProperties(builder->GetTableProperties()));
+    prop->reset(new TableProperties(builder->GetTableProperties()));
     // Output to event logger and fire events.
     const char* compaction_msg =
         file_meta->marked_for_compaction ? " (need compaction)" : "";
@@ -876,7 +885,7 @@ Status MapBuilder::WriteOutputFile(
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       nullptr, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      -1, file_meta->fd, **porp, TableFileCreationReason::kCompaction, s);
+      -1, file_meta->fd, **prop, TableFileCreationReason::kCompaction, s);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl

@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
-#include "port/stack_trace.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/utilities/convenience.h"
 #include "util/sync_point.h"
@@ -356,20 +356,18 @@ TEST_F(DBCompactionTest, LazyCompactionTest) {
 
   dbfull()->GetLiveFilesMetaData(&level_files);
   co.compaction_varieties = kLinkSst;
-  dbfull()->CompactFiles(co, {
-      level_files[1].name, level_files[2].name
-  }, 1);
+  dbfull()->CompactFiles(co, {level_files[1].name, level_files[2].name}, 1);
   level_files.clear();
 
   dbfull()->GetLiveFilesMetaData(&level_files);
   co.compaction_varieties = kMapSst;
-  dbfull()->CompactFiles(co, {
-      level_files[0].name, level_files[1].name
-  }, 2);
+  dbfull()->CompactFiles(co, {level_files[0].name, level_files[1].name}, 2);
   level_files.clear();
 
-  std::vector<std::tuple<std::string, std::string, std::string,
-                         const Snapshot*>> verify;
+  std::vector<
+      std::tuple<std::string, std::string, std::string, const Snapshot*>>
+      verify;
+
   verify.emplace_back("a", "6", "1,2,3,4,5,6", snapshots[5]);
   verify.emplace_back("a", "5", "1,2,3,4,5", snapshots[4]);
   verify.emplace_back("a", "4", "1,2,3,4", snapshots[3]);
@@ -1894,6 +1892,66 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   ASSERT_EQ(vals[1], Get(Key(1)));
 
   db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBCompactionTest, LazyCompactionDeleteFileRangeFile) {
+  const int kNumL0Files = 10;
+  const int kValSize = 8 << 10;  // 8KB
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files + 1;
+  options.disable_auto_compactions = true;
+  options.enable_lazy_compaction = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  std::string vals[kNumL0Files];
+  for (int i = 0; i < kNumL0Files; ++i) {
+    vals[i] = RandomString(&rnd, kValSize);
+    Put(Key(i), vals[i]);
+    Flush();
+  }
+
+  std::vector<std::string> key_vec = {
+      Key(1), Key(3), Key(0), Key(2), Key(7), Key(8), Key(7), Key(100),
+  };
+  std::vector<Slice> slice_vec(key_vec.begin(), key_vec.end());
+  std::vector<RangePtr> ranges = {
+      RangePtr{&slice_vec[0], &slice_vec[1], true, false},
+      RangePtr{nullptr, &slice_vec[3], true, true},
+      RangePtr{&slice_vec[4], &slice_vec[5], false, false},
+      RangePtr{&slice_vec[6], &slice_vec[7], true, false},
+  };
+
+  auto verify_result = [&] {
+    ASSERT_EQ("NOT_FOUND", Get(Key(0)));
+    ASSERT_EQ("NOT_FOUND", Get(Key(1)));
+    ASSERT_EQ("NOT_FOUND", Get(Key(2)));
+    ASSERT_EQ(vals[3], Get(Key(3)));
+    ASSERT_EQ(vals[4], Get(Key(4)));
+    ASSERT_EQ(vals[5], Get(Key(5)));
+    ASSERT_EQ(vals[6], Get(Key(6)));
+    ASSERT_EQ("NOT_FOUND", Get(Key(7)));
+    ASSERT_EQ("NOT_FOUND", Get(Key(8)));
+    ASSERT_EQ("NOT_FOUND", Get(Key(9)));
+  };
+  ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), ranges.data(),
+                                ranges.size()));
+  verify_result();
+
+  ASSERT_OK(
+      DeleteFilesInRange(db_, db_->DefaultColumnFamily(), nullptr, nullptr));
+
+  for (int i = 0; i < kNumL0Files; ++i) {
+    if (i == kNumL0Files / 2) {
+      Flush();
+    }
+    Put(Key(i), vals[i]);
+  }
+  Flush();
+
+  ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), ranges.data(),
+                                ranges.size()));
+  verify_result();
 }
 
 TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {

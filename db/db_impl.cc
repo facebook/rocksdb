@@ -2272,7 +2272,6 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     auto* vstorage = input_version->storage_info();
     if (cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction) {
       const InternalKeyComparator& ic = cfd->ioptions()->internal_comparator;
-      const Comparator* uc = cfd->ioptions()->user_comparator;
 
       // deref nullptr of start/limit
       InternalKey* nullptr_start = nullptr;
@@ -2309,33 +2308,53 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
         job_context.Clean();
         return Status::OK();
       }
-      // deep copy
+      // trans user_key to 
+      std::vector<std::pair<InternalKey, InternalKey>> deleted_range_storage;
       std::vector<Range> deleted_range;
+      deleted_range_storage.resize(n);
       deleted_range.resize(n);
       for (size_t i = 0; i < n; ++i) {
-        deleted_range[i].start = ranges[i].start == nullptr
-                                   ? nullptr_start->user_key()
-                                   : *ranges[i].start;
-        deleted_range[i].limit = ranges[i].limit == nullptr
-                                   ? nullptr_limit->user_key()
-                                   : *ranges[i].limit;
+        deleted_range[i].include_start = ranges[i].include_start;
+        deleted_range[i].include_limit = ranges[i].include_limit;
+        auto& storage = deleted_range_storage[i];
+        if (ranges[i].start == nullptr) {
+          storage.first = *nullptr_start;
+          deleted_range[i].include_start = true;
+        } else {
+          if (deleted_range[i].include_start) {
+            storage.first.SetMinPossibleForUserKey(*ranges[i].start);
+          } else {
+            storage.first.SetMaxPossibleForUserKey(*ranges[i].start);
+          }
+        }
+        if (ranges[i].limit == nullptr) {
+          storage.second = *nullptr_limit;
+          deleted_range[i].include_limit = true;
+        } else {
+          if (deleted_range[i].include_limit) {
+            storage.second.SetMaxPossibleForUserKey(*ranges[i].limit);
+          } else {
+            storage.second.SetMinPossibleForUserKey(*ranges[i].limit);
+          }
+        }
+        deleted_range[i].start = storage.first.Encode();
+        deleted_range[i].limit = storage.second.Encode();
       }
-      // sort ranges
+      // sort & merge ranges
       std::sort(deleted_range.begin(), deleted_range.end(),
-                [uc](const Range& rl, const Range& rr) {
-                  return uc->Compare(rl.start, rr.start) < 0;
+                [&ic](const Range& rl, const Range& rr) {
+                  return ic.Compare(rl.start, rr.start) < 0;
                 });
-      // merge ranges
       size_t c = 0;
       for (size_t i = 1; i < n; ++i) {
-        if (uc->Compare(deleted_range[c].limit, deleted_range[i].start) >= 0) {
+        if (ic.Compare(deleted_range[c].limit, deleted_range[i].start) >= 0) {
           deleted_range[c].include_start |= deleted_range[i].include_start;
-          if (uc->Compare(deleted_range[c].limit, deleted_range[i].limit) <= 0) {
+          if (ic.Compare(deleted_range[c].limit, deleted_range[i].limit) <= 0) {
             deleted_range[c].limit = deleted_range[i].limit;
             deleted_range[c].include_limit |= deleted_range[i].include_limit;
           }
         } else {
-          ++c;
+          deleted_range[++c] = deleted_range[i];
         }
       }
       deleted_range.resize(c + 1);
@@ -2356,12 +2375,10 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
         }
         if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
             !level_being_compacted(i)) {
-          std::unique_ptr<TableProperties> prop;
-          FileMetaData file_meta;
           auto s = map_builder.Build(
               {CompactionInputFiles{i, vstorage->LevelFiles(i)}}, deleted_range,
               {}, kMapSst, i, vstorage->LevelFiles(i)[0]->fd.GetPathId(),
-              vstorage, cfd, &edit, &file_meta, &prop);
+              vstorage, cfd, &edit);
           if (!s.ok()) {
             return s;
           }
@@ -2371,8 +2388,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
             FileMetaData file_meta;
             auto s = map_builder.Build(
                 {CompactionInputFiles{i, {f}}}, deleted_range,
-                {}, kMapSst, i, f->fd.GetPathId(), vstorage, cfd, &edit,
-                &file_meta, &prop);
+                {}, kMapSst, i, f->fd.GetPathId(), vstorage, cfd, &edit);
             if (!s.ok()) {
               return s;
             }

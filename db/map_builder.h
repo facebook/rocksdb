@@ -46,14 +46,15 @@ class MapBuilder {
   // deleted_range use user_key
   // added_files is sorted
   // file_meta::fd::file_size == 0 If don't need create map files
+  // file_meta & porp nullptr if ignore
   Status Build(const std::vector<CompactionInputFiles>& inputs,
                const std::vector<Range>& deleted_range,
                const std::vector<const FileMetaData*>& added_files,
                SstVarieties compaction_varieties, int output_level,
                uint32_t output_path_id, VersionStorageInfo* vstorage,
                ColumnFamilyData* cfd, VersionEdit* edit,
-               FileMetaData* file_meta,
-               std::unique_ptr<TableProperties>* porp);
+               FileMetaData* file_meta = nullptr,
+               std::unique_ptr<TableProperties>* porp = nullptr);
 
  private:
   Status WriteOutputFile(const FileMetaDataBoundBuilder& bound_builder,
