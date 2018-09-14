@@ -859,17 +859,17 @@ MemTableRepFactory* NewHashLinkListRepFactory(
   if (options.end() != f) {
     bucket_count = ParseSizeT(f->second);
   }
-  size_t threshold_use_skiplist = 256;  // default
+  uint32_t threshold_use_skiplist = 256;  // default
   f = options.find("threshold_use_skiplist");
   if (options.end() != f) {
-    threshold_use_skiplist = ParseSizeT(f->second);
+    threshold_use_skiplist = ParseUint32(f->second);
   }
   size_t huge_page_tlb_size = 0;  // default
   f = options.find("huge_page_tlb_size");
   if (options.end() != f) {
     huge_page_tlb_size = ParseSizeT(f->second);
   }
-  size_t bucket_entries_logging_threshold = 4096;  // default
+  int bucket_entries_logging_threshold = 4096;  // default
   f = options.find("bucket_entries_logging_threshold");
   if (options.end() != f) {
     bucket_entries_logging_threshold = ParseInt(f->second);

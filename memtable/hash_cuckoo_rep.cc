@@ -678,9 +678,9 @@ static MemTableRepFactory* NewHashCuckooRepFactory(
   }
 
   f = options.find("hash_function_count");
-  size_t hash_function_count = 4;  // default
+  unsigned hash_function_count = 4;  // default
   if (options.end() != f) {
-    hash_function_count = ParseSizeT(f->second);
+    hash_function_count = ParseUint32(f->second);
   }
 
   return new HashCuckooRepFactory(write_buffer_size, average_data_size,

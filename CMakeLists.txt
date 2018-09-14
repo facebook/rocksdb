@@ -255,7 +255,7 @@ if(FAIL_ON_WARNINGS)
 endif()
 
 if(MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /FR /std:c++latest")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /FR /std:c++14")
 endif()
 
 option(WITH_ASAN "build with ASAN" OFF)
@@ -345,7 +345,7 @@ if(MSVC)
     message(STATUS "Debug optimization is enabled")
     set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /${RUNTIME_LIBRARY}d")
   else()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /${RUNTIME_LIBRARY}d")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /${RUNTIME_LIBRARY}d")
   endif()
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /${RUNTIME_LIBRARY}")
 

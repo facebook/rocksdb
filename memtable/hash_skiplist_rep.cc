@@ -356,27 +356,23 @@ static MemTableRepFactory* NewHashSkipListRepFactory(
     const std::unordered_map<std::string, std::string>& options, Status* s) {
   auto f = options.begin();
 
+  size_t bucket_count = 1000000; // default
   f = options.find("bucket_count");
-  if (options.end() == f) {
-    *s = Status::NotFound("HashSkipListRepFactory", "bucket_count");
-    return NULL;
+  if (options.end() != f) {
+    bucket_count = ParseSizeT(f->second);
   }
-  auto bucket_count = ParseSizeT(f->second);
 
+  int32_t skiplist_height = 4; // default
   f = options.find("skiplist_height");
-  if (options.end() == f) {
-    *s = Status::NotFound("HashSkipListRepFactory", "skiplist_height");
-    return NULL;
+  if (options.end() != f) {
+    skiplist_height = ParseInt(f->second);
   }
-  auto skiplist_height = ParseSizeT(f->second);
 
+  int32_t skiplist_branching_factor = 4; // default
   f = options.find("skiplist_branching_factor");
-  if (options.end() == f) {
-    *s =
-        Status::NotFound("HashSkipListRepFactory", "skiplist_branching_factor");
-    return NULL;
+  if (options.end() != f) {
+    skiplist_branching_factor = ParseInt(f->second);
   }
-  auto skiplist_branching_factor = ParseSizeT(f->second);
 
   return new HashSkipListRepFactory(bucket_count, skiplist_height,
                                     skiplist_branching_factor);
