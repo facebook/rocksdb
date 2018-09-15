@@ -134,8 +134,15 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   for (size_t i = 0; i < result.db_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
-#endif
 
+  // Create a default SstFileManager for purposes of tracking compaction size
+  // and facilitating recovery from out of space errors.
+  if (result.sst_file_manager.get() == nullptr) {
+    std::shared_ptr<SstFileManager> sst_file_manager(
+        NewSstFileManager(result.env, result.info_log));
+    result.sst_file_manager = sst_file_manager;
+  }
+#endif
   return result;
 }
 
@@ -1050,6 +1057,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         break;
       }
     }
+
+    // For recovery from NoSpace() error, we can only handle
+    // the case where the database is stored in a single path
+    if (paths.size() <= 1) {
+      impl->error_handler_.EnableAutoRecovery();
+    }
   }
 
   if (!s.ok()) {
@@ -1213,6 +1226,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         }
       }
     }
+
+    // Reserve some disk buffer space. This is a heuristic - when we run out
+    // of disk space, this ensures that there is atleast write_buffer_size
+    // amount of free space before we resume DB writes. In low disk space
+    // conditions, we want to avoid a lot of small L0 files due to frequent
+    // WAL write failures and resultant forced flushes
+    sfm->ReserveDiskBuffer(max_write_buffer_size,
+                           impl->immutable_db_options_.db_paths[0].path);
   }
 #endif  // !ROCKSDB_LITE
 
