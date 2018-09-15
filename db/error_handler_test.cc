@@ -296,7 +296,6 @@ TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
   Close();
   DestroyDB(dbname_, options);
 }
-#endif
 
 TEST_F(DBErrorHandlingTest, WALWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
@@ -683,6 +682,7 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
   options.clear();
   delete def_env;
 }
+#endif
 
 }  // namespace rocksdb
 
