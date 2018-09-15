@@ -795,6 +795,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class ErrorHandler;
   friend class InternalStats;
   friend class PessimisticTransaction;
   friend class TransactionBaseImpl;
@@ -844,6 +845,8 @@ class DBImpl : public DB {
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false, bool error_if_log_file_exist = false,
                  bool error_if_data_exists_in_logs = false);
+
+  Status ResumeImpl();
 
   void MaybeIgnoreError(Status* s) const;
 
@@ -1046,9 +1049,10 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
-                         LogBuffer* log_buffer);
+                         LogBuffer* log_buffer, FlushReason* reason);
 
-  bool EnoughRoomForCompaction(const std::vector<CompactionInputFiles>& inputs,
+  bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
+                               const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
   void PrintStatistics();
@@ -1081,6 +1085,10 @@ class DBImpl : public DB {
   Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
 
   Status CloseHelper();
+
+  Status FlushAllCFs(FlushReason flush_reason);
+
+  void WaitForBackgroundWork();
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
@@ -1526,6 +1534,13 @@ class DBImpl : public DB {
   // flush/compaction and if it is not provided vis SnapshotChecker, we should
   // disable gc to be safe.
   const bool use_custom_gc_;
+  // Flag to indicate that the DB instance shutdown has been initiated. This
+  // different from shutting_down_ atomic in that it is set at the beginning
+  // of shutdown sequence, specifically in order to prevent any background
+  // error recovery from going on in parallel. The latter, shutting_down_,
+  // is set a little later during the shutdown after scheduling memtable
+  // flushes
+  bool shutdown_initiated_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()
   // to advance this seqnum. Default value is 0 which means ALL deletes are

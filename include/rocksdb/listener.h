@@ -27,6 +27,7 @@ enum class TableFileCreationReason {
   kFlush,
   kCompaction,
   kRecovery,
+  kMisc,
 };
 
 struct TableFileCreationBriefInfo {
@@ -103,6 +104,7 @@ enum class FlushReason : int {
   kDeleteFiles = 0x08,
   kAutoCompaction = 0x09,
   kManualFlush = 0x0a,
+  kErrorRecovery = 0xb,
 };
 
 enum class BackgroundErrorReason {
@@ -392,6 +394,21 @@ class EventListener {
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called just before
+  // starting the automatic recovery process for recoverable background
+  // errors, such as NoSpace(). The callback can suppress the automatic
+  // recovery by setting *auto_recovery to false. The database will then
+  // have to be transitioned out of read-only mode by calling DB::Resume()
+  virtual void OnErrorRecoveryBegin(BackgroundErrorReason /* reason */,
+                                    Status /* bg_error */,
+                                    bool* /* auto_recovery */) {}
+
+  // A callback function for RocksDB which will be called once the database
+  // is recovered from read-only mode after an error. When this is called, it
+  // means normal writes to the database can be issued and the user can
+  // initiate any further recovery actions needed
+  virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
 
   virtual ~EventListener() {}
 };
