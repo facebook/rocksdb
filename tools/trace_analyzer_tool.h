@@ -128,6 +128,10 @@ struct TraceStats {
 
   TraceStats();
   ~TraceStats();
+  TraceStats(const TraceStats&) = delete;
+  TraceStats& operator=(const TraceStats&) = delete;
+  TraceStats(TraceStats&&) = default;
+  TraceStats& operator=(TraceStats&&) = default;
 };
 
 struct TypeUnit {
@@ -137,6 +141,12 @@ struct TypeUnit {
   uint64_t total_access;
   uint64_t total_succ_access;
   std::map<uint32_t, TraceStats> stats;
+  TypeUnit() = default;
+  ~TypeUnit() = default;
+  TypeUnit(const TypeUnit&) = delete;
+  TypeUnit& operator=(const TypeUnit&) = delete;
+  TypeUnit(TypeUnit&&) = default;
+  TypeUnit& operator=(TypeUnit&&) = default;
 };
 
 struct CfUnit {
