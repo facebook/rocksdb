@@ -548,6 +548,8 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
     }
   }
   options.clear();
+  sfm.reset();
+  delete def_env;
 }
 
 TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
@@ -669,6 +671,7 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
     char buf[16];
     snprintf(buf, sizeof(buf), "_%d", i);
     fault_env[i]->SetFilesystemActive(true);
+    delete db[i];
     if (getenv("KEEP_DB")) {
       printf("DB is still at %s%s\n", dbname_.c_str(), buf);
     } else {
@@ -676,6 +679,7 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
     }
   }
   options.clear();
+  delete def_env;
 }
 
 }  // namespace rocksdb
