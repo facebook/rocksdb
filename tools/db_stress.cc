@@ -1947,8 +1947,8 @@ class StressTest {
                 db_->CompactFiles(CompactionOptions(), random_cf, input_files,
                                   static_cast<int>(output_level));
             if (!s.ok()) {
-              printf("Unable to perform CompactFiles(): %s\n",
-                     s.ToString().c_str());
+              fprintf(stdout, "Unable to perform CompactFiles(): %s\n",
+                      s.ToString().c_str());
               thread->stats.AddNumCompactFilesFailed(1);
             } else {
               thread->stats.AddNumCompactFilesSucceed(1);
