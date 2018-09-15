@@ -237,6 +237,7 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   Destroy(options);
 }
 
+#ifndef TRAVIS
 TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
@@ -295,6 +296,7 @@ TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
   Close();
   DestroyDB(dbname_, options);
 }
+#endif
 
 TEST_F(DBErrorHandlingTest, WALWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
