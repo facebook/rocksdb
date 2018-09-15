@@ -762,7 +762,11 @@ BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
   return index_type;
 }
 
-Block::~Block() { TEST_SYNC_POINT("Block::~Block"); }
+Block::~Block() {
+  // This sync point can be re-enabled once the right order for global static
+  // initialization/destruction across compilation units is determined.
+  // TEST_SYNC_POINT("Block::~Block");
+}
 
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
              size_t read_amp_bytes_per_bit, Statistics* statistics)
