@@ -27,7 +27,7 @@ ThreadLocalJObject::~ThreadLocalJObject() {
 
 			//assert(m_pJniEnv != nullptr);
 			// free ASAP after thread detach this thread local obj
-			m_pJniEnv->DeleteGlobalRef(m_jSlice);
+			//m_pJniEnv->DeleteGlobalRef(m_jSlice); not free global variable
 
 			//JniUtil::releaseJniEnv(m_jvm, attached_thread);wgao try not release this in thread local
 
@@ -408,9 +408,9 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
         //jObjA.m_jvm = nullptr;
       //}
 
-	  jObjA.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
+	  //jObjA.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
 
-      assert(jObjA.m_pJniEnv != nullptr);
+      //assert(jObjA.m_pJniEnv != nullptr);
 
       jObjA.lObjAssigned = 1;
     }
@@ -430,9 +430,9 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
        // jObjB.m_jvm = nullptr;
       //}
 
-	  jObjB.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
+	  //jObjB.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
 
-      assert(jObjB.m_pJniEnv != nullptr);
+      //assert(jObjB.m_pJniEnv != nullptr);
 
 
       jObjB.lObjAssigned = 1;
