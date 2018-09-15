@@ -21,18 +21,18 @@ ThreadLocalJObject::ThreadLocalJObject()
 
 ThreadLocalJObject::~ThreadLocalJObject() {
 	  lInited = 0;
-	  if (lObjAssigned == 1 && m_jSlice != nullptr && m_jvm != nullptr) 
+	  if (lObjAssigned == 1 && m_jSlice != nullptr ) //&& m_jvm != nullptr
 	  {
 			//jboolean attached_thread = JNI_FALSE;
 
-			assert(m_pJniEnv != nullptr);
+			//assert(m_pJniEnv != nullptr);
 			// free ASAP after thread detach this thread local obj
 			m_pJniEnv->DeleteGlobalRef(m_jSlice);
 
 			//JniUtil::releaseJniEnv(m_jvm, attached_thread);wgao try not release this in thread local
 
 			// delete m_jvm;
-			m_jvm = nullptr;
+			//m_jvm = nullptr;
 
 	  }
 }
@@ -383,11 +383,11 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   //
   // EMC Wayne Gao fix the concurrent list performance issue
   //
-  auto this_id = std::this_thread::get_id();
-  std::stringstream sID;
-  sID << this_id;
-  string sThreadID = sID.str();
-  map<string, int>::iterator it;
+  //auto this_id = std::this_thread::get_id();
+  //std::stringstream sID;
+  //sID << this_id;
+  //string sThreadID = sID.str();
+  //map<string, int>::iterator it;
   bool bMemOK = true;
   jobject jSliceA = nullptr;
   jobject jSliceB = nullptr;
@@ -402,11 +402,11 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
       // exception thrown: OutOfMemoryError
       bMemOK = false;
     } else {
-      const jint rs = env->GetJavaVM(&jObjA.m_jvm);
-      if (rs != JNI_OK) {
+      //const jint rs = env->GetJavaVM(&jObjA.m_jvm);
+      //if (rs != JNI_OK) {
         // exception thrown
-        jObjA.m_jvm = nullptr;
-      }
+        //jObjA.m_jvm = nullptr;
+      //}
 
 	  jObjA.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
 
@@ -424,11 +424,11 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
       // exception thrown: OutOfMemoryError
       bMemOK = false;
     } else {
-      const jint rs = env->GetJavaVM(&jObjB.m_jvm);
-      if (rs != JNI_OK) {
+      //const jint rs = env->GetJavaVM(&jObjB.m_jvm);
+      //if (rs != JNI_OK) {
         // exception thrown
-        jObjB.m_jvm = nullptr;
-      }
+       // jObjB.m_jvm = nullptr;
+      //}
 
 	  jObjB.m_pJniEnv = JniUtil::getJniEnv(m_jvm, &attached_thread);
 
