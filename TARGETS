@@ -197,7 +197,6 @@ cpp_library(
         "tools/ldb_cmd.cc",
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
-        "tools/trace_analyzer_tool.cc",
         "util/arena.cc",
         "util/auto_roll_logger.cc",
         "util/bloom.cc",
@@ -306,6 +305,7 @@ cpp_library(
     srcs = [
         "db/db_test_util.cc",
         "table/mock_table.cc",
+        "tools/trace_analyzer_tool.cc",
         "util/fault_injection_test_env.cc",
         "util/testharness.cc",
         "util/testutil.cc",
