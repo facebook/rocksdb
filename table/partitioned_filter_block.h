@@ -66,6 +66,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   uint32_t filters_in_partition_;
   // Number of keys added
   size_t num_added_;
+  BlockHandle last_encoded_handle_;
 };
 
 class PartitionedFilterBlockReader : public FilterBlockReader,
