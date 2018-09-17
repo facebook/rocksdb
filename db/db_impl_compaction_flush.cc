@@ -231,10 +231,10 @@ Status DBImpl::FlushMemTablesToOutputFiles(
  * Atomically flushes multiple column families.
  *
  * For each column family, all memtables with ID smaller than or equal to the
- * specified ID will be flushed. Only after all column families finish flush
- * will this function commit to MANIFEST. If any of the column families are not
- * flushed successfully, this function does not have any side-effect on the
- * state of the database.
+ * ID specified in bg_flush_args will be flushed. Only after all column
+ * families finish flush will this function commit to MANIFEST. If any of the
+ * column families are not flushed successfully, this function does not have
+ * any side-effect on the state of the database.
  */
 Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
@@ -299,7 +299,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   Status s;
   assert(num_cfs == static_cast<int>(jobs.size()));
 
-  // TODO (yanqin): parallelize jobs with threads.
   for (int i = 0; i != num_cfs; ++i) {
     auto& job = jobs[i];
     job.PickMemTable();
@@ -312,16 +311,26 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, job.GetTableProperties());
 #endif /* !ROCKSDB_LITE */
-    if (logfile_number_ > 0 &&
-        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
-      s = SyncClosedLogs(job_context);
-    }
-    if (!s.ok()) {
-      break;
-    }
-    s = job.Run(&logs_with_prep_tracker_, &file_meta[i]);
-    if (!s.ok()) {
-      break;
+  }
+
+  if (logfile_number_ > 0 &&
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
+    // If there are more than one column families, we need to make sure that
+    // all the log files except the most recent one are synced. Otherwise if
+    // the host crashes after flushing and before WAL is persistent, the
+    // flushed SST may contain data from write batches whose updates to
+    // other column families are missing.
+    // SyncClosedLogs() may unlock and re-lock the db_mutex.
+    s = SyncClosedLogs(job_context);
+  }
+
+  if (s.ok()) {
+    // TODO (yanqin): parallelize jobs with threads.
+    for (int i = 0; i != num_cfs; ++i) {
+      s = jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
+      if (!s.ok()) {
+        break;
+      }
     }
   }
 
@@ -384,12 +393,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
         sfm->OnAddFile(file_path);
-        if (sfm->IsMaxAllowedSpaceReached()) {
+        if (sfm->IsMaxAllowedSpaceReached() && error_handler_.GetBGError().ok()) {
           Status new_bg_error =
               Status::SpaceLimit("Max allowed space was reached");
           error_handler_.SetBGError(new_bg_error,
                                     BackgroundErrorReason::kFlush);
-          break;
         }
       }
     }

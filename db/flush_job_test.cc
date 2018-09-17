@@ -168,7 +168,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   job_context.Clean();
 }
 
-TEST_F(FlushJobTest, FlushSomeMemTables) {
+TEST_F(FlushJobTest, FlushAllMemTables) {
   const int num_mems = 2;
   const int num_mems_to_flush = 1;
   const int num_keys_per_table = 100;
