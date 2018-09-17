@@ -1,9 +1,9 @@
 # Rocksdb Change Log
-## Unreleased
-### Public API Change
-### New Features
+## 5.16.1 (9/17/2018)
 ### Bug Fixes
-* Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
+* Remove trace_analyzer_tool from rocksdb_lib target in TARGETS file.
+* Fix RocksDB Java build and tests.
+* Remove sync point in Block destructor.
 
 ## 5.16.0 (8/21/2018)
 ### Public API Change
@@ -20,6 +20,7 @@
 
 ### Bug Fixes
 * Fix a bug in misreporting the estimated partition index size in properties block.
+* Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
 
 ## 5.15.0 (7/17/2018)
 ### Public API Change
