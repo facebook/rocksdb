@@ -10,6 +10,7 @@
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
 * Sync CURRENT file contents during checkpoint.
+* Fix format_version 4 bug with partitioned filters
 
 ## 5.16.0 (8/21/2018)
 ### Public API Change
