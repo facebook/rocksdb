@@ -653,6 +653,121 @@ TEST_P(LogTest, Recycle) {
 
 INSTANTIATE_TEST_CASE_P(bool, LogTest, ::testing::Values(0, 2));
 
+class RetriableLogTest : public ::testing::TestWithParam<int> {
+ private:
+  class StringSource : public SequentialFile {
+   public:
+    Slice& contents_;
+    bool force_error_;
+    size_t force_error_position_;
+    bool force_eof_;
+    size_t force_eof_position_;
+    bool returned_partial_;
+    explicit StringSource(Slice& contents):
+      contents_(contents),
+      force_error_(false),
+      force_error_position_(0),
+      force_eof_(false),
+      force_eof_position_(0),
+      returned_partial_(false) {}
+
+    virtual Status Read(size_t n, Slice* result, char* scratch) override {
+      if (force_error_) {
+        if (force_error_position_ >= n) {
+          force_error_position_ -= n;
+        } else {
+          *result = Slice(contents_.data(), force_error_position_);
+          contents_.remove_prefix(force_error_position_);
+          force_error_ = false;
+          returned_partial_ = true;
+          return Status::Corruption("read error");
+        }
+      }
+      if (contents_.size() < n) {
+        n = contents_.size();
+        returned_partial_ = true;
+      }
+      if (force_eof_) {
+        if (force_eof_position_ >= n) {
+          force_eof_position_ -= n;
+        } else {
+          force_eof_ = false;
+          n = force_eof_position_;
+          returned_partial_ = true;
+        }
+      }
+      memcpy(scratch, contents_.data(), n);
+      *result = Slice(scratch, n);
+      contents_.remove_prefix(n);
+      return Status::OK();
+    }
+
+    virtual Status Skip(uint64_t n) override {
+      if (n > contents_.size()) {
+        contents_.clear();
+        return Status::NotFound("in-memory file skipped past end");
+      }
+      contents_.remove_prefix(n);
+      return Status::OK();
+    }
+  };
+
+  class ReportCollector : public Reader::Reporter {
+   public:
+    size_t dropped_bytes_;
+    std::string message_;
+
+    ReportCollector() : dropped_bytes_(0) {}
+    virtual void Corruption(size_t bytes, const Status& status) override {
+      dropped_bytes_ += bytes;
+      message_.append(status.ToString());
+    }
+  };
+
+  Slice reader_contents_;
+  unique_ptr<WritableFileWriter> dest_holder_;
+  unique_ptr<SequentialFileReader> source_holder_;
+  ReportCollector report_;
+  Writer writer_;
+  Reader reader_;
+
+ public:
+  RetriableLogTest():
+      reader_contents_(),
+      dest_holder_(test::GetWritableFileWriter(
+          new test::StringSink(&reader_contents_), "" /* filename */)),
+      source_holder_(test::GetSequentialFileReader(
+          new StringSource(reader_contents_), "" /* filename */)),
+      writer_(std::move(dest_holder_), 123, GetParam()),
+      reader_(nullptr, std::move(source_holder_), &report_,
+          true /* checksum */, 123 /* log_number */,
+          true /* retry_after_eof */) {}
+
+  void Write(const std::string& msg) {
+    writer_.AddRecord(Slice(msg));
+  }
+
+  std::string Read() {
+    std::string scratch;
+    Slice record;
+    auto wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+    if (reader_.ReadRecord(&record, &scratch, wal_recovery_mode)) {
+      return record.ToString();
+    } else {
+      return "Read error";
+    }
+  }
+};
+
+TEST_P(RetriableLogTest, TailLog) {
+  Write("foo");
+  fprintf(stderr, "y7jin\n");
+  std::string record = Read();
+  ASSERT_EQ("foo", record);
+}
+
+INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
+
 }  // namespace log
 }  // namespace rocksdb
 
