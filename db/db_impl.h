@@ -1541,6 +1541,9 @@ class DBImpl : public DB {
   // is set a little later during the shutdown after scheduling memtable
   // flushes
   bool shutdown_initiated_;
+  // Flag to indicate whether sst_file_manager object was allocated in
+  // DB::Open() or passed to us
+  bool own_sfm_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()
   // to advance this seqnum. Default value is 0 which means ALL deletes are
