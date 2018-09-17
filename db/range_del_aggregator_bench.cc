@@ -85,6 +85,8 @@ std::ostream& operator<<(std::ostream& os, const Stats& s) {
 
 namespace rocksdb {
 
+namespace {
+
 // A wrapper around RangeTombstones and the underlying data of its start and end
 // keys.
 struct PersistentRangeTombstone {
@@ -110,7 +112,7 @@ struct PersistentRangeTombstone {
     return *this;
   }
 
-  PersistentRangeTombstone(PersistentRangeTombstone&& t) { *this = t; }
+  PersistentRangeTombstone(PersistentRangeTombstone&& t) noexcept { *this = t; }
 
   PersistentRangeTombstone& operator=(PersistentRangeTombstone&& t) {
     start_key = std::move(t.start_key);
@@ -122,7 +124,7 @@ struct PersistentRangeTombstone {
 };
 
 struct TombstoneStartKeyComparator {
-  TombstoneStartKeyComparator(const Comparator* c) : cmp(c) {}
+  explicit TombstoneStartKeyComparator(const Comparator* c) : cmp(c) {}
 
   bool operator()(const RangeTombstone& a, const RangeTombstone& b) const {
     return cmp->Compare(a.start_key_, b.start_key_) < 0;
@@ -156,6 +158,8 @@ static std::string Key(int64_t val) {
   }
   return big_endian_key;
 }
+
+}  // anonymous namespace
 
 }  // namespace rocksdb
 
