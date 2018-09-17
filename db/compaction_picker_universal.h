@@ -80,6 +80,10 @@ class UniversalCompactionPicker : public CompactionPicker {
       VersionStorageInfo* vstorage, double score,
       const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
 
+  Compaction* PickTrivialMoveCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      VersionStorageInfo* vstorage, LogBuffer* log_buffer);
+
   // Pick compaction which level has map or link sst
   Compaction* PickGeneralCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,

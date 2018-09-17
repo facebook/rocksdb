@@ -89,6 +89,8 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Reduce size or read amplification in variety sst
   kVarietiesAmplification,
+  // Trivial move level
+  kTrivialMoveLevel,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

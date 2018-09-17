@@ -99,6 +99,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ExternalSstIngestion";
     case CompactionReason::kVarietiesAmplification:
       return "VarietiesAmplification";
+    case CompactionReason::kTrivialMoveLevel:
+      return "TrivialMoveLevel";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:

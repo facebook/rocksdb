@@ -73,11 +73,10 @@ bool IsPrefaceRange(const Range& range, const FileMetaData* f,
       return false;
     }
     if (pikey.sequence != kMaxSequenceNumber ||
-        icomp.user_comparator()->Compare(ExtractUserKey(f->largest.Encode()),
-                                         pikey.user_key) != 0) {
+        icomp.user_comparator()->Compare(f->largest.user_key(),
+                                         pikey.user_key) >= 0) {
       return false;
     }
-    assert(pikey.type == kTypeRangeDeletion);
   }
   return true;
 }
@@ -629,6 +628,12 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     for (auto& r : deleted_range) {
       ranges.emplace_back(r);
     }
+    assert(std::is_sorted(
+               ranges.begin(), ranges.end(),
+               [&icomp](const RangeWithDepend& a,
+                        const RangeWithDepend& b) {
+                 return icomp.Compare(a.point[1], b.point[1]) < 0;
+               }));
     level_ranges.front() =
         PartitionRangeWithDepend(level_ranges.front(), ranges,
                                  cfd->internal_comparator(),
@@ -672,7 +677,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     return s;
   }
   auto& ranges = level_ranges.front();
-  DependFileMap sst_live;
+  std::unordered_map<uint64_t, const FileMetaData*> sst_live;
   bool build_map_sst = false;
   // check is need build map
   for (auto it = ranges.begin(); it != ranges.end(); ++it) {
