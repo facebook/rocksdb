@@ -397,7 +397,8 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   // cache
   //
   if (jObjA.lObjAssigned == 0) {
-    jObjA.m_jSlice = env->NewGlobalRef(SliceJni::construct0(env));
+    //jObjA.m_jSlice = env->NewGlobalRef(SliceJni::construct0(env));
+    jObjA.m_jSlice = env->NewLocalRef(SliceJni::construct0(env));
     if (jObjA.m_jSlice == nullptr) {
       // exception thrown: OutOfMemoryError
       bMemOK = false;
@@ -419,7 +420,8 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   }
 
   if (jObjB.lObjAssigned == 0) {
-    jObjB.m_jSlice = env->NewGlobalRef(SliceJni::construct0(env));
+    //jObjB.m_jSlice = env->NewGlobalRef(SliceJni::construct0(env));
+    jObjB.m_jSlice = env->NewLocalRef(SliceJni::construct0(env));
     if (jObjB.m_jSlice == nullptr) {
       // exception thrown: OutOfMemoryError
       bMemOK = false;
