@@ -41,6 +41,9 @@ class DBBloomFilterTestWithParam
   }
 };
 
+class DBBloomFilterTestDefFormatVersion : public DBBloomFilterTestWithParam {
+};
+
 class SliceTransformLimitedDomainGeneric : public SliceTransform {
   const char* Name() const override {
     return "SliceTransformLimitedDomainGeneric";
@@ -64,7 +67,7 @@ class SliceTransformLimitedDomainGeneric : public SliceTransform {
 // KeyMayExist can lead to a few false positives, but not false negatives.
 // To make test deterministic, use a much larger number of bits per key-20 than
 // bits in the key, so that false positives are eliminated
-TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
+TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
   do {
     ReadOptions ropts;
     std::string value;
@@ -462,6 +465,13 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     Close();
   } while (ChangeCompactOptions());
 }
+
+INSTANTIATE_TEST_CASE_P(
+    FormatDef, DBBloomFilterTestDefFormatVersion,
+    ::testing::Values(
+        std::make_tuple(true, false, test::kDefaultFormatVersion),
+        std::make_tuple(false, true, test::kDefaultFormatVersion),
+        std::make_tuple(false, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
