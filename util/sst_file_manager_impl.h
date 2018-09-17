@@ -121,6 +121,10 @@ class SstFileManagerImpl : public SstFileManager {
 
   DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
+  // Stop the error recovery background thread. This should be called only
+  // once in the object's lifetime, and before the destructor
+  void Close();
+
  private:
   // REQUIRES: mutex locked
   void OnAddFileImpl(const std::string& file_path, uint64_t file_size,
