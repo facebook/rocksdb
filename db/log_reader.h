@@ -136,9 +136,6 @@ class Reader {
   // Read some more
   bool ReadMore(size_t* drop_size, int *error);
 
-  // Read some more with retries
-  bool ReadMoreWithRetries(size_t* drop_size, int* error);
-
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
   void ReportCorruption(size_t bytes, const char* reason);

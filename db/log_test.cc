@@ -761,7 +761,6 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
 
 TEST_P(RetriableLogTest, TailLog) {
   Write("foo");
-  fprintf(stderr, "y7jin\n");
   std::string record = Read();
   ASSERT_EQ("foo", record);
 }
