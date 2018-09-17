@@ -41,8 +41,7 @@ class DBBloomFilterTestWithParam
   }
 };
 
-class DBBloomFilterTestDefFormatVersion : public DBBloomFilterTestWithParam {
-};
+class DBBloomFilterTestDefFormatVersion : public DBBloomFilterTestWithParam {};
 
 class SliceTransformLimitedDomainGeneric : public SliceTransform {
   const char* Name() const override {
@@ -468,24 +467,24 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
-    ::testing::Values(
-        std::make_tuple(true, false, test::kDefaultFormatVersion),
-        std::make_tuple(false, true, test::kDefaultFormatVersion),
-        std::make_tuple(false, false, test::kDefaultFormatVersion)));
+    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
+                      std::make_tuple(false, true, test::kDefaultFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
-    ::testing::Values(
-        std::make_tuple(true, false, test::kDefaultFormatVersion),
-        std::make_tuple(false, true, test::kDefaultFormatVersion),
-        std::make_tuple(false, false, test::kDefaultFormatVersion)));
+    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
+                      std::make_tuple(false, true, test::kDefaultFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
-    ::testing::Values(
-        std::make_tuple(true, false, test::kLatestFormatVersion),
-        std::make_tuple(false, true, test::kLatestFormatVersion),
-        std::make_tuple(false, false, test::kLatestFormatVersion)));
+    ::testing::Values(std::make_tuple(true, false, test::kLatestFormatVersion),
+                      std::make_tuple(false, true, test::kLatestFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kLatestFormatVersion)));
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
