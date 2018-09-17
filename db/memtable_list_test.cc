@@ -159,11 +159,13 @@ class MemTableListTest : public testing::Test {
       meta.fd = FileDescriptor(file_num, 0, 0);
       file_meta.emplace_back(meta);
     }
+    bool atomic_flush_commit_in_progress = false;
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return MemTableList::InstallMemtableFlushResults(
-        lists, cfds, mutable_cf_options_list, mems_list, &dummy_prep_tracker,
-        &versions, &mutex, file_meta, to_delete, nullptr, &log_buffer);
+        lists, cfds, mutable_cf_options_list, mems_list,
+        &atomic_flush_commit_in_progress, &dummy_prep_tracker, &versions,
+        &mutex, file_meta, to_delete, nullptr, &log_buffer);
   }
 };
 

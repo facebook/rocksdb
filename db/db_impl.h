@@ -1557,6 +1557,16 @@ class DBImpl : public DB {
   bool closed_;
 
   ErrorHandler error_handler_;
+
+  // True if the DB is committing atomic flush.
+  // TODO (yanqin) the current impl assumes that the entire DB belongs to
+  // a single atomic flush group. In the future we need to add a new class
+  // (struct) similar to the following to make it more general.
+  // struct AtomicFlushGroup {
+  //   bool commit_in_progress_;
+  //   std::vector<MemTableList*> imm_lists;
+  // };
+  bool atomic_flush_commit_in_progress_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

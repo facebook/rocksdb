@@ -362,8 +362,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
       s = MemTableList::InstallMemtableFlushResults(
           imm_lists, all_cfds, mutable_cf_options_list, mems_list,
-          &logs_with_prep_tracker_, versions_.get(), &mutex_, file_meta,
-          &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
+          &atomic_flush_commit_in_progress_, &logs_with_prep_tracker_,
+          versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
+          directories_.GetDbDir(), log_buffer);
     }
   }
 
@@ -393,7 +394,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
         sfm->OnAddFile(file_path);
-        if (sfm->IsMaxAllowedSpaceReached() && error_handler_.GetBGError().ok()) {
+        if (sfm->IsMaxAllowedSpaceReached() &&
+            error_handler_.GetBGError().ok()) {
           Status new_bg_error =
               Status::SpaceLimit("Max allowed space was reached");
           error_handler_.SetBGError(new_bg_error,
@@ -1112,7 +1114,6 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                  cfh->GetName().c_str(), s.ToString().c_str());
   return s;
 }
-
 
 Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
   Status s;

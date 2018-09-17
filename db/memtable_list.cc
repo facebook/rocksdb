@@ -269,14 +269,13 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
-bool MemTableList::atomic_flush_commit_in_progress_ = false;
-
 Status MemTableList::InstallMemtableFlushResults(
     autovector<MemTableList*>& imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list,
-    LogsWithPrepTracker* prep_tracker, VersionSet* vset, InstrumentedMutex* mu,
+    bool* atomic_flush_commit_in_progress, LogsWithPrepTracker* prep_tracker,
+    VersionSet* vset, InstrumentedMutex* mu,
     const autovector<FileMetaData>& file_meta, autovector<MemTable*>* to_delete,
     Directory* db_directory, LogBuffer* log_buffer) {
   AutoThreadOperationStageUpdater stage_updater(
@@ -340,12 +339,13 @@ Status MemTableList::InstallMemtableFlushResults(
     }
   }
 
+  assert(atomic_flush_commit_in_progress != nullptr);
   Status s;
-  if (atomic_flush_commit_in_progress_) {
+  if (*atomic_flush_commit_in_progress) {
     return s;
   }
 
-  atomic_flush_commit_in_progress_ = true;
+  *atomic_flush_commit_in_progress = true;
 
   while (s.ok()) {
     std::unordered_map<MemTable*, int> mem_to_idx;
@@ -498,7 +498,7 @@ Status MemTableList::InstallMemtableFlushResults(
     }
   }
 
-  atomic_flush_commit_in_progress_ = false;
+  *atomic_flush_commit_in_progress = false;
   return s;
 }
 

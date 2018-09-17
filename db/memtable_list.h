@@ -169,8 +169,9 @@ class MemTableList {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
-      LogsWithPrepTracker* prep_tracker, VersionSet* vset,
-      InstrumentedMutex* mu, const autovector<FileMetaData>& file_meta,
+      bool* atomic_flush_commit_in_progress, LogsWithPrepTracker* prep_tracker,
+      VersionSet* vset, InstrumentedMutex* mu,
+      const autovector<FileMetaData>& file_meta,
       autovector<MemTable*>* to_delete, Directory* db_directory,
       LogBuffer* log_buffer);
 
@@ -279,8 +280,6 @@ class MemTableList {
   }
 
  private:
-  static bool atomic_flush_commit_in_progress_;
-
   // DB mutex held
   void InstallNewVersion();
 
