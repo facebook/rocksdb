@@ -577,66 +577,59 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::MaybeDumpStats() {
-  mutex_.Lock();
-  unsigned int stats_dump_period_sec =
-      mutable_db_options_.stats_dump_period_sec;
-  mutex_.Unlock();
-  if (stats_dump_period_sec == 0) return;
+void DBImpl::StartTimedTasks() {
+  tqueue_.add(static_cast<int64_t>(
+              mutable_db_options_.stats_dump_period_sec * 1000),
+              std::bind(&DBImpl::MaybeDumpStats, this, std::placeholders::_1));
+}
 
-  const uint64_t now_micros = env_->NowMicros();
-
-  if (last_stats_dump_time_microsec_ + stats_dump_period_sec * 1000000 <=
-      now_micros) {
-    // Multiple threads could race in here simultaneously.
-    // However, the last one will update last_stats_dump_time_microsec_
-    // atomically. We could see more than one dump during one dump
-    // period in rare cases.
-    last_stats_dump_time_microsec_ = now_micros;
+std::pair<bool, int64_t> DBImpl::MaybeDumpStats(bool aborted) {
+  if (aborted) return std::make_pair(false, -1);
 
 #ifndef ROCKSDB_LITE
-    const DBPropertyInfo* cf_property_info =
-        GetPropertyInfo(DB::Properties::kCFStats);
-    assert(cf_property_info != nullptr);
-    const DBPropertyInfo* db_property_info =
-        GetPropertyInfo(DB::Properties::kDBStats);
-    assert(db_property_info != nullptr);
+  const DBPropertyInfo* cf_property_info =
+      GetPropertyInfo(DB::Properties::kCFStats);
+  assert(cf_property_info != nullptr);
+  const DBPropertyInfo* db_property_info =
+      GetPropertyInfo(DB::Properties::kDBStats);
+  assert(db_property_info != nullptr);
 
-    std::string stats;
-    {
-      InstrumentedMutexLock l(&mutex_);
-      default_cf_internal_stats_->GetStringProperty(
-          *db_property_info, DB::Properties::kDBStats, &stats);
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->initialized()) {
-          cfd->internal_stats()->GetStringProperty(
-              *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
-              &stats);
-        }
-      }
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->initialized()) {
-          cfd->internal_stats()->GetStringProperty(
-              *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
-        }
+  std::string stats;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    default_cf_internal_stats_->GetStringProperty(
+        *db_property_info, DB::Properties::kDBStats, &stats);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
+            &stats);
       }
     }
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "------- DUMPING STATS -------");
-    ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
-    if (immutable_db_options_.dump_malloc_stats) {
-      stats.clear();
-      DumpMallocStats(&stats);
-      if (!stats.empty()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "------- Malloc STATS -------");
-        ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
       }
     }
+  }
+  ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                 "------- DUMPING STATS -------");
+  ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+  if (immutable_db_options_.dump_malloc_stats) {
+    stats.clear();
+    DumpMallocStats(&stats);
+    if (!stats.empty()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "------- Malloc STATS -------");
+      ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+    }
+  }
 #endif  // !ROCKSDB_LITE
 
-    PrintStatistics();
-  }
+  PrintStatistics();
+
+  return std::make_pair(true, -1);
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
