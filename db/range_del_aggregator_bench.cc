@@ -3,9 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -15,6 +12,7 @@ int main() {
 #else
 
 #include <iostream>
+#include <iomanip>
 #include <memory>
 #include <random>
 #include <set>
@@ -52,18 +50,38 @@ DEFINE_bool(use_collapsed, true, "use the collapsed range tombstone map");
 
 DEFINE_int32(seed, 0, "random number generator seed");
 
+DEFINE_int32(should_deletes_per_run, 1, "number of ShouldDelete calls per run");
+
+namespace {
+
 struct Stats {
   uint64_t time_add_tombstones = 0;
-  uint64_t time_should_delete = 0;
+  uint64_t time_first_should_delete = 0;
+  uint64_t time_rest_should_delete = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const Stats& s) {
-  os << "AddTombstones:\t\t" << s.time_add_tombstones / (FLAGS_num_runs * 1.0e3)
+  std::ios fmt_holder(nullptr);
+  fmt_holder.copyfmt(os);
+
+  os << std::left;
+  os << std::setw(25)
+     << "AddTombstones: " << s.time_add_tombstones / (FLAGS_num_runs * 1.0e3)
      << " us\n";
-  os << "ShouldDelete:\t\t" << s.time_should_delete / (FLAGS_num_runs * 1.0e3)
-     << " us\n";
+  os << std::setw(25) << "ShouldDelete (first): "
+     << s.time_first_should_delete / (FLAGS_num_runs * 1.0e3) << " us\n";
+  if (FLAGS_should_deletes_per_run > 1) {
+    os << std::setw(25) << "ShouldDelete (rest): "
+       << s.time_rest_should_delete /
+              ((FLAGS_should_deletes_per_run - 1) * FLAGS_num_runs * 1.0e3)
+       << " us\n";
+  }
+
+  os.copyfmt(fmt_holder);
   return os;
 }
+
+}  // anonymous namespace
 
 namespace rocksdb {
 
@@ -76,7 +94,7 @@ struct PersistentRangeTombstone {
 
   PersistentRangeTombstone(std::string start, std::string end,
                            SequenceNumber seq)
-      : start_key(start), end_key(end) {
+      : start_key(std::move(start)), end_key(std::move(end)) {
     tombstone = RangeTombstone(start_key, end_key, seq);
   }
 
@@ -161,6 +179,9 @@ int main(int argc, char** argv) {
     rocksdb::RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
                                               FLAGS_use_collapsed);
 
+    // TODO(abhimadan): consider whether creating the range tombstones right
+    // before AddTombstones is artificially warming the cache compared to
+    // real workloads.
     for (int j = 0; j < FLAGS_num_range_tombstones; j++) {
       uint64_t start = rnd.Uniform(FLAGS_tombstone_start_upper_bound);
       uint64_t end = start + std::max(1.0, normal_dist(random_gen));
@@ -173,22 +194,33 @@ int main(int argc, char** argv) {
     rocksdb::AddTombstones(&range_del_agg, persistent_range_tombstones);
     stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
 
-    uint64_t key = rnd.Uniform(FLAGS_should_delete_upper_bound);
     rocksdb::ParsedInternalKey parsed_key;
-    std::string key_string = rocksdb::Key(key);
-    parsed_key.user_key = key_string;
     parsed_key.sequence = FLAGS_num_range_tombstones / 2;
     parsed_key.type = rocksdb::kTypeValue;
 
-    rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
-                                                    true /* auto_start */);
-    range_del_agg.ShouldDelete(parsed_key, mode);
-    stats.time_should_delete += stop_watch_should_delete.ElapsedNanos();
+    uint64_t first_key = rnd.Uniform(FLAGS_should_delete_upper_bound -
+                                     FLAGS_should_deletes_per_run + 1);
+
+    for (int j = 0; j < FLAGS_should_deletes_per_run; j++) {
+      std::string key_string = rocksdb::Key(first_key + j);
+      parsed_key.user_key = key_string;
+
+      rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
+          true /* auto_start */);
+      range_del_agg.ShouldDelete(parsed_key, mode);
+      uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
+
+      if (j == 0) {
+        stats.time_first_should_delete += call_time;
+      } else {
+        stats.time_rest_should_delete += call_time;
+      }
+    }
   }
 
-  std::cout << "=======================\n"
+  std::cout << "=========================\n"
             << "Results:\n"
-            << "=======================\n"
+            << "=========================\n"
             << stats;
 
   return 0;
