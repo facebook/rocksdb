@@ -920,6 +920,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "range_del_aggregator_bench",
+        "db/range_del_aggregator_bench.cc",
+        "serial",
+    ],
+    [
         "rate_limiter_test",
         "util/rate_limiter_test.cc",
         "serial",
