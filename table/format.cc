@@ -284,18 +284,18 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 }
 
 Status UncompressBlockContentsForCompressionType(
-    const UncompressionInfo& uncompression_info, const char* data, size_t n,
+    const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
     const ImmutableCFOptions& ioptions) {
   std::unique_ptr<char[]> ubuf;
 
-  assert(uncompression_info.type() != kNoCompression &&
+  assert(uncompression_ctx.type() != kNoCompression &&
          "Invalid compression type");
 
   StopWatchNano timer(ioptions.env,
     ShouldReportDetailedTime(ioptions.env, ioptions.statistics));
   int decompress_size = 0;
-  switch (uncompression_info.type()) {
+  switch (uncompression_ctx.type()) {
     case kSnappyCompression: {
       size_t ulength = 0;
       static char snappy_corrupt_msg[] =
@@ -312,7 +312,7 @@ Status UncompressBlockContentsForCompressionType(
     }
     case kZlibCompression:
       ubuf.reset(Zlib_Uncompress(
-          uncompression_info, data, n, &decompress_size,
+          uncompression_ctx, data, n, &decompress_size,
           GetCompressFormatForVersion(kZlibCompression, format_version)));
       if (!ubuf) {
         static char zlib_corrupt_msg[] =
@@ -336,7 +336,7 @@ Status UncompressBlockContentsForCompressionType(
       break;
     case kLZ4Compression:
       ubuf.reset(LZ4_Uncompress(
-          uncompression_info, data, n, &decompress_size,
+          uncompression_ctx, data, n, &decompress_size,
           GetCompressFormatForVersion(kLZ4Compression, format_version)));
       if (!ubuf) {
         static char lz4_corrupt_msg[] =
@@ -348,7 +348,7 @@ Status UncompressBlockContentsForCompressionType(
       break;
     case kLZ4HCCompression:
       ubuf.reset(LZ4_Uncompress(
-          uncompression_info, data, n, &decompress_size,
+          uncompression_ctx, data, n, &decompress_size,
           GetCompressFormatForVersion(kLZ4HCCompression, format_version)));
       if (!ubuf) {
         static char lz4hc_corrupt_msg[] =
@@ -370,8 +370,7 @@ Status UncompressBlockContentsForCompressionType(
       break;
     case kZSTD:
     case kZSTDNotFinalCompression:
-      ubuf.reset(
-          ZSTD_Uncompress(uncompression_info, data, n, &decompress_size));
+      ubuf.reset(ZSTD_Uncompress(uncompression_ctx, data, n, &decompress_size));
       if (!ubuf) {
         static char zstd_corrupt_msg[] =
             "ZSTD not supported or corrupted ZSTD compressed block contents";
@@ -401,14 +400,14 @@ Status UncompressBlockContentsForCompressionType(
 // buffer is returned via 'result' and it is upto the caller to
 // free this buffer.
 // format_version is the block format as defined in include/rocksdb/table.h
-Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
+Status UncompressBlockContents(const UncompressionContext& uncompression_ctx,
                                const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
                                const ImmutableCFOptions& ioptions) {
   assert(data[n] != kNoCompression);
-  assert(data[n] == uncompression_info.type());
+  assert(data[n] == uncompression_ctx.type());
   return UncompressBlockContentsForCompressionType(
-      uncompression_info, data, n, contents, format_version, ioptions);
+      uncompression_ctx, data, n, contents, format_version, ioptions);
 }
 
 }  // namespace rocksdb

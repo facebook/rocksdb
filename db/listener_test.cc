@@ -882,10 +882,13 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   ASSERT_EQ(1, listener->counter());
 
   // trigger flush so compaction is triggered again; this time it succeeds
+  // The previous failed compaction may get retried automatically, so we may
+  // be left with 0 or 1 files in level 1, depending on when the retry gets
+  // scheduled
   ASSERT_OK(Put("key0", "val"));
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_LE(1, NumTableFilesAtLevel(0));
 }
 
 }  // namespace rocksdb

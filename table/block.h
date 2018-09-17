@@ -468,10 +468,10 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
                   BlockPrefixIndex* prefix_index, bool key_includes_seq,
                   bool value_is_full, bool block_contents_pinned,
                   DataBlockHashIndex* /*data_block_hash_index*/) {
-    InitializeBase(comparator, data, restarts, num_restarts,
-                   kDisableGlobalSequenceNumber, block_contents_pinned);
+    InitializeBase(key_includes_seq ? comparator : user_comparator, data,
+                   restarts, num_restarts, kDisableGlobalSequenceNumber,
+                   block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
-    active_comparator_ = key_includes_seq_ ? comparator_ : user_comparator;
     key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
@@ -517,8 +517,6 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
   // Key is in InternalKey format
   bool key_includes_seq_;
   bool value_delta_encoded_;
-  // key_includes_seq_ ? comparator_ : user_comparator_
-  const Comparator* active_comparator_;
   BlockPrefixIndex* prefix_index_;
   // Whether the value is delta encoded. In that case the value is assumed to be
   // BlockHandle. The first value in each restart interval is the full encoded
@@ -535,11 +533,11 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
   inline int CompareBlockKey(uint32_t block_index, const Slice& target);
 
   inline int Compare(const Slice& a, const Slice& b) const {
-    return active_comparator_->Compare(a, b);
+    return comparator_->Compare(a, b);
   }
 
   inline int Compare(const IterKey& ikey, const Slice& b) const {
-    return active_comparator_->Compare(ikey.GetKey(), b);
+    return comparator_->Compare(ikey.GetKey(), b);
   }
 
   inline bool ParseNextIndexKey();

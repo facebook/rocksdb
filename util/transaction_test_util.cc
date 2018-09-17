@@ -137,6 +137,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
   std::random_shuffle(set_vec.begin(), set_vec.end(),
                       [&](uint64_t r) { return rand_->Uniform(r); });
+
   // For each set, pick a key at random and increment it
   for (uint16_t set_i : set_vec) {
     uint64_t int_value = 0;

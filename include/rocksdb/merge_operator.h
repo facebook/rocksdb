@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
-#define STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
+#pragma once
 
 #include <deque>
 #include <memory>
@@ -241,5 +240,3 @@ class AssociativeMergeOperator : public MergeOperator {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
