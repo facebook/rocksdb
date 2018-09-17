@@ -39,8 +39,15 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
 }
 
 SstFileManagerImpl::~SstFileManagerImpl() {
+  Close();
+}
+
+void SstFileManagerImpl::Close() {
   {
     MutexLock l(&mu_);
+    if (closing_) {
+      return;
+    }
     closing_ = true;
     cv_.SignalAll();
   }

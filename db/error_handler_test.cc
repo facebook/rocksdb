@@ -48,7 +48,8 @@ class ErrorHandlerListener : public EventListener {
         file_count_(0),
         fault_env_(nullptr) {}
 
-  void OnTableFileCreationStarted(const TableFileCreationBriefInfo& /*ti*/) {
+  void OnTableFileCreationStarted(
+      const TableFileCreationBriefInfo& /*ti*/) override {
     InstrumentedMutexLock l(&mutex_);
     file_creation_started_ = true;
     if (file_count_ > 0) {
@@ -61,13 +62,14 @@ class ErrorHandlerListener : public EventListener {
   }
 
   void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
-                            Status /*bg_error*/, bool* auto_recovery) {
+                            Status /*bg_error*/,
+                            bool* auto_recovery) override {
     if (*auto_recovery && no_auto_recovery_) {
       *auto_recovery = false;
     }
   }
 
-  void OnErrorRecoveryCompleted(Status /*old_bg_error*/) {
+  void OnErrorRecoveryCompleted(Status /*old_bg_error*/) override {
     InstrumentedMutexLock l(&mutex_);
     recovery_complete_ = true;
     cv_.SignalAll();
@@ -237,7 +239,6 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   Destroy(options);
 }
 
-#ifndef TRAVIS
 TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
@@ -307,17 +308,16 @@ TEST_F(DBErrorHandlingTest, WALWriteError) {
   options.env = fault_env.get();
   options.listeners.emplace_back(listener);
   Status s;
+  Random rnd(301);
 
   listener->EnableAutoRecovery();
   DestroyAndReopen(options);
 
   {
     WriteBatch batch;
-    char val[1024];
 
     for (auto i = 0; i<100; ++i) {
-      sprintf(val, "%d", i);
-      batch.Put(Key(i), Slice(val, sizeof(val)));
+      batch.Put(Key(i), RandomString(&rnd, 1024));
     }
 
     WriteOptions wopts;
@@ -327,12 +327,10 @@ TEST_F(DBErrorHandlingTest, WALWriteError) {
 
   {
     WriteBatch batch;
-    char val[1024];
     int write_error = 0;
 
     for (auto i = 100; i<199; ++i) {
-      sprintf(val, "%d", i);
-      batch.Put(Key(i), Slice(val, sizeof(val)));
+      batch.Put(Key(i), RandomString(&rnd, 1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack("WritableFileWriter::Append:BeforePrepareWrite", [&](void*) {
@@ -378,18 +376,17 @@ TEST_F(DBErrorHandlingTest, MultiCFWALWriteError) {
   options.env = fault_env.get();
   options.listeners.emplace_back(listener);
   Status s;
+  Random rnd(301);
 
   listener->EnableAutoRecovery();
   CreateAndReopenWithCF({"one", "two", "three"}, options);
 
   {
     WriteBatch batch;
-    char val[1024];
 
     for (auto i = 1; i < 4; ++i) {
       for (auto j = 0; j < 100; ++j) {
-        sprintf(val, "%d", j);
-        batch.Put(handles_[i], Key(j), Slice(val, sizeof(val)));
+        batch.Put(handles_[i], Key(j), RandomString(&rnd, 1024));
       }
     }
 
@@ -400,13 +397,11 @@ TEST_F(DBErrorHandlingTest, MultiCFWALWriteError) {
 
   {
     WriteBatch batch;
-    char val[1024];
     int write_error = 0;
 
     // Write to one CF
     for (auto i = 100; i < 199; ++i) {
-      sprintf(val, "%d", i);
-      batch.Put(handles_[2], Key(i), Slice(val, sizeof(val)));
+      batch.Put(handles_[2], Key(i), RandomString(&rnd, 1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -462,6 +457,7 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
   std::vector<DB*> db;
   std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
   int kNumDbInstances = 3;
+  Random rnd(301);
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
     listener.emplace_back(new ErrorHandlerListener());
@@ -489,11 +485,9 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
     WriteBatch batch;
-    char val[1024];
 
     for (auto j = 0; j <= 100; ++j) {
-      sprintf(val, "%d", j);
-      batch.Put(Key(j), Slice(val, sizeof(val)));
+      batch.Put(Key(j), RandomString(&rnd, 1024));
     }
 
     WriteOptions wopts;
@@ -505,12 +499,10 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
   def_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
   for (auto i = 0; i < kNumDbInstances; ++i) {
     WriteBatch batch;
-    char val[1024];
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      sprintf(val, "%d", j);
-      batch.Put(Key(j), Slice(val, sizeof(val)));
+      batch.Put(Key(j), RandomString(&rnd, 1024));
     }
 
     WriteOptions wopts;
@@ -561,6 +553,7 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
   std::vector<DB*> db;
   std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
   int kNumDbInstances = 3;
+  Random rnd(301);
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
     listener.emplace_back(new ErrorHandlerListener());
@@ -600,11 +593,9 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
     WriteBatch batch;
-    char val[1024];
 
     for (auto j = 0; j <= 100; ++j) {
-      sprintf(val, "%d", j);
-      batch.Put(Key(j), Slice(val, sizeof(val)));
+      batch.Put(Key(j), RandomString(&rnd, 1024));
     }
 
     WriteOptions wopts;
@@ -616,12 +607,10 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
   def_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
   for (auto i = 0; i < kNumDbInstances; ++i) {
     WriteBatch batch;
-    char val[1024];
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      sprintf(val, "%d", j);
-      batch.Put(Key(j), Slice(val, sizeof(val)));
+      batch.Put(Key(j), RandomString(&rnd, 1024));
     }
 
     WriteOptions wopts;
@@ -682,7 +671,6 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
   options.clear();
   delete def_env;
 }
-#endif
 
 }  // namespace rocksdb
 

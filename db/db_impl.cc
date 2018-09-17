@@ -216,6 +216,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // as well.
       use_custom_gc_(seq_per_batch),
       shutdown_initiated_(false),
+      own_sfm_(options.sst_file_manager == nullptr),
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(this, immutable_db_options_, &mutex_) {
@@ -519,6 +520,17 @@ Status DBImpl::CloseHelper() {
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
+
+#ifndef ROCKSDB_LITE
+  // If the sst_file_manager was allocated by us during DB::Open(), ccall
+  // Close() on it before closing the info_log. Otherwise, background thread
+  // in SstFileManagerImpl might try to log something
+  if (immutable_db_options_.sst_file_manager && own_sfm_) {
+    auto sfm = static_cast<SstFileManagerImpl*>(
+        immutable_db_options_.sst_file_manager.get());
+    sfm->Close();
+  }
+#endif // ROCKSDB_LITE
 
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();
