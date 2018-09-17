@@ -11,6 +11,7 @@
 
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
+#include "rocksdb/write_batch.h"
 
 #ifndef OS_WIN
 #  include <unistd.h>
@@ -29,6 +30,7 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include <queue>
 
 namespace rocksdb {
 

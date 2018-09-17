@@ -9,12 +9,12 @@
 
 #include "util/testutil.h"
 
-#include <cctype>
-#include <sstream>
-
 #include "db/memtable_list.h"
 #include "port/port.h"
 #include "util/file_reader_writer.h"
+
+#include <cctype>
+#include <sstream>
 
 namespace rocksdb {
 namespace test {

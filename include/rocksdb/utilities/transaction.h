@@ -7,18 +7,23 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include <vector>
-
-#include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
 #include "rocksdb/status.h"
+
+#include <atomic>
+#include <functional>
+#include <memory>
 
 namespace rocksdb {
 
+class ColumnFamilyHandle;
 class Iterator;
+class Snapshot;
 class TransactionDB;
+class WriteBatch;
 class WriteBatchWithIndex;
+
+struct ReadOptions;
+struct WriteOptions;
 
 using TransactionName = std::string;
 

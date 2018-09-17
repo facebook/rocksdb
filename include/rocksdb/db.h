@@ -8,23 +8,12 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <stdio.h>
-#include <map>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <vector>
-#include "rocksdb/iterator.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
-#include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
-#include "rocksdb/thread_status.h"
 #include "rocksdb/transaction_log.h"
-#include "rocksdb/types.h"
-#include "rocksdb/version.h"
+
+#include <unordered_map>
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -39,22 +28,22 @@
 
 namespace rocksdb {
 
-struct Options;
-struct DBOptions;
-struct ColumnFamilyOptions;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
-struct CompactionOptions;
-struct CompactRangeOptions;
-struct TableProperties;
-struct ExternalSstFileInfo;
-class WriteBatch;
 class Env;
 class EventListener;
+class Iterator;
 class TraceWriter;
+class WriteBatch;
 
-using std::unique_ptr;
+struct ColumnFamilyOptions;
+struct CompactionOptions;
+struct CompactRangeOptions;
+struct DBOptions;
+struct ExternalSstFileInfo;
+struct FlushOptions;
+struct Options;
+struct ReadOptions;
+struct TableProperties;
+struct WriteOptions;
 
 extern const std::string kDefaultColumnFamilyName;
 struct ColumnFamilyDescriptor {
@@ -979,7 +968,7 @@ class DB {
   // cleared aggressively and the iterator might keep getting invalid before
   // an update is read.
   virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions&
           read_options = TransactionLogIterator::ReadOptions()) = 0;
 

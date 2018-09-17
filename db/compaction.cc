@@ -13,13 +13,14 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <vector>
-
-#include "db/column_family.h"
+#include "db/compaction_picker.h"
+#include "db/version_set.h"
 #include "rocksdb/compaction_filter.h"
+#include "table/table_reader.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

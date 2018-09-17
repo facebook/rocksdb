@@ -5,6 +5,7 @@
 //
 #include "util/auto_roll_logger.h"
 #include "util/mutexlock.h"
+#include "rocksdb/write_batch.h"
 
 namespace rocksdb {
 

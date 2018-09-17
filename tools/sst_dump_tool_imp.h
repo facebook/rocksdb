@@ -6,14 +6,15 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
-
-#include <memory>
-#include <string>
 #include "db/dbformat.h"
 #include "options/cf_options.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
+
+class TableReader;
+
+struct TableBuilderOptions;
 
 class SstFileReader {
  public:

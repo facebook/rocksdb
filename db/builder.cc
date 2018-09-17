@@ -7,37 +7,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/builder.h"
-
-#include <algorithm>
-#include <deque>
-#include <vector>
-
-#include "db/compaction_iterator.h"
-#include "db/dbformat.h"
-#include "db/event_helpers.h"
 #include "db/internal_stats.h"
-#include "db/merge_helper.h"
+#include "db/compaction_iterator.h"
+#include "db/event_helpers.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
-#include "db/version_edit.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
-#include "rocksdb/table.h"
-#include "table/block_based_table_builder.h"
 #include "table/format.h"
-#include "table/internal_iterator.h"
-#include "util/file_reader_writer.h"
+#include "table/table_builder.h"
 #include "util/filename.h"
-#include "util/stop_watch.h"
-#include "util/sync_point.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
-
-class TableFactory;
 
 TableBuilder* NewTableBuilder(
     const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,

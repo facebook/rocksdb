@@ -5,9 +5,7 @@
 //
 #pragma once
 
-#include <stdint.h>
-#include <cassert>
-#include <cstdlib>
+#include <cstdint>
 #include <mutex>
 #include <unordered_map>
 #include <vector>

@@ -6,10 +6,10 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <array>
 #include "rocksdb/slice.h"
-#include "db/dbformat.h"
 #include "table/plain_table_reader.h"
+
+#include <array>
 
 namespace rocksdb {
 
@@ -114,7 +114,7 @@ class PlainTableFileReader {
   };
 
   // Keep buffers for two recent reads.
-  std::array<unique_ptr<Buffer>, 2> buffers_;
+  std::array<std::unique_ptr<Buffer>, 2> buffers_;
   uint32_t num_buf_;
   Status status_;
 

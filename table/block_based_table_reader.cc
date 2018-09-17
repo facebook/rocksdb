@@ -8,48 +8,20 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based_table_reader.h"
 
-#include <algorithm>
-#include <array>
-#include <limits>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "db/dbformat.h"
-#include "db/pinned_iterators_manager.h"
-
-#include "rocksdb/cache.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
+#include "options/cf_options.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/table.h"
-#include "rocksdb/table_properties.h"
-
-#include "table/block.h"
 #include "table/block_based_filter_block.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_fetcher.h"
-#include "table/block_prefix_index.h"
-#include "table/filter_block.h"
-#include "table/format.h"
-#include "table/full_filter_block.h"
 #include "table/get_context.h"
-#include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/partitioned_filter_block.h"
-#include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
-#include "table/two_level_iterator.h"
+#include "table/table_properties_internal.h"
 
-#include "monitoring/perf_context_imp.h"
-#include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/logging.h"
 #include "util/stop_watch.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

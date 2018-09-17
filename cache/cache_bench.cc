@@ -6,17 +6,16 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#ifndef GFLAGS
+
 #include <cstdio>
+
+#ifndef GFLAGS
+
 int main() {
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
   return 1;
 }
 #else
-
-#include <inttypes.h>
-#include <sys/types.h>
-#include <stdio.h>
 
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -25,6 +24,9 @@ int main() {
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+
+#include <inttypes.h>
+#include <sys/types.h>
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 

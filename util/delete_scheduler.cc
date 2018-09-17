@@ -7,13 +7,7 @@
 
 #include "util/delete_scheduler.h"
 
-#include <thread>
-#include <vector>
-
-#include "port/port.h"
-#include "rocksdb/env.h"
 #include "util/logging.h"
-#include "util/mutexlock.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 

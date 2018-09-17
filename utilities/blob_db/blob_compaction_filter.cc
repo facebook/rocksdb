@@ -5,8 +5,12 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_compaction_filter.h"
 #include "db/dbformat.h"
+#include "monitoring/statistics.h"
+#include "rocksdb/write_batch.h"
+#include "utilities/blob_db/blob_compaction_filter.h"
+#include "utilities/blob_db/blob_index.h"
+#include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
 namespace blob_db {

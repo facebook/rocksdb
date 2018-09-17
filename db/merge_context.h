@@ -4,10 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include <string>
-#include <vector>
+
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
+
+#include <algorithm>
 
 namespace rocksdb {
 

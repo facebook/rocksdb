@@ -4,24 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "options/options_helper.h"
 
-#include <cassert>
-#include <cctype>
-#include <cstdlib>
-#include <unordered_set>
-#include <vector>
-#include "rocksdb/cache.h"
+#include "options/db_options.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/memtablerep.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
-#include "rocksdb/slice_transform.h"
-#include "rocksdb/table.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/cast_util.h"
+#include "util/logging.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

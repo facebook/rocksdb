@@ -5,9 +5,13 @@
 
 #pragma once
 
-#include "rocksdb/env.h"
+#include "rocksdb/status.h"
+#include <memory>
 
 namespace rocksdb {
+
+class Env;
+struct EnvOptions;
 
 // Allow custom implementations of TraceWriter and TraceReader.
 // By default, RocksDB provides a way to capture the traces to a file using the

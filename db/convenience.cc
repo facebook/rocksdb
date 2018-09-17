@@ -6,10 +6,13 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/convenience.h"
-
 #include "db/db_impl.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/table.h"
+#include "table/table_builder.h"
+#include "table/table_reader.h"
 #include "util/cast_util.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

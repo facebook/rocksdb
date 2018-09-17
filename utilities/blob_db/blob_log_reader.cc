@@ -6,10 +6,6 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_log_reader.h"
-
-#include <algorithm>
-
-#include "monitoring/statistics.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 

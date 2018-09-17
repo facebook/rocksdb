@@ -11,7 +11,6 @@
 #ifndef ROCKSDB_LITE
 #pragma once
 
-#include <string>
 #include "rocksdb/db.h"
 #include "redis_list_iterator.h"
 #include "redis_list_exception.h"

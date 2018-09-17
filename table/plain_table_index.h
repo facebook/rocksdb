@@ -7,16 +7,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include <vector>
-
-#include "db/dbformat.h"
 #include "monitoring/histogram.h"
 #include "options/cf_options.h"
-#include "rocksdb/options.h"
-#include "util/arena.h"
 #include "util/hash.h"
-#include "util/murmurhash.h"
+#include "util/coding.h"
 
 namespace rocksdb {
 

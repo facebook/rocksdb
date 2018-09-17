@@ -6,6 +6,7 @@
 #pragma once
 
 #include "rocksdb/trace_reader_writer.h"
+#include <memory>
 
 namespace rocksdb {
 
@@ -22,7 +23,7 @@ class FileTraceReader : public TraceReader {
   virtual Status Close() override;
 
  private:
-  unique_ptr<RandomAccessFileReader> file_reader_;
+  std::unique_ptr<RandomAccessFileReader> file_reader_;
   Slice result_;
   size_t offset_;
   char* const buffer_;
@@ -41,7 +42,7 @@ class FileTraceWriter : public TraceWriter {
   virtual Status Close() override;
 
  private:
-  unique_ptr<WritableFileWriter> file_writer_;
+  std::unique_ptr<WritableFileWriter> file_writer_;
 };
 
 }  // namespace rocksdb

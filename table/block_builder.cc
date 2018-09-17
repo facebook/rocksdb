@@ -33,12 +33,8 @@
 
 #include "table/block_builder.h"
 
-#include <assert.h>
-#include <algorithm>
 #include "db/dbformat.h"
-#include "rocksdb/comparator.h"
 #include "table/data_block_footer.h"
-#include "util/coding.h"
 
 namespace rocksdb {
 

@@ -5,38 +5,23 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db_impl.h"
-#include <algorithm>
-#include <cinttypes>
-#include <iomanip>
-#include <memory>
 
 #include "db/db_impl.h"
-#include "db/write_batch_internal.h"
-#include "monitoring/instrumented_mutex.h"
-#include "monitoring/statistics.h"
-#include "rocksdb/convenience.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/utilities/transaction.h"
-#include "table/block.h"
 #include "table/block_based_table_builder.h"
-#include "table/block_builder.h"
-#include "table/meta_blocks.h"
+#include "table/format.h"
 #include "util/cast_util.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/logging.h"
-#include "util/mutexlock.h"
-#include "util/random.h"
-#include "util/stop_watch.h"
-#include "util/sync_point.h"
-#include "util/timer_queue.h"
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/blob_db/blob_db_listener.h"
 #include "utilities/blob_db/blob_index.h"
+#include "utilities/blob_db/blob_file.h"
+#include "utilities/blob_db/blob_log_reader.h"
+#include "utilities/blob_db/blob_log_writer.h"
+
+#include <cinttypes>
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;

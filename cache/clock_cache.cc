@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "cache/clock_cache.h"
+#include "rocksdb/cache.h"
 
 #ifndef SUPPORT_CLOCK_CACHE
 
@@ -23,7 +24,7 @@ std::shared_ptr<Cache> NewClockCache(size_t /*capacity*/, int /*num_shard_bits*/
 
 #else
 
-#include <assert.h>
+#include <cassert>
 #include <atomic>
 #include <deque>
 

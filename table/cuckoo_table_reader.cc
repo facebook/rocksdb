@@ -10,19 +10,12 @@
 #ifndef ROCKSDB_LITE
 #include "table/cuckoo_table_reader.h"
 
-#include <algorithm>
-#include <limits>
-#include <string>
-#include <utility>
-#include <vector>
-#include "rocksdb/iterator.h"
-#include "rocksdb/table.h"
-#include "table/internal_iterator.h"
+#include "options/cf_options.h"
 #include "table/meta_blocks.h"
 #include "table/cuckoo_table_factory.h"
 #include "table/get_context.h"
 #include "util/arena.h"
-#include "util/coding.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace {

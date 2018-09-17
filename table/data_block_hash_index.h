@@ -5,10 +5,8 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include "rocksdb/slice.h"
+#include <vector>
 
 namespace rocksdb {
 // This is an experimental feature aiming to reduce the CPU utilization of

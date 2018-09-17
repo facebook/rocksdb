@@ -5,31 +5,19 @@
 //
 #pragma once
 
-#include <deque>
+#include "db/memtable.h"
+#include "util/autovector.h"
+
 #include <limits>
 #include <list>
-#include <set>
-#include <string>
-#include <vector>
-
-#include "db/dbformat.h"
-#include "db/logs_with_prep_tracker.h"
-#include "db/memtable.h"
-#include "db/range_del_aggregator.h"
-#include "monitoring/instrumented_mutex.h"
-#include "rocksdb/db.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
-#include "rocksdb/types.h"
-#include "util/autovector.h"
-#include "util/filename.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 
 class ColumnFamilyData;
 class InternalKeyComparator;
 class InstrumentedMutex;
+class LogBuffer;
+class LogsWithPrepTracker;
 class MergeIteratorBuilder;
 
 // keeps a list of immutable memtables in a vector. the list is immutable

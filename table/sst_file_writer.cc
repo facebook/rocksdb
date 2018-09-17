@@ -5,9 +5,10 @@
 
 #include "rocksdb/sst_file_writer.h"
 
-#include <vector>
-#include "db/dbformat.h"
+#include "options/cf_options.h"
+#include "rocksdb/db.h"
 #include "rocksdb/table.h"
+#include "rocksdb/write_batch.h"
 #include "table/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
 #include "util/file_reader_writer.h"

@@ -10,29 +10,19 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <mutex>
-#include <queue>
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
-#include "db/db_iter.h"
+#include "db/db_impl.h"
 #include "db/pre_release_callback.h"
-#include "db/read_callback.h"
-#include "db/snapshot_checker.h"
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/utilities/transaction_db.h"
+#include "util/logging.h"
 #include "util/set_comparator.h"
 #include "util/string_util.h"
-#include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/transaction_lock_mgr.h"
-#include "utilities/transactions/write_prepared_txn.h"
+
+#include <cinttypes>
 
 namespace rocksdb {
+
+class WritePreparedTxn;
 
 #define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
   ;  // due to overhead by default skip such lines

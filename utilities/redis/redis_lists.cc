@@ -22,14 +22,13 @@
  */
 
 #ifndef ROCKSDB_LITE
+
 #include "redis_lists.h"
 
-#include <iostream>
-#include <memory>
-#include <cmath>
+#include "rocksdb/write_batch.h"
 
-#include "rocksdb/slice.h"
-#include "util/coding.h"
+#include <iostream>
+#include <cmath>
 
 namespace rocksdb
 {

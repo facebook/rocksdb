@@ -5,8 +5,9 @@
 
 #pragma once
 
-#include <stdint.h>
 #include "rocksdb/slice.h"
+
+#include <cstdint>
 
 namespace rocksdb {
 

@@ -9,12 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/options.h"
+
 #include <limits>
 #include <utility>
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
 
 namespace rocksdb {
 namespace blob_db {

@@ -7,10 +7,14 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/db.h"
+#include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
+#include <vector>
+
 namespace rocksdb {
+
+class DB;
 
 // Data associated with a particular version of a key. A database may internally
 // store multiple versions of a same user key due to snapshots, compaction not

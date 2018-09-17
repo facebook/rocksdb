@@ -5,16 +5,14 @@
 
 #pragma once
 
-#include <string>
-
-#include "monitoring/thread_status_updater.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
 
 namespace rocksdb {
 
 class ColumnFamilyData;
+class DB;
+class Env;
+class ThreadStatusUpdater;
 
 // The static utility class for updating thread-local status.
 //

@@ -5,8 +5,7 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <string>
+#include <cstddef>
 
 namespace rocksdb {
 

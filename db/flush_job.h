@@ -8,49 +8,35 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <atomic>
-#include <deque>
-#include <limits>
-#include <set>
-#include <utility>
-#include <vector>
-#include <string>
-
-#include "db/column_family.h"
-#include "db/dbformat.h"
-#include "db/flush_scheduler.h"
-#include "db/internal_stats.h"
-#include "db/job_context.h"
-#include "db/log_writer.h"
-#include "db/logs_with_prep_tracker.h"
-#include "db/memtable_list.h"
-#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
-#include "db/write_controller.h"
-#include "db/write_thread.h"
-#include "monitoring/instrumented_mutex.h"
-#include "options/db_options.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/memtablerep.h"
-#include "rocksdb/transaction_log.h"
-#include "table/scoped_arena_iterator.h"
+#include "rocksdb/table_properties.h"
 #include "util/autovector.h"
-#include "util/event_logger.h"
-#include "util/stop_watch.h"
-#include "util/thread_local.h"
+
+#include <atomic>
 
 namespace rocksdb {
 
+class Arena;
+class ColumnFamilyData;
 class DBImpl;
+class EventLogger;
+class InstrumentedMutex;
+class LogBuffer;
+class LogsWithPrepTracker;
 class MemTable;
 class SnapshotChecker;
+class Statistics;
 class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
-class Arena;
+
+struct ImmutableDBOptions;
+struct JobContext;
+struct MutableCFOptions;
+
+enum CompressionType : unsigned char;
+
 
 class FlushJob {
  public:

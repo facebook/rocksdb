@@ -14,18 +14,19 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <string>
-#include <map>
-#include <vector>
-#include <functional>
-
-#include "rocksdb/utilities/stackable_db.h"
-
-#include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
+#include <vector>
+#include <functional>
+#include <memory>
+#include <climits>
+
 namespace rocksdb {
+
+class DB;
+class Env;
+class Logger;
+class RateLimiter;
 
 struct BackupableDBOptions {
   // Where to keep the backup files. Has to be different than dbname_

@@ -5,33 +5,26 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/utilities/spatial_db.h"
-
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <algorithm>
-#include <condition_variable>
-#include <inttypes.h>
-#include <string>
-#include <vector>
-#include <mutex>
-#include <thread>
-#include <set>
-#include <unordered_set>
+#include "utilities/spatialdb/utils.h"
+
+#include "port/port.h"
 
 #include "rocksdb/cache.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
-#include "rocksdb/db.h"
-#include "rocksdb/utilities/stackable_db.h"
+#include "rocksdb/write_batch.h"
 #include "util/coding.h"
-#include "utilities/spatialdb/utils.h"
-#include "port/port.h"
+
+#include <condition_variable>
+#include <cinttypes>
+#include <unordered_set>
 
 namespace rocksdb {
 namespace spatial {

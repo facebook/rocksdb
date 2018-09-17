@@ -7,9 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "rocksdb/utilities/info_log_finder.h"
-#include "rocksdb/env.h"
-#include "util/filename.h"
+#include "db/db_impl.h"
 
 namespace rocksdb {
 

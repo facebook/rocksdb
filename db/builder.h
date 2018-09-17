@@ -6,35 +6,33 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
-#include <string>
-#include <utility>
-#include <vector>
-#include "db/table_properties_collector.h"
-#include "options/cf_options.h"
-#include "rocksdb/comparator.h"
+
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/options.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table_properties.h"
-#include "rocksdb/types.h"
-#include "table/scoped_arena_iterator.h"
-#include "util/event_logger.h"
+#include "table/merging_iterator.h"
 
 namespace rocksdb {
 
-struct Options;
-struct FileMetaData;
+enum CompressionType : unsigned char;
 
-class Env;
-struct EnvOptions;
+struct CompressionOptions;
+struct FileMetaData;
+struct ImmutableCFOptions;
+struct MutableCFOptions;
+struct Options;
+struct TableProperties;
+
+class EventLogger;
+class InternalKeyComparator;
+class InternalStats;
+class IntTblPropCollectorFactory;
 class Iterator;
 class SnapshotChecker;
+class TableBuilder;
 class TableCache;
 class VersionEdit;
-class TableBuilder;
 class WritableFileWriter;
-class InternalStats;
+
 
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown. It must outlive the

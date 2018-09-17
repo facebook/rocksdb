@@ -10,9 +10,14 @@
 #pragma once
 
 #include "monitoring/histogram.h"
-#include "rocksdb/env.h"
+
+#include <memory>
 
 namespace rocksdb {
+
+class Env;
+
+struct HistogramStat;
 
 class HistogramWindowingImpl : public Histogram
 {

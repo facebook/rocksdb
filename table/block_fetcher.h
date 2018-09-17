@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include "table/block.h"
+
 #include "table/format.h"
 
 namespace rocksdb {

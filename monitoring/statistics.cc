@@ -9,11 +9,9 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include "rocksdb/statistics.h"
-#include "port/likely.h"
-#include <algorithm>
-#include <cstdio>
+#include "util/mutexlock.h"
+
+#include <cinttypes>
 
 namespace rocksdb {
 

@@ -6,14 +6,11 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <map>
-#include <string>
-#include <vector>
+#include "rocksdb/utilities/date_tiered_db.h"
 
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/utilities/date_tiered_db.h"
 
 namespace rocksdb {
 

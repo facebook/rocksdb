@@ -6,14 +6,6 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
-
-#include <string>
-#include <vector>
-
-#include "db/db_impl.h"
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "utilities/transactions/optimistic_transaction.h"
 
 namespace rocksdb {

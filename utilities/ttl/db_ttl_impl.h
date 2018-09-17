@@ -5,17 +5,12 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <deque>
-#include <string>
-#include <vector>
 
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
+#include "db/db_impl.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/utility_db.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "db/db_impl.h"
+#include "util/logging.h"
 
 #ifdef _WIN32
 // Windows API macro interference

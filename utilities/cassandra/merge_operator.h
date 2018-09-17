@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/slice.h"
 
 namespace rocksdb {
 namespace cassandra {

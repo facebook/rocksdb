@@ -16,15 +16,14 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "rocksdb/status.h"
+#include "rocksdb/thread_status.h"
+
 #include <cstdarg>
 #include <functional>
 #include <limits>
 #include <memory>
-#include <string>
 #include <vector>
-#include "rocksdb/status.h"
-#include "rocksdb/thread_status.h"
 
 #ifdef _WIN32
 // Windows API macro interference

@@ -11,16 +11,19 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
 
 #include "db/builder.h"
-#include "db/error_handler.h"
-#include "options/options_helper.h"
+#include "db/internal_stats.h"
+#include "db/snapshot_checker.h"
 #include "rocksdb/wal_filter.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/block_based_table_factory.h"
-#include "util/rate_limiter.h"
+#include "table/scoped_arena_iterator.h"
+#include "util/file_reader_writer.h"
+#include "util/logging.h"
 #include "util/sst_file_manager_impl.h"
-#include "util/sync_point.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 Options SanitizeOptions(const std::string& dbname,

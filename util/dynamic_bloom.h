@@ -5,14 +5,10 @@
 
 #pragma once
 
-#include <string>
-
 #include "rocksdb/slice.h"
-
 #include "port/port.h"
 
 #include <atomic>
-#include <memory>
 
 namespace rocksdb {
 

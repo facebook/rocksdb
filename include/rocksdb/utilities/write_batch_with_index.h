@@ -12,21 +12,16 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <memory>
-#include <string>
-
-#include "rocksdb/comparator.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
-#include "rocksdb/write_batch_base.h"
+#include "rocksdb/comparator.h"
+
+#include <memory>
 
 namespace rocksdb {
 
 class ColumnFamilyHandle;
-class Comparator;
 class DB;
+class Iterator;
 class ReadCallback;
 struct ReadOptions;
 struct DBOptions;

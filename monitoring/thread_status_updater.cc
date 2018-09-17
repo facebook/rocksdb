@@ -4,10 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "monitoring/thread_status_updater.h"
-#include <memory>
 #include "port/likely.h"
 #include "rocksdb/env.h"
-#include "util/mutexlock.h"
 
 namespace rocksdb {
 

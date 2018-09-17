@@ -9,11 +9,9 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <limits>
-#include <string>
 #include "db/db_impl.h"
 #include "db/memtable.h"
+#include "db/range_del_aggregator.h"
 #include "db/version_set.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
@@ -21,8 +19,11 @@
 #include "rocksdb/iterator.h"
 #include "table/merging_iterator.h"
 #include "util/coding.h"
+#include "util/logging.h"
 #include "util/log_buffer.h"
 #include "util/sync_point.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

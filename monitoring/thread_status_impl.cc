@@ -4,12 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include <sstream>
-
-#include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
 #include "util/string_util.h"
 #include "util/thread_operation.h"
+
+#include <cassert>
 
 namespace rocksdb {
 

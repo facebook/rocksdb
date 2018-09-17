@@ -7,16 +7,17 @@
 
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
-#include "rocksdb/write_batch.h"
+
 #include <memory>
 #include <vector>
 
 namespace rocksdb {
 
 class LogFile;
+class WriteBatch;
 typedef std::vector<std::unique_ptr<LogFile>> VectorLogPtr;
 
-enum  WalFileType {
+enum  WalFileType : unsigned char {
   /* Indicates that WAL file is in archive directory. WAL files are moved from
    * the main db directory to archive directory once they are not live and stay
    * there until cleaned up. Files are cleaned depending on archive size

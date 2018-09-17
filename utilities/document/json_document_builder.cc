@@ -4,11 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#include <assert.h>
-#include <limits>
-#include <stdint.h>
+
 #include "rocksdb/utilities/json_document.h"
 #include "third-party/fbson/FbsonWriter.h"
+
+#include <limits>
 
 namespace rocksdb {
 JSONDocumentBuilder::JSONDocumentBuilder()

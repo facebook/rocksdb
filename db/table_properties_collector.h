@@ -9,8 +9,6 @@
 #include "rocksdb/table_properties.h"
 
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace rocksdb {
 

@@ -8,12 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/cache.h"
-
-#include <forward_list>
-#include <functional>
-#include <iostream>
-#include <string>
-#include <vector>
 #include "cache/clock_cache.h"
 #include "cache/lru_cache.h"
 #include "util/coding.h"

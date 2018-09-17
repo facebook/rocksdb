@@ -7,15 +7,16 @@
 
 #pragma once
 
+#include "rocksdb/status.h"
+
 #include <map>
-#include <string>
 #include <unordered_set>
 #include <vector>
 
-#include "rocksdb/cache.h"
-#include "rocksdb/db.h"
-
 namespace rocksdb {
+
+class Cache;
+class DB;
 
 // Returns the current memory usage of the specified DB instances.
 class MemoryUtil {

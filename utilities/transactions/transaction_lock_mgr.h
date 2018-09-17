@@ -6,22 +6,20 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <chrono>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
 #include "monitoring/instrumented_mutex.h"
-#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "util/autovector.h"
 #include "util/hash_map.h"
-#include "util/thread_local.h"
-#include "utilities/transactions/pessimistic_transaction.h"
+#include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
 class ColumnFamilyHandle;
+class Slice;
+class PessimisticTransactionDB;
+class PessimisticTransaction;
+class ThreadLocalPtr;
+
 struct LockInfo;
 struct LockMap;
 struct LockMapStripe;
@@ -47,9 +45,6 @@ struct TrackedTrxInfo {
   std::string m_waiting_key;
   bool m_exclusive;
 };
-
-class Slice;
-class PessimisticTransactionDB;
 
 class TransactionLockMgr {
  public:

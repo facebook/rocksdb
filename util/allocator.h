@@ -11,13 +11,14 @@
 // when the allocator object is destroyed. See the Arena class for more info.
 
 #pragma once
-#include <cerrno>
+
+#include <atomic>
 #include <cstddef>
-#include "rocksdb/write_buffer_manager.h"
 
 namespace rocksdb {
 
 class Logger;
+class WriteBufferManager;
 
 class Allocator {
  public:

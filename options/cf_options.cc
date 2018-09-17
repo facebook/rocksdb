@@ -9,14 +9,10 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <cassert>
-#include <limits>
-#include <string>
 #include "options/db_options.h"
-#include "port/port.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
+#include "util/logging.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

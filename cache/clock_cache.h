@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include "rocksdb/cache.h"
-
 #if defined(TBB) && !defined(ROCKSDB_LITE)
 #define SUPPORT_CLOCK_CACHE
 #endif

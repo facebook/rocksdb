@@ -5,19 +5,15 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <stdint.h>
-#include <limits>
-#include <string>
-#include <utility>
-#include <vector>
+
 #include "port/port.h"
-#include "rocksdb/status.h"
 #include "table/table_builder.h"
-#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
+
+class WritableFileWriter;
 
 class CuckooTableBuilder: public TableBuilder {
  public:

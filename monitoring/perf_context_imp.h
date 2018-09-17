@@ -6,7 +6,6 @@
 #pragma once
 #include "monitoring/perf_step_timer.h"
 #include "rocksdb/perf_context.h"
-#include "util/stop_watch.h"
 
 namespace rocksdb {
 #if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)

@@ -8,18 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include "rocksdb/env.h"
+#include "port/port.h"
+
 #include <atomic>
 #include <map>
-#include <string>
-#include <vector>
-#include "rocksdb/env.h"
-#include "rocksdb/status.h"
-#include "port/port.h"
-#include "util/mutexlock.h"
 
 namespace rocksdb {
 
 class MemFile;
+
 class MockEnv : public EnvWrapper {
  public:
   explicit MockEnv(Env* base_env);

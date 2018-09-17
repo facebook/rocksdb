@@ -7,24 +7,16 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stdio.h>
-#include <stdlib.h>
+#include "rocksdb/utilities/ldb_cmd_execute_result.h"
+#include "rocksdb/db.h"
+#include "rocksdb/ldb_tool.h"
+
 #include <algorithm>
 #include <functional>
-#include <map>
-#include <sstream>
-#include <string>
-#include <vector>
-
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/ldb_tool.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/utilities/db_ttl.h"
-#include "rocksdb/utilities/ldb_cmd_execute_result.h"
 
 namespace rocksdb {
+
+class DBWithTTL;
 
 class LDBCommand {
  public:

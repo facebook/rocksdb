@@ -7,21 +7,21 @@
 #ifndef ROCKSDB_LITE
 
 #include "util/auto_roll_logger.h"
-#include <errno.h>
+
+#include "env/posix_logger.h"
+
+#include "port/port.h"
+#include "rocksdb/db.h"
+#include "rocksdb/write_batch.h"
+#include "util/logging.h"
+#include "util/sync_point.h"
+#include "util/testharness.h"
+
+#include <cerrno>
 #include <sys/stat.h>
 #include <algorithm>
 #include <cmath>
 #include <fstream>
-#include <iostream>
-#include <iterator>
-#include <string>
-#include <thread>
-#include <vector>
-#include "port/port.h"
-#include "rocksdb/db.h"
-#include "util/logging.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 namespace {

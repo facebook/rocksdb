@@ -9,13 +9,14 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <iostream>
-
 #include "rocksdb/db.h"
 #include "rocksdb/db_dump_tool.h"
-#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/write_batch.h"
 #include "util/coding.h"
+
+#include <cinttypes>
+#include <iostream>
 
 namespace rocksdb {
 

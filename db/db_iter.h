@@ -8,21 +8,26 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
-#include <string>
-#include "db/db_impl.h"
-#include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
-#include "options/cf_options.h"
-#include "rocksdb/db.h"
+
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
+#include "table/internal_iterator.h"
 #include "util/arena.h"
-#include "util/autovector.h"
 
 namespace rocksdb {
 
 class Arena;
+class ColumnFamilyData;
 class DBIter;
+class DBImpl;
+class Env;
+class RangeDelAggregator;
+class ReadCallback;
+
+
+struct ImmutableCFOptions;
+struct MutableCFOptions;
+struct ReadOptions;
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number

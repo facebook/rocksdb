@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <stddef.h>
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -18,7 +18,6 @@ class Comparator;
 class Env;
 class FilterPolicy;
 class Logger;
-struct Options;
 class Snapshot;
 
 enum CompressionType : unsigned char;

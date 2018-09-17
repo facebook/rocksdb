@@ -8,67 +8,33 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <atomic>
-#include <deque>
-#include <functional>
-#include <limits>
-#include <list>
-#include <map>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "db/column_family.h"
-#include "db/compaction_job.h"
-#include "db/dbformat.h"
+#include "db/compaction.h"
 #include "db/error_handler.h"
-#include "db/event_helpers.h"
-#include "db/external_sst_file_ingestion_job.h"
-#include "db/flush_job.h"
 #include "db/flush_scheduler.h"
-#include "db/internal_stats.h"
-#include "db/log_writer.h"
+#include "db/job_context.h"
 #include "db/logs_with_prep_tracker.h"
-#include "db/pre_release_callback.h"
-#include "db/read_callback.h"
-#include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
-#include "db/version_edit.h"
 #include "db/wal_manager.h"
-#include "db/write_controller.h"
-#include "db/write_thread.h"
-#include "memtable_list.h"
-#include "monitoring/instrumented_mutex.h"
-#include "options/db_options.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/memtablerep.h"
-#include "rocksdb/status.h"
-#include "rocksdb/trace_reader_writer.h"
-#include "rocksdb/transaction_log.h"
-#include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
-#include "util/autovector.h"
 #include "util/event_logger.h"
-#include "util/hash.h"
-#include "util/stop_watch.h"
-#include "util/thread_local.h"
-#include "util/trace_replay.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 
 class Arena;
 class ArenaWrappedDBIter;
+class ExternalSstFileIngestionJob;
 class MemTable;
+class SnapshotChecker;
 class TableCache;
+class Tracer;
 class Version;
 class VersionEdit;
 class VersionSet;
 class WriteCallback;
-struct JobContext;
+
+struct DBPropertyInfo;
 struct ExternalSstFileInfo;
+struct JobContext;
 struct MemTableInfo;
 
 class DBImpl : public DB {
@@ -255,7 +221,7 @@ class DBImpl : public DB {
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
 
   virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions&
           read_options = TransactionLogIterator::ReadOptions()) override;
   virtual Status DeleteFile(std::string name) override;
@@ -699,7 +665,7 @@ class DBImpl : public DB {
  protected:
   Env* const env_;
   const std::string dbname_;
-  unique_ptr<VersionSet> versions_;
+  std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
   const DBOptions initial_db_options_;
@@ -1140,7 +1106,7 @@ class DBImpl : public DB {
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
-  unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
+  std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number)
         : number(_number) {}
@@ -1254,7 +1220,7 @@ class DBImpl : public DB {
 
   WriteController write_controller_;
 
-  unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
+  std::unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.

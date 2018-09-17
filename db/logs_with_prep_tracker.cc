@@ -4,8 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "db/logs_with_prep_tracker.h"
-
 #include "port/likely.h"
+
+#include <cassert>
 
 namespace rocksdb {
 void LogsWithPrepTracker::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {

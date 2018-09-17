@@ -11,15 +11,6 @@
 #ifndef ROCKSDB_HDFS_FILE_C
 #define ROCKSDB_HDFS_FILE_C
 
-#include <algorithm>
-#include <stdio.h>
-#include <sys/time.h>
-#include <time.h>
-#include <iostream>
-#include <sstream>
-#include "rocksdb/status.h"
-#include "util/string_util.h"
-
 #define HDFS_EXISTS 0
 #define HDFS_DOESNT_EXIST -1
 #define HDFS_SUCCESS 0

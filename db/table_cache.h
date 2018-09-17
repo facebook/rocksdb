@@ -10,27 +10,26 @@
 // Thread-safe (provides internal synchronization)
 
 #pragma once
-#include <string>
-#include <vector>
-#include <stdint.h>
 
-#include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
-#include "options/cf_options.h"
-#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/table_reader.h"
+#include "table/merging_iterator.h"
 
 namespace rocksdb {
 
-class Env;
 class Arena;
-struct FileDescriptor;
+class Env;
 class GetContext;
 class HistogramImpl;
+class InternalKeyComparator;
+class RangeDelAggregator;
+class SliceTransform;
+
+struct FileDescriptor;
+struct FileMetaData;
+struct ImmutableCFOptions;
+struct ReadOptions;
+struct TableProperties;
 
 class TableCache {
  public:

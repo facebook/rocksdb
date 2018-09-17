@@ -12,6 +12,7 @@
 
 #pragma once
 #include "port/port.h"
+#include "util/log_buffer.h"
 
 // Helper macros that include information about file name and line number
 #define STRINGIFY(x) #x

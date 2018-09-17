@@ -11,12 +11,16 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
-#include "db/error_handler.h"
-#include "db/event_helpers.h"
-#include "monitoring/perf_context_imp.h"
+
+#include "db/internal_stats.h"
+#include "db/pre_release_callback.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "options/options_helper.h"
-#include "util/sync_point.h"
+#include "util/logging.h"
+#include "util/file_reader_writer.h"
+#include "util/trace_replay.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 // Convenience methods

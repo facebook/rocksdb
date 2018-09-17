@@ -6,15 +6,8 @@
 
 #include "utilities/blob_db/blob_log_writer.h"
 
-#include <cstdint>
-#include <string>
-
-#include "monitoring/statistics.h"
-#include "rocksdb/env.h"
-#include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
-#include "utilities/blob_db/blob_log_format.h"
 
 namespace rocksdb {
 namespace blob_db {

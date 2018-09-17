@@ -5,12 +5,7 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include "db/dbformat.h"
-#include "options/db_options.h"
-#include "rocksdb/options.h"
 #include "util/compression.h"
 
 namespace rocksdb {

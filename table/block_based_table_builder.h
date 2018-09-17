@@ -8,25 +8,18 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
-#include <limits>
-#include <string>
-#include <utility>
-#include <vector>
 
-#include "rocksdb/flush_block_policy.h"
-#include "rocksdb/listener.h"
-#include "rocksdb/options.h"
-#include "rocksdb/status.h"
-#include "table/meta_blocks.h"
 #include "table/table_builder.h"
-#include "util/compression.h"
 
 namespace rocksdb {
 
 class BlockBuilder;
 class BlockHandle;
+class CompressionContext;
+class MetaIndexBuilder;
 class WritableFile;
+class WritableFileWriter;
+
 struct BlockBasedTableOptions;
 
 extern const uint64_t kBlockBasedTableMagicNumber;

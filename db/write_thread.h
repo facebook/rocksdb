@@ -5,26 +5,17 @@
 
 #pragma once
 
-#include <assert.h>
-#include <stdint.h>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
-#include <mutex>
-#include <type_traits>
-#include <vector>
-
 #include "db/dbformat.h"
-#include "db/pre_release_callback.h"
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/options.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
-#include "rocksdb/write_batch.h"
-#include "util/autovector.h"
+
+#include <condition_variable>
 
 namespace rocksdb {
+
+class PreReleaseCallback;
+class WriteBatch;
 
 class WriteThread {
  public:

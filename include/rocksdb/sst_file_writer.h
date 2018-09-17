@@ -7,13 +7,7 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
-
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/table_properties.h"
-#include "rocksdb/types.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
@@ -23,6 +17,7 @@
 
 namespace rocksdb {
 
+class ColumnFamilyHandle;
 class Comparator;
 
 // ExternalSstFileInfo include information about sst files created

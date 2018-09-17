@@ -3,23 +3,27 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include <algorithm>
-#include <iostream>
-#include <thread>
-#include <vector>
 
 #include "monitoring/histogram.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/write_batch.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"
+
+#include <algorithm>
+#include <iostream>
+#include <thread>
+#include <vector>
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;

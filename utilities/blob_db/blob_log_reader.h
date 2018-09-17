@@ -7,18 +7,11 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <memory>
-#include <string>
-
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
-#include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
 
 namespace rocksdb {
 
+class RandomAccessFileReader;
 class SequentialFileReader;
 class Logger;
 

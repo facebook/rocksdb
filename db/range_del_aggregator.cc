@@ -5,6 +5,7 @@
 
 #include "db/range_del_aggregator.h"
 #include "util/heap.h"
+#include "util/kv_map.h"
 
 #include <algorithm>
 

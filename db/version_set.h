@@ -18,32 +18,15 @@
 // synchronization on all accesses.
 
 #pragma once
-#include <atomic>
-#include <deque>
-#include <limits>
-#include <map>
-#include <memory>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction.h"
-#include "db/compaction_picker.h"
-#include "db/dbformat.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
-#include "db/range_del_aggregator.h"
-#include "db/read_callback.h"
-#include "db/table_cache.h"
-#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
-#include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
-#include "port/port.h"
-#include "rocksdb/env.h"
+
+#include <deque>
 
 namespace rocksdb {
 
@@ -56,6 +39,7 @@ class LogBuffer;
 class LookupKey;
 class MemTable;
 class Version;
+class VersionBuilder;
 class VersionSet;
 class WriteBufferManager;
 class MergeContext;

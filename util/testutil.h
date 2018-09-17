@@ -8,27 +8,25 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <algorithm>
-#include <deque>
-#include <string>
-#include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/table.h"
-#include "table/block_based_table_factory.h"
 #include "table/internal_iterator.h"
 #include "table/plain_table_factory.h"
+#include "util/coding.h"
 #include "util/mutexlock.h"
-#include "util/random.h"
+
+#include <algorithm>
 
 namespace rocksdb {
+
+class InternalKey;
+class Random;
 class SequentialFile;
 class SequentialFileReader;
+
+enum ValueType : unsigned char;
 
 namespace test {
 

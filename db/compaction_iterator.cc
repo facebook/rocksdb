@@ -4,11 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/compaction_iterator.h"
-
+#include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
-#include "port/likely.h"
-#include "rocksdb/listener.h"
-#include "table/internal_iterator.h"
 
 namespace rocksdb {
 

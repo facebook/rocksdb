@@ -6,17 +6,11 @@
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include "env/env_chroot.h"
-
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include <string>
-#include <utility>
-#include <vector>
-
+#include "rocksdb/env.h"
 #include "rocksdb/status.h"
+
+#include <memory>
+#include <unistd.h>
 
 namespace rocksdb {
 
@@ -50,7 +44,7 @@ class ChrootEnv : public EnvWrapper {
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result,
+                                     std::unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
@@ -61,7 +55,7 @@ class ChrootEnv : public EnvWrapper {
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
+                                 std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
@@ -73,7 +67,7 @@ class ChrootEnv : public EnvWrapper {
 
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
-                                   unique_ptr<WritableFile>* result,
+                                   std::unique_ptr<WritableFile>* result,
                                    const EnvOptions& options) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
@@ -89,7 +83,7 @@ class ChrootEnv : public EnvWrapper {
   }
 
   virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
+                                 std::unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
@@ -100,7 +94,7 @@ class ChrootEnv : public EnvWrapper {
   }
 
   virtual Status NewDirectory(const std::string& dir,
-                              unique_ptr<Directory>* result) override {
+                              std::unique_ptr<Directory>* result) override {
     auto status_and_enc_path = EncodePathWithNewBasename(dir);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
@@ -238,7 +232,7 @@ class ChrootEnv : public EnvWrapper {
   }
 
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override {
+                           std::shared_ptr<Logger>* result) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;

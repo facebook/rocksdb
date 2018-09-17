@@ -12,14 +12,12 @@
 #endif
 
 #include "monitoring/histogram.h"
-
-#include <inttypes.h>
-#include <cassert>
-#include <math.h>
-#include <stdio.h>
-
 #include "port/port.h"
+#include "rocksdb/statistics.h"
 #include "util/cast_util.h"
+
+#include <cmath>
+#include <cinttypes>
 
 namespace rocksdb {
 

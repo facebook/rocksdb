@@ -6,14 +6,12 @@
 
 #pragma once
 
-#include <string>
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/status.h"
-#include "table/format.h"
 
 namespace rocksdb {
 
+class Arena;
 class PinnedIteratorsManager;
 
 template <class TValue>

@@ -6,16 +6,12 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include <vector>
-#include <queue>
-
-#include "rocksdb/db.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
 #include "db/dbformat.h"
+#include "rocksdb/options.h"
 #include "table/internal_iterator.h"
 #include "util/arena.h"
+
+#include <queue>
 
 namespace rocksdb {
 

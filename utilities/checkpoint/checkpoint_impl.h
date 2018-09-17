@@ -7,12 +7,16 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/checkpoint.h"
-
-#include <string>
-#include "rocksdb/db.h"
 #include "util/filename.h"
 
+#include <functional>
+
 namespace rocksdb {
+
+class DB;
+class Logger;
+
+struct DBOptions;
 
 class CheckpointImpl : public Checkpoint {
  public:

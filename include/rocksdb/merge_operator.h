@@ -5,12 +5,10 @@
 
 #pragma once
 
-#include <deque>
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "rocksdb/slice.h"
+
+#include <deque>
+#include <vector>
 
 namespace rocksdb {
 

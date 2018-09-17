@@ -7,11 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <atomic>
-
 #include "rocksdb/listener.h"
-#include "util/mutexlock.h"
-#include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
 namespace blob_db {

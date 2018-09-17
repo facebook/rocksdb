@@ -6,13 +6,12 @@
 
 #ifndef ROCKSDB_LITE
 #pragma once
-#include <string>
-#include <vector>
 
 #include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class Logger;
 
 //
 // Configurable options needed for setting up a Geo database

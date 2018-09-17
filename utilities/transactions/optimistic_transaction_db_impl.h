@@ -6,11 +6,14 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 
 namespace rocksdb {
+
+class DB;
+class Transaction;
+
+struct WriteOptions;
 
 class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
  public:

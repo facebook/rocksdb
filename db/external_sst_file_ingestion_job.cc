@@ -11,20 +11,25 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <algorithm>
-#include <string>
-#include <vector>
-
+#include "db/column_family.h"
+#include "db/internal_stats.h"
+#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
+#include "db/version_set.h"
+#include "rocksdb/table.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/table_reader.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/file_util.h"
+#include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

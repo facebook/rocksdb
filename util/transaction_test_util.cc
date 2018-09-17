@@ -9,19 +9,16 @@
 #endif
 
 #include "util/transaction_test_util.h"
-
-#include <inttypes.h>
-#include <algorithm>
-#include <numeric>
-#include <string>
-#include <thread>
-
-#include "rocksdb/db.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
-#include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/transaction_db.h"
+#include "port/port.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/write_batch.h"
 #include "util/random.h"
 #include "util/string_util.h"
+
+#include <cinttypes>
+#include <algorithm>
+#include <numeric>
+#include <thread>
 
 namespace rocksdb {
 

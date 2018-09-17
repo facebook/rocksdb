@@ -4,9 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "table/meta_blocks.h"
 
-#include <map>
-#include <string>
-
+#include "db/column_family.h"
 #include "db/table_properties_collector.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
@@ -17,6 +15,7 @@
 #include "table/persistent_cache_helper.h"
 #include "table/table_properties_internal.h"
 #include "util/coding.h"
+#include "util/logging.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {

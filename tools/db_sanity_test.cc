@@ -3,21 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <cstdio>
-#include <cstdlib>
-#include <vector>
-#include <memory>
-
 #include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/filter_policy.h"
-#include "port/port.h"
+#include "rocksdb/write_batch.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

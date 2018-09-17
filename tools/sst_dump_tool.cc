@@ -11,35 +11,19 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <iostream>
-#include <map>
-#include <memory>
-#include <sstream>
-#include <vector>
-
-#include "db/memtable.h"
-#include "db/write_batch_internal.h"
-#include "options/cf_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table_properties.h"
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/ldb_cmd.h"
-#include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
-#include "table/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
 #include "table/table_reader.h"
-#include "util/compression.h"
-#include "util/random.h"
 
-#include "port/port.h"
+#include <cinttypes>
+#include <iostream>
+#include <sstream>
 
 namespace rocksdb {
 

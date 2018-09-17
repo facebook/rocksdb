@@ -9,14 +9,12 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-
-#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 #include "util/logging.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

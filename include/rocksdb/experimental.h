@@ -5,12 +5,15 @@
 
 #pragma once
 
-#include "rocksdb/db.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-namespace experimental {
 
+class DB;
+class ColumnFamilyHandle;
+
+namespace experimental {
+	
 // Supported only for Leveled compaction
 Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end);

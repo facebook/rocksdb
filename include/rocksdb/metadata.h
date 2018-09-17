@@ -5,15 +5,12 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <limits>
-#include <string>
-#include <vector>
-
 #include "rocksdb/types.h"
 
+#include <vector>
+
 namespace rocksdb {
+  
 struct ColumnFamilyMetaData;
 struct LevelMetaData;
 struct SstFileMetaData;

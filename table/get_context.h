@@ -4,18 +4,21 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
-#include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
+
 #include "db/read_callback.h"
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/types.h"
-#include "table/block.h"
 
 namespace rocksdb {
+
+class Comparator;
+class Env;
+class Logger;
 class MergeContext;
+class MergeOperator;
 class PinnedIteratorsManager;
+class RangeDelAggregator;
+class Statistics;
+
+struct ParsedInternalKey;
 
 struct GetContextStats {
   uint64_t num_cache_hit = 0;

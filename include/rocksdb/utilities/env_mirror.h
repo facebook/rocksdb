@@ -19,10 +19,8 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <iostream>
-#include <algorithm>
-#include <vector>
 #include "rocksdb/env.h"
+#include <algorithm>
 
 namespace rocksdb {
 

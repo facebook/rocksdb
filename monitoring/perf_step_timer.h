@@ -4,9 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
+
+#include "monitoring/statistics.h"
 #include "monitoring/perf_level_imp.h"
 #include "rocksdb/env.h"
-#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -17,7 +18,7 @@ class PerfStepTimer {
                          uint32_t ticker_type = 0)
       : perf_counter_enabled_(
             perf_level >= PerfLevel::kEnableTime ||
-            (!for_mutex && perf_level >= kEnableTimeExceptForMutex)),
+            (!for_mutex && perf_level >= PerfLevel::kEnableTimeExceptForMutex)),
         env_((perf_counter_enabled_ || statistics != nullptr) ? Env::Default()
                                                               : nullptr),
         start_(0),

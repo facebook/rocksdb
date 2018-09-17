@@ -8,18 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/memtable.h"
-
-#include <algorithm>
-#include <limits>
-#include <memory>
-
-#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -33,6 +29,8 @@
 #include "util/arena.h"
 #include "util/autovector.h"
 #include "util/coding.h"
+#include "util/dynamic_bloom.h"
+#include "util/logging.h"
 #include "util/memory_usage.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"

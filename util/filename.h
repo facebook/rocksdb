@@ -10,19 +10,12 @@
 // File names used by DB code
 
 #pragma once
-#include <stdint.h>
-#include <unordered_map>
-#include <string>
-#include <vector>
 
-#include "options/db_options.h"
-#include "port/port.h"
 #include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "rocksdb/transaction_log.h"
 
 namespace rocksdb {
+
+enum  WalFileType : unsigned char;
 
 class Env;
 class Directory;

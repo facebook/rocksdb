@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "monitoring/instrumented_mutex.h"
+#include "rocksdb/write_batch.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "util/sync_point.h"

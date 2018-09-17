@@ -7,17 +7,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
-#include <atomic>
-#include <sstream>
-#include <string>
-#include "port/port.h"
+
 #include "rocksdb/env.h"
-#include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 #include "util/sync_point.h"
 
+#include <atomic>
+
 namespace rocksdb {
 
+class RandomAccessFile;
+class SequentialFile;
 class Statistics;
 class HistogramImpl;
 
@@ -254,7 +254,7 @@ class FilePrefetchBuffer {
 };
 
 extern Status NewWritableFile(Env* env, const std::string& fname,
-                              unique_ptr<WritableFile>* result,
+                              std::unique_ptr<WritableFile>* result,
                               const EnvOptions& options);
 bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result);

@@ -5,13 +5,10 @@
 //
 
 #pragma once
-#include <algorithm>
-#include <stdio.h>
-#include <time.h>
-#include <iostream>
-#include "port/sys_time.h"
+
 #include "rocksdb/env.h"
-#include "rocksdb/status.h"
+
+#include <cstdio>
 
 #ifdef USE_HDFS
 #include <hdfs.h>

@@ -4,13 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/write_thread.h"
-#include <chrono>
-#include <thread>
 #include "db/column_family.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/db_options.h"
 #include "port/port.h"
 #include "util/random.h"
 #include "util/sync_point.h"
+
+#include <chrono>
 
 namespace rocksdb {
 

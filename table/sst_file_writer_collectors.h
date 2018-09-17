@@ -4,7 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
+
+#include "db/table_properties_collector.h"
 #include "rocksdb/types.h"
 #include "util/string_util.h"
 

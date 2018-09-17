@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 #include "rocksdb/db.h"
+#include "rocksdb/write_batch.h"
 
 namespace rocksdb {
 namespace {

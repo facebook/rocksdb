@@ -8,15 +8,13 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include <vector>
-
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class Env;
+
+struct DBOptions;
 // Constructs the DBOptions and ColumnFamilyDescriptors by loading the
 // latest RocksDB options file stored in the specified rocksdb database.
 //

@@ -9,39 +9,27 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/db.h"
 #include "rocksdb/utilities/backupable_db.h"
-#include "port/port.h"
 #include "rocksdb/rate_limiter.h"
-#include "rocksdb/transaction_log.h"
+#include "rocksdb/write_batch.h"
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/logging.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif  // __STDC_FORMAT_MACROS
 
-#include <inttypes.h>
-#include <stdlib.h>
-#include <algorithm>
-#include <atomic>
-#include <functional>
+#include <cinttypes>
 #include <future>
-#include <limits>
-#include <map>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <thread>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
 
 namespace rocksdb {
 

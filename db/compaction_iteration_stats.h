@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 struct CompactionIterationStats {
   // Compaction statistics
 

@@ -6,13 +6,15 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <map>
-#include <string>
-#include <vector>
-
-#include "rocksdb/db.h"
+#include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class Iterator;
+
+struct Options;
+struct ReadOptions;
+struct WriteOptions;
 
 // Date tiered database is a wrapper of DB that implements
 // a simplified DateTieredCompactionStrategy by using multiple column famillies

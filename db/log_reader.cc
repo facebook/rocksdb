@@ -8,9 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/log_reader.h"
-
-#include <stdio.h>
-#include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"

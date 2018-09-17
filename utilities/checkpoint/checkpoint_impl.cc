@@ -15,20 +15,14 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <algorithm>
-#include <string>
-#include <vector>
-
-#include "db/wal_manager.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/transaction_log.h"
-#include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/write_batch.h"
 #include "util/file_util.h"
-#include "util/filename.h"
+#include "util/logging.h"
 #include "util/sync_point.h"
+
+#include <cinttypes>
 
 namespace rocksdb {
 

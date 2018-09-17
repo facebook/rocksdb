@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/ldb_tool.h"
+#include "rocksdb/write_batch.h"
 
 int main(int argc, char** argv) {
   rocksdb::LDBTool tool;

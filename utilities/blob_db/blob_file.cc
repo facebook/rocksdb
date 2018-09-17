@@ -9,19 +9,15 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <stdio.h>
-
-#include <algorithm>
-#include <limits>
-#include <memory>
-
-#include "db/column_family.h"
-#include "db/db_impl.h"
-#include "db/dbformat.h"
+#include "rocksdb/write_batch.h"
 #include "util/filename.h"
 #include "util/logging.h"
+#include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/blob_db/blob_log_reader.h"
+#include "utilities/blob_db/blob_log_writer.h"
+
+#include <cinttypes>
 
 namespace rocksdb {
 

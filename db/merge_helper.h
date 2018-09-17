@@ -5,18 +5,12 @@
 //
 #pragma once
 
-#include <deque>
-#include <string>
-#include <vector>
-
-#include "db/dbformat.h"
 #include "db/merge_context.h"
-#include "db/range_del_aggregator.h"
-#include "db/snapshot_checker.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
+#include "table/merging_iterator.h"
 #include "util/stop_watch.h"
+
+#include <deque>
 
 namespace rocksdb {
 
@@ -24,6 +18,8 @@ class Comparator;
 class Iterator;
 class Logger;
 class MergeOperator;
+class RangeDelAggregator;
+class SnapshotChecker;
 class Statistics;
 
 class MergeHelper {

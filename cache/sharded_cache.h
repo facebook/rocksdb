@@ -9,12 +9,11 @@
 
 #pragma once
 
-#include <atomic>
-#include <string>
-
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "util/hash.h"
+
+#include <atomic>
 
 namespace rocksdb {
 

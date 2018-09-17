@@ -5,14 +5,15 @@
 
 #pragma once
 
+#include "port/likely.h"
+#include "port/port.h"
+#include "util/random.h"
+
 #include <cstddef>
 #include <thread>
 #include <utility>
 #include <vector>
-
-#include "port/likely.h"
-#include "port/port.h"
-#include "util/random.h"
+#include <cassert>
 
 namespace rocksdb {
 

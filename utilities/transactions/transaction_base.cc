@@ -11,7 +11,6 @@
 #include "db/column_family.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
-#include "rocksdb/status.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

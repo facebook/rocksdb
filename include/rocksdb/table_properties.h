@@ -3,11 +3,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <stdint.h>
-#include <map>
-#include <string>
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+
+#include <map>
 
 namespace rocksdb {
 

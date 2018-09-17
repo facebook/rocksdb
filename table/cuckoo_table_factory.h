@@ -6,10 +6,8 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <string>
 #include "rocksdb/table.h"
 #include "util/murmurhash.h"
-#include "rocksdb/options.h"
 
 namespace rocksdb {
 

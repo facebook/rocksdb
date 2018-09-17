@@ -4,10 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/flush_scheduler.h"
+#include "db/column_family.h"
 
 #include <cassert>
-
-#include "db/column_family.h"
 
 namespace rocksdb {
 

@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <string>
 #include "rocksdb/slice.h"
 
 namespace rocksdb {

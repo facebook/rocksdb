@@ -9,18 +9,21 @@
 //
 
 #pragma once
-#include <map>
-#include <string>
-#include <vector>
 
-#include "db/version_set.h"
+#include "monitoring/histogram.h"
+#include "rocksdb/env.h"
+#include "rocksdb/listener.h"
 
-class ColumnFamilyData;
+#include <atomic>
 
 namespace rocksdb {
 
+class Cache;
+class ColumnFamilyData;
 class DBImpl;
 class MemTableList;
+class InternalStats;
+class Version;
 
 // Config for retrieving a property's value.
 struct DBPropertyInfo {

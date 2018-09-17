@@ -9,6 +9,7 @@
 #include "db/dbformat.h"
 #include "table/cuckoo_table_builder.h"
 #include "table/cuckoo_table_reader.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

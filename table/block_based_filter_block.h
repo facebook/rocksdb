@@ -13,16 +13,7 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-#include <string>
-#include <memory>
-#include <vector>
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
 #include "table/filter_block.h"
-#include "util/hash.h"
 
 namespace rocksdb {
 

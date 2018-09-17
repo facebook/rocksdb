@@ -7,32 +7,18 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <algorithm>
-#include <atomic>
-#include <mutex>
-#include <stack>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "db/write_callback.h"
-#include "rocksdb/db.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/snapshot.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
-#include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/transaction_db.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
-#include "util/autovector.h"
 #include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/transaction_base.h"
-#include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
+class ColumnFamilyHandle;
+class Iterator;
+class WriteBatch;
 class WritePreparedTxnDB;
+
+struct ReadOptions;
+struct TransactionOptions;
+struct WriteOptions;
 
 // This impl could write to DB also uncommitted data and then later tell apart
 // committed data from uncommitted data. Uncommitted data could be after the

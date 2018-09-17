@@ -5,11 +5,13 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <memory>
 
-#include "rocksdb/table_properties.h"
+#include <memory>
+#include <cstddef>
 
 namespace rocksdb {
+
+class TablePropertiesCollectorFactory;
 
 // Creates a factory of a table property collector that marks a SST
 // file as need-compaction when it observe at least "D" deletion

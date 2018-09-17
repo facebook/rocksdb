@@ -10,8 +10,8 @@
 #include "db/malloc_stats.h"
 
 #ifndef ROCKSDB_LITE
+
 #include <memory>
-#include <string.h>
 
 namespace rocksdb {
 

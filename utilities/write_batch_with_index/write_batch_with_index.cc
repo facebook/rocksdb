@@ -7,16 +7,11 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
-#include <memory>
-
-#include "db/column_family.h"
 #include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"

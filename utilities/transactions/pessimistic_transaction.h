@@ -7,30 +7,20 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <algorithm>
-#include <atomic>
-#include <mutex>
-#include <stack>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "db/write_callback.h"
-#include "rocksdb/db.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/snapshot.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
-#include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/transaction_db.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
-#include "util/autovector.h"
 #include "utilities/transactions/transaction_base.h"
-#include "utilities/transactions/transaction_util.h"
+#include "util/autovector.h"
+
+#include <thread>
+#include <mutex>
 
 namespace rocksdb {
 
 class PessimisticTransactionDB;
+class TransactionDB;
+class WriteBatch;
+
+struct TransactionOptions;
+struct WriteOptions;
 
 // A transaction under pessimistic concurrency control. This class implements
 // the locking API and interfaces with the lock manager as well as the

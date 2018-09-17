@@ -4,10 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
-#include <algorithm>
 
 #include "rocksdb/utilities/spatial_db.h"
+
+#include <algorithm>
 
 namespace rocksdb {
 namespace spatial {

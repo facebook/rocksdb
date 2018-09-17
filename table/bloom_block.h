@@ -4,9 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <vector>
-#include <string>
 #include "util/dynamic_bloom.h"
+#include <vector>
 
 namespace rocksdb {
 class Logger;

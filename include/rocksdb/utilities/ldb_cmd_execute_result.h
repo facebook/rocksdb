@@ -9,6 +9,8 @@
 #undef FAILED
 #endif
 
+#include <string>
+
 namespace rocksdb {
 
 class LDBCommandExecuteResult {

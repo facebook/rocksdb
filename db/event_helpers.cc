@@ -4,6 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/event_helpers.h"
+#include "db/version_edit.h"
+#include "util/event_logger.h"
+#include "monitoring/instrumented_mutex.h"
 
 namespace rocksdb {
 

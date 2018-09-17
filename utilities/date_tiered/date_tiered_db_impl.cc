@@ -5,20 +5,9 @@
 
 #include "utilities/date_tiered/date_tiered_db_impl.h"
 
-#include <limits>
-
 #include "db/db_impl.h"
 #include "db/db_iter.h"
-#include "db/write_batch_internal.h"
-#include "monitoring/instrumented_mutex.h"
-#include "options/options_helper.h"
-#include "rocksdb/convenience.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/utilities/date_tiered_db.h"
 #include "table/merging_iterator.h"
-#include "util/coding.h"
-#include "util/filename.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

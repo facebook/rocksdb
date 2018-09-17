@@ -5,13 +5,13 @@
 
 #pragma once
 
-#include <string>
+#include "rocksdb/status.h"
+
 #include <vector>
 
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-
 namespace rocksdb {
+
+class DB;
 
 // This function can be used to list the Information logs,
 // given the db pointer.

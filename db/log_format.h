@@ -14,7 +14,7 @@
 namespace rocksdb {
 namespace log {
 
-enum RecordType {
+enum RecordType : unsigned char {
   // Zero is reserved for preallocated files
   kZeroType = 0,
   kFullType = 1,

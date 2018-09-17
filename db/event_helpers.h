@@ -4,17 +4,17 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "db/column_family.h"
-#include "db/version_edit.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/table_properties.h"
-#include "util/event_logger.h"
 
 namespace rocksdb {
+
+class InstrumentedMutex;
+class EventLogger;
+class JSONWriter;
+class Status;
+
+struct FileDescriptor;
+struct TableProperties;
 
 class EventHelpers {
  public:

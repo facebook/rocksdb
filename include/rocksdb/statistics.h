@@ -5,14 +5,11 @@
 
 #pragma once
 
-#include <atomic>
+#include "rocksdb/status.h"
+
 #include <cstddef>
-#include <cstdint>
-#include <string>
 #include <memory>
 #include <vector>
-
-#include "rocksdb/status.h"
 
 namespace rocksdb {
 

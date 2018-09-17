@@ -14,9 +14,11 @@
 
 #include <atomic>
 #include <cstddef>
-#include "rocksdb/cache.h"
+#include <memory>
 
 namespace rocksdb {
+
+class Cache;
 
 class WriteBufferManager {
  public:

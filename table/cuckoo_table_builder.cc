@@ -6,22 +6,9 @@
 #ifndef ROCKSDB_LITE
 #include "table/cuckoo_table_builder.h"
 
-#include <assert.h>
-#include <algorithm>
-#include <limits>
-#include <string>
-#include <vector>
-
-#include "db/dbformat.h"
-#include "rocksdb/env.h"
-#include "rocksdb/table.h"
-#include "table/block_builder.h"
 #include "table/cuckoo_table_factory.h"
-#include "table/format.h"
 #include "table/meta_blocks.h"
-#include "util/autovector.h"
 #include "util/file_reader_writer.h"
-#include "util/random.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

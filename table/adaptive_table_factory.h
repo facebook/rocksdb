@@ -6,20 +6,23 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
 namespace rocksdb {
 
+struct ColumnFamilyOptions;
+struct DBOptions;
 struct EnvOptions;
+struct TableBuilderOptions;
+struct TableReaderOptions;
 
-using std::unique_ptr;
-class Status;
 class RandomAccessFile;
-class WritableFile;
-class Table;
+class RandomAccessFileReader;
+class Status;
 class TableBuilder;
+class TableReader;
+class WritableFile;
+class WritableFileWriter;
 
 class AdaptiveTableFactory : public TableFactory {
  public:
@@ -35,8 +38,8 @@ class AdaptiveTableFactory : public TableFactory {
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table,
       bool prefetch_index_and_filter_in_cache = true) const override;
 
   TableBuilder* NewTableBuilder(

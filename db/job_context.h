@@ -9,16 +9,13 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include "db/log_writer.h"
 #include "db/column_family.h"
+#include "db/version_set.h"
 
 namespace rocksdb {
 
 class MemTable;
-struct SuperVersion;
 
 struct SuperVersionContext {
   struct WriteStallNotification {

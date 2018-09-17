@@ -4,11 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <assert.h>
 #include <functional>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 // This is only set from db_stress.cc and for testing only.

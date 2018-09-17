@@ -6,19 +6,10 @@
 #ifndef ROCKSDB_LITE
 #include "db/forward_iterator.h"
 
-#include <limits>
-#include <string>
-#include <utility>
-
-#include "db/column_family.h"
 #include "db/db_impl.h"
-#include "db/db_iter.h"
-#include "db/dbformat.h"
-#include "db/job_context.h"
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
-#include "table/merging_iterator.h"
+#include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
+#include "db/table_cache.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 

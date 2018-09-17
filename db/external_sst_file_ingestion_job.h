@@ -4,21 +4,21 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
-#include <unordered_set>
-#include <vector>
 
-#include "db/column_family.h"
-#include "db/dbformat.h"
-#include "db/internal_stats.h"
-#include "db/snapshot_impl.h"
-#include "options/db_options.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/sst_file_writer.h"
+#include "db/version_edit.h"
+#include "rocksdb/advanced_options.h"
+#include "rocksdb/table_properties.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
+
+class ColumnFamilyData;
+class SnapshotList;
+class VersionSet;
+
+struct ImmutableDBOptions;
+struct IngestExternalFileOptions;
+struct SuperVersion;
 
 struct IngestedFileInfo {
   // External file path

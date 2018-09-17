@@ -5,10 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
-
-#include "rocksdb/slice.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
+#include "rocksdb/slice.h"
 
 namespace rocksdb {
 

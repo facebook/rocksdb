@@ -10,22 +10,12 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <assert.h>
-#include <inttypes.h>
-#include <string.h>
-
-#include <functional>
-#include <limits>
-#include <map>
-#include <memory>
-#include <string>
-#include <vector>
-
-
 #include "third-party/fbson/FbsonDocument.h"
 #include "third-party/fbson/FbsonJsonParser.h"
 #include "third-party/fbson/FbsonUtil.h"
 #include "util/coding.h"
+
+#include <functional>
 
 using std::placeholders::_1;
 

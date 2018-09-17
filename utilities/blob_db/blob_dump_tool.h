@@ -5,11 +5,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <memory>
-#include <string>
-#include <utility>
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
 #include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
 

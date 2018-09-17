@@ -4,19 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <map>
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "db/builder.h"
 #include "db/table_properties_collector.h"
-#include "util/kv_map.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "table/block_builder.h"
 #include "table/format.h"
+#include "util/kv_map.h"
 
 namespace rocksdb {
 

@@ -4,9 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
+
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/slice.h"
 
 namespace rocksdb {
 namespace cassandra {

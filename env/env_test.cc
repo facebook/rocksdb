@@ -42,6 +42,7 @@
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"

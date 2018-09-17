@@ -3,13 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "merge_operator.h"
-
-#include <memory>
-#include <assert.h>
-
-#include "rocksdb/slice.h"
-#include "rocksdb/merge_operator.h"
+#include "utilities/cassandra/merge_operator.h"
 #include "utilities/merge_operators.h"
 #include "utilities/cassandra/format.h"
 

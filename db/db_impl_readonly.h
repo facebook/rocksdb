@@ -8,8 +8,6 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/db_impl.h"
-#include <vector>
-#include <string>
 
 namespace rocksdb {
 

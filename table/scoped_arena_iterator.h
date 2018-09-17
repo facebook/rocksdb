@@ -11,6 +11,7 @@
 #include "port/port.h"
 
 namespace rocksdb {
+
 class ScopedArenaIterator {
 
   void reset(InternalIterator* iter) ROCKSDB_NOEXCEPT {

@@ -5,11 +5,7 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <stdint.h>
-#include <string>
-#include <vector>
-#include "rocksdb/options.h"
-#include "rocksdb/status.h"
+
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/bloom_block.h"
@@ -21,6 +17,7 @@ namespace rocksdb {
 
 class BlockBuilder;
 class BlockHandle;
+class IntTblPropCollector;
 class WritableFile;
 class TableBuilder;
 

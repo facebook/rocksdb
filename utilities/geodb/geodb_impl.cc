@@ -11,12 +11,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <limits>
-#include <map>
-#include <string>
-#include <vector>
-#include "util/coding.h"
-#include "util/filename.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/write_batch.h"
 #include "util/string_util.h"
 
 //

@@ -6,37 +6,13 @@
 
 #include "table/plain_table_reader.h"
 
-#include <string>
-#include <vector>
-
 #include "db/dbformat.h"
 
-#include "rocksdb/cache.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
-#include "rocksdb/filter_policy.h"
-#include "rocksdb/options.h"
-#include "rocksdb/statistics.h"
-
-#include "table/block.h"
-#include "table/bloom_block.h"
-#include "table/filter_block.h"
-#include "table/format.h"
-#include "table/internal_iterator.h"
-#include "table/meta_blocks.h"
-#include "table/two_level_iterator.h"
-#include "table/plain_table_factory.h"
-#include "table/plain_table_key_coding.h"
 #include "table/get_context.h"
+#include "table/bloom_block.h"
+#include "table/meta_blocks.h"
+#include "table/plain_table_key_coding.h"
 
-#include "monitoring/histogram.h"
-#include "monitoring/perf_context_imp.h"
-#include "util/arena.h"
-#include "util/coding.h"
-#include "util/dynamic_bloom.h"
-#include "util/hash.h"
-#include "util/murmurhash.h"
-#include "util/stop_watch.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -92,7 +68,7 @@ class PlainTableIterator : public InternalIterator {
 
 extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
-                                   unique_ptr<RandomAccessFileReader>&& file,
+                                   std::unique_ptr<RandomAccessFileReader>&& file,
                                    const EnvOptions& storage_options,
                                    const InternalKeyComparator& icomparator,
                                    EncodingType encoding_type,
@@ -118,8 +94,8 @@ PlainTableReader::~PlainTableReader() {
 Status PlainTableReader::Open(
     const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
     double hash_table_ratio, size_t index_sparseness, size_t huge_page_tlb_size,
     bool full_scan_mode, const SliceTransform* prefix_extractor) {
   if (file_size > PlainTableIndex::kMaxFileSize) {
@@ -202,7 +178,7 @@ InternalIterator* PlainTableReader::NewIterator(
 }
 
 Status PlainTableReader::PopulateIndexRecordList(
-    PlainTableIndexBuilder* index_builder, vector<uint32_t>* prefix_hashes) {
+    PlainTableIndexBuilder* index_builder, std::vector<uint32_t>* prefix_hashes) {
   Slice prev_key_prefix_slice;
   std::string prev_key_prefix_buf;
   uint32_t pos = data_start_offset_;
@@ -255,7 +231,7 @@ Status PlainTableReader::PopulateIndexRecordList(
 void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
                                             int num_prefixes,
                                             size_t huge_page_tlb_size,
-                                            vector<uint32_t>* prefix_hashes) {
+                                            std::vector<uint32_t>* prefix_hashes) {
   if (!IsTotalOrderMode()) {
     uint32_t bloom_total_bits = num_prefixes * bloom_bits_per_key;
     if (bloom_total_bits > 0) {
@@ -267,7 +243,7 @@ void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
   }
 }
 
-void PlainTableReader::FillBloom(vector<uint32_t>* prefix_hashes) {
+void PlainTableReader::FillBloom(std::vector<uint32_t>* prefix_hashes) {
   assert(bloom_.IsInitialized());
   for (auto prefix_hash : *prefix_hashes) {
     bloom_.AddHash(prefix_hash);

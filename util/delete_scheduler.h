@@ -7,15 +7,11 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <map>
-#include <queue>
-#include <string>
-#include <thread>
-
 #include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-
 #include "rocksdb/status.h"
+
+#include <queue>
 
 namespace rocksdb {
 

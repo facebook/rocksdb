@@ -9,45 +9,23 @@
 
 #include "table/block_based_table_builder.h"
 
-#include <assert.h>
-#include <stdio.h>
+#include "db/table_properties_collector.h"
 
-#include <list>
-#include <map>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <utility>
-
-#include "db/dbformat.h"
-
-#include "rocksdb/cache.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
+#include "options/cf_options.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/table.h"
 
-#include "table/block.h"
 #include "table/block_based_filter_block.h"
-#include "table/block_based_table_factory.h"
-#include "table/block_based_table_reader.h"
-#include "table/block_builder.h"
-#include "table/filter_block.h"
-#include "table/format.h"
-#include "table/full_filter_block.h"
-#include "table/table_builder.h"
-
-#include "util/coding.h"
-#include "util/compression.h"
-#include "util/crc32c.h"
-#include "util/stop_watch.h"
-#include "util/string_util.h"
-#include "util/xxhash.h"
-
 #include "table/index_builder.h"
+#include "table/meta_blocks.h"
 #include "table/partitioned_filter_block.h"
+
+#include "util/crc32c.h"
+#include "util/file_reader_writer.h"
+#include "util/logging.h"
+#include "util/xxhash.h"
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 

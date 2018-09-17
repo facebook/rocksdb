@@ -8,19 +8,22 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory>
-#include "rocksdb/slice_transform.h"
+
 #include "table/internal_iterator.h"
+
+#include <memory>
 
 namespace rocksdb {
 
-class Iterator;
 struct ParsedInternalKey;
-class Slice;
-class Arena;
 struct ReadOptions;
 struct TableProperties;
+
+class Arena;
+class Iterator;
 class GetContext;
+class SliceTransform;
+class WritableFile;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from

@@ -6,7 +6,11 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
+
 #include "rocksdb/utilities/table_properties_collectors.h"
+#include "rocksdb/table_properties.h"
+#include "rocksdb/status.h"
+
 namespace rocksdb {
 
 // A factory of a table property collector that marks a SST

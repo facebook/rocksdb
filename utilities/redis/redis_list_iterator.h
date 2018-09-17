@@ -40,8 +40,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <string>
-
 #include "redis_list_exception.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"

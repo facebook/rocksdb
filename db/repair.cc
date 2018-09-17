@@ -64,26 +64,17 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
 #include "db/builder.h"
 #include "db/db_impl.h"
-#include "db/dbformat.h"
-#include "db/log_reader.h"
-#include "db/log_writer.h"
-#include "db/memtable.h"
+#include "db/snapshot_checker.h"
 #include "db/table_cache.h"
-#include "db/version_edit.h"
-#include "db/write_batch_internal.h"
-#include "options/cf_options.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
+#include "util/logging.h"
 #include "util/string_util.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

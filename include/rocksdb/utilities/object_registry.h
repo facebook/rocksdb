@@ -13,8 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "rocksdb/env.h"
-
 namespace rocksdb {
 
 // Creates a new T using the factory function that was registered with a pattern

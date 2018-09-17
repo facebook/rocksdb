@@ -8,16 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/index_builder.h"
-#include <assert.h>
-#include <inttypes.h>
 
-#include <list>
-#include <string>
-
-#include "rocksdb/comparator.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
-#include "table/format.h"
-#include "table/partitioned_filter_block.h"
+#include "util/file_reader_writer.h"
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace rocksdb {

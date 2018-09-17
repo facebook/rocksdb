@@ -8,16 +8,20 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 #pragma once
-#include "rocksdb/env.h"
-#include "rocksdb/slice_transform.h"
+
+#include <cstdint>
 
 namespace rocksdb {
 
+class InternalStats;
+class Logger;
+class SliceTransform;
 class TableCache;
 class VersionStorageInfo;
 class VersionEdit;
+
+struct EnvOptions;
 struct FileMetaData;
-class InternalStats;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate

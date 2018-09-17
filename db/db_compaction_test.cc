@@ -11,8 +11,9 @@
 #include "port/stack_trace.h"
 #include "port/port.h"
 #include "rocksdb/experimental.h"
-#include "rocksdb/utilities/convenience.h"
+#include "rocksdb/convenience.h"
 #include "util/sync_point.h"
+
 namespace rocksdb {
 
 // SYNC_POINT is not supported in released Windows mode.

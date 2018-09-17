@@ -5,19 +5,19 @@
 
 #pragma once
 
-#include <map>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
-#include "options/cf_options.h"
-#include "options/db_options.h"
 #include "rocksdb/options.h"
-#include "rocksdb/status.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/table.h"
 #include "rocksdb/universal_compaction.h"
 
+#include <unordered_map>
+
 namespace rocksdb {
+
+class Logger;
+class TableFactory;
+
+struct MutableCFOptions;
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);

@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 #pragma once
+
 #include <exception>
 
 namespace rocksdb {

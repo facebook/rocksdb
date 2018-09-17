@@ -6,14 +6,11 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include <vector>
-
 #include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/utilities/json_document.h"
-#include "rocksdb/db.h"
 
 namespace rocksdb {
+
+class JSONDocument;
 
 // IMPORTANT: DocumentDB is a work in progress. It is unstable and we might
 // change the API without warning. Talk to RocksDB team before using this in

@@ -6,15 +6,9 @@
 #pragma once
 #include "rocksdb/statistics.h"
 
-#include <vector>
-#include <atomic>
-#include <string>
-
 #include "monitoring/histogram.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "util/core_local.h"
-#include "util/mutexlock.h"
 
 #ifdef __clang__
 #define ROCKSDB_FIELD_UNUSED __attribute__((__unused__))

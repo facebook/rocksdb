@@ -8,32 +8,26 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <atomic>
-#include <deque>
-#include <functional>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <vector>
-#include "db/dbformat.h"
-#include "db/range_del_aggregator.h"
-#include "db/read_callback.h"
+
 #include "db/version_edit.h"
-#include "monitoring/instrumented_mutex.h"
-#include "options/cf_options.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/memtablerep.h"
-#include "util/allocator.h"
+#include "rocksdb/advanced_options.h"
+#include "table/internal_iterator.h"
 #include "util/concurrent_arena.h"
-#include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
 namespace rocksdb {
 
+class DynamicBloom; 
 class Mutex;
 class MemTableIterator;
 class MergeContext;
+class MergeOperator;
+class RangeDelAggregator;
+class ReadCallback;
+
+struct ImmutableCFOptions;
+struct MutableCFOptions;
+struct ReadOptions;
 
 struct ImmutableMemTableOptions {
   explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,

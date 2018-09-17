@@ -12,14 +12,10 @@
 #include <malloc.h>
 #endif
 #endif
-#include <utility>
 
-#include "monitoring/perf_context_imp.h"
-#include "port/port.h"
 #include "rocksdb/filter_policy.h"
-#include "table/block.h"
-#include "table/block_based_table_reader.h"
-#include "util/coding.h"
+#include "table/index_builder.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

@@ -11,13 +11,15 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
-#include <set>
-#include <unordered_set>
+
 #include "db/event_helpers.h"
-#include "db/memtable_list.h"
+#include "db/table_cache.h"
 #include "util/file_util.h"
-#include "util/sst_file_manager_impl.h"
+#include "util/logging.h"
+#include "util/sync_point.h"
+
+#include <unordered_set>
+#include <inttypes.h>
 
 namespace rocksdb {
 uint64_t DBImpl::MinLogNumberToKeep() {

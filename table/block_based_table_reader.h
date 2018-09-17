@@ -9,50 +9,36 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <memory>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "options/cf_options.h"
-#include "rocksdb/options.h"
-#include "rocksdb/persistent_cache.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
+//#include "options/cf_options.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/table.h"
 #include "table/block.h"
-#include "table/block_based_table_factory.h"
-#include "table/filter_block.h"
-#include "table/format.h"
-#include "table/persistent_cache_helper.h"
-#include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
-#include "util/coding.h"
-#include "util/file_reader_writer.h"
+
+#include <unordered_map>
 
 namespace rocksdb {
 
 class BlockHandle;
 class Cache;
-class FilterBlockReader;
 class BlockBasedFilterBlockReader;
-class FullFilterBlockReader;
+class FilterBlockReader;
 class Footer;
+class FullFilterBlockReader;
+class GetContext;
+class IndexBlockIter;
 class InternalKeyComparator;
 class Iterator;
 class RandomAccessFile;
 class TableCache;
 class TableReader;
+class TailPrefetchStats;
 class WritableFile;
+
 struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
-class GetContext;
-
-using std::unique_ptr;
 
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
@@ -88,8 +74,8 @@ class BlockBasedTable : public TableReader {
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
-                     unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table_reader,
+                     std::unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size, std::unique_ptr<TableReader>* table_reader,
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
@@ -452,7 +438,7 @@ struct BlockBasedTable::Rep {
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
-  unique_ptr<RandomAccessFileReader> file;
+  std::unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t cache_key_prefix_size = 0;
   char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -468,8 +454,8 @@ struct BlockBasedTable::Rep {
   // index_reader and filter will be populated and used only when
   // options.block_cache is nullptr; otherwise we will get the index block via
   // the block cache.
-  unique_ptr<IndexReader> index_reader;
-  unique_ptr<FilterBlockReader> filter;
+  std::unique_ptr<IndexReader> index_reader;
+  std::unique_ptr<FilterBlockReader> filter;
 
   enum class FilterType {
     kNoFilter,
@@ -494,7 +480,7 @@ struct BlockBasedTable::Rep {
   // module should not be relying on db module. However to make things easier
   // and compatible with existing code, we introduce a wrapper that allows
   // block to extract prefix without knowing if a key is internal or not.
-  unique_ptr<SliceTransform> internal_prefix_transform;
+  std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   // only used in level 0 files when pin_l0_filter_and_index_blocks_in_cache is

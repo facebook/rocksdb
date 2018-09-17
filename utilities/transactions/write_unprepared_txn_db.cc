@@ -9,8 +9,10 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "db/db_iter.h"
+#include "db/snapshot_checker.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
-#include "rocksdb/utilities/transaction_db.h"
+#include "utilities/transactions/write_unprepared_txn.h"
 #include "util/cast_util.h"
 
 namespace rocksdb {

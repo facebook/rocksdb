@@ -8,15 +8,12 @@
 #endif
 
 #include "db/db_info_dumper.h"
-
-#include <inttypes.h>
-#include <stdio.h>
-#include <string>
-#include <algorithm>
-#include <vector>
-
-#include "rocksdb/env.h"
+#include "options/db_options.h"
+#include "rocksdb/write_batch.h"
 #include "util/filename.h"
+
+#include <algorithm>
+#include <inttypes.h>
 
 namespace rocksdb {
 

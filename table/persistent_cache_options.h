@@ -5,11 +5,12 @@
 #pragma once
 
 #include <string>
-
-#include "monitoring/statistics.h"
-#include "rocksdb/persistent_cache.h"
+#include <memory>
 
 namespace rocksdb {
+
+class Statistics;
+class PersistentCache;
 
 // PersistentCacheOptions
 //

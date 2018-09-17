@@ -4,8 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/persistent_cache_helper.h"
+
+#include "rocksdb/persistent_cache.h"
 #include "table/block_based_table_reader.h"
-#include "table/format.h"
+#include "table/filter_block.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

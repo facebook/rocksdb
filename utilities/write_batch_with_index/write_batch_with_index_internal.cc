@@ -10,10 +10,7 @@
 #include "db/column_family.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
-#include "util/coding.h"
+#include "options/db_options.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

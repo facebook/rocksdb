@@ -5,11 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <algorithm>
-#include <cctype>
-#include <iostream>
-
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"

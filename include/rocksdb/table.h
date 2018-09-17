@@ -17,15 +17,9 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
-#include <unordered_map>
-
-#include "rocksdb/cache.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
 #include "rocksdb/status.h"
+
+#include <memory>
 
 namespace rocksdb {
 
@@ -40,6 +34,12 @@ class TableReader;
 class WritableFileWriter;
 struct EnvOptions;
 struct Options;
+
+struct DBOptions;
+class Cache;
+class PersistentCache;
+class FilterPolicy;
+class TableFactory;
 
 using std::unique_ptr;
 
@@ -427,6 +427,7 @@ extern TableFactory* NewCuckooTableFactory(
 #endif  // ROCKSDB_LITE
 
 class RandomAccessFileReader;
+struct ColumnFamilyOptions;
 
 // A base class for table factories.
 class TableFactory {

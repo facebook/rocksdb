@@ -8,24 +8,22 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction_picker_universal.h"
+
 #ifndef ROCKSDB_LITE
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <limits>
-#include <queue>
-#include <string>
-#include <utility>
-#include "db/column_family.h"
-#include "monitoring/statistics.h"
+#include "db/compaction.h"
+#include "db/version_edit.h"
+#include "db/version_set.h"
 #include "util/filename.h"
-#include "util/log_buffer.h"
-#include "util/random.h"
-#include "util/string_util.h"
+#include "util/logging.h"
 #include "util/sync_point.h"
+
+#include <queue>
+#include <inttypes.h>
 
 namespace rocksdb {
 namespace {

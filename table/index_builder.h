@@ -9,19 +9,18 @@
 
 #pragma once
 
-#include <assert.h>
-#include <inttypes.h>
-
-#include <list>
-#include <string>
-#include <unordered_map>
-
-#include "rocksdb/comparator.h"
+#include "db/dbformat.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_builder.h"
 #include "table/format.h"
 
+#include <list>
+
 namespace rocksdb {
+
+class FlushBlockPolicy;
+class InternalKeySliceTransform;
+
 // The interface for building index.
 // Instruction for adding a new concrete IndexBuilder:
 //  1. Create a subclass instantiated from IndexBuilder.

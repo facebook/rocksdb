@@ -5,12 +5,11 @@
 
 #pragma once
 
-#include <memory>
-#include <unordered_map>
-#include <utility>
+#include "rocksdb/status.h"
 
-#include "rocksdb/env.h"
-#include "rocksdb/trace_reader_writer.h"
+#include <memory>
+#include <vector>
+#include <unordered_map>
 
 namespace rocksdb {
 
@@ -18,7 +17,10 @@ class ColumnFamilyHandle;
 class ColumnFamilyData;
 class DB;
 class DBImpl;
+class Env;
 class Slice;
+class TraceReader;
+class TraceWriter;
 class WriteBatch;
 
 const std::string kTraceMagic = "feedcafedeadbeef";
@@ -71,7 +73,7 @@ class Tracer {
   Status WriteTrace(const Trace& trace);
 
   Env* env_;
-  unique_ptr<TraceWriter> trace_writer_;
+  std::unique_ptr<TraceWriter> trace_writer_;
 };
 
 // Replay RocksDB operations from a trace.

@@ -32,30 +32,10 @@ int main() {
 #define __STDC_FORMAT_MACROS
 #endif  // __STDC_FORMAT_MACROS
 
-#include <fcntl.h>
-#include <inttypes.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <algorithm>
-#include <chrono>
-#include <exception>
-#include <queue>
-#include <thread>
-
 #include "db/db_impl.h"
-#include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
-#include "monitoring/histogram.h"
 #include "options/options_helper.h"
-#include "port/port.h"
-#include "rocksdb/cache.h"
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/utilities/backupable_db.h"
-#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
@@ -69,6 +49,18 @@ int main() {
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+
+#include <fcntl.h>
+#include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
+#include <sys/types.h>
+#include <algorithm>
+#include <chrono>
+#include <exception>
+#include <queue>
+#include <thread>
+
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/sync_point.h"

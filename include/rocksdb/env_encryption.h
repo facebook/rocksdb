@@ -7,13 +7,16 @@
 
 #if !defined(ROCKSDB_LITE) 
 
-#include <string>
+#include "rocksdb/status.h"
 
-#include "env.h"
+#include <memory>
 
 namespace rocksdb {
 
+class Env;
 class EncryptionProvider;
+
+struct EnvOptions;
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when 
 // read from disk.
@@ -143,7 +146,7 @@ class EncryptionProvider {
     // CreateCipherStream creates a block access cipher stream for a file given
     // given name and options.
     virtual Status CreateCipherStream(const std::string& fname, const EnvOptions& options,
-      Slice& prefix, unique_ptr<BlockAccessCipherStream>* result) = 0;
+      Slice& prefix, std::unique_ptr<BlockAccessCipherStream>* result) = 0;
 };
 
 // This encryption provider uses a CTR cipher stream, with a given block cipher 
@@ -175,7 +178,7 @@ class CTREncryptionProvider : public EncryptionProvider {
     // CreateCipherStream creates a block access cipher stream for a file given
     // given name and options.
     virtual Status CreateCipherStream(const std::string& fname, const EnvOptions& options,
-      Slice& prefix, unique_ptr<BlockAccessCipherStream>* result) override;
+      Slice& prefix, std::unique_ptr<BlockAccessCipherStream>* result) override;
 
   protected:
     // PopulateSecretPrefixPart initializes the data into a new prefix block 
@@ -188,7 +191,7 @@ class CTREncryptionProvider : public EncryptionProvider {
     // CreateCipherStreamFromPrefix creates a block access cipher stream for a file given
     // given name and options. The given prefix is already decrypted.
     virtual Status CreateCipherStreamFromPrefix(const std::string& fname, const EnvOptions& options,
-      uint64_t initialCounter, const Slice& iv, const Slice& prefix, unique_ptr<BlockAccessCipherStream>* result);
+      uint64_t initialCounter, const Slice& iv, const Slice& prefix, std::unique_ptr<BlockAccessCipherStream>* result);
 };
 
 }  // namespace rocksdb

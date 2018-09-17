@@ -10,10 +10,10 @@
 // Simple hash function used for internal data structures
 
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
 
 #include "rocksdb/slice.h"
+
+#include <cstdint>
 
 namespace rocksdb {
 

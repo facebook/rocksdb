@@ -9,22 +9,18 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <string>
-#include <memory>
-#include <utility>
-#include <vector>
 
-#include "db/dbformat.h"
-#include "options/cf_options.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "table/table_reader.h"
-#include "util/file_reader_writer.h"
+
+#include <vector>
 
 namespace rocksdb {
 
 class Arena;
+class RandomAccessFileReader;
 class TableReader;
+
+struct ImmutableCFOptions;
 
 class CuckooTableReader: public TableReader {
  public:

@@ -35,27 +35,13 @@
 
 #include "rocksdb/write_batch.h"
 
-#include <map>
-#include <stack>
-#include <stdexcept>
-#include <type_traits>
-#include <vector>
-
 #include "db/column_family.h"
-#include "db/db_impl.h"
-#include "db/dbformat.h"
-#include "db/flush_scheduler.h"
-#include "db/memtable.h"
-#include "db/merge_context.h"
-#include "db/snapshot_impl.h"
-#include "db/write_batch_internal.h"
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
-#include "rocksdb/merge_operator.h"
-#include "util/coding.h"
+#include "db/merge_helper.h"
+#include "rocksdb/table.h"
 #include "util/duplicate_detector.h"
-#include "util/string_util.h"
 #include "util/util.h"
+
+#include <stack>
 
 namespace rocksdb {
 

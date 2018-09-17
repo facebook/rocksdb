@@ -27,19 +27,16 @@
 // This means user might not always get full information, but whenever
 // returned by the GetThreadList() is guaranteed to be consistent.
 #pragma once
+
+#include "rocksdb/status.h"
+#include "port/port.h"
+#include "util/thread_operation.h"
+
 #include <atomic>
-#include <list>
-#include <memory>
 #include <mutex>
-#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#include "rocksdb/status.h"
-#include "rocksdb/thread_status.h"
-#include "port/port.h"
-#include "util/thread_operation.h"
 
 namespace rocksdb {
 

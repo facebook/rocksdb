@@ -8,17 +8,18 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <cstdint>
+
+#include "port/port.h"
+#include "util/autovector.h"
+
 #include <functional>
 #include <limits>
-#include <vector>
-#include "port/port.h"
-#include "util/arena.h"
-#include "util/autovector.h"
 
 namespace rocksdb {
 
+class Arena;
 class Comparator;
+
 struct FileMetaData;
 struct FdWithKeyRange;
 struct FileLevel;

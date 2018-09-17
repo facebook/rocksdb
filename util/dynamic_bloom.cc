@@ -5,10 +5,6 @@
 
 #include "dynamic_bloom.h"
 
-#include <algorithm>
-
-#include "port/port.h"
-#include "rocksdb/slice.h"
 #include "util/allocator.h"
 #include "util/hash.h"
 

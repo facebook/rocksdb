@@ -5,11 +5,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "db/db_impl.h"
 #include "utilities/blob_db/blob_db_impl.h"
-
-#include "util/filename.h"
+#include "utilities/blob_db/blob_file.h"
 #include "util/logging.h"
-#include "util/mutexlock.h"
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 

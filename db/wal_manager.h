@@ -8,26 +8,22 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <atomic>
-#include <deque>
-#include <limits>
-#include <set>
-#include <utility>
-#include <vector>
-#include <string>
-#include <memory>
-
-#include "db/version_set.h"
+#include "rocksdb/transaction_log.h"
 #include "options/db_options.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
-#include "rocksdb/status.h"
-#include "rocksdb/transaction_log.h"
-#include "rocksdb/types.h"
+
+#include <unordered_map>
 
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
+
+struct EnvOptions;
+struct ImmutableDBOptions;
+
+class Env;
+class VersionSet;
+
 class WalManager {
  public:
   WalManager(const ImmutableDBOptions& db_options,

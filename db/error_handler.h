@@ -4,14 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include "monitoring/instrumented_mutex.h"
-#include "options/db_options.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/status.h"
 
 namespace rocksdb {
 
-class DBImpl;
+class InstrumentedMutex;
+
+struct ImmutableDBOptions;
 
 class ErrorHandler {
   public:

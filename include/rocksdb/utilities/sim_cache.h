@@ -5,17 +5,11 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <memory>
-#include <string>
 #include "rocksdb/cache.h"
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
 
 namespace rocksdb {
 
+class Env;
 class SimCache;
 
 // For instrumentation purpose, use NewSimCache instead of NewLRUCache API

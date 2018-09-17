@@ -6,7 +6,8 @@
 #include "db/error_handler.h"
 #include "db/db_impl.h"
 #include "db/event_helpers.h"
-#include "util/sst_file_manager_impl.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/db_options.h"
 
 namespace rocksdb {
 

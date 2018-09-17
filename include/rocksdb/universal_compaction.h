@@ -5,9 +5,7 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <climits>
-#include <vector>
 
 namespace rocksdb {
 

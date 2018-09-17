@@ -8,8 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/write_buffer_manager.h"
-#include <mutex>
+#include "rocksdb/cache.h"
 #include "util/coding.h"
+
+#include <mutex>
+#include <vector>
 
 namespace rocksdb {
 #ifndef ROCKSDB_LITE

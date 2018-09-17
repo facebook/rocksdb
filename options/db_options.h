@@ -5,9 +5,6 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include "rocksdb/options.h"
 
 namespace rocksdb {

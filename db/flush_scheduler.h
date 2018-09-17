@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <atomic>
 #include <mutex>
 #include <set>

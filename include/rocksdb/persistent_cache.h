@@ -7,16 +7,18 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <stdint.h>
-#include <memory>
-#include <string>
-
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
+#include <cstdint>
+#include <memory>
+#include <vector>
+#include <map>
+
 namespace rocksdb {
+
+class Env;
+class Logger;
+class Slice;
 
 // PersistentCache
 //

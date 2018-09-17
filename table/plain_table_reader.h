@@ -5,16 +5,11 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <unordered_map>
-#include <memory>
-#include <vector>
-#include <string>
-#include <stdint.h>
 
 #include "db/dbformat.h"
-#include "rocksdb/env.h"
+//#include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/slice_transform.h"
+//#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/table_reader.h"
@@ -27,30 +22,28 @@
 namespace rocksdb {
 
 class Block;
-struct BlockContents;
 class BlockHandle;
 class Footer;
-struct Options;
-class RandomAccessFile;
-struct ReadOptions;
-class TableCache;
-class TableReader;
+class GetContext;
 class InternalKeyComparator;
 class PlainTableKeyDecoder;
-class GetContext;
+class RandomAccessFile;
+class TableCache;
+class TableReader;
 
-using std::unique_ptr;
-using std::unordered_map;
-using std::vector;
+struct BlockContents;
+struct Options;
+struct ReadOptions;
+
 extern const uint32_t kPlainTableVariableLength;
 
 struct PlainTableReaderFileInfo {
   bool is_mmap_mode;
   Slice file_data;
   uint32_t data_end_offset;
-  unique_ptr<RandomAccessFileReader> file;
+  std::unique_ptr<RandomAccessFileReader> file;
 
-  PlainTableReaderFileInfo(unique_ptr<RandomAccessFileReader>&& _file,
+  PlainTableReaderFileInfo(std::unique_ptr<RandomAccessFileReader>&& _file,
                            const EnvOptions& storage_options,
                            uint32_t _data_size_offset)
       : is_mmap_mode(storage_options.use_mmap_reads),
@@ -71,8 +64,8 @@ class PlainTableReader: public TableReader {
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
-                     unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table,
+                     std::unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size, std::unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
                      bool full_scan_mode,
@@ -104,7 +97,7 @@ class PlainTableReader: public TableReader {
   }
 
   PlainTableReader(const ImmutableCFOptions& ioptions,
-                   unique_ptr<RandomAccessFileReader>&& file,
+                   std::unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,
@@ -201,14 +194,14 @@ class PlainTableReader: public TableReader {
   // If bloom_ is not null, all the keys' full-key hash will be added to the
   // bloom filter.
   Status PopulateIndexRecordList(PlainTableIndexBuilder* index_builder,
-                                 vector<uint32_t>* prefix_hashes);
+                                 std::vector<uint32_t>* prefix_hashes);
 
   // Internal helper function to allocate memory for bloom filter and fill it
   void AllocateAndFillBloom(int bloom_bits_per_key, int num_prefixes,
                             size_t huge_page_tlb_size,
-                            vector<uint32_t>* prefix_hashes);
+                            std::vector<uint32_t>* prefix_hashes);
 
-  void FillBloom(vector<uint32_t>* prefix_hashes);
+  void FillBloom(std::vector<uint32_t>* prefix_hashes);
 
   // Read the key and value at `offset` to parameters for keys, the and
   // `seekable`.

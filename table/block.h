@@ -8,10 +8,17 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
-#include <string>
-#include <vector>
+
+#include "db/dbformat.h"
+#include "db/pinned_iterators_manager.h"
+#include "rocksdb/table.h"
+#include "table/block_prefix_index.h"
+#include "table/data_block_hash_index.h"
+#include "table/internal_iterator.h"
+#include "table/format.h"
+#include "util/random.h"
+#include "util/sync_point.h"
+
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
@@ -19,19 +26,6 @@
 #include <malloc.h>
 #endif
 #endif
-
-#include "db/dbformat.h"
-#include "db/pinned_iterators_manager.h"
-#include "format.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/table.h"
-#include "table/block_prefix_index.h"
-#include "table/data_block_hash_index.h"
-#include "table/internal_iterator.h"
-#include "util/random.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

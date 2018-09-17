@@ -8,52 +8,30 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <atomic>
-#include <deque>
-#include <functional>
-#include <limits>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "db/column_family.h"
-#include "db/compaction_iterator.h"
-#include "db/dbformat.h"
-#include "db/flush_scheduler.h"
+#include "db/compaction_iteration_stats.h"
 #include "db/internal_stats.h"
-#include "db/job_context.h"
-#include "db/log_writer.h"
-#include "db/memtable_list.h"
-#include "db/range_del_aggregator.h"
-#include "db/version_edit.h"
-#include "db/write_controller.h"
-#include "db/write_thread.h"
 #include "options/db_options.h"
-#include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/compaction_job_stats.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/memtablerep.h"
-#include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/stop_watch.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 
 class Arena;
+class Compaction;
 class ErrorHandler;
+class InstrumentedMutex;
 class MemTable;
+class RangeDelAggregator;
 class SnapshotChecker;
 class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
+
+struct MutableCFOptions;
 
 class CompactionJob {
  public:

@@ -7,19 +7,12 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <stack>
-#include <string>
-#include <vector>
-
-#include "rocksdb/db.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/snapshot.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
+#include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "utilities/transactions/transaction_util.h"
+
+#include <stack>
 
 namespace rocksdb {
 

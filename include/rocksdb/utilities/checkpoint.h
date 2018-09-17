@@ -8,7 +8,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <string>
 #include "rocksdb/status.h"
 
 namespace rocksdb {

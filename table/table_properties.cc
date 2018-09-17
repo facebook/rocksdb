@@ -4,12 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/table_properties.h"
-#include "port/port.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "table/block.h"
 #include "table/internal_iterator.h"
-#include "table/table_properties_internal.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

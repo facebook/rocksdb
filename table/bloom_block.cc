@@ -4,10 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/bloom_block.h"
-
-#include <string>
 #include "rocksdb/slice.h"
-#include "util/dynamic_bloom.h"
 
 namespace rocksdb {
 

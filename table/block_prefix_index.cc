@@ -5,10 +5,6 @@
 
 #include "table/block_prefix_index.h"
 
-#include <vector>
-
-#include "rocksdb/comparator.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "util/arena.h"
 #include "util/coding.h"

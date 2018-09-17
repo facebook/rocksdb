@@ -13,54 +13,27 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <algorithm>
-#include <functional>
-#include <list>
-#include <memory>
-#include <random>
-#include <set>
-#include <thread>
-#include <utility>
-#include <vector>
-
 #include "db/builder.h"
-#include "db/db_impl.h"
-#include "db/db_iter.h"
-#include "db/dbformat.h"
-#include "db/error_handler.h"
+#include "db/column_family.h"
+#include "db/compaction_iterator.h"
 #include "db/event_helpers.h"
-#include "db/log_reader.h"
-#include "db/log_writer.h"
-#include "db/memtable.h"
-#include "db/memtable_list.h"
-#include "db/merge_context.h"
-#include "db/merge_helper.h"
+#include "db/error_handler.h"
+#include "db/range_del_aggregator.h"
+#include "db/table_cache.h"
 #include "db/version_set.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-#include "table/block.h"
-#include "table/block_based_table_factory.h"
-#include "table/merging_iterator.h"
+#include "table/format.h"
 #include "table/table_builder.h"
-#include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
-#include "util/log_buffer.h"
 #include "util/logging.h"
-#include "util/mutexlock.h"
-#include "util/random.h"
 #include "util/sst_file_manager_impl.h"
-#include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

@@ -8,8 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
-#include <string>
+
+#include "port/port.h"
+#include "rocksdb/options.h"
+#include "table/persistent_cache_options.h"
+
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
@@ -17,19 +20,20 @@
 #include <malloc.h>
 #endif
 #endif
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-
-#include "options/cf_options.h"
-#include "port/port.h"  // noexcept
-#include "table/persistent_cache_options.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
+class Env;
+class FilePrefetchBuffer;
 class RandomAccessFile;
+class RandomAccessFileReader;
+class Statistics;
+class UncompressionInfo;
+class UncompressionContext;
+
+enum ChecksumType : char;
+
+struct ImmutableCFOptions;
 struct ReadOptions;
 
 extern bool ShouldReportDetailedTime(Env* env, Statistics* stats);

@@ -60,20 +60,14 @@ int main() {
 #define __STDC_FORMAT_MACROS
 #endif // __STDC_FORMAT_MACROS
 
-#include <inttypes.h>
-#include <atomic>
-#include <random>
-#include <set>
-#include <string>
-#include <thread>
-
 #include "port/port.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
 #include "util/filename.h"
 #include "util/gflags_compat.h"
+
+#include <cinttypes>
+#include <atomic>
+#include <random>
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;

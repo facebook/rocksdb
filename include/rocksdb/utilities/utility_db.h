@@ -4,14 +4,14 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <vector>
-#include <string>
 
-#include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/utilities/db_ttl.h"
-#include "rocksdb/db.h"
+#include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class StackableDB;
+
+struct Options;
 
 // Please don't use this class. It's deprecated
 class UtilityDB {

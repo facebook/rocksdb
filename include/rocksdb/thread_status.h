@@ -13,12 +13,9 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <string>
-#include <utility>
-#include <vector>
 
 #if !defined(ROCKSDB_LITE) && \
     !defined(NROCKSDB_THREAD_STATUS) && \

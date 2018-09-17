@@ -5,16 +5,19 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/types.h"
+
 #include <unordered_set>
 
-#include "monitoring/statistics.h"
-#include "rocksdb/compaction_filter.h"
-#include "rocksdb/env.h"
-#include "utilities/blob_db/blob_db_impl.h"
-#include "utilities/blob_db/blob_index.h"
-
 namespace rocksdb {
+
+class Env;
+class Statistics;
+
 namespace blob_db {
+
+class BlobDBImpl;
 
 struct BlobCompactionContext {
   uint64_t next_file_number;

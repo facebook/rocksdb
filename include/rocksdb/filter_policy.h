@@ -19,11 +19,11 @@
 
 #pragma once
 
+#include "rocksdb/slice.h"
+
 #include <memory>
 #include <stdexcept>
-#include <stdlib.h>
-#include <string>
-#include <vector>
+#include <cstdlib>
 
 namespace rocksdb {
 

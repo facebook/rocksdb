@@ -9,22 +9,10 @@
 
 #pragma once
 
-#include <unordered_map>
-#include <string>
-#include <vector>
-#include <atomic>
-
 #include "db/memtable_list.h"
-#include "db/table_cache.h"
-#include "db/table_properties_collector.h"
 #include "db/write_batch_internal.h"
-#include "db/write_controller.h"
 #include "options/cf_options.h"
-#include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -42,6 +30,14 @@ class DBImpl;
 class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
+class TableCache;
+class IntTblPropCollectorFactory;
+class WriteController;
+class WriteControllerToken;
+
+enum class FlushReason : int;
+enum class WriteStallCondition : int;
+
 struct SuperVersionContext;
 
 extern const double kIncSlowdownRatio;

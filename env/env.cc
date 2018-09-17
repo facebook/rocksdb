@@ -7,15 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/env.h"
-
-#include <thread>
 #include "options/db_options.h"
 #include "port/port.h"
-#include "port/sys_time.h"
-#include "rocksdb/options.h"
-#include "util/arena.h"
-#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -43,7 +36,7 @@ uint64_t Env::GetThreadID() const {
 
 Status Env::ReuseWritableFile(const std::string& fname,
                               const std::string& old_fname,
-                              unique_ptr<WritableFile>* result,
+                              std::unique_ptr<WritableFile>* result,
                               const EnvOptions& options) {
   Status s = RenameFile(old_fname, fname);
   if (!s.ok()) {
@@ -305,7 +298,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync) {
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   EnvOptions soptions;
   Status s = env->NewWritableFile(fname, &file, soptions);
   if (!s.ok()) {
@@ -324,7 +317,7 @@ Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   EnvOptions soptions;
   data->clear();
-  unique_ptr<SequentialFile> file;
+  std::unique_ptr<SequentialFile> file;
   Status s = env->NewSequentialFile(fname, &file, soptions);
   if (!s.ok()) {
     return s;

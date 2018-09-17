@@ -5,14 +5,15 @@
 
 #pragma once
 
-#include <string>
-#include "rocksdb/table.h"
+#include <cstdint>
 
 namespace rocksdb {
 
 class Slice;
 class BlockBuilder;
+
 struct Options;
+struct BlockBasedTableOptions;
 
 // FlushBlockPolicy provides a configurable way to determine when to flush a
 // block in the block based tables,

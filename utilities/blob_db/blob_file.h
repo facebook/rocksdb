@@ -5,21 +5,22 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include "port/port.h"
+#include "utilities/blob_db/blob_log_format.h"
+
 #include <atomic>
 #include <memory>
 
-#include "port/port.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "util/file_reader_writer.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
-
 namespace rocksdb {
+
+class RandomAccessFileReader;
+
+
 namespace blob_db {
 
 class BlobDBImpl;
+class Reader;
+class Writer;
 
 class BlobFile {
   friend class BlobDBImpl;

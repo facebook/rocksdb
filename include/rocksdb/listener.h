@@ -4,13 +4,12 @@
 
 #pragma once
 
+#include "rocksdb/compaction_job_stats.h"
+#include "rocksdb/table_properties.h"
+
 #include <memory>
-#include <string>
 #include <unordered_map>
 #include <vector>
-#include "rocksdb/compaction_job_stats.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table_properties.h"
 
 namespace rocksdb {
 
@@ -107,14 +106,14 @@ enum class FlushReason : int {
   kErrorRecovery = 0xb,
 };
 
-enum class BackgroundErrorReason {
+enum class BackgroundErrorReason : int {
   kFlush,
   kCompaction,
   kWriteCallback,
   kMemTable,
 };
 
-enum class WriteStallCondition {
+enum class WriteStallCondition : int {
   kNormal,
   kDelayed,
   kStopped,

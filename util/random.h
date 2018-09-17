@@ -9,7 +9,7 @@
 
 #pragma once
 #include <random>
-#include <stdint.h>
+#include <cstdint>
 
 namespace rocksdb {
 

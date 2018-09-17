@@ -13,13 +13,9 @@
 // * Strings are encoded prefixed by their length in varint format
 
 #pragma once
-#include <algorithm>
-#include <stdint.h>
-#include <string.h>
-#include <string>
 
-#include "rocksdb/write_batch.h"
 #include "port/port.h"
+#include "rocksdb/slice.h"
 
 // Some processors does not allow unaligned access to memory
 #if defined(__sparc)

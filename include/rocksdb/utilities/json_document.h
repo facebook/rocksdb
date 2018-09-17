@@ -5,15 +5,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <deque>
-#include <map>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
 #include "rocksdb/slice.h"
+
+#include <memory>
 
 // We use JSONDocument for DocumentDB API
 // Implementation inspired by folly::dynamic, rapidjson and fbson

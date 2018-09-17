@@ -9,13 +9,10 @@
 
 #include "util/event_logger.h"
 
-#include <inttypes.h>
-#include <cassert>
-#include <sstream>
-#include <string>
-
 #include "util/logging.h"
 #include "util/string_util.h"
+
+#include <cinttypes>
 
 namespace rocksdb {
 

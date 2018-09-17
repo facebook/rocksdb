@@ -9,9 +9,11 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-
+#include "db/db_impl.h"
+#include "util/logging.h"
 #include "util/set_comparator.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 // During recovery if the memtable is flushed we cannot rely on its help on

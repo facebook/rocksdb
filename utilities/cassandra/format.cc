@@ -3,13 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "format.h"
-
-#include <algorithm>
-#include <map>
-#include <memory>
-
+#include "utilities/cassandra/format.h"
 #include "utilities/cassandra/serialize.h"
+
+#include <map>
 
 namespace rocksdb {
 namespace cassandra {
@@ -266,7 +263,7 @@ RowValue RowValue::ConvertExpiredColumnsToTombstones(bool* changed) const {
         std::static_pointer_cast<ExpiringColumn>(column);
 
       if(expiring_column->Expired()) {
-        shared_ptr<Tombstone> tombstone = expiring_column->ToTombstone();
+        std::shared_ptr<Tombstone> tombstone = expiring_column->ToTombstone();
         new_columns.push_back(tombstone);
         *changed = true;
         continue;

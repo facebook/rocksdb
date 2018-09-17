@@ -6,21 +6,17 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <limits>
-#include <string>
-#include <vector>
-
-#include "options/db_options.h"
 #include "port/port.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+
+#include <limits>
+#include <vector>
 
 namespace rocksdb {
 
 class MergeContext;
+
+struct ImmutableDBOptions;
 struct Options;
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.

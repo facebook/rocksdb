@@ -5,11 +5,7 @@
 
 #pragma once
 
-#include "monitoring/statistics.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/thread_status.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {

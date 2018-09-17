@@ -5,15 +5,27 @@
 
 #pragma once
 
-#include <string>
+#include "rocksdb/status.h"
+
 #include <unordered_map>
 #include <vector>
 
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/table.h"
-
 namespace rocksdb {
+
+class ColumnFamilyHandle;
+class DB;
+class MemTableRepFactory;
+class Slice;
+
+enum CompressionType : unsigned char;
+
+struct BlockBasedTableOptions;
+struct ColumnFamilyOptions;
+struct DBOptions;
+struct EnvOptions;
+struct Options;
+struct PlainTableOptions;
+struct RangePtr;
 
 #ifndef ROCKSDB_LITE
 // The following set of functions provide a way to construct RocksDB Options

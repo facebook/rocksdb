@@ -7,45 +7,30 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <atomic>
-#include <condition_variable>
-#include <limits>
-#include <list>
-#include <memory>
-#include <set>
-#include <string>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
-#include "db/db_iter.h"
-#include "rocksdb/compaction_filter.h"
-#include "rocksdb/db.h"
-#include "rocksdb/listener.h"
-#include "rocksdb/options.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/wal_filter.h"
-#include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
-#include "utilities/blob_db/blob_file.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
+
+#include <list>
+#include <set>
+#include <atomic>
 
 namespace rocksdb {
 
-class DBImpl;
 class ColumnFamilyHandle;
 class ColumnFamilyData;
+class DBImpl;
+class RandomAccessFileReader;
+
 struct FlushJobInfo;
 
 namespace blob_db {
 
-struct BlobCompactionContext;
 class BlobDBImpl;
 class BlobFile;
+class Writer;
+
+struct BlobCompactionContext;
 
 // this implements the callback from the WAL which ensures that the
 // blob record is present in the blob log. If fsync/fdatasync in not

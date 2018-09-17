@@ -22,16 +22,14 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <memory>
-#include <string>
-#include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
+
+#include <memory>
 
 namespace rocksdb {
 
 class Cache;
+class Statistics;
 
 struct LRUCacheOptions {
   // Capacity of the cache.

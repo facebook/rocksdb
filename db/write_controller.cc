@@ -4,11 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/write_controller.h"
+//#include "rocksdb/env.h"
 
-#include <atomic>
-#include <cassert>
 #include <ratio>
-#include "rocksdb/env.h"
 
 namespace rocksdb {
 

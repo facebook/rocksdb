@@ -13,13 +13,9 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <vector>
+#include "util/logging.h"
 
-#include "db/column_family.h"
-#include "db/job_context.h"
-#include "db/version_set.h"
-#include "rocksdb/status.h"
+#include <cinttypes>
 
 namespace rocksdb {
 

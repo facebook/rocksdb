@@ -5,21 +5,17 @@
 
 #pragma once
 
-#include <list>
-#include <string>
-#include <unordered_map>
-#include "db/dbformat.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
-
-#include "table/block.h"
-#include "table/block_based_table_reader.h"
 #include "table/full_filter_block.h"
-#include "table/index_builder.h"
-#include "util/autovector.h"
+
+#include "table/block_based_table_reader.h"
+#include "table/block_builder.h"
+
+#include <list>
 
 namespace rocksdb {
+
+class IndexBuilder;
+class PartitionedIndexBuilder;
 
 class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  public:

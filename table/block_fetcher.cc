@@ -9,24 +9,18 @@
 
 #include "table/block_fetcher.h"
 
-#include <string>
-#include <inttypes.h>
-
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
-#include "rocksdb/env.h"
-#include "table/block.h"
+#include "options/cf_options.h"
+#include "rocksdb/persistent_cache.h"
 #include "table/block_based_table_reader.h"
+#include "table/filter_block.h"
 #include "table/persistent_cache_helper.h"
-#include "table/format.h"
-#include "util/coding.h"
-#include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
-#include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

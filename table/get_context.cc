@@ -6,7 +6,7 @@
 #include "table/get_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
-#include "db/read_callback.h"
+#include "db/range_del_aggregator.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"

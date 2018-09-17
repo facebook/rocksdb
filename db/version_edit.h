@@ -8,18 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <algorithm>
-#include <set>
-#include <utility>
-#include <vector>
-#include <string>
+
 #include "rocksdb/cache.h"
 #include "db/dbformat.h"
 #include "util/arena.h"
-#include "util/autovector.h"
+
+#include <set>
 
 namespace rocksdb {
 
+class TableReader;
 class VersionSet;
 
 const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;

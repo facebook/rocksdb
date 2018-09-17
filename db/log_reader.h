@@ -8,19 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory>
-#include <stdint.h>
 
 #include "db/log_format.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
 #include "rocksdb/options.h"
 
 namespace rocksdb {
 
 class SequentialFileReader;
 class Logger;
-using std::unique_ptr;
 
 namespace log {
 
@@ -52,9 +47,8 @@ class Reader {
   // If "checksum" is true, verify checksums if available.
   Reader(std::shared_ptr<Logger> info_log,
          // @lint-ignore TXT2 T25377293 Grandfathered in
-         unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
+         std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
          bool checksum, uint64_t log_num);
-
   ~Reader();
 
   // Read the next record into *record.  Returns true if read
@@ -87,7 +81,7 @@ class Reader {
 
  private:
   std::shared_ptr<Logger> info_log_;
-  const unique_ptr<SequentialFileReader> file_;
+  const std::unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;

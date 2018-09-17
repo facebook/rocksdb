@@ -4,21 +4,16 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <algorithm>
-#include <deque>
-#include <string>
-#include <vector>
-
 #include "db/compaction.h"
 #include "db/compaction_iteration_stats.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
-#include "db/range_del_aggregator.h"
-#include "db/snapshot_checker.h"
-#include "options/cf_options.h"
-#include "rocksdb/compaction_filter.h"
 
 namespace rocksdb {
+
+class MergeHelper;
+class RangeDelAggregator;
+class SnapshotChecker;
 
 class CompactionIterator {
  public:

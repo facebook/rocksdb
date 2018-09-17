@@ -8,9 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/block_based_filter_block.h"
-#include <algorithm>
-
-#include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"

@@ -6,16 +6,20 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include <atomic>
-#include <cstdlib>
-#include <functional>
 
 #include "db/db_test_util.h"
+#include "db/internal_stats.h"
 #include "db/read_callback.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/wal_filter.h"
+#include "rocksdb/write_buffer_manager.h"
+#include "util/trace_replay.h"
+
+#include <atomic>
+#include <functional>
 
 namespace rocksdb {
 

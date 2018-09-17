@@ -13,43 +13,28 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <stdio.h>
-#include <algorithm>
-#include <map>
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <vector>
 #include "db/compaction.h"
-#include "db/internal_stats.h"
-#include "db/log_reader.h"
 #include "db/log_writer.h"
-#include "db/memtable.h"
-#include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/internal_stats.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
-#include "monitoring/file_read_sample.h"
-#include "monitoring/perf_context_imp.h"
-#include "rocksdb/env.h"
-#include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/format.h"
+#include "monitoring/file_read_sample.h"
 #include "table/get_context.h"
-#include "table/internal_iterator.h"
-#include "table/merging_iterator.h"
+#include "table/iterator_wrapper.h"
 #include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
+#include "table/scoped_arena_iterator.h"
 #include "table/table_reader.h"
-#include "table/two_level_iterator.h"
-#include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/filename.h"
-#include "util/stop_watch.h"
+#include "util/file_reader_writer.h"
+#include "util/logging.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
+
+#include <unordered_set>
+#include <cinttypes>
 
 namespace rocksdb {
 

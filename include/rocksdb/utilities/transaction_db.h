@@ -6,12 +6,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
 

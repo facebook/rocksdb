@@ -11,14 +11,11 @@
 
 #include "utilities/transactions/transaction_util.h"
 
-#include <inttypes.h>
-#include <string>
-#include <vector>
-
 #include "db/db_impl.h"
-#include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/string_util.h"
+
+#include <cinttypes>
 
 namespace rocksdb {
 

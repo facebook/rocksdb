@@ -8,10 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/file_indexer.h"
-#include <algorithm>
-#include <functional>
 #include "db/version_edit.h"
 #include "rocksdb/comparator.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 

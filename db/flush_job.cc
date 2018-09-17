@@ -13,44 +13,18 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-
-#include <algorithm>
-#include <vector>
-
 #include "db/builder.h"
-#include "db/db_iter.h"
-#include "db/dbformat.h"
-#include "db/event_helpers.h"
-#include "db/log_reader.h"
-#include "db/log_writer.h"
-#include "db/memtable_list.h"
-#include "db/merge_context.h"
-#include "db/version_set.h"
+#include "db/column_family.h"
+#include "db/job_context.h"
+#include "db/internal_stats.h"
 #include "monitoring/iostats_context_imp.h"
-#include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "port/port.h"
-#include "db/memtable.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-#include "table/block.h"
-#include "table/block_based_table_factory.h"
-#include "table/merging_iterator.h"
-#include "table/table_builder.h"
-#include "table/two_level_iterator.h"
-#include "util/coding.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/event_logger.h"
-#include "util/file_util.h"
-#include "util/filename.h"
-#include "util/log_buffer.h"
 #include "util/logging.h"
-#include "util/mutexlock.h"
-#include "util/stop_watch.h"
 #include "util/sync_point.h"
+
+#include <inttypes.h>
 
 namespace rocksdb {
 

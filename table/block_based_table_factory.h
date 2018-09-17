@@ -8,23 +8,18 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
 
-#include <memory>
-#include <string>
-
-#include "db/dbformat.h"
 #include "options/options_helper.h"
-#include "options/options_parser.h"
-#include "rocksdb/flush_block_policy.h"
+#include "port/port.h"
 #include "rocksdb/table.h"
 
 namespace rocksdb {
 
-struct EnvOptions;
-
-using std::unique_ptr;
 class BlockBasedTableBuilder;
+
+enum OptionsSanityCheckLevel : unsigned char;
+
+struct EnvOptions;
 
 // A class used to track actual bytes written from the tail in the recent SST
 // file opens, and provide a suggestion for following open.
@@ -53,8 +48,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const override;
 
   TableBuilder* NewTableBuilder(

@@ -8,21 +8,11 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-#include <string>
-#include <memory>
-#include <vector>
-#include <limits>
-#include <unordered_map>
-
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/listener.h"
-#include "rocksdb/universal_compaction.h"
+#include "rocksdb/types.h"
 #include "rocksdb/version.h"
-#include "rocksdb/write_buffer_manager.h"
 
 #ifdef max
 #undef max
@@ -34,19 +24,23 @@ class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
-class Env;
-enum InfoLogLevel : unsigned char;
-class SstFileManager;
+class EventListener;
 class FilterPolicy;
+class InternalKeyComparator;
 class Logger;
-class MergeOperator;
-class Snapshot;
 class MemTableRepFactory;
+class MergeOperator;
 class RateLimiter;
 class Slice;
+class Snapshot;
+class SstFileManager;
 class Statistics;
-class InternalKeyComparator;
 class WalFilter;
+class WriteBufferManager;
+
+enum InfoLogLevel : unsigned char;
+
+struct TableProperties;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before

@@ -5,15 +5,15 @@
 
 #pragma once
 
-#include <memory>
+#include <cassert>
 #include <sstream>
 #include <string>
 #include <chrono>
 
-#include "rocksdb/env.h"
-#include "util/log_buffer.h"
-
 namespace rocksdb {
+
+class LogBuffer;
+class Logger;
 
 class JSONWriter {
  public:

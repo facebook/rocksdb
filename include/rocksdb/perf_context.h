@@ -5,10 +5,7 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <string>
-
-#include "rocksdb/perf_level.h"
+#include <cstddef>
 
 namespace rocksdb {
 

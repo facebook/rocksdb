@@ -8,14 +8,12 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <vector>
-
-#include "rocksdb/status.h"
 
 namespace rocksdb {
 
 class Env;
 class Logger;
+class Status;
 
 // SstFileManager is used to track SST files in the DB and control their
 // deletion rate.

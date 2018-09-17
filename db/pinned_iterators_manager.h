@@ -4,12 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include <algorithm>
-#include <memory>
-#include <utility>
-#include <vector>
 
 #include "table/internal_iterator.h"
+
+#include <algorithm>
+#include <vector>
 
 namespace rocksdb {
 

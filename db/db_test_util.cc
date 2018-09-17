@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
+#include "db/range_del_aggregator.h"
 #include "rocksdb/env_encryption.h"
 
 namespace rocksdb {

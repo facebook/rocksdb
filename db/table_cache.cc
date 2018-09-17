@@ -9,21 +9,16 @@
 
 #include "db/table_cache.h"
 
-#include "db/dbformat.h"
+#include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
-#include "util/filename.h"
-
-#include "monitoring/perf_context_imp.h"
-#include "rocksdb/statistics.h"
+#include "options/cf_options.h"
 #include "table/get_context.h"
-#include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
-#include "util/coding.h"
+#include "util/filename.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

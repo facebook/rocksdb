@@ -8,18 +8,23 @@
 
 #pragma once
 
-#include <memory>
-
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
+#include <memory>
+#include <vector>
+
 namespace rocksdb {
 
+class MemTableRepFactory;
+class SkipListFactory;
 class Slice;
 class SliceTransform;
-enum CompressionType : unsigned char;
 class TablePropertiesCollectorFactory;
 class TableFactory;
+
+enum CompressionType : unsigned char;
+
 struct Options;
 
 enum CompactionStyle : char {

@@ -9,21 +9,20 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <string>
-#include <utility>
-#include <vector>
-#include "db/dbformat.h"
-#include "db/table_properties_collector.h"
-#include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
+class InternalKeyComparator;
+class IntTblPropCollectorFactory;
 class Slice;
+class SliceTransform;
 class Status;
+
+struct EnvOptions;
+struct ImmutableCFOptions;
+struct MutableCFOptions;
 
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block

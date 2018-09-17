@@ -8,11 +8,9 @@
 #include "rocksdb/utilities/document_db.h"
 
 #include "rocksdb/cache.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
-#include "rocksdb/filter_policy.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/slice.h"
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/json_document.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"

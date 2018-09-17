@@ -9,25 +9,20 @@
 
 #pragma once
 
-#include <memory>
-#include <set>
-#include <string>
-#include <unordered_set>
-#include <vector>
-
-#include "db/compaction.h"
-#include "db/version_set.h"
 #include "options/cf_options.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "rocksdb/status.h"
+
+#include <unordered_set>
+#include <set>
 
 namespace rocksdb {
 
 class LogBuffer;
 class Compaction;
 class VersionStorageInfo;
+
+struct ColumnFamilyMetaData;
 struct CompactionInputFiles;
+struct FileMetaData;
 
 class CompactionPicker {
  public:

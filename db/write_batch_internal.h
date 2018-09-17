@@ -8,13 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <vector>
+
 #include "db/write_thread.h"
-#include "rocksdb/types.h"
-#include "rocksdb/write_batch.h"
-#include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "util/autovector.h"
+#include "rocksdb/write_batch.h"
 
 namespace rocksdb {
 

@@ -18,17 +18,15 @@
 
 #pragma once
 
-#include <assert.h>
-#include <cstdio>
-#include <stddef.h>
-#include <string.h>
+#include "rocksdb/cleanable.h"
+
+#include <cassert>
+#include <cstring>
 #include <string>
 
 #ifdef __cpp_lib_string_view
 #include <string_view>
 #endif
-
-#include "rocksdb/cleanable.h"
 
 namespace rocksdb {
 

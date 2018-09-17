@@ -6,22 +6,10 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <mutex>
-#include <queue>
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "db/db_iter.h"
-#include "db/read_callback.h"
-#include "db/snapshot_checker.h"
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
-#include "utilities/transactions/write_prepared_txn.h"
+
+#include <queue>
 
 namespace rocksdb {
 

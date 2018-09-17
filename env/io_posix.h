@@ -7,11 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+
+#include "rocksdb/env.h"
+
 #include <errno.h>
 #include <unistd.h>
 #include <atomic>
-#include <string>
-#include "rocksdb/env.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.

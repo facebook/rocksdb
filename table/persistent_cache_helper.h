@@ -4,15 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <string>
-
-#include "monitoring/statistics.h"
-#include "table/format.h"
-#include "table/persistent_cache_options.h"
+#include "rocksdb/status.h"
+#include <memory>
 
 namespace rocksdb {
 
+class BlockHandle;
+
 struct BlockContents;
+struct PersistentCacheOptions;
 
 // PersistentCacheHelper
 //

@@ -8,12 +8,12 @@
 
 #pragma once
 
+#include "rocksdb/status.h"
 #include <cstddef>
 
 namespace rocksdb {
 
 class Slice;
-class Status;
 class ColumnFamilyHandle;
 class WriteBatch;
 struct SliceParts;

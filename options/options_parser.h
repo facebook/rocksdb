@@ -5,16 +5,12 @@
 
 #pragma once
 
-#include <map>
-#include <string>
-#include <vector>
-
 #include "options/options_sanity_check.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "table/block_based_table_factory.h"
 
 namespace rocksdb {
+
+struct OptionTypeInfo;
 
 #ifndef ROCKSDB_LITE
 

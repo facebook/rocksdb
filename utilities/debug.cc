@@ -6,8 +6,9 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/debug.h"
-
 #include "db/db_impl.h"
+#include "db/range_del_aggregator.h"
+#include "table/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
