@@ -412,6 +412,10 @@ DEFINE_int32(compact_range_one_in, 0,
              "If non-zero, then CompactRange() will be called once for every N "
              "operations on average.  0 indicates CompactRange() is disabled.");
 
+DEFINE_int32(flush_one_in, 0,
+             "If non-zero, then Flush() will be called once for every N ops "
+             "on average.  0 indicates calls to Flush() are disabled.");
+
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
 
@@ -1943,8 +1947,8 @@ class StressTest {
                 db_->CompactFiles(CompactionOptions(), random_cf, input_files,
                                   static_cast<int>(output_level));
             if (!s.ok()) {
-              printf("Unable to perform CompactFiles(): %s\n",
-                     s.ToString().c_str());
+              fprintf(stdout, "Unable to perform CompactFiles(): %s\n",
+                      s.ToString().c_str());
               thread->stats.AddNumCompactFilesFailed(1);
             } else {
               thread->stats.AddNumCompactFilesSucceed(1);
@@ -1965,6 +1969,15 @@ class StressTest {
       }
 
       auto column_family = column_families_[rand_column_family];
+
+      if (FLAGS_flush_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_flush_one_in) == 0) {
+        FlushOptions flush_opts;
+        Status status = db_->Flush(flush_opts, column_family);
+        if (!status.ok()) {
+          fprintf(stdout, "Unable to perform Flush(): %s\n", status.ToString().c_str());
+        }
+      }
 
       if (FLAGS_compact_range_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_range_one_in) == 0) {
