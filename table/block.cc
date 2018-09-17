@@ -763,8 +763,8 @@ BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
 }
 
 Block::~Block() {
-  // This sync point can be re-enabled once the right order for global static
-  // initialization/destruction across compilation units is determined.
+  // This sync point can be re-enabled if RocksDB can control the
+  // initialization order of any/all static options created by the user.
   // TEST_SYNC_POINT("Block::~Block");
 }
 
