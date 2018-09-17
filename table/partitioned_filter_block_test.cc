@@ -63,6 +63,7 @@ class PartitionedFilterBlockTest
                                            // will access variable that are not
                                            // initialized in our mocked version
     table_options_.format_version = GetParam();
+    table_options_.index_block_restart_interval = 3;
   }
 
   std::shared_ptr<Cache> cache_;
