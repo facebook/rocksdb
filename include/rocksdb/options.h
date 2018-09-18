@@ -6,8 +6,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
-#define STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -1183,8 +1182,13 @@ struct FlushOptions {
   // If true, the flush will wait until the flush is done.
   // Default: true
   bool wait;
-
-  FlushOptions() : wait(true) {}
+  // If true, the flush would proceed immediately even it means writes will
+  // stall for the duration of the flush; if false the operation will wait
+  // until it's possible to do flush w/o causing stall or until required flush
+  // is performed by someone else (foreground call or background thread).
+  // Default: false
+  bool allow_write_stall;
+  FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
 // Create a Logger from provided DBOptions
@@ -1284,5 +1288,3 @@ struct IngestExternalFileOptions {
 struct TraceOptions {};
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

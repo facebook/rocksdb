@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_TYPES_H_
-#define STORAGE_ROCKSDB_INCLUDE_TYPES_H_
+#pragma once
 
 #include <stdint.h>
 #include "rocksdb/slice.h"
@@ -23,6 +22,7 @@ enum EntryType {
   kEntrySingleDelete,
   kEntryMerge,
   kEntryRangeDeletion,
+  kEntryBlobIndex,
   kEntryOther,
 };
 
@@ -52,5 +52,3 @@ struct FullKey {
 bool ParseFullKey(const Slice& internal_key, FullKey* result);
 
 }  //  namespace rocksdb
-
-#endif //  STORAGE_ROCKSDB_INCLUDE_TYPES_H_

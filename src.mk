@@ -104,6 +104,7 @@ LIB_SOURCES =                                                   \
   table/cuckoo_table_factory.cc                                 \
   table/cuckoo_table_reader.cc                                  \
   table/data_block_hash_index.cc                                \
+  table/data_block_footer.cc                                    \
   table/flush_block_policy.cc                                   \
   table/format.cc                                               \
   table/full_filter_block.cc                                    \
@@ -160,11 +161,11 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_compaction_filter.cc                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
+  utilities/blob_db/blob_db_impl_filesnapshot.cc                \
   utilities/blob_db/blob_file.cc                                \
   utilities/blob_db/blob_log_format.cc                          \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
-  utilities/blob_db/ttl_extractor.cc                            \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
@@ -232,6 +233,9 @@ TOOL_LIB_SOURCES = \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
   utilities/blob_db/blob_dump_tool.cc                           \
+
+ANALYZER_LIB_SOURCES = \
+  tools/trace_analyzer_tool.cc					\
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
@@ -324,6 +328,7 @@ MAIN_SOURCES =                                                          \
   db/redis_test.cc                                                      \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
+  db/range_del_aggregator_bench.cc                                      \
   db/table_properties_collector_test.cc                                 \
   db/util_merge_operators_test.cc                                       \
   db/version_builder_test.cc                                            \
@@ -361,6 +366,7 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
+  tools/trace_analyzer_test.cc						\
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
@@ -415,6 +421,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/compaction_filter_factory.cc                  \
   java/rocksjni/compaction_filter_factory_jnicallback.cc      \
+  java/rocksjni/compact_range_options.cc                      \
   java/rocksjni/compaction_options_fifo.cc                    \
   java/rocksjni/compaction_options_universal.cc               \
   java/rocksjni/comparator.cc                                 \

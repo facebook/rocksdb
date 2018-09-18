@@ -199,10 +199,10 @@ class FullFilterBitsReader : public FilterBitsReader {
                              uint32_t* num_lines);
 
   // "filter" contains the data appended by a preceding call to
-  // CreateFilterFromHash() on this class.  This method must return true if
-  // the key was in the list of keys passed to CreateFilter().
-  // This method may return true or false if the key was not on the
-  // list, but it should aim to return false with a high probability.
+  // FilterBitsBuilder::Finish. This method must return true if the key was
+  // passed to FilterBitsBuilder::AddKey. This method may return true or false
+  // if the key was not on the list, but it should aim to return false with a
+  // high probability.
   //
   // hash: target to be checked
   // filter: the whole filter, including meta data bytes

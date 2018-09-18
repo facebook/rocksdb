@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef MERGE_HELPER_H
-#define MERGE_HELPER_H
+#pragma once
 
 #include <deque>
 #include <string>
@@ -26,7 +25,6 @@ class Iterator;
 class Logger;
 class MergeOperator;
 class Statistics;
-class InternalIterator;
 
 class MergeHelper {
  public:
@@ -194,5 +192,3 @@ class MergeOutputIterator {
 };
 
 } // namespace rocksdb
-
-#endif

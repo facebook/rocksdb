@@ -138,9 +138,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(
-          cfd, &job_context.superversion_context,
-          *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(cfd,
+                                         &job_context.superversion_contexts[0],
+                                         *cfd->GetLatestMutableCFOptions());
     }
   }  // lock released here
   LogFlush(immutable_db_options_.info_log);

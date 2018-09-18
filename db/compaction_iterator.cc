@@ -18,8 +18,8 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
-    RangeDelAggregator* range_del_agg,
-    const Compaction* compaction, const CompactionFilter* compaction_filter,
+    RangeDelAggregator* range_del_agg, const Compaction* compaction,
+    const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum)
     : CompactionIterator(
@@ -505,6 +505,31 @@ void CompactionIterator::NextFromInput() {
         ++iter_stats_.num_optimized_del_drop_obsolete;
       }
       input_->Next();
+    } else if ((ikey_.type == kTypeDeletion) && bottommost_level_ &&
+               ikeyNotNeededForIncrementalSnapshot()) {
+      // Handle the case where we have a delete key at the bottom most level
+      // We can skip outputting the key iff there are no subsequent puts for this
+      // key
+      ParsedInternalKey next_ikey;
+      input_->Next();
+      // Skip over all versions of this key that happen to occur in the same snapshot
+      // range as the delete
+      while (input_->Valid() &&
+             ParseInternalKey(input_->key(), &next_ikey) &&
+             cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
+             (prev_snapshot == 0 || next_ikey.sequence > prev_snapshot ||
+              (snapshot_checker_ != nullptr &&
+               UNLIKELY(!snapshot_checker_->IsInSnapshot(next_ikey.sequence,
+                                                         prev_snapshot))))) {
+        input_->Next();
+      }
+      // If you find you still need to output a row with this key, we need to output the
+      // delete too
+      if (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+          cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
+        valid_ = true;
+        at_next_ = true;
+      }
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {
         status_ = Status::InvalidArgument(

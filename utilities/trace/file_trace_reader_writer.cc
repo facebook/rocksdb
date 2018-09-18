@@ -109,7 +109,8 @@ Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
   }
 
   unique_ptr<WritableFileWriter> file_writer;
-  file_writer.reset(new WritableFileWriter(std::move(trace_file), env_options));
+  file_writer.reset(new WritableFileWriter(std::move(trace_file),
+                                           trace_filename, env_options));
   trace_writer->reset(new FileTraceWriter(std::move(file_writer)));
   return s;
 }

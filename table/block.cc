@@ -20,6 +20,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "table/block_prefix_index.h"
+#include "table/data_block_footer.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
@@ -33,28 +34,65 @@ namespace rocksdb {
 //
 // If any errors are detected, returns nullptr.  Otherwise, returns a
 // pointer to the key delta (just past the three decoded values).
-static inline const char* DecodeEntry(const char* p, const char* limit,
-                                      uint32_t* shared,
-                                      uint32_t* non_shared,
-                                      uint32_t* value_length) {
-  if (limit - p < 3) return nullptr;
-  *shared = reinterpret_cast<const unsigned char*>(p)[0];
-  *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
-  *value_length = reinterpret_cast<const unsigned char*>(p)[2];
-  if ((*shared | *non_shared | *value_length) < 128) {
-    // Fast path: all three values are encoded in one byte each
-    p += 3;
-  } else {
-    if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-    if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
-    if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) return nullptr;
-  }
+struct DecodeEntry {
+  inline const char* operator()(const char* p, const char* limit,
+                                uint32_t* shared, uint32_t* non_shared,
+                                uint32_t* value_length) {
+    // We need 2 bytes for shared and non_shared size. We also need one more
+    // byte either for value size or the actual value in case of value delta
+    // encoding.
+    assert(limit - p >= 3);
+    *shared = reinterpret_cast<const unsigned char*>(p)[0];
+    *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
+    *value_length = reinterpret_cast<const unsigned char*>(p)[2];
+    if ((*shared | *non_shared | *value_length) < 128) {
+      // Fast path: all three values are encoded in one byte each
+      p += 3;
+    } else {
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
+        return nullptr;
+      }
+    }
 
-  if (static_cast<uint32_t>(limit - p) < (*non_shared + *value_length)) {
-    return nullptr;
+    // Using an assert in place of "return null" since we should not pay the
+    // cost of checking for corruption on every single key decoding
+    assert(!(static_cast<uint32_t>(limit - p) < (*non_shared + *value_length)));
+    return p;
   }
-  return p;
-}
+};
+
+struct DecodeKey {
+  inline const char* operator()(const char* p, const char* limit,
+                                uint32_t* shared, uint32_t* non_shared) {
+    uint32_t value_length;
+    return DecodeEntry()(p, limit, shared, non_shared, &value_length);
+  }
+};
+
+// In format_version 4, which is used by index blocks, the value size is not
+// encoded before the entry, as the value is known to be the handle with the
+// known size.
+struct DecodeKeyV4 {
+  inline const char* operator()(const char* p, const char* limit,
+                                uint32_t* shared, uint32_t* non_shared) {
+    // We need 2 bytes for shared and non_shared size. We also need one more
+    // byte either for value size or the actual value in case of value delta
+    // encoding.
+    if (limit - p < 3) return nullptr;
+    *shared = reinterpret_cast<const unsigned char*>(p)[0];
+    *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
+    if ((*shared | *non_shared) < 128) {
+      // Fast path: all three values are encoded in one byte each
+      p += 2;
+    } else {
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+    }
+    return p;
+  }
+};
 
 void DataBlockIter::Next() {
   assert(Valid());
@@ -170,7 +208,8 @@ void DataBlockIter::Seek(const Slice& target) {
     return;
   }
   uint32_t index = 0;
-  bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
+  bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
+                                  comparator_);
 
   if (!ok) {
     return;
@@ -183,6 +222,123 @@ void DataBlockIter::Seek(const Slice& target) {
       return;
     }
   }
+}
+
+// Optimized Seek for point lookup for an internal key `target`
+// target = "seek_user_key @ type | seqno".
+//
+// For any type other than kTypeValue, kTypeDeletion, kTypeSingleDeletion,
+// or kTypeBlobIndex, this function behaves identically as Seek().
+//
+// For any type in kTypeValue, kTypeDeletion, kTypeSingleDeletion,
+// or kTypeBlobIndex:
+//
+// If the return value is FALSE, iter location is undefined, and it means:
+// 1) there is no key in this block falling into the range:
+//    ["seek_user_key @ type | seqno", "seek_user_key @ kTypeDeletion | 0"],
+//    inclusive; AND
+// 2) the last key of this block has a greater user_key from seek_user_key
+//
+// If the return value is TRUE, iter location has two possibilies:
+// 1) If iter is valid, it is set to a location as if set by BinarySeek. In
+//    this case, it points to the first key_ with a larger user_key or a
+//    matching user_key with a seqno no greater than the seeking seqno.
+// 2) If the iter is invalid, it means that either all the user_key is less
+//    than the seek_user_key, or the block ends with a matching user_key but
+//    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
+//    but larger type).
+bool DataBlockIter::SeekForGetImpl(const Slice& target) {
+  Slice user_key = ExtractUserKey(target);
+  uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
+  uint8_t entry = data_block_hash_index_->Lookup(data_, map_offset, user_key);
+
+  if (entry == kCollision) {
+    // HashSeek not effective, falling back
+    Seek(target);
+    return true;
+  }
+
+  if (entry == kNoEntry) {
+    // Even if we cannot find the user_key in this block, the result may
+    // exist in the next block. Consider this exmpale:
+    //
+    // Block N:    [aab@100, ... , app@120]
+    // bounary key: axy@50 (we make minimal assumption about a boundary key)
+    // Block N+1:  [axy@10, ...   ]
+    //
+    // If seek_key = axy@60, the search will starts from Block N.
+    // Even if the user_key is not found in the hash map, the caller still
+    // have to conntinue searching the next block.
+    //
+    // In this case, we pretend the key is the the last restart interval.
+    // The while-loop below will search the last restart interval for the
+    // key. It will stop at the first key that is larger than the seek_key,
+    // or to the end of the block if no one is larger.
+    entry = static_cast<uint8_t>(num_restarts_ - 1);
+  }
+
+  uint32_t restart_index = entry;
+
+  // check if the key is in the restart_interval
+  assert(restart_index < num_restarts_);
+  SeekToRestartPoint(restart_index);
+
+  const char* limit = nullptr;
+  if (restart_index_ + 1 < num_restarts_) {
+    limit = data_ + GetRestartPoint(restart_index_ + 1);
+  } else {
+    limit = data_ + restarts_;
+  }
+
+  while (true) {
+    // Here we only linear seek the target key inside the restart interval.
+    // If a key does not exist inside a restart interval, we avoid
+    // further searching the block content accross restart interval boundary.
+    //
+    // TODO(fwu): check the left and write boundary of the restart interval
+    // to avoid linear seek a target key that is out of range.
+    if (!ParseNextDataKey(limit) || Compare(key_, target) >= 0) {
+      // we stop at the first potential matching user key.
+      break;
+    }
+  }
+
+  if (current_ == restarts_) {
+    // Search reaches to the end of the block. There are three possibilites:
+    // 1) there is only one user_key match in the block (otherwise collsion).
+    //    the matching user_key resides in the last restart interval, and it
+    //    is the last key of the restart interval and of the block as well.
+    //    ParseNextDataKey() skiped it as its [ type | seqno ] is smaller.
+    //
+    // 2) The seek_key is not found in the HashIndex Lookup(), i.e. kNoEntry,
+    //    AND all existing user_keys in the restart interval are smaller than
+    //    seek_user_key.
+    //
+    // 3) The seek_key is a false positive and happens to be hashed to the
+    //    last restart interval, AND all existing user_keys in the restart
+    //    interval are smaller than seek_user_key.
+    //
+    // The result may exist in the next block each case, so we return true.
+    return true;
+  }
+
+  if (user_comparator_->Compare(key_.GetUserKey(), user_key) != 0) {
+    // the key is not in this block and cannot be at the next block either.
+    return false;
+  }
+
+  // Here we are conservative and only support a limited set of cases
+  ValueType value_type = ExtractValueType(key_.GetKey());
+  if (value_type != ValueType::kTypeValue &&
+      value_type != ValueType::kTypeDeletion &&
+      value_type != ValueType::kTypeSingleDeletion &&
+      value_type != ValueType::kTypeBlobIndex) {
+    Seek(target);
+    return true;
+  }
+
+  // Result found, and the iter is correctly set.
+  return true;
 }
 
 void IndexBlockIter::Seek(const Slice& target) {
@@ -198,8 +354,12 @@ void IndexBlockIter::Seek(const Slice& target) {
   bool ok = false;
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
+  } else if (value_delta_encoded_) {
+    ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
+                                 comparator_);
   } else {
-    ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, active_comparator_);
+    ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
+                               comparator_);
   }
 
   if (!ok) {
@@ -222,7 +382,8 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
     return;
   }
   uint32_t index = 0;
-  bool ok = BinarySeek(seek_key, 0, num_restarts_ - 1, &index, comparator_);
+  bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
+                                  comparator_);
 
   if (!ok) {
     return;
@@ -277,7 +438,8 @@ void IndexBlockIter::SeekToLast() {
   }
 }
 
-void BlockIter::CorruptionError() {
+template <class TValue>
+void BlockIter<TValue>::CorruptionError() {
   current_ = restarts_;
   restart_index_ = num_restarts_;
   status_ = Status::Corruption("bad entry in block");
@@ -285,10 +447,13 @@ void BlockIter::CorruptionError() {
   value_.clear();
 }
 
-bool DataBlockIter::ParseNextDataKey() {
+bool DataBlockIter::ParseNextDataKey(const char* limit) {
   current_ = NextEntryOffset();
   const char* p = data_ + current_;
-  const char* limit = data_ + restarts_;  // Restarts come right after data
+  if (!limit) {
+    limit = data_ + restarts_;  // Restarts come right after data
+  }
+
   if (p >= limit) {
     // No more entries to return.  Mark as invalid.
     current_ = restarts_;
@@ -298,7 +463,7 @@ bool DataBlockIter::ParseNextDataKey() {
 
   // Decode next entry
   uint32_t shared, non_shared, value_length;
-  p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
+  p = DecodeEntry()(p, limit, &shared, &non_shared, &value_length);
   if (p == nullptr || key_.Size() < shared) {
     CorruptionError();
     return false;
@@ -340,10 +505,14 @@ bool DataBlockIter::ParseNextDataKey() {
     }
 
     value_ = Slice(p + non_shared, value_length);
-    while (restart_index_ + 1 < num_restarts_ &&
-           GetRestartPoint(restart_index_ + 1) < current_) {
-      ++restart_index_;
+    if (shared == 0) {
+      while (restart_index_ + 1 < num_restarts_ &&
+             GetRestartPoint(restart_index_ + 1) < current_) {
+        ++restart_index_;
+      }
     }
+    // else we are in the middle of a restart interval and the restart_index_
+    // thus has not changed
     return true;
   }
 }
@@ -361,7 +530,12 @@ bool IndexBlockIter::ParseNextIndexKey() {
 
   // Decode next entry
   uint32_t shared, non_shared, value_length;
-  p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
+  if (value_delta_encoded_) {
+    p = DecodeKeyV4()(p, limit, &shared, &non_shared);
+    value_length = 0;
+  } else {
+    p = DecodeEntry()(p, limit, &shared, &non_shared, &value_length);
+  }
   if (p == nullptr || key_.Size() < shared) {
     CorruptionError();
     return false;
@@ -377,27 +551,71 @@ bool IndexBlockIter::ParseNextIndexKey() {
     key_pinned_ = false;
   }
   value_ = Slice(p + non_shared, value_length);
-  while (restart_index_ + 1 < num_restarts_ &&
-         GetRestartPoint(restart_index_ + 1) < current_) {
-    ++restart_index_;
+  if (shared == 0) {
+    while (restart_index_ + 1 < num_restarts_ &&
+           GetRestartPoint(restart_index_ + 1) < current_) {
+      ++restart_index_;
+    }
+  }
+  // else we are in the middle of a restart interval and the restart_index_
+  // thus has not changed
+  if (value_delta_encoded_) {
+    assert(value_length == 0);
+    DecodeCurrentValue(shared);
   }
   return true;
+}
+
+// The format:
+// restart_point   0: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
+// restart_point   1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
+// ...
+// restart_point n-1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
+// where, k is key, v is value, and its encoding is in parenthesis.
+// The format of each key is (shared_size, non_shared_size, shared, non_shared)
+// The format of each value, i.e., block hanlde, is (offset, size) whenever the
+// shared_size is 0, which included the first entry in each restart point.
+// Otherwise the format is delta-size = block handle size - size of last block
+// handle.
+void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
+  assert(value_delta_encoded_);
+  const char* limit = data_ + restarts_;
+  if (shared == 0) {
+    uint64_t o, s;
+    const char* newp = GetVarint64Ptr(value_.data(), limit, &o);
+    assert(newp);
+    newp = GetVarint64Ptr(newp, limit, &s);
+    assert(newp);
+    decoded_value_ = BlockHandle(o, s);
+    value_ = Slice(value_.data(), newp - value_.data());
+  } else {
+    uint64_t next_value_base =
+        decoded_value_.offset() + decoded_value_.size() + kBlockTrailerSize;
+    int64_t delta;
+    const char* newp = GetVarsignedint64Ptr(value_.data(), limit, &delta);
+    decoded_value_ =
+        BlockHandle(next_value_base, decoded_value_.size() + delta);
+    value_ = Slice(value_.data(), newp - value_.data());
+  }
 }
 
 // Binary search in restart array to find the first restart point that
 // is either the last restart point with a key less than target,
 // which means the key of next restart point is larger than target, or
 // the first restart point with a key = target
-bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
-                           uint32_t* index, const Comparator* comp) {
+template <class TValue>
+template <typename DecodeKeyFunc>
+bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
+                                   uint32_t right, uint32_t* index,
+                                   const Comparator* comp) {
   assert(left <= right);
 
   while (left < right) {
     uint32_t mid = (left + right + 1) / 2;
     uint32_t region_offset = GetRestartPoint(mid);
-    uint32_t shared, non_shared, value_length;
-    const char* key_ptr = DecodeEntry(data_ + region_offset, data_ + restarts_,
-                                      &shared, &non_shared, &value_length);
+    uint32_t shared, non_shared;
+    const char* key_ptr = DecodeKeyFunc()(
+        data_ + region_offset, data_ + restarts_, &shared, &non_shared);
     if (key_ptr == nullptr || (shared != 0)) {
       CorruptionError();
       return false;
@@ -425,9 +643,13 @@ bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
 // Return -1 if error.
 int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   uint32_t region_offset = GetRestartPoint(block_index);
-  uint32_t shared, non_shared, value_length;
-  const char* key_ptr = DecodeEntry(data_ + region_offset, data_ + restarts_,
-                                    &shared, &non_shared, &value_length);
+  uint32_t shared, non_shared;
+  const char* key_ptr =
+      value_delta_encoded_
+          ? DecodeKeyV4()(data_ + region_offset, data_ + restarts_, &shared,
+                          &non_shared)
+          : DecodeKey()(data_ + region_offset, data_ + restarts_, &shared,
+                        &non_shared);
   if (key_ptr == nullptr || (shared != 0)) {
     CorruptionError();
     return 1;  // Return target is smaller
@@ -507,7 +729,43 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 
 uint32_t Block::NumRestarts() const {
   assert(size_ >= 2*sizeof(uint32_t));
-  return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  uint32_t num_restarts = block_footer;
+  if (size_ > kMaxBlockSizeSupportedByHashIndex) {
+    // In BlockBuilder, we have ensured a block with HashIndex is less than
+    // kMaxBlockSizeSupportedByHashIndex (64KiB).
+    //
+    // Therefore, if we encounter a block with a size > 64KiB, the block
+    // cannot have HashIndex. So the footer will directly interpreted as
+    // num_restarts.
+    //
+    // Such check is for backward compatibility. We can ensure legacy block
+    // with a vary large num_restarts i.e. >= 0x80000000 can be interpreted
+    // correctly as no HashIndex even if the MSB of num_restarts is set.
+    return num_restarts;
+  }
+  BlockBasedTableOptions::DataBlockIndexType index_type;
+  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
+  return num_restarts;
+}
+
+BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
+  assert(size_ >= 2 * sizeof(uint32_t));
+  if (size_ > kMaxBlockSizeSupportedByHashIndex) {
+    // The check is for the same reason as that in NumRestarts()
+    return BlockBasedTableOptions::kDataBlockBinarySearch;
+  }
+  uint32_t block_footer = DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  uint32_t num_restarts = block_footer;
+  BlockBasedTableOptions::DataBlockIndexType index_type;
+  UnPackIndexTypeAndNumRestarts(block_footer, &index_type, &num_restarts);
+  return index_type;
+}
+
+Block::~Block() {
+  // This sync point can be re-enabled if RocksDB can control the
+  // initialization order of any/all static options created by the user.
+  // TEST_SYNC_POINT("Block::~Block");
 }
 
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
@@ -518,18 +776,49 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       restart_offset_(0),
       num_restarts_(0),
       global_seqno_(_global_seqno) {
+  TEST_SYNC_POINT("Block::Block:0");
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
     // Should only decode restart points for uncompressed blocks
     if (compression_type() == kNoCompression) {
       num_restarts_ = NumRestarts();
-      restart_offset_ =
-          static_cast<uint32_t>(size_) - (1 + num_restarts_) * sizeof(uint32_t);
-      if (restart_offset_ > size_ - sizeof(uint32_t)) {
-        // The size is too small for NumRestarts() and therefore
-        // restart_offset_ wrapped around.
-        size_ = 0;
+      switch (IndexType()) {
+        case BlockBasedTableOptions::kDataBlockBinarySearch:
+          restart_offset_ = static_cast<uint32_t>(size_) -
+                            (1 + num_restarts_) * sizeof(uint32_t);
+          if (restart_offset_ > size_ - sizeof(uint32_t)) {
+            // The size is too small for NumRestarts() and therefore
+            // restart_offset_ wrapped around.
+            size_ = 0;
+          }
+          break;
+        case BlockBasedTableOptions::kDataBlockBinaryAndHash:
+          if (size_ < sizeof(uint32_t) /* block footer */ +
+                          sizeof(uint16_t) /* NUM_BUCK */) {
+            size_ = 0;
+            break;
+          }
+
+          uint16_t map_offset;
+          data_block_hash_index_.Initialize(
+              contents.data.data(),
+              static_cast<uint16_t>(contents.data.size() -
+                                    sizeof(uint32_t)), /*chop off
+                                                   NUM_RESTARTS*/
+              &map_offset);
+
+          restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
+
+          if (restart_offset_ > map_offset) {
+            // map_offset is too small for NumRestarts() and
+            // therefore restart_offset_ wrapped around.
+            size_ = 0;
+            break;
+          }
+          break;
+        default:
+          size_ = 0;  // Error marker
       }
     }
   }
@@ -544,6 +833,7 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
                                   DataBlockIter* iter, Statistics* stats,
                                   bool /*total_order_seek*/,
                                   bool /*key_includes_seq*/,
+                                  bool /*value_is_full*/,
                                   BlockPrefixIndex* /*prefix_index*/) {
   DataBlockIter* ret_iter;
   if (iter != nullptr) {
@@ -560,8 +850,10 @@ DataBlockIter* Block::NewIterator(const Comparator* cmp, const Comparator* ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         global_seqno_, read_amp_bitmap_.get(), cachable());
+    ret_iter->Initialize(
+        cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno_,
+        read_amp_bitmap_.get(), cachable(),
+        data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
@@ -577,7 +869,7 @@ template <>
 IndexBlockIter* Block::NewIterator(const Comparator* cmp,
                                    const Comparator* ucmp, IndexBlockIter* iter,
                                    Statistics* /*stats*/, bool total_order_seek,
-                                   bool key_includes_seq,
+                                   bool key_includes_seq, bool value_is_full,
                                    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
@@ -597,7 +889,8 @@ IndexBlockIter* Block::NewIterator(const Comparator* cmp,
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
     ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
-                         prefix_index_ptr, key_includes_seq, cachable());
+                         prefix_index_ptr, key_includes_seq, value_is_full,
+                         cachable(), nullptr /* data_block_hash_index */);
   }
 
   return ret_iter;

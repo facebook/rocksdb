@@ -38,6 +38,7 @@ class IndexBuilder {
       BlockBasedTableOptions::IndexType index_type,
       const rocksdb::InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
+      const bool use_value_delta_encoding,
       const BlockBasedTableOptions& table_opt);
 
   // Index builder will construct a set of blocks which contain:
@@ -96,13 +97,15 @@ class IndexBuilder {
   virtual Status Finish(IndexBlocks* index_blocks,
                         const BlockHandle& last_partition_block_handle) = 0;
 
-  // Get the estimated size for index block.
-  virtual size_t EstimatedSize() const = 0;
+  // Get the size for index block. Must be called after ::Finish.
+  virtual size_t IndexSize() const = 0;
 
   virtual bool seperator_is_key_plus_seq() { return true; }
 
  protected:
   const InternalKeyComparator* comparator_;
+  // Set after ::Finish is called
+  size_t index_size_ = 0;
 };
 
 // This index builder builds space-efficient index block.
@@ -117,11 +120,16 @@ class IndexBuilder {
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
   explicit ShortenedIndexBuilder(const InternalKeyComparator* comparator,
-                                 int index_block_restart_interval,
-                                 uint32_t format_version)
+                                 const int index_block_restart_interval,
+                                 const uint32_t format_version,
+                                 const bool use_value_delta_encoding)
       : IndexBuilder(comparator),
-        index_block_builder_(index_block_restart_interval),
-        index_block_builder_without_seq_(index_block_restart_interval) {
+        index_block_builder_(index_block_restart_interval,
+                             true /*use_delta_encoding*/,
+                             use_value_delta_encoding),
+        index_block_builder_without_seq_(index_block_restart_interval,
+                                         true /*use_delta_encoding*/,
+                                         use_value_delta_encoding) {
     // Making the default true will disable the feature for old versions
     seperator_is_key_plus_seq_ = (format_version <= 2);
   }
@@ -145,10 +153,17 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
     std::string handle_encoding;
     block_handle.EncodeTo(&handle_encoding);
-    index_block_builder_.Add(sep, handle_encoding);
+    std::string handle_delta_encoding;
+    PutVarsignedint64(&handle_delta_encoding,
+                      block_handle.size() - last_encoded_handle_.size());
+    assert(handle_delta_encoding.size() != 0);
+    last_encoded_handle_ = block_handle;
+    const Slice handle_delta_encoding_slice(handle_delta_encoding);
+    index_block_builder_.Add(sep, handle_encoding,
+                             &handle_delta_encoding_slice);
     if (!seperator_is_key_plus_seq_) {
-      index_block_builder_without_seq_.Add(ExtractUserKey(sep),
-                                           handle_encoding);
+      index_block_builder_without_seq_.Add(ExtractUserKey(sep), handle_encoding,
+                                           &handle_delta_encoding_slice);
     }
   }
 
@@ -162,16 +177,11 @@ class ShortenedIndexBuilder : public IndexBuilder {
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
     }
+    index_size_ = index_blocks->index_block_contents.size();
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const override {
-    if (seperator_is_key_plus_seq_) {
-      return index_block_builder_.CurrentSizeEstimate();
-    } else {
-      return index_block_builder_without_seq_.CurrentSizeEstimate();
-    }
-  }
+  virtual size_t IndexSize() const override { return index_size_; }
 
   virtual bool seperator_is_key_plus_seq() override {
     return seperator_is_key_plus_seq_;
@@ -183,6 +193,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   BlockBuilder index_block_builder_;
   BlockBuilder index_block_builder_without_seq_;
   bool seperator_is_key_plus_seq_;
+  BlockHandle last_encoded_handle_;
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -217,10 +228,10 @@ class HashIndexBuilder : public IndexBuilder {
   explicit HashIndexBuilder(const InternalKeyComparator* comparator,
                             const SliceTransform* hash_key_extractor,
                             int index_block_restart_interval,
-                            int format_version)
+                            int format_version, bool use_value_delta_encoding)
       : IndexBuilder(comparator),
         primary_index_builder_(comparator, index_block_restart_interval,
-                               format_version),
+                               format_version, use_value_delta_encoding),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
@@ -272,8 +283,8 @@ class HashIndexBuilder : public IndexBuilder {
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const override {
-    return primary_index_builder_.EstimatedSize() + prefix_block_.size() +
+  virtual size_t IndexSize() const override {
+    return primary_index_builder_.IndexSize() + prefix_block_.size() +
            prefix_meta_block_.size();
   }
 
@@ -323,10 +334,12 @@ class PartitionedIndexBuilder : public IndexBuilder {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const rocksdb::InternalKeyComparator* comparator,
+      const bool use_value_delta_encoding,
       const BlockBasedTableOptions& table_opt);
 
   explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
-                                   const BlockBasedTableOptions& table_opt);
+                                   const BlockBasedTableOptions& table_opt,
+                                   const bool use_value_delta_encoding);
 
   virtual ~PartitionedIndexBuilder();
 
@@ -338,8 +351,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override;
 
-  virtual size_t EstimatedSize() const override;
-  size_t EstimateTopLevelIndexSize(uint64_t) const;
+  virtual size_t IndexSize() const override { return index_size_; }
+  size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
 
   inline bool ShouldCutFilterBlock() {
@@ -361,7 +374,14 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return seperator_is_key_plus_seq_;
   }
 
+  bool get_use_value_delta_encoding() { return use_value_delta_encoding_; }
+
  private:
+  // Set after ::Finish is called
+  size_t top_level_index_size_ = 0;
+  // Set after ::Finish is called
+  size_t partition_cnt_ = 0;
+
   void MakeNewSubIndexBuilder();
 
   struct Entry {
@@ -380,10 +400,12 @@ class PartitionedIndexBuilder : public IndexBuilder {
   bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;
   bool seperator_is_key_plus_seq_;
+  bool use_value_delta_encoding_;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition
   bool partition_cut_requested_ = true;
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
+  BlockHandle last_encoded_handle_;
 };
 }  // namespace rocksdb

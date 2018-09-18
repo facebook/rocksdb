@@ -26,8 +26,8 @@ Reader::Reader(unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
 
 Status Reader::ReadSlice(uint64_t size, Slice* slice, std::string* buf) {
   StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-  buf->reserve(size);
-  Status s = file_->Read(next_byte_, size, slice, &(*buf)[0]);
+  buf->reserve(static_cast<size_t>(size));
+  Status s = file_->Read(next_byte_, static_cast<size_t>(size), slice, &(*buf)[0]);
   next_byte_ += size;
   if (!s.ok()) {
     return s;

@@ -49,6 +49,9 @@ extern std::string LogFileName(const std::string& dbname, uint64_t number);
 
 extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
+extern std::string BlobFileName(const std::string& dbname,
+                                const std::string& blob_dir, uint64_t number);
+
 static const std::string ARCHIVAL_DIR = "archive";
 
 extern std::string ArchivalDirectory(const std::string& dbname);

@@ -26,6 +26,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   explicit PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
+      const bool use_value_delta_encoding,
       PartitionedIndexBuilder* const p_index_builder,
       const uint32_t partition_size);
 
@@ -65,6 +66,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   uint32_t filters_in_partition_;
   // Number of keys added
   size_t num_added_;
+  BlockHandle last_encoded_handle_;
 };
 
 class PartitionedFilterBlockReader : public FilterBlockReader,
@@ -74,7 +76,8 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       BlockContents&& contents, FilterBitsReader* filter_bits_reader,
       Statistics* stats, const InternalKeyComparator comparator,
-      const BlockBasedTable* table, const bool index_key_includes_seq);
+      const BlockBasedTable* table, const bool index_key_includes_seq,
+      const bool index_value_is_full);
   virtual ~PartitionedFilterBlockReader();
 
   virtual bool IsBlockBased() override { return false; }
@@ -89,10 +92,11 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:
-  Slice GetFilterPartitionHandle(const Slice& entry);
+  BlockHandle GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      FilePrefetchBuffer* prefetch_buffer, Slice* handle, const bool no_io,
-      bool* cached, const SliceTransform* prefix_extractor = nullptr);
+      FilePrefetchBuffer* prefetch_buffer, BlockHandle& handle,
+      const bool no_io, bool* cached,
+      const SliceTransform* prefix_extractor = nullptr);
   virtual void CacheDependencies(
       bool bin, const SliceTransform* prefix_extractor) override;
 
@@ -101,6 +105,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader,
   const InternalKeyComparator comparator_;
   const BlockBasedTable* table_;
   const bool index_key_includes_seq_;
+  const bool index_value_is_full_;
   std::unordered_map<uint64_t,
                      BlockBasedTable::CachableEntry<FilterBlockReader>>
       filter_map_;

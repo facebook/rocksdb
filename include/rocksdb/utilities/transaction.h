@@ -152,6 +152,12 @@ class Transaction {
   // If there is no previous call to SetSavePoint(), returns Status::NotFound()
   virtual Status RollbackToSavePoint() = 0;
 
+  // Pop the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Otherwise returns Status::OK().
+  virtual Status PopSavePoint() = 0;
+
   // This function is similar to DB::Get() except it will also read pending
   // changes in this transaction.  Currently, this function will return
   // Status::MergeInProgress if the most recent write to the queried key in

@@ -121,8 +121,8 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), env_options,
-                                               ioptions.statistics));
+      file_writer.reset(new WritableFileWriter(
+          std::move(file), fname, env_options, ioptions.statistics));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
@@ -230,11 +230,9 @@ Status BuildTable(
   }
 
   // Output to event logger and fire events.
-  if (!s.ok() || meta->fd.GetFileSize() > 0) {
-    EventHelpers::LogAndNotifyTableFileCreationFinished(
-        event_logger, ioptions.listeners, dbname, column_family_name, fname,
-        job_id, meta->fd, tp, reason, s);
-  }
+  EventHelpers::LogAndNotifyTableFileCreationFinished(
+      event_logger, ioptions.listeners, dbname, column_family_name, fname,
+      job_id, meta->fd, tp, reason, s);
 
   return s;
 }

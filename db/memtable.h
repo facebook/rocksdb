@@ -34,7 +34,6 @@ namespace rocksdb {
 class Mutex;
 class MemTableIterator;
 class MergeContext;
-class InternalIterator;
 
 struct ImmutableMemTableOptions {
   explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
@@ -335,6 +334,14 @@ class MemTable {
   void MarkImmutable() {
     table_->MarkReadOnly();
     mem_tracker_.DoneAllocating();
+  }
+
+  // Notify the underlying storage that all data it contained has been
+  // persisted.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
+  void MarkFlushed() {
+    table_->MarkFlushed();
   }
 
   // return true if the current MemTableRep supports merge operator.

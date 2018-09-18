@@ -2896,6 +2896,43 @@ class BatchResultJni : public JavaClass {
   }
 };
 
+// The portal class for org.rocksdb.BottommostLevelCompaction
+class BottommostLevelCompactionJni {
+ public:
+  // Returns the equivalent org.rocksdb.BottommostLevelCompaction for the provided
+  // C++ rocksdb::BottommostLevelCompaction enum
+  static jint toJavaBottommostLevelCompaction(
+      const rocksdb::BottommostLevelCompaction& bottommost_level_compaction) {
+    switch(bottommost_level_compaction) {
+      case rocksdb::BottommostLevelCompaction::kSkip:
+        return 0x0;
+      case rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter:
+        return 0x1;
+      case rocksdb::BottommostLevelCompaction::kForce:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::BottommostLevelCompaction enum for the
+  // provided Java org.rocksdb.BottommostLevelCompaction
+  static rocksdb::BottommostLevelCompaction toCppBottommostLevelCompaction(
+      jint bottommost_level_compaction) {
+    switch(bottommost_level_compaction) {
+      case 0x0:
+        return rocksdb::BottommostLevelCompaction::kSkip;
+      case 0x1:
+        return rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter;
+      case 0x2:
+        return rocksdb::BottommostLevelCompaction::kForce;
+      default:
+        // undefined/default
+        return rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.CompactionStopStyle
 class CompactionStopStyleJni {
  public:

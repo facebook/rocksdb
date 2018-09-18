@@ -42,7 +42,8 @@ Status CopyFile(Env* env, const std::string& source,
       }
     }
     src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
-    dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+    dest_writer.reset(
+        new WritableFileWriter(std::move(destfile), destination, soptions));
   }
 
   char buffer[4096];
@@ -67,7 +68,7 @@ Status CopyFile(Env* env, const std::string& source,
 
 // Utility function to create a file with the provided contents
 Status CreateFile(Env* env, const std::string& destination,
-                  const std::string& contents) {
+                  const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
   Status s;
   unique_ptr<WritableFileWriter> dest_writer;
@@ -77,8 +78,13 @@ Status CreateFile(Env* env, const std::string& destination,
   if (!s.ok()) {
     return s;
   }
-  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
-  return dest_writer->Append(Slice(contents));
+  dest_writer.reset(
+      new WritableFileWriter(std::move(destfile), destination, soptions));
+  s = dest_writer->Append(Slice(contents));
+  if (!s.ok()) {
+    return s;
+  }
+  return dest_writer->Sync(use_fsync);
 }
 
 Status DeleteSSTFile(const ImmutableDBOptions* db_options,

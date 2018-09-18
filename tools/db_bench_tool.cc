@@ -466,6 +466,16 @@ DEFINE_bool(enable_index_compression,
 DEFINE_bool(block_align, rocksdb::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_bool(use_data_block_hash_index, false,
+            "if use kDataBlockBinaryAndHash "
+            "instead of kDataBlockBinarySearch. "
+            "This is valid if only we use BlockTable");
+
+DEFINE_double(data_block_hash_table_util_ratio, 0.75,
+              "util ratio for data block hash index table. "
+              "This is only valid if use_data_block_hash_index is "
+              "set to true");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -769,29 +779,20 @@ DEFINE_string(compression_type, "snappy",
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
-DEFINE_int32(compression_level, -1,
-             "Compression level. For zlib this should be -1 for the "
-             "default level, or between 0 and 9.");
+DEFINE_int32(compression_level, rocksdb::CompressionOptions().level,
+             "Compression level. The meaning of this value is library-"
+             "dependent. If unset, we try to use the default for the library "
+             "specified in `--compression_type`");
 
-DEFINE_int32(compression_max_dict_bytes, 0,
+DEFINE_int32(compression_max_dict_bytes,
+             rocksdb::CompressionOptions().max_dict_bytes,
              "Maximum size of dictionary used to prime the compression "
              "library.");
 
-DEFINE_int32(compression_zstd_max_train_bytes, 0,
+DEFINE_int32(compression_zstd_max_train_bytes,
+             rocksdb::CompressionOptions().zstd_max_train_bytes,
              "Maximum size of training data passed to zstd's dictionary "
              "trainer.");
-
-static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
-  if (value < -1 || value > 9) {
-    fprintf(stderr, "Invalid value for --%s: %d, must be between -1 and 9\n",
-            flagname, value);
-    return false;
-  }
-  return true;
-}
-
-static const bool FLAGS_compression_level_dummy __attribute__((__unused__)) =
-    RegisterFlagValidator(&FLAGS_compression_level, &ValidateCompressionLevel);
 
 DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"
@@ -1982,6 +1983,52 @@ class Benchmark {
   bool report_file_operations_;
   bool use_blob_db_;
 
+  class ErrorHandlerListener : public EventListener {
+   public:
+    ErrorHandlerListener()
+        : mutex_(),
+          cv_(&mutex_),
+          no_auto_recovery_(false),
+          recovery_complete_(false) {}
+
+    ~ErrorHandlerListener() {}
+
+    void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
+                              Status /*bg_error*/, bool* auto_recovery) {
+      if (*auto_recovery && no_auto_recovery_) {
+        *auto_recovery = false;
+      }
+    }
+
+    void OnErrorRecoveryCompleted(Status /*old_bg_error*/) {
+      InstrumentedMutexLock l(&mutex_);
+      recovery_complete_ = true;
+      cv_.SignalAll();
+    }
+
+    bool WaitForRecovery(uint64_t /*abs_time_us*/) {
+      InstrumentedMutexLock l(&mutex_);
+      if (!recovery_complete_) {
+        cv_.Wait(/*abs_time_us*/);
+      }
+      if (recovery_complete_) {
+        recovery_complete_ = false;
+        return true;
+      }
+      return false;
+    }
+
+    void EnableAutoRecovery(bool enable = true) { no_auto_recovery_ = !enable; }
+
+   private:
+    InstrumentedMutex mutex_;
+    InstrumentedCondVar cv_;
+    bool no_auto_recovery_;
+    bool recovery_complete_;
+  };
+
+  std::shared_ptr<ErrorHandlerListener> listener_;
+
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
       fprintf(stderr, "compression_ratio should be between 0 and 1\n");
@@ -2317,6 +2364,8 @@ class Benchmark {
         }
       }
     }
+
+    listener_.reset(new ErrorHandlerListener());
   }
 
   ~Benchmark() {
@@ -2702,6 +2751,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
+#ifndef ROCKSDB_LITE
         // A trace_file option can be provided both for trace and replay
         // operations. But db_bench does not support tracing and replaying at
         // the same time, for now. So, start tracing only when it is not a
@@ -2724,6 +2774,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           fprintf(stdout, "Tracing the workload to: [%s]\n",
                   FLAGS_trace_file.c_str());
         }
+#endif  // ROCKSDB_LITE
 
         if (num_warmup > 0) {
           printf("Warming up benchmark by running %d times\n", num_warmup);
@@ -2751,6 +2802,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     }
 
+#ifndef ROCKSDB_LITE
     if (name != "replay" && FLAGS_trace_file != "") {
       Status s = db_.db->EndTrace();
       if (!s.ok()) {
@@ -2758,6 +2810,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                 s.ToString().c_str());
       }
     }
+#endif  // ROCKSDB_LITE
 
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
@@ -3270,6 +3323,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      if (FLAGS_use_data_block_hash_index) {
+        block_based_options.data_block_index_type =
+            rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
+      } else {
+        block_based_options.data_block_index_type =
+            rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+      }
+      block_based_options.data_block_hash_table_util_ratio =
+          FLAGS_data_block_hash_table_util_ratio;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;
@@ -3486,6 +3548,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           FLAGS_rate_limiter_auto_tuned));
     }
 
+    options.listeners.emplace_back(listener_);
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
     } else {
@@ -3878,6 +3941,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                   NewGenericRateLimiter(write_rate));
         }
       }
+      if (!s.ok()) {
+        s = listener_->WaitForRecovery(600000000) ? Status::OK() : s;
+      }
+
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);

@@ -11,8 +11,7 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
-#ifndef UTIL_FAULT_INJECTION_TEST_ENV_H_
-#define UTIL_FAULT_INJECTION_TEST_ENV_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -116,6 +115,16 @@ class FaultInjectionTestEnv : public EnvWrapper {
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
 
+  virtual Status GetFreeSpace(const std::string& path,
+                              uint64_t* disk_free) override {
+    if (!IsFilesystemActive() && error_ == Status::NoSpace()) {
+      *disk_free = 0;
+      return Status::OK();
+    } else {
+      return target()->GetFreeSpace(path, disk_free);
+    }
+  }
+
   void WritableFileClosed(const FileState& state);
 
   // For every file that is not fully synced, make a call to `func` with
@@ -171,5 +180,3 @@ class FaultInjectionTestEnv : public EnvWrapper {
 };
 
 }  // namespace rocksdb
-
-#endif  // UTIL_FAULT_INJECTION_TEST_ENV_H_

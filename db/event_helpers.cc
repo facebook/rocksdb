@@ -40,8 +40,8 @@ void EventHelpers::NotifyTableFileCreationStarted(
 
 void EventHelpers::NotifyOnBackgroundError(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
-    BackgroundErrorReason reason, Status* bg_error,
-    InstrumentedMutex* db_mutex) {
+    BackgroundErrorReason reason, Status* bg_error, InstrumentedMutex* db_mutex,
+    bool* auto_recovery) {
 #ifndef ROCKSDB_LITE
   if (listeners.size() == 0U) {
     return;
@@ -51,6 +51,9 @@ void EventHelpers::NotifyOnBackgroundError(
   db_mutex->Unlock();
   for (auto& listener : listeners) {
     listener->OnBackgroundError(reason, bg_error);
+    if (*auto_recovery) {
+      listener->OnErrorRecoveryBegin(reason, *bg_error, auto_recovery);
+    }
   }
   db_mutex->Lock();
 #else
@@ -58,6 +61,7 @@ void EventHelpers::NotifyOnBackgroundError(
   (void)reason;
   (void)bg_error;
   (void)db_mutex;
+  (void)auto_recovery;
 #endif  // ROCKSDB_LITE
 }
 
@@ -165,6 +169,27 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   (void)dbname;
   (void)listeners;
 #endif  // !ROCKSDB_LITE
+}
+
+void EventHelpers::NotifyOnErrorRecoveryCompleted(
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    Status old_bg_error, InstrumentedMutex* db_mutex) {
+#ifndef ROCKSDB_LITE
+  if (listeners.size() == 0U) {
+    return;
+  }
+  db_mutex->AssertHeld();
+  // release lock while notifying events
+  db_mutex->Unlock();
+  for (auto& listener : listeners) {
+    listener->OnErrorRecoveryCompleted(old_bg_error);
+  }
+  db_mutex->Lock();
+#else
+  (void)listeners;
+  (void)old_bg_error;
+  (void)db_mutex;
+#endif  // ROCKSDB_LITE
 }
 
 }  // namespace rocksdb

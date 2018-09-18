@@ -42,9 +42,6 @@
   (5) All of the pointer arguments must be non-NULL.
 */
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_C_H_
-#define STORAGE_ROCKSDB_INCLUDE_C_H_
-
 #pragma once
 
 #ifdef _WIN32
@@ -126,6 +123,8 @@ typedef struct rocksdb_transaction_t rocksdb_transaction_t;
 typedef struct rocksdb_checkpoint_t rocksdb_checkpoint_t;
 typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
 typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
+typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
+typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
 
 /* DB operations */
 
@@ -831,6 +830,12 @@ rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_max_write_buffer_number_to_maintain(rocksdb_options_t*,
                                                         int);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_enable_pipelined_write(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_subcompactions(
+    rocksdb_options_t*, uint32_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_background_jobs(
+    rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_background_compactions(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_base_background_compactions(
@@ -1669,8 +1674,33 @@ extern ROCKSDB_LIBRARY_API void rocksdb_pinnableslice_destroy(
 extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(
     const rocksdb_pinnableslice_t* t, size_t* vlen);
 
+extern ROCKSDB_LIBRARY_API rocksdb_memory_consumers_t*
+    rocksdb_memory_consumers_create();
+extern ROCKSDB_LIBRARY_API void rocksdb_memory_consumers_add_db(
+    rocksdb_memory_consumers_t* consumers, rocksdb_t* db);
+extern ROCKSDB_LIBRARY_API void rocksdb_memory_consumers_add_cache(
+    rocksdb_memory_consumers_t* consumers, rocksdb_cache_t* cache);
+extern ROCKSDB_LIBRARY_API void rocksdb_memory_consumers_destroy(
+    rocksdb_memory_consumers_t* consumers);
+extern ROCKSDB_LIBRARY_API rocksdb_memory_usage_t*
+rocksdb_approximate_memory_usage_create(rocksdb_memory_consumers_t* consumers,
+                                       char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_approximate_memory_usage_destroy(
+    rocksdb_memory_usage_t* usage);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_approximate_memory_usage_get_mem_table_total(
+    rocksdb_memory_usage_t* memory_usage);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_approximate_memory_usage_get_mem_table_unflushed(
+    rocksdb_memory_usage_t* memory_usage);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_approximate_memory_usage_get_mem_table_readers_total(
+    rocksdb_memory_usage_t* memory_usage);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_approximate_memory_usage_get_cache_total(
+    rocksdb_memory_usage_t* memory_usage);
+
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif
-
-#endif  /* STORAGE_ROCKSDB_INCLUDE_C_H_ */

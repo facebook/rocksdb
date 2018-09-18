@@ -62,7 +62,7 @@ class FlushJobTest : public testing::Test {
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), EnvOptions()));
+        new WritableFileWriter(std::move(file), manifest, EnvOptions()));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;

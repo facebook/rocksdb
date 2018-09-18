@@ -79,7 +79,7 @@ class CompactionJobTest : public testing::Test {
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
-        error_handler_(db_options_, &mutex_) {
+        error_handler_(nullptr, db_options_, &mutex_) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
@@ -205,7 +205,7 @@ class CompactionJobTest : public testing::Test {
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), env_options_));
+        new WritableFileWriter(std::move(file), manifest, env_options_));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;

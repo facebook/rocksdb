@@ -593,12 +593,10 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
-  if (output_directory_) {
-    output_directory_->Fsync();
-  }
-
   compaction_stats_.micros = env_->NowMicros() - start_micros;
   MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
+
+  TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
 
   // Check if any thread encountered an error during execution
   Status status;
@@ -607,6 +605,10 @@ Status CompactionJob::Run() {
       status = state.status;
       break;
     }
+  }
+
+  if (status.ok() && output_directory_) {
+    status = output_directory_->Fsync();
   }
 
   if (status.ok()) {
@@ -1075,7 +1077,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   if (status.ok() && sub_compact->builder == nullptr &&
-      sub_compact->outputs.size() == 0) {
+      sub_compact->outputs.size() == 0 &&
+      !range_del_agg->IsEmpty()) {
     // handle subcompaction containing only range deletions
     status = OpenCompactionOutputFile(sub_compact);
   }
@@ -1306,9 +1309,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // VersionEdit.
     assert(!sub_compact->outputs.empty());
     sub_compact->outputs.pop_back();
-    sub_compact->builder.reset();
-    sub_compact->current_output_file_size = 0;
-    return s;
+    meta = nullptr;
   }
 
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
@@ -1462,8 +1463,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
-  sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), env_options_, db_options_.statistics.get()));
+  sub_compact->outfile.reset(
+      new WritableFileWriter(std::move(writable_file), fname, env_options_,
+                             db_options_.statistics.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where
