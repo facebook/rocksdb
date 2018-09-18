@@ -291,6 +291,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
       eof_ = true;
       eof_offset_ = buffer_.size();
+      TEST_SYNC_POINT("LogReader::ReadMore:FirstEOF");
     }
     return true;
   } else if (retry_after_eof_ && !read_error_) {
@@ -356,9 +357,9 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
         if (!eof_) {
           return kBadRecordLen;
         }
-        // If the end of the file has been reached without reading |length| bytes
-        // of payload, assume the writer died in the middle of writing the record.
-        // Don't report a corruption unless requested.
+        // If the end of the file has been reached without reading |length|
+        // bytes of payload, assume the writer died in the middle of writing the
+        // record. Don't report a corruption unless requested.
         if (*drop_size) {
           return kBadHeader;
         }

@@ -110,6 +110,9 @@ class Reader {
   // Whether this is a recycled log file
   bool recycled_;
 
+  // Whether retry after encountering EOF
+  // TODO (yanqin) add support for retry policy, e.g. sleep, max retry limit,
+  // etc.
   const bool retry_after_eof_;
 
   // Extend record types with the following special values

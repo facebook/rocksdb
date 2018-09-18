@@ -655,63 +655,6 @@ INSTANTIATE_TEST_CASE_P(bool, LogTest, ::testing::Values(0, 2));
 
 class RetriableLogTest : public ::testing::TestWithParam<int> {
  private:
-  class StringSource : public SequentialFile {
-   public:
-    Slice& contents_;
-    bool force_error_;
-    size_t force_error_position_;
-    bool force_eof_;
-    size_t force_eof_position_;
-    bool returned_partial_;
-    explicit StringSource(Slice& contents):
-      contents_(contents),
-      force_error_(false),
-      force_error_position_(0),
-      force_eof_(false),
-      force_eof_position_(0),
-      returned_partial_(false) {}
-
-    virtual Status Read(size_t n, Slice* result, char* scratch) override {
-      if (force_error_) {
-        if (force_error_position_ >= n) {
-          force_error_position_ -= n;
-        } else {
-          *result = Slice(contents_.data(), force_error_position_);
-          contents_.remove_prefix(force_error_position_);
-          force_error_ = false;
-          returned_partial_ = true;
-          return Status::Corruption("read error");
-        }
-      }
-      if (contents_.size() < n) {
-        n = contents_.size();
-        returned_partial_ = true;
-      }
-      if (force_eof_) {
-        if (force_eof_position_ >= n) {
-          force_eof_position_ -= n;
-        } else {
-          force_eof_ = false;
-          n = force_eof_position_;
-          returned_partial_ = true;
-        }
-      }
-      memcpy(scratch, contents_.data(), n);
-      *result = Slice(scratch, n);
-      contents_.remove_prefix(n);
-      return Status::OK();
-    }
-
-    virtual Status Skip(uint64_t n) override {
-      if (n > contents_.size()) {
-        contents_.clear();
-        return Status::NotFound("in-memory file skipped past end");
-      }
-      contents_.remove_prefix(n);
-      return Status::OK();
-    }
-  };
-
   class ReportCollector : public Reader::Reporter {
    public:
     size_t dropped_bytes_;
@@ -724,34 +667,82 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     }
   };
 
-  Slice reader_contents_;
+  Slice contents_;
   unique_ptr<WritableFileWriter> dest_holder_;
-  unique_ptr<SequentialFileReader> source_holder_;
+  unique_ptr<Writer> log_writer_;
+  Env* env_;
+  EnvOptions env_options_;
+  const std::string test_dir_;
+  const std::string log_file_;
+  unique_ptr<WritableFileWriter> writer_;
+  unique_ptr<SequentialFileReader> reader_;
   ReportCollector report_;
-  Writer writer_;
-  Reader reader_;
+  unique_ptr<Reader> log_reader_;
 
  public:
-  RetriableLogTest():
-      reader_contents_(),
-      dest_holder_(test::GetWritableFileWriter(
-          new test::StringSink(&reader_contents_), "" /* filename */)),
-      source_holder_(test::GetSequentialFileReader(
-          new StringSource(reader_contents_), "" /* filename */)),
-      writer_(std::move(dest_holder_), 123, GetParam()),
-      reader_(nullptr, std::move(source_holder_), &report_,
-          true /* checksum */, 123 /* log_number */,
-          true /* retry_after_eof */) {}
+  RetriableLogTest()
+      : contents_(),
+        dest_holder_(nullptr),
+        log_writer_(nullptr),
+        env_(Env::Default()),
+        test_dir_(test::PerThreadDBPath("retriable_log_test")),
+        log_file_(test_dir_ + "/log"),
+        writer_(nullptr),
+        reader_(nullptr),
+        log_reader_(nullptr) {}
 
-  void Write(const std::string& msg) {
-    writer_.AddRecord(Slice(msg));
+  Status SetupTestEnv() {
+    dest_holder_.reset(test::GetWritableFileWriter(
+        new test::StringSink(&contents_), "" /* file name */));
+    assert(dest_holder_ != nullptr);
+    log_writer_.reset(new Writer(std::move(dest_holder_), 123, GetParam()));
+    assert(log_writer_ != nullptr);
+
+    Status s;
+    s = env_->CreateDirIfMissing(test_dir_);
+    unique_ptr<WritableFile> writable_file;
+    if (s.ok()) {
+      s = env_->NewWritableFile(log_file_, &writable_file, env_options_);
+    }
+    if (s.ok()) {
+      writer_.reset(new WritableFileWriter(std::move(writable_file), log_file_,
+                                           env_options_));
+      assert(writer_ != nullptr);
+    }
+    unique_ptr<SequentialFile> seq_file;
+    if (s.ok()) {
+      s = env_->NewSequentialFile(log_file_, &seq_file, env_options_);
+    }
+    if (s.ok()) {
+      reader_.reset(new SequentialFileReader(std::move(seq_file), log_file_));
+      assert(reader_ != nullptr);
+      log_reader_.reset(new Reader(nullptr, std::move(reader_), &report_,
+                                   true /* checksum */, 123 /* log_number */,
+                                   true /* retry_after_eof */));
+      assert(log_reader_ != nullptr);
+    }
+    return s;
+  }
+
+  std::string contents() {
+    auto file =
+        dynamic_cast<test::StringSink*>(log_writer_->file()->writable_file());
+    assert(file != nullptr);
+    return file->contents_;
+  }
+
+  void Encode(const std::string& msg) { log_writer_->AddRecord(Slice(msg)); }
+
+  void Write(const Slice& data) {
+    writer_->Append(data);
+    writer_->Sync(true);
   }
 
   std::string Read() {
+    auto wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     std::string scratch;
     Slice record;
-    auto wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
-    if (reader_.ReadRecord(&record, &scratch, wal_recovery_mode)) {
+    if (log_reader_->ReadRecord(&record, &scratch, wal_recovery_mode)) {
       return record.ToString();
     } else {
       return "Read error";
@@ -759,9 +750,75 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   }
 };
 
-TEST_P(RetriableLogTest, TailLog) {
-  Write("foo");
-  std::string record = Read();
+TEST_P(RetriableLogTest, TailLog_PartialHeader) {
+  ASSERT_OK(SetupTestEnv());
+  std::vector<int> remaining_bytes_in_last_record;
+  size_t header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RetriableLogTest::TailLog:AfterPart1",
+        "RetriableLogTest::TailLog:BeforeReadRecord"},
+       {"LogReader::ReadMore:FirstEOF",
+        "RetriableLogTest::TailLog:BeforePart2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  int delta = header_size - 1;
+  port::Thread log_writer_thread([&]() {
+    size_t old_sz = contents().size();
+    Encode("foo");
+    size_t new_sz = contents().size();
+    std::string part1 = contents().substr(old_sz, delta);
+    std::string part2 =
+        contents().substr(old_sz + delta, new_sz - old_sz - delta);
+    Write(Slice(part1));
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:AfterPart1");
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforePart2");
+    Write(Slice(part2));
+  });
+
+  std::string record;
+  port::Thread log_reader_thread([&]() {
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforeReadRecord");
+    record = Read();
+  });
+  log_reader_thread.join();
+  log_writer_thread.join();
+  ASSERT_EQ("foo", record);
+}
+
+TEST_P(RetriableLogTest, TailLog_FullHeader) {
+  ASSERT_OK(SetupTestEnv());
+  std::vector<int> remaining_bytes_in_last_record;
+  size_t header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RetriableLogTest::TailLog:AfterPart1",
+        "RetriableLogTest::TailLog:BeforeReadRecord"},
+       {"LogReader::ReadMore:FirstEOF",
+        "RetriableLogTest::TailLog:BeforePart2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  int delta = header_size + 1;
+  port::Thread log_writer_thread([&]() {
+    size_t old_sz = contents().size();
+    Encode("foo");
+    size_t new_sz = contents().size();
+    std::string part1 = contents().substr(old_sz, delta);
+    std::string part2 =
+        contents().substr(old_sz + delta, new_sz - old_sz - delta);
+    Write(Slice(part1));
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:AfterPart1");
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforePart2");
+    Write(Slice(part2));
+  });
+
+  std::string record;
+  port::Thread log_reader_thread([&]() {
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforeReadRecord");
+    record = Read();
+  });
+  log_reader_thread.join();
+  log_writer_thread.join();
   ASSERT_EQ("foo", record);
 }
 
