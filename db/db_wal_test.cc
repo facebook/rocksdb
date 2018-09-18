@@ -1100,7 +1100,6 @@ TEST_F(DBWALTest, AvoidFlushDuringRecovery) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.avoid_flush_during_recovery = false;
-  options.max_total_wal_size = 1000000000;  // large enough size
 
   // Test with flush after recovery.
   Reopen(options);
@@ -1152,7 +1151,6 @@ TEST_F(DBWALTest, WalCleanupAfterAvoidFlushDuringRecovery) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.avoid_flush_during_recovery = true;
-  options.max_total_wal_size = 1000000000;  // large enough size
   Reopen(options);
 
   ASSERT_OK(Put("foo", "v1"));
@@ -1178,7 +1176,6 @@ TEST_F(DBWALTest, RecoverWithoutFlush) {
   options.create_if_missing = false;
   options.disable_auto_compactions = true;
   options.write_buffer_size = 64 * 1024 * 1024;
-  options.max_total_wal_size = 1000000000;  // large enough size
 
   size_t count = RecoveryTestHelper::FillData(this, &options);
   auto validateData = [this, count]() {
@@ -1221,7 +1218,6 @@ TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
   options.avoid_flush_during_recovery = true;
   options.create_if_missing = false;
   options.disable_auto_compactions = true;
-  options.max_total_wal_size = 1000000000;  // large enough size
 
   auto countWalFiles = [this]() {
     VectorLogPtr log_files;
