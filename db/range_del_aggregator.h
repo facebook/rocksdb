@@ -190,6 +190,8 @@ class RangeDelAggregator {
   const InternalKeyComparator& icmp_;
   // collapse range deletions so they're binary searchable
   const bool collapse_deletions_;
+
+  std::vector<std::unique_ptr<InternalIterator>> non_overlapping_tombstone_iter_;
 };
 
 }  // namespace rocksdb
