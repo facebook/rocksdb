@@ -913,25 +913,31 @@ Status DBImpl::ReconstructAliveLogFiles(
   for (auto log_number : log_numbers) {
     LogFileNumberSize log(log_number);
     std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    // This gets the appear size of the logs, not including preallocated space.
     s = env_->GetFileSize(fname, &log.size);
     if (!s.ok()) {
       break;
     }
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
-    // Truncate the preallocated space of the last log.
+    // We preallocate space for logs, but then after a crash and restart, those
+    // preallocated space are not needed anymore. It is likely only the last
+    // log has such preallocated space, so we only truncate for the last log.
     if (log_number == log_numbers.back()) {
       std::unique_ptr<WritableFile> last_log;
-      s = env_->NewWritableFile(
+      Status truncate_status = env_->NewWritableFile(
           fname, &last_log,
           env_->OptimizeForLogWrite(
               env_options_,
               BuildDBOptions(immutable_db_options_, mutable_db_options_)));
-      if (s.ok()) {
-        s = last_log->Truncate(log.size);
+      if (truncate_status.ok()) {
+        truncate_status = last_log->Truncate(log.size);
       }
-      if (!s.ok()) {
-        break;
+      // Not a critical error if fail to truncate.
+      if (!truncate_status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Failed to truncate log #%" PRIu64 ": %s", log_number,
+                       truncate_status.ToString().c_str());
       }
     }
   }
