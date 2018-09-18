@@ -45,7 +45,7 @@ enum WriteType {
 // Singleton factory instance, DO NOT delete
 const WriteBatchEntryIndexFactory* WriteBatchEntrySkipListIndexFactory();
 
-extern const std::string kWriteBatchEntrySkipListFactoryName; // = "skiplist"
+extern const std::string kWriteBatchEntrySkipListFactoryName; // = "skip_list"
 
 // Regist third-patry factory, NOT take owership
 void RegistWriterBatchEntryIndexFactory(const char* name,

@@ -15,6 +15,7 @@
 #include "db/merge_helper.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
+#include "port/likely.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
@@ -507,6 +508,10 @@ void WriteBatchWithIndex::Rep::AddOrUpdateIndex(uint32_t column_family_id,
                                          key.data() - wb_data.data(), key.size());
   if (!entry_index->Upsert(index_entry)) {
     // overwrite key
+    if (LIKELY(last_sub_batch_offset <= index_entry->offset)) {
+      last_sub_batch_offset = last_entry_offset;
+      sub_batch_cnt++;
+    }
     free_entry = index_entry;
   } else {
     free_entry = nullptr;

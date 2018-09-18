@@ -33,58 +33,46 @@ public:
    return static_cast<KeyHandle>(*buf);
   }
 
+virtual bool InsertKeyValue(const Slice& internal_key,
+                            const Slice& value) override {
+  size_t buf_size = EncodeKeyValueSize(internal_key, value);
+  char* buf;
+  KeyHandle handle = Allocate(buf_size, &buf);
+  EncodeKeyValue(internal_key, value, buf);
+  return skip_list_.Insert(static_cast<char*>(handle));
+}
+
+virtual bool InsertKeyValueWithHint(const Slice& internal_key,
+                                    const Slice& value,
+                                    void** hint) override {
+  size_t buf_size = EncodeKeyValueSize(internal_key, value);
+  char* buf;
+  KeyHandle handle = Allocate(buf_size, &buf);
+  EncodeKeyValue(internal_key, value, buf);
+  return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+}
+
+bool InsertKeyValueConcurrently(const Slice& internal_key,
+                                const Slice& value) override {
+  size_t buf_size = EncodeKeyValueSize(internal_key, value);
+  char* buf;
+  KeyHandle handle = Allocate(buf_size, &buf);
+  EncodeKeyValue(internal_key, value, buf);
+  return skip_list_.InsertConcurrently(static_cast<char*>(handle));
+}
+
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
   virtual void Insert(KeyHandle handle) override {
     skip_list_.Insert(static_cast<char*>(handle));
   }
 
-  virtual bool InsertKey(KeyHandle handle) override {
-    return skip_list_.Insert(static_cast<char*>(handle));
-  }
-
   virtual void InsertWithHint(KeyHandle handle, void** hint) override {
     skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
-  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
-    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
-  }
-
   virtual void InsertConcurrently(KeyHandle handle) override {
     skip_list_.InsertConcurrently(static_cast<char*>(handle));
-  }
-
-  virtual bool InsertKeyConcurrently(KeyHandle handle) override {
-    return skip_list_.InsertConcurrently(static_cast<char*>(handle));
-  }
-
-  virtual bool InsertKeyValue(const Slice& internal_key,
-                              const Slice& value) override {
-    size_t buf_size = EncodeKeyValueSize(internal_key, value);
-    char* buf;
-    KeyHandle handle = Allocate(buf_size, &buf);
-    EncodeKeyValue(internal_key, value, buf);
-    return SkipListRep::InsertKey(handle);
-  }
-
-  virtual bool InsertKeyValueWithHint(const Slice& internal_key,
-                                      const Slice& value,
-                                      void** hint) override {
-    size_t buf_size = EncodeKeyValueSize(internal_key, value);
-    char* buf;
-    KeyHandle handle = Allocate(buf_size, &buf);
-    EncodeKeyValue(internal_key, value, buf);
-    return SkipListRep::InsertKeyWithHint(handle, hint);
-  }
-
-  bool InsertKeyValueConcurrently(const Slice& internal_key,
-                                  const Slice& value) override {
-    size_t buf_size = EncodeKeyValueSize(internal_key, value);
-    char* buf;
-    KeyHandle handle = Allocate(buf_size, &buf);
-    EncodeKeyValue(internal_key, value, buf);
-    return SkipListRep::InsertKeyConcurrently(handle);
   }
 
   // Returns true iff an entry that compares equal to key is in the list.

@@ -29,7 +29,7 @@ const std::string kWriteBatchEntrySkipListFactoryNmae = "skip_list";
 static std::unordered_map<std::string, const WriteBatchEntryIndexFactory*>
     write_batch_entry_index_factory_info = {
         {kWriteBatchEntrySkipListFactoryNmae,
-        WriteBatchEntrySkipListIndexFactory()},
+         WriteBatchEntrySkipListIndexFactory()},
     };
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
