@@ -451,13 +451,14 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithPartitionedIndexFormat4: {
       table_options.format_version = 4;
-      // Format 3 changes the binary index format. Since partitioned index is a
+      // Format 4 changes the binary index format. Since partitioned index is a
       // super-set of simple indexes, we are also using kTwoLevelIndexSearch to
       // test this format.
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-      // The top-level index in partition filters are also affected by format 3.
+      // The top-level index in partition filters are also affected by format 4.
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
       table_options.partition_filters = true;
+      table_options.index_block_restart_interval = 8;
       break;
     }
     case kBlockBasedTableWithIndexRestartInterval: {
