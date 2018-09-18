@@ -885,24 +885,65 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
   }
 
-  if (data_seen && !flushed) {
-    // Mark these as alive so they'll be considered for deletion later by
-    // FindObsoleteFiles()
-    if (two_write_queues_) {
-      log_write_mutex_.Lock();
-    }
-    for (auto log_number : log_numbers) {
-      alive_log_files_.push_back(LogFileNumberSize(log_number));
-    }
-    if (two_write_queues_) {
-      log_write_mutex_.Unlock();
-    }
+  if (status.ok() && data_seen && !flushed) {
+    status = ReconstructAliveLogFiles(log_numbers);
   }
 
   event_logger_.Log() << "job" << job_id << "event"
                       << "recovery_finished";
 
   return status;
+}
+
+Status DBImpl::ReconstructAliveLogFiles(
+    const std::vector<uint64_t>& log_numbers) {
+  if (log_numbers.empty()) {
+    return Status::OK();
+  }
+  Status s;
+  mutex_.AssertHeld();
+  assert(immutable_db_options_.avoid_flush_during_recovery);
+  if (two_write_queues_) {
+    log_write_mutex_.Lock();
+  }
+  // Mark these as alive so they'll be considered for deletion later by
+  // FindObsoleteFiles()
+  total_log_size_ = 0;
+  log_empty_ = false;
+  for (auto log_number : log_numbers) {
+    LogFileNumberSize log(log_number);
+    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    s = env_->GetFileSize(fname, &log.size);
+    if (!s.ok()) {
+      break;
+    }
+    total_log_size_ += log.size;
+    alive_log_files_.push_back(log);
+    // Truncate the preallocated space of the last log.
+    if (log_number == log_numbers.back()) {
+      std::unique_ptr<WritableFile> last_log;
+      s = env_->NewWritableFile(
+          fname, &last_log,
+          env_->OptimizeForLogWrite(
+              env_options_,
+              BuildDBOptions(immutable_db_options_, mutable_db_options_)));
+      if (s.ok()) {
+        s = last_log->Truncate(log.size);
+      }
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+  // Trigger flush if total_log_size_ > max_total_wal_size.
+  if (s.ok() && total_log_size_ > GetMaxTotalWalSize()) {
+    WriteContext write_context;
+    s = SwitchWAL(&write_context);
+  }
+  if (two_write_queues_) {
+    log_write_mutex_.Unlock();
+  }
+  return s;
 }
 
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
