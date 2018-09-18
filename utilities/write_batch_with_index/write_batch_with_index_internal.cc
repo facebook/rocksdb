@@ -24,7 +24,7 @@ class Env;
 class Logger;
 class Statistics;
 
-const std::string kWriteBatchEntrySkipListFactoryNmae = "skiplist";
+const std::string kWriteBatchEntrySkipListFactoryNmae = "skip_list";
 
 static std::unordered_map<std::string, const WriteBatchEntryIndexFactory*>
     write_batch_entry_index_factory_info = {
