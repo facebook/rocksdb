@@ -71,6 +71,7 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
     jobject m_jSliceA;
     jobject m_jSliceB;
     jobject m_jSliceLimit;
+	//wgao do a UT test with mastser
 };
 
 class ComparatorJniCallback : public BaseComparatorJniCallback {
