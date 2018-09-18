@@ -27,7 +27,7 @@ enum Direction {
   kReverse,
 };
 
-static auto icmp = InternalKeyComparator(BytewiseComparator());
+static auto bytewise_icmp = InternalKeyComparator(BytewiseComparator());
 
 void AddTombstones(RangeDelAggregator* range_del_agg,
                    const std::vector<RangeTombstone>& range_dels,
@@ -66,8 +66,8 @@ void VerifyRangeDels(
     const std::vector<RangeTombstone>& range_dels_in,
     const std::vector<ExpectedPoint>& expected_points,
     const std::vector<RangeTombstone>& expected_collapsed_range_dels,
-    const InternalKey* smallest = nullptr,
-    const InternalKey* largest = nullptr) {
+    const InternalKey* smallest = nullptr, const InternalKey* largest = nullptr,
+    const InternalKeyComparator& icmp = bytewise_icmp) {
   // Test same result regardless of which order the range deletions are added
   // and regardless of collapsed mode.
   for (bool collapsed : {false, true}) {
@@ -164,6 +164,14 @@ TEST_F(RangeDelAggregatorTest, OverlapAboveMiddle) {
                   {{"a", "b", 5}, {"b", "c", 10}, {"c", "d", 5}});
 }
 
+TEST_F(RangeDelAggregatorTest, OverlapAboveMiddleReverse) {
+  VerifyRangeDels({{"d", "a", 5}, {"c", "b", 10}},
+                  {{"z", 0}, {"d", 5}, {"c", 10}, {"b", 5}, {"a", 0}},
+                  {{"d", "c", 5}, {"c", "b", 10}, {"b", "a", 5}},
+                  nullptr /* smallest */, nullptr /* largest */,
+                  InternalKeyComparator(ReverseBytewiseComparator()));
+}
+
 TEST_F(RangeDelAggregatorTest, OverlapFully) {
   VerifyRangeDels({{"a", "d", 10}, {"b", "c", 5}},
                   {{" ", 0}, {"a", 10}, {"d", 0}}, {{"a", "d", 10}});
@@ -235,14 +243,14 @@ TEST_F(RangeDelAggregatorTest, AlternateMultipleAboveBelow) {
 
 TEST_F(RangeDelAggregatorTest, MergingIteratorAllEmptyStripes) {
   for (bool collapsed : {true, false}) {
-    RangeDelAggregator range_del_agg(icmp, {1, 2}, collapsed);
+    RangeDelAggregator range_del_agg(bytewise_icmp, {1, 2}, collapsed);
     VerifyRangeDelIter(range_del_agg.NewIterator().get(), {});
   }
 }
 
 TEST_F(RangeDelAggregatorTest, MergingIteratorOverlappingStripes) {
   for (bool collapsed : {true, false}) {
-    RangeDelAggregator range_del_agg(icmp, {5, 15, 25, 35}, collapsed);
+    RangeDelAggregator range_del_agg(bytewise_icmp, {5, 15, 25, 35}, collapsed);
     AddTombstones(
         &range_del_agg,
         {{"d", "e", 10}, {"aa", "b", 20}, {"c", "d", 30}, {"a", "b", 10}});
@@ -253,7 +261,8 @@ TEST_F(RangeDelAggregatorTest, MergingIteratorOverlappingStripes) {
 }
 
 TEST_F(RangeDelAggregatorTest, MergingIteratorSeek) {
-  RangeDelAggregator range_del_agg(icmp, {5, 15}, true /* collapsed */);
+  RangeDelAggregator range_del_agg(bytewise_icmp, {5, 15},
+                                   true /* collapsed */);
   AddTombstones(&range_del_agg, {{"a", "c", 10},
                                  {"b", "c", 11},
                                  {"f", "g", 10},
