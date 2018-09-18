@@ -173,8 +173,9 @@ class CollapsedRangeDelMap : public RangeDelMap {
   const Comparator* ucmp_;
 
  public:
-  explicit CollapsedRangeDelMap(const Comparator* ucmp)
-      : rep_(stl_wrappers::LessOfComparator(ucmp)), ucmp_(ucmp) {
+  explicit CollapsedRangeDelMap(const Comparator* ucmp) 
+    : rep_(stl_wrappers::LessOfComparator(ucmp)), 
+      ucmp_(ucmp) {
     InvalidatePosition();
   }
 

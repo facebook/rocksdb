@@ -988,6 +988,7 @@ if(WITH_TESTS)
   set(BENCHMARKS
     cache/cache_bench.cc
     memtable/memtablerep_bench.cc
+    db/range_del_aggregator_bench.cc
     tools/db_bench.cc
     table/table_reader_bench.cc
     utilities/column_aware_encoding_exp.cc

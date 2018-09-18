@@ -477,6 +477,15 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
+// This seems to clash with a macro on Windows, so #undef it here
+#undef GetFreeSpace
+
+  // Get the amount of free disk space
+  virtual Status GetFreeSpace(const std::string& /*path*/,
+                              uint64_t* /*diskfree*/) {
+    return Status::NotSupported();
+  }
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.

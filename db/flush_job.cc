@@ -78,6 +78,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Auto Compaction";
     case FlushReason::kManualFlush:
       return "Manual Flush";
+    case FlushReason::kErrorRecovery:
+      return "Error Recovery";
     default:
       return "Invalid";
   }
