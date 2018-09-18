@@ -353,7 +353,7 @@ MemTableRepFactory* NewHashSkipListRepFactory(
 }
 
 static MemTableRepFactory* NewHashSkipListRepFactory(
-    const std::unordered_map<std::string, std::string>& options, Status* s) {
+    const std::unordered_map<std::string, std::string>& options, Status* /*s*/) {
   auto f = options.begin();
 
   size_t bucket_count = 1000000; // default

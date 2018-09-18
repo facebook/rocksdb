@@ -59,6 +59,34 @@ public:
     return skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
+  virtual bool InsertKeyValue(const Slice& internal_key,
+                              const Slice& value) override {
+    size_t buf_size = EncodeKeyValueSize(internal_key, value);
+    char* buf;
+    KeyHandle handle = Allocate(buf_size, &buf);
+    EncodeKeyValue(internal_key, value, buf);
+    return SkipListRep::InsertKey(handle);
+  }
+
+  virtual bool InsertKeyValueWithHint(const Slice& internal_key,
+                                      const Slice& value,
+                                      void** hint) override {
+    size_t buf_size = EncodeKeyValueSize(internal_key, value);
+    char* buf;
+    KeyHandle handle = Allocate(buf_size, &buf);
+    EncodeKeyValue(internal_key, value, buf);
+    return SkipListRep::InsertKeyWithHint(handle, hint);
+  }
+
+  bool InsertKeyValueConcurrently(const Slice& internal_key,
+                                  const Slice& value) override {
+    size_t buf_size = EncodeKeyValueSize(internal_key, value);
+    char* buf;
+    KeyHandle handle = Allocate(buf_size, &buf);
+    EncodeKeyValue(internal_key, value, buf);
+    return SkipListRep::InsertKeyConcurrently(handle);
+  }
+
   // Returns true iff an entry that compares equal to key is in the list.
   virtual bool Contains(const Slice& internal_key) const override {
     std::string memtable_key;

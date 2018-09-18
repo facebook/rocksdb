@@ -236,14 +236,14 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
   // Internal keys are encoded as length-prefixed strings.
   Slice k1 = GetLengthPrefixedSlice(prefix_len_key1);
   Slice k2 = GetLengthPrefixedSlice(prefix_len_key2);
-  return comparator.Compare(k1, k2);
+  return comparator.CompareKeySeq(k1, k2);
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key,
                                         const Slice& key) const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
-  return comparator.Compare(a, key);
+  return comparator.CompareKeySeq(a, key);
 }
 
 void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
@@ -285,8 +285,7 @@ bool MemTableRep::InsertKeyValue(const Slice& internal_key,
   char* buf;
   KeyHandle handle = Allocate(buf_size, &buf);
   EncodeKeyValue(internal_key, value, buf);
-  Insert(handle);
-  return true;
+  return InsertKey(handle);
 }
 
 bool MemTableRep::InsertKeyValueWithHint(const Slice& internal_key,
@@ -296,8 +295,7 @@ bool MemTableRep::InsertKeyValueWithHint(const Slice& internal_key,
   char* buf;
   KeyHandle handle = Allocate(buf_size, &buf);
   EncodeKeyValue(internal_key, value, buf);
-  InsertWithHint(handle, hint);
-  return true;
+  return InsertKeyWithHint(handle, hint);
 }
 
 bool MemTableRep::InsertKeyValueConcurrently(const Slice& internal_key,
@@ -306,8 +304,7 @@ bool MemTableRep::InsertKeyValueConcurrently(const Slice& internal_key,
   char* buf;
   KeyHandle handle = Allocate(buf_size, &buf);
   EncodeKeyValue(internal_key, value, buf);
-  InsertConcurrently(handle);
-  return true;
+  return InsertKeyConcurrently(handle);
 }
 
 KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {

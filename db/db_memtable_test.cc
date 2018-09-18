@@ -69,6 +69,7 @@ class MockMemTableRep : public MemTableRep {
 
 class MockMemTableRepFactory : public MemTableRepFactory {
  public:
+  using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
                                          Allocator* allocator,
                                          const SliceTransform* transform,
@@ -88,17 +89,6 @@ virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
     last_column_family_id_ = column_family_id;
     return CreateMemTableRep(cmp, allocator, transform, logger);
   }
-
-virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                       Allocator* allocator,
-                                       const ImmutableCFOptions& ioptions,
-                                       const MutableCFOptions& mutable_cf_options,
-                                       uint32_t /* column_family_id */) override {
-  return CreateMemTableRep(cmp, allocator,
-                           mutable_cf_options.prefix_extractor.get(),
-                           ioptions.info_log);
-}
-
   virtual const char* Name() const override { return "MockMemTableRepFactory"; }
 
   MockMemTableRep* rep() { return mock_rep_; }
@@ -266,6 +256,9 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
   for (int cf = 0; cf < 2; ++cf) {
     ASSERT_OK(Put(cf, "key", "val"));
     ASSERT_OK(Flush(cf));
+    auto temp = static_cast<MockMemTableRepFactory*>(options.memtable_factory.get())
+            ->GetLastColumnFamilyId();
+    (void)temp;
     ASSERT_EQ(
         cf, static_cast<MockMemTableRepFactory*>(options.memtable_factory.get())
                 ->GetLastColumnFamilyId());
