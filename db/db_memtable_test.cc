@@ -256,9 +256,6 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
   for (int cf = 0; cf < 2; ++cf) {
     ASSERT_OK(Put(cf, "key", "val"));
     ASSERT_OK(Flush(cf));
-    auto temp = static_cast<MockMemTableRepFactory*>(options.memtable_factory.get())
-            ->GetLastColumnFamilyId();
-    (void)temp;
     ASSERT_EQ(
         cf, static_cast<MockMemTableRepFactory*>(options.memtable_factory.get())
                 ->GetLastColumnFamilyId());
