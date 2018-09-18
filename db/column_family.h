@@ -87,6 +87,21 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
   ColumnFamilyData* internal_cfd_;
 };
 
+// Simple RAII wrapper class for ColumnFamilyHandle.
+// Constructing this object will refer to ColumnFamilyData.
+// Destructing will un-refer to the ColumnFamilyData.
+class ManagedColumnFamilyHandle : public ColumnFamilyHandleImpl {
+ public:
+  ManagedColumnFamilyHandle(DBImpl* db_impl, ColumnFamilyData* cfd);
+  ~ManagedColumnFamilyHandle();
+
+  virtual ColumnFamilyData* cfd() const override;
+
+ private:
+  DBImpl* db_impl_;
+  ColumnFamilyData* internal_cfd_;
+};
+
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
   // Accessing members of this class is not thread-safe and requires external

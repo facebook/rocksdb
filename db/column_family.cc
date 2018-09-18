@@ -94,6 +94,19 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
 }
 
+ManagedColumnFamilyHandle::ManagedColumnFamilyHandle(DBImpl* db_impl,
+                                                     ColumnFamilyData* cfd)
+    : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+      db_impl_(db_impl), internal_cfd_(cfd) {}
+
+ManagedColumnFamilyHandle::~ManagedColumnFamilyHandle() {
+  db_impl_->UnrefColumnFamilyDataUnlocked(internal_cfd_);
+}
+
+ColumnFamilyData* ManagedColumnFamilyHandle::cfd() const {
+  return internal_cfd_;
+}
+
 void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
