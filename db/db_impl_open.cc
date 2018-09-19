@@ -396,6 +396,16 @@ Status DBImpl::Recover(
       }
     }
   }
+
+  // Initial max_total_in_memory_state_ before recovery logs. Log recovery
+  // may check this value to decide whether to flush.
+  max_total_in_memory_state_ = 0;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
+                                  mutable_cf_options->max_write_buffer_number;
+  }
+
   if (s.ok()) {
     SequenceNumber next_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
@@ -466,14 +476,6 @@ Status DBImpl::Recover(
         }
       }
     }
-  }
-
-  // Initial value
-  max_total_in_memory_state_ = 0;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
   }
 
   return s;
@@ -886,7 +888,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   }
 
   if (status.ok() && data_seen && !flushed) {
-    status = ReconstructAliveLogFiles(log_numbers);
+    status = RestoreAliveLogFiles(log_numbers);
   }
 
   event_logger_.Log() << "job" << job_id << "event"
@@ -895,7 +897,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   return status;
 }
 
-Status DBImpl::ReconstructAliveLogFiles(
+Status DBImpl::RestoreAliveLogFiles(
     const std::vector<uint64_t>& log_numbers) {
   if (log_numbers.empty()) {
     return Status::OK();
@@ -925,7 +927,7 @@ Status DBImpl::ReconstructAliveLogFiles(
     // log has such preallocated space, so we only truncate for the last log.
     if (log_number == log_numbers.back()) {
       std::unique_ptr<WritableFile> last_log;
-      Status truncate_status = env_->NewWritableFile(
+      Status truncate_status = env_->ReopenWritableFile(
           fname, &last_log,
           env_->OptimizeForLogWrite(
               env_options_,
