@@ -122,7 +122,7 @@ std::pair<Slice, Slice> MemTableRep::Iterator::GetKeyValue() const {
   return { key_slice, value_slice };
 }
 
-std::unordered_map<std::string, MemTableRegister::FactoryCreator>&
+static std::unordered_map<std::string, MemTableRegister::FactoryCreator>&
 GetMemtableFactoryMap() {
   static std::unordered_map<std::string, MemTableRegister::FactoryCreator>
       memtable_factory_map;

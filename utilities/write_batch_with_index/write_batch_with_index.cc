@@ -407,7 +407,7 @@ struct WriteBatchWithIndex::Rep {
       : write_batch(reserved_bytes, max_bytes),
         default_comparator(index_comparator),
         index_factory(_index_factory == nullptr
-                          ? WriteBatchEntrySkipListIndexFactory()
+                          ? skip_list_WriteBatchEntryIndexFactory()
                           : _index_factory),
         overwrite_key(_overwrite_key),
         free_entry(nullptr),

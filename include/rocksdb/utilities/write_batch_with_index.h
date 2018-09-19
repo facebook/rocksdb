@@ -42,14 +42,17 @@ enum WriteType {
   kXIDRecord,
 };
 
-// Singleton factory instance, DO NOT delete
-const WriteBatchEntryIndexFactory* WriteBatchEntrySkipListIndexFactory();
+// Singleton factory instance, DO NOT delete the returned pointer
+const WriteBatchEntryIndexFactory* skip_list_WriteBatchEntryIndexFactory();
 
-extern const std::string kWriteBatchEntrySkipListFactoryName; // = "skip_list"
-
-// Regist third-patry factory, NOT take owership
-void RegistWriterBatchEntryIndexFactory(const char* name,
-                                        const WriteBatchEntryIndexFactory* factory);
+struct WriteBatchEntryIndexFactoryRegister {
+  WriteBatchEntryIndexFactoryRegister(const char* name,
+                                      const WriteBatchEntryIndexFactory*);
+};
+#define ROCKSDB_REGISTER_WRITE_BATCH_WITH_INDEX(name)  \
+    WriteBatchEntryIndexFactoryRegister                \
+    s_reg_##name##_##WriteBatchEntryIndexFactory(#name, \
+            name##_##WriteBatchEntryIndexFactory())
 
 // name: skiplist or other names registed
 // return nullptr if invalid name

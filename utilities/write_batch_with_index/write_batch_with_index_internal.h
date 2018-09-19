@@ -118,21 +118,20 @@ class WriteBatchEntryIndex {
 
 class WriteBatchEntryIndexContext {
  public:
-  virtual ~WriteBatchEntryIndexContext(){};
+  virtual ~WriteBatchEntryIndexContext();
 };
 
 class WriteBatchEntryIndexFactory {
  public:
   // object MUST allocated from arena, allow return nullptr
-  // context will not delete, only when call destructor
-  virtual WriteBatchEntryIndexContext* NewContext(Arena* /*a*/) const {
-    return nullptr;
-  }
+  // context will not delete, only by calling destructor
+  virtual WriteBatchEntryIndexContext* NewContext(Arena*) const;
   virtual WriteBatchEntryIndex* New(WriteBatchEntryIndexContext* ctx,
                                     WriteBatchKeyExtractor e,
                                     const Comparator* c, Arena* a,
                                     bool overwrite_key) const = 0;
-  virtual ~WriteBatchEntryIndexFactory() {}
+  virtual ~WriteBatchEntryIndexFactory();
+  virtual const char* Name() const = 0;
 };
 
 }  // namespace rocksdb

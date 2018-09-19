@@ -24,13 +24,12 @@ class Env;
 class Logger;
 class Statistics;
 
-const std::string kWriteBatchEntrySkipListFactoryNmae = "skip_list";
-
-static std::unordered_map<std::string, const WriteBatchEntryIndexFactory*>
-    write_batch_entry_index_factory_info = {
-        {kWriteBatchEntrySkipListFactoryNmae,
-         WriteBatchEntrySkipListIndexFactory()},
-    };
+static std::unordered_map<std::string, const WriteBatchEntryIndexFactory*>&
+GetWriteBatchEntryIndexFactoryMap() {
+  static std::unordered_map<std::string, const WriteBatchEntryIndexFactory*>
+         factoryMap;
+  return factoryMap;
+};
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
                                                   WriteType* type, Slice* Key,
@@ -335,7 +334,12 @@ protected:
   }
 };
 
-const WriteBatchEntryIndexFactory* WriteBatchEntrySkipListIndexFactory() {
+WriteBatchEntryIndexContext::~WriteBatchEntryIndexContext() {}
+WriteBatchEntryIndexFactory::~WriteBatchEntryIndexFactory() {}
+WriteBatchEntryIndexContext*
+WriteBatchEntryIndexFactory::NewContext(Arena*) const { return nullptr; }
+
+const WriteBatchEntryIndexFactory* skip_list_WriteBatchEntryIndexFactory() {
   class SkipListIndexFactory : public WriteBatchEntryIndexFactory {
    public:
     WriteBatchEntryIndex* New(WriteBatchEntryIndexContext* /*ctx*/,
@@ -350,23 +354,27 @@ const WriteBatchEntryIndexFactory* WriteBatchEntrySkipListIndexFactory() {
         return new (a->AllocateAligned(sizeof(index_t))) index_t(e, c, a);
       }
     }
+    const char* Name() const override final { return "skip_list"; }
   };
   static SkipListIndexFactory factory;
   return &factory;
 }
 
-void RegistWriteBatchEntryIndexFactory(const char* name,
-                                       const WriteBatchEntryIndexFactory* factory) {
-  write_batch_entry_index_factory_info.emplace(name, factory);
+WriteBatchEntryIndexFactoryRegister::WriteBatchEntryIndexFactoryRegister(
+    const char* name, const WriteBatchEntryIndexFactory* factory) {
+  GetWriteBatchEntryIndexFactoryMap().emplace(name, factory);
 }
 
 const WriteBatchEntryIndexFactory* GetWriteBatchEntryIndexFactory(const char* name) {
-  auto find = write_batch_entry_index_factory_info.find(name);
-  if (find == write_batch_entry_index_factory_info.end()) {
+  auto& factoryMap = GetWriteBatchEntryIndexFactoryMap();
+  auto find = factoryMap.find(name);
+  if (find == factoryMap.end()) {
     return nullptr;
   }
   return find->second;
 }
+
+ROCKSDB_REGISTER_WRITE_BATCH_WITH_INDEX(skip_list);
 
 }  // namespace rocksdb
 
