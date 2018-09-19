@@ -74,11 +74,11 @@ CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
       sliding_window_size_, deletion_trigger_);
 }
 
-std::shared_ptr<TablePropertiesCollectorFactory>
+std::shared_ptr<CompactOnDeletionCollectorFactory>
     NewCompactOnDeletionCollectorFactory(
         size_t sliding_window_size,
         size_t deletion_trigger) {
-  return std::shared_ptr<TablePropertiesCollectorFactory>(
+  return std::shared_ptr<CompactOnDeletionCollectorFactory>(
       new CompactOnDeletionCollectorFactory(
           sliding_window_size, deletion_trigger));
 }
