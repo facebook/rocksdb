@@ -216,9 +216,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
       use_custom_gc_(seq_per_batch),
+      shutdown_initiated_(false),
+      own_sfm_(options.sst_file_manager == nullptr),
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
-      error_handler_(immutable_db_options_, &mutex_) {
+      error_handler_(this, immutable_db_options_, &mutex_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -260,16 +262,62 @@ Status DBImpl::Resume() {
     return Status::OK();
   }
 
-  Status s = error_handler_.GetBGError();
-  if (s.severity() > Status::Severity::kHardError) {
+  if (error_handler_.IsRecoveryInProgress()) {
+    // Don't allow a mix of manual and automatic recovery
+    return Status::Busy();
+  }
+
+  mutex_.Unlock();
+  Status s = error_handler_.RecoverFromBGError(true);
+  mutex_.Lock();
+  return s;
+}
+
+// This function implements the guts of recovery from a background error. It
+// is eventually called for both manual as well as automatic recovery. It does
+// the following -
+// 1. Wait for currently scheduled background flush/compaction to exit, in
+//    order to inadvertently causing an error and thinking recovery failed
+// 2. Flush memtables if there's any data for all the CFs. This may result
+//    another error, which will be saved by error_handler_ and reported later
+//    as the recovery status
+// 3. Find and delete any obsolete files
+// 4. Schedule compactions if needed for all the CFs. This is needed as the
+//    flush in the prior step might have been a no-op for some CFs, which
+//    means a new super version wouldn't have been installed
+Status DBImpl::ResumeImpl() {
+  mutex_.AssertHeld();
+  WaitForBackgroundWork();
+
+  Status bg_error = error_handler_.GetBGError();
+  Status s;
+  if (shutdown_initiated_) {
+    // Returning shutdown status to SFM during auto recovery will cause it
+    // to abort the recovery and allow the shutdown to progress
+    s = Status::ShutdownInProgress();
+  }
+  if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
         "DB resume requested but failed due to Fatal/Unrecoverable error");
-    return s;
+    s = bg_error;
+  }
+
+  // We cannot guarantee consistency of the WAL. So force flush Memtables of
+  // all the column families
+  if (s.ok()) {
+    s = FlushAllCFs(FlushReason::kErrorRecovery);
+    if (!s.ok()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "DB resume requested but failed due to Flush failure [%s]",
+                     s.ToString().c_str());
+    }
   }
 
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  error_handler_.ClearBGError();
+  if (s.ok()) {
+    s = error_handler_.ClearBGError();
+  }
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -278,13 +326,36 @@ Status DBImpl::Resume() {
   }
   job_context.Clean();
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  }
   mutex_.Lock();
-  MaybeScheduleFlushOrCompaction();
+  // Check for shutdown again before scheduling further compactions,
+  // since we released and re-acquired the lock above
+  if (shutdown_initiated_) {
+    s = Status::ShutdownInProgress();
+  }
+  if (s.ok()) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      SchedulePendingCompaction(cfd);
+    }
+    MaybeScheduleFlushOrCompaction();
+  }
+
+  // Wake up any waiters - in this case, it could be the shutdown thread
+  bg_cv_.SignalAll();
 
   // No need to check BGError again. If something happened, event listener would be
   // notified and the operation causing it would have failed
-  return Status::OK();
+  return s;
+}
+
+void DBImpl::WaitForBackgroundWork() {
+  // Wait for background work to finish
+  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+         bg_flush_scheduled_) {
+    bg_cv_.Wait();
+  }
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
@@ -314,14 +385,20 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   if (!wait) {
     return;
   }
-  // Wait for background work to finish
-  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_) {
-    bg_cv_.Wait();
-  }
+  WaitForBackgroundWork();
 }
 
 Status DBImpl::CloseHelper() {
+  // Guarantee that there is no background error recovery in progress before
+  // continuing with the shutdown
+  mutex_.Lock();
+  shutdown_initiated_ = true;
+  error_handler_.CancelErrorRecovery();
+  while (error_handler_.IsRecoveryInProgress()) {
+    bg_cv_.Wait();
+  }
+  mutex_.Unlock();
+
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -339,7 +416,8 @@ Status DBImpl::CloseHelper() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || bg_purge_scheduled_ ||
-         pending_purge_obsolete_files_) {
+         pending_purge_obsolete_files_ ||
+         error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }
@@ -443,6 +521,17 @@ Status DBImpl::CloseHelper() {
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
+
+#ifndef ROCKSDB_LITE
+  // If the sst_file_manager was allocated by us during DB::Open(), ccall
+  // Close() on it before closing the info_log. Otherwise, background thread
+  // in SstFileManagerImpl might try to log something
+  if (immutable_db_options_.sst_file_manager && own_sfm_) {
+    auto sfm = static_cast<SstFileManagerImpl*>(
+        immutable_db_options_.sst_file_manager.get());
+    sfm->Close();
+  }
+#endif // ROCKSDB_LITE
 
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();

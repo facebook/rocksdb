@@ -4,7 +4,7 @@
 #
 
 if [ "$#" -lt 3 ]; then
-  echo "usagee: $BASH_SOURCE <input_data_path> <DB Path> <extern SST dir>"
+  echo "usage: $BASH_SOURCE <input_data_path> <DB Path> <extern SST dir>"
   exit 1
 fi
 

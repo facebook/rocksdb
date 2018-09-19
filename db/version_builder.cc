@@ -426,8 +426,6 @@ class VersionBuilder::Rep {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
       const auto& base_files = base_vstorage_->LevelFiles(level);
-      auto base_iter = base_files.begin();
-      auto base_end = base_files.end();
       const auto& unordered_added_files = levels_[level].added_files;
       vstorage->Reserve(level,
                         base_files.size() + unordered_added_files.size());
@@ -441,42 +439,36 @@ class VersionBuilder::Rep {
       std::sort(added_files.begin(), added_files.end(), cmp);
 
 #ifndef NDEBUG
-      FileMetaData* prev_file = nullptr;
+      FileMetaData* prev_added_file = nullptr;
+      for (const auto& added : added_files) {
+        if (level > 0 && prev_added_file != nullptr) {
+          assert(base_vstorage_->InternalComparator()->Compare(
+                     prev_added_file->smallest, added->smallest) <= 0);
+        }
+        prev_added_file = added;
+      }
 #endif
 
       auto maybe_add_file = [&](FileMetaData* f) {
         if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
           deleted_files.push_back(f);
         } else {
-          LoadSstDepend(*base_iter, depend_map_);
+          LoadSstDepend(f, depend_map_);
           vstorage->AddFile(level, f, info_log_);
         }
       };
 
-      for (const auto& added : added_files) {
-#ifndef NDEBUG
-        if (level > 0 && prev_file != nullptr) {
-          assert(base_vstorage_->InternalComparator()->Compare(
-                     prev_file->smallest, added->smallest) <= 0);
+      auto base_iter = base_files.begin();
+      auto base_end = base_files.end();
+      auto added_iter = added_files.begin();
+      auto added_end = added_files.end();
+      while (added_iter != added_end || base_iter != base_end) {
+        if (base_iter == base_end ||
+                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+          maybe_add_file(*added_iter++);
+        } else {
+          maybe_add_file(*base_iter++);
         }
-        prev_file = added;
-#endif
-
-        // Add all smaller files listed in base_
-        for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
-             base_iter != bpos; ++base_iter) {
-          maybe_add_file(*base_iter);
-        }
-
-        // added files don't need check deleted
-        // it was handled LoadSstDepend when Apply
-        // so just AddFile, don't call maybe_add_file
-        vstorage->AddFile(level, added, info_log_);
-      }
-
-      // Add remaining base files
-      for (; base_iter != base_end; ++base_iter) {
-        maybe_add_file(*base_iter);
       }
     }
     // Reclaim depend files form deleted files
