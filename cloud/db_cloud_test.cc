@@ -986,6 +986,25 @@ TEST_F(CloudTest, NoDestOrSrc) {
   CloseDB();
 }
 
+TEST_F(CloudTest, PreloadCloudManifest) {
+  DestroyDir(dbname_);
+  // Put one key-value
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
+  CloseDB();
+  value.clear();
+
+  // Reopen and validate, preload cloud manifest
+  DBCloud::PreloadCloudManifest(aenv_.get(), dbname_);
+
+  OpenDB();
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
+}
+
 #ifdef AWS_DO_NOT_RUN
 //
 // Verify that we can cache data from S3 in persistent cache.

@@ -41,7 +41,9 @@ void CloudEnvImpl::StopPurger() {
 }
 
 Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
-  assert(!cloud_manifest_);
+  if (cloud_manifest_) {
+    cloud_manifest_.reset();
+  }
   unique_ptr<SequentialFile> file;
   auto s = GetBaseEnv()->NewSequentialFile(CloudManifestFile(dbname), &file,
                                            EnvOptions());
