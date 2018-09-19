@@ -1521,7 +1521,7 @@ class DBImpl : public DB {
   }
 
   // timer based queue to execute tasks
-  TimerQueue tqueue_;
+  TimerQueue timer_queue_;
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.

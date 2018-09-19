@@ -578,9 +578,11 @@ void DBImpl::PrintStatistics() {
 }
 
 void DBImpl::StartTimedTasks() {
-  tqueue_.add(static_cast<int64_t>(
-              mutable_db_options_.stats_dump_period_sec * 1000),
-              std::bind(&DBImpl::MaybeDumpStats, this, std::placeholders::_1));
+  if (mutable_db_options_.stats_dump_period_sec > 0) {
+    timer_queue_.add(
+        static_cast<int64_t>(mutable_db_options_.stats_dump_period_sec) * 1000,
+        std::bind(&DBImpl::MaybeDumpStats, this, std::placeholders::_1));
+  }
 }
 
 std::pair<bool, int64_t> DBImpl::MaybeDumpStats(bool aborted) {
@@ -602,8 +604,7 @@ std::pair<bool, int64_t> DBImpl::MaybeDumpStats(bool aborted) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
-            &stats);
+            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram, &stats);
       }
     }
     for (auto cfd : *versions_->GetColumnFamilySet()) {
