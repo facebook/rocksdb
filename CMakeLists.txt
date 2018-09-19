@@ -254,6 +254,10 @@ if(FAIL_ON_WARNINGS)
   endif()
 endif()
 
+if(MSVC)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /FR /std:c++14")
+endif()
+
 option(WITH_ASAN "build with ASAN" OFF)
 if(WITH_ASAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
@@ -495,6 +499,7 @@ set(SOURCES
         db/log_writer.cc
         db/malloc_stats.cc
         db/memtable.cc
+        db/memtablerep.cc
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc

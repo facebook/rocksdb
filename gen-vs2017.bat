@@ -1,0 +1,6 @@
+if exist vs2017 (
+  del /S /F /Q vs2017
+)
+mkdir vs2017
+cd    vs2017
+cmake CMAKE_SUPPRESS_REGENERATION=ON CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON FAIL_ON_WARNINGS=OFF -G "Visual Studio 15 2017 Win64" ..

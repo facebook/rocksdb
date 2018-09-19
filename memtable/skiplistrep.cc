@@ -7,6 +7,7 @@
 #include "db/memtable.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace {
@@ -32,35 +33,52 @@ public:
    return static_cast<KeyHandle>(*buf);
   }
 
+virtual bool InsertKeyValue(const Slice& internal_key,
+                            const Slice& value) override {
+  size_t buf_size = EncodeKeyValueSize(internal_key, value);
+  char* buf;
+  KeyHandle handle = Allocate(buf_size, &buf);
+  EncodeKeyValue(internal_key, value, buf);
+  return skip_list_.Insert(static_cast<char*>(handle));
+}
+
+virtual bool InsertKeyValueWithHint(const Slice& internal_key,
+                                    const Slice& value,
+                                    void** hint) override {
+  size_t buf_size = EncodeKeyValueSize(internal_key, value);
+  char* buf;
+  KeyHandle handle = Allocate(buf_size, &buf);
+  EncodeKeyValue(internal_key, value, buf);
+  return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+}
+
+bool InsertKeyValueConcurrently(const Slice& internal_key,
+                                const Slice& value) override {
+  size_t buf_size = EncodeKeyValueSize(internal_key, value);
+  char* buf;
+  KeyHandle handle = Allocate(buf_size, &buf);
+  EncodeKeyValue(internal_key, value, buf);
+  return skip_list_.InsertConcurrently(static_cast<char*>(handle));
+}
+
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
   virtual void Insert(KeyHandle handle) override {
     skip_list_.Insert(static_cast<char*>(handle));
   }
 
-  virtual bool InsertKey(KeyHandle handle) override {
-    return skip_list_.Insert(static_cast<char*>(handle));
-  }
-
   virtual void InsertWithHint(KeyHandle handle, void** hint) override {
     skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
-  }
-
-  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
-    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
   virtual void InsertConcurrently(KeyHandle handle) override {
     skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
-  virtual bool InsertKeyConcurrently(KeyHandle handle) override {
-    return skip_list_.InsertConcurrently(static_cast<char*>(handle));
-  }
-
   // Returns true iff an entry that compares equal to key is in the list.
-  virtual bool Contains(const char* key) const override {
-    return skip_list_.Contains(key);
+  virtual bool Contains(const Slice& internal_key) const override {
+    std::string memtable_key;
+    return skip_list_.Contains(EncodeKey(&memtable_key, internal_key));
   }
 
   virtual size_t ApproximateMemoryUsage() override {
@@ -70,11 +88,12 @@ public:
 
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
+                                         const KeyValuePair*)) override {
     SkipListRep::Iterator iter(&skip_list_);
+    EncodedKeyValuePair pair;
     Slice dummy_slice;
     for (iter.Seek(dummy_slice, k.memtable_key().data());
-         iter.Valid() && callback_func(callback_args, iter.key());
+         iter.Valid() && callback_func(callback_args, pair.SetKey(iter.key()));
          iter.Next()) {
     }
   }
@@ -157,6 +176,8 @@ public:
     virtual void SeekToLast() override {
       iter_.SeekToLast();
     }
+
+    virtual bool IsSeekForPrevSupported() const { return true; }
    protected:
     std::string tmp_;       // For passing to EncodeKey
   };
@@ -255,6 +276,8 @@ public:
       prev_ = iter_;
     }
 
+    virtual bool IsSeekForPrevSupported() const override { return true; }
+
    protected:
     std::string tmp_;       // For passing to EncodeKey
 
@@ -285,5 +308,15 @@ MemTableRep* SkipListFactory::CreateMemTableRep(
     const SliceTransform* transform, Logger* /*logger*/) {
   return new SkipListRep(compare, allocator, transform, lookahead_);
 }
+
+static MemTableRepFactory* NewSkipListFactory(
+    const std::unordered_map<std::string, std::string>& options, Status*) {
+  auto f = options.find("lookahead");
+  size_t lookahead = 0;
+  if (options.end() != f) lookahead = ParseSizeT(f->second);
+  return new SkipListFactory(lookahead);
+}
+
+ROCKSDB_REGISTER_MEM_TABLE("skip_list", SkipListFactory);
 
 } // namespace rocksdb

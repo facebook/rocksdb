@@ -26,7 +26,8 @@ struct WriteOptions;
 OptimisticTransaction::OptimisticTransaction(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
-    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
+    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options,
+                          txn_options.index_type), txn_db_(txn_db) {
   Initialize(txn_options);
 }
 

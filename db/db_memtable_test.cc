@@ -38,13 +38,13 @@ class MockMemTableRep : public MemTableRep {
     last_hint_out_ = *hint;
   }
 
-  virtual bool Contains(const char* key) const override {
-    return rep_->Contains(key);
+  virtual bool Contains(const Slice& internal_key) const override {
+    return rep_->Contains(internal_key);
   }
 
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
+                                         const KeyValuePair*)) override {
     rep_->Get(k, callback_args, callback_func);
   }
 
@@ -69,6 +69,7 @@ class MockMemTableRep : public MemTableRep {
 
 class MockMemTableRepFactory : public MemTableRepFactory {
  public:
+  using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
                                          Allocator* allocator,
                                          const SliceTransform* transform,
@@ -80,7 +81,7 @@ class MockMemTableRepFactory : public MemTableRepFactory {
     return mock_rep_;
   }
 
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
+virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
                                          Allocator* allocator,
                                          const SliceTransform* transform,
                                          Logger* logger,
@@ -88,7 +89,6 @@ class MockMemTableRepFactory : public MemTableRepFactory {
     last_column_family_id_ = column_family_id;
     return CreateMemTableRep(cmp, allocator, transform, logger);
   }
-
   virtual const char* Name() const override { return "MockMemTableRepFactory"; }
 
   MockMemTableRep* rep() { return mock_rep_; }

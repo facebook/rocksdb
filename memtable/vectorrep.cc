@@ -17,6 +17,7 @@
 #include "memtable/stl_wrappers.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace {
@@ -34,7 +35,7 @@ class VectorRep : public MemTableRep {
   virtual void Insert(KeyHandle handle) override;
 
   // Returns true iff an entry that compares equal to key is in the collection.
-  virtual bool Contains(const char* key) const override;
+  virtual bool Contains(const Slice& internal_key) const override;
 
   virtual void MarkReadOnly() override;
 
@@ -42,7 +43,7 @@ class VectorRep : public MemTableRep {
 
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg,
-                                         const char* entry)) override;
+                                         const KeyValuePair*)) override;
 
   virtual ~VectorRep() override { }
 
@@ -93,6 +94,8 @@ class VectorRep : public MemTableRep {
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
     virtual void SeekToLast() override;
+
+    virtual bool IsSeekForPrevSupported() const override { return true; }
   };
 
   // Return an iterator over the keys in this representation.
@@ -116,9 +119,12 @@ void VectorRep::Insert(KeyHandle handle) {
 }
 
 // Returns true iff an entry that compares equal to key is in the collection.
-bool VectorRep::Contains(const char* key) const {
+bool VectorRep::Contains(const Slice& internal_key) const {
+  std::string memtable_key;
+  EncodeKey(&memtable_key, internal_key);
   ReadLock l(&rwlock_);
-  return std::find(bucket_->begin(), bucket_->end(), key) != bucket_->end();
+  return std::find(bucket_->begin(), bucket_->end(), memtable_key.data()) !=
+         bucket_->end();
 }
 
 void VectorRep::MarkReadOnly() {
@@ -218,18 +224,28 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
   // Do binary search to find first value not less than the target
   const char* encoded_key =
       (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
-  cit_ = std::equal_range(bucket_->begin(),
+  cit_ = std::lower_bound(bucket_->begin(),
                           bucket_->end(),
                           encoded_key,
                           [this] (const char* a, const char* b) {
                             return compare_(a, b) < 0;
-                          }).first;
+                          });
 }
 
 // Advance to the first entry with a key <= target
-void VectorRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
-                                      const char* /*memtable_key*/) {
-  assert(false);
+void VectorRep::Iterator::SeekForPrev(const Slice& user_key,
+                                      const char* memtable_key) {
+  DoSort();
+  // Do binary search to find last value not greater than the target
+  const char* encoded_key =
+      (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
+  cit_ = std::upper_bound(bucket_->begin(),
+                          bucket_->end(),
+                          encoded_key,
+                          [this] (const char* a, const char* b) {
+                            return compare_(a, b) < 0;
+                          });
+  Prev();
 }
 
 // Position at the first entry in collection.
@@ -250,7 +266,7 @@ void VectorRep::Iterator::SeekToLast() {
 }
 
 void VectorRep::Get(const LookupKey& k, void* callback_args,
-                    bool (*callback_func)(void* arg, const char* entry)) {
+                    bool (*callback_func)(void* arg, const KeyValuePair*)) {
   rwlock_.ReadLock();
   VectorRep* vector_rep;
   std::shared_ptr<Bucket> bucket;
@@ -264,7 +280,8 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   rwlock_.ReadUnlock();
 
   for (iter.Seek(k.user_key(), k.memtable_key().data());
-       iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
+       iter.Valid() && callback_func(callback_args, &iter);
+       iter.Next()) {
   }
 }
 
@@ -299,5 +316,18 @@ MemTableRep* VectorRepFactory::CreateMemTableRep(
     const SliceTransform*, Logger* /*logger*/) {
   return new VectorRep(compare, allocator, count_);
 }
+
+static MemTableRepFactory* NewVectorRepFactory(
+    const std::unordered_map<std::string, std::string>& options, Status*) {
+  auto f = options.find("count");
+  size_t count = 0;
+  if (options.end() != f) {
+    count = ParseSizeT(f->second);
+  }
+  return new VectorRepFactory(count);
+}
+
+ROCKSDB_REGISTER_MEM_TABLE("vector", VectorRepFactory);
+
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

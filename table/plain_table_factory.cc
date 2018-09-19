@@ -156,8 +156,14 @@ Status GetMemTableRepFactoryFromString(
                                      opts_str);
     }
   } else {
-    return Status::InvalidArgument("Unrecognized memtable_factory option ",
-                                   opts_str);
+    std::unordered_map<std::string, std::string> opts_map;
+    if (2 == len) {
+      StringToMap(opts_list[1], &opts_map);
+    }
+    Status s;
+    mem_factory = CreateMemTableRepFactory(opts_list[0], opts_map, &s);
+    if (!mem_factory)
+      return s;
   }
 
   if (mem_factory != nullptr) {

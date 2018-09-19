@@ -39,6 +39,7 @@ LIB_SOURCES =                                                   \
   db/log_writer.cc                                              \
   db/malloc_stats.cc                                            \
   db/memtable.cc                                                \
+  db/memtablerep.cc                                         \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \

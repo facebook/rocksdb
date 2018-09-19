@@ -74,9 +74,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
               ? &mem_tracker_
               : nullptr,
           mutable_cf_options.memtable_huge_page_size),
-      table_(ioptions.memtable_factory->CreateMemTableRep(
-          comparator_, &arena_, mutable_cf_options.prefix_extractor.get(),
-          ioptions.info_log, column_family_id)),
+      table_(mutable_cf_options.memtable_factory->CreateMemTableRep(
+          comparator_, &arena_, ioptions, mutable_cf_options,
+          column_family_id)),
       range_del_table_(SkipListFactory().CreateMemTableRep(
           comparator_, &arena_, nullptr /* transform */, ioptions.info_log,
           column_family_id)),
@@ -112,6 +112,16 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
         6 /* hard coded 6 probes */, nullptr, moptions_.memtable_huge_page_size,
         ioptions.info_log));
   }
+}
+
+MemTableRep* MemTableRepFactory::CreateMemTableRep(
+    const MemTableRep::KeyComparator& key_cmp, Allocator* allocator,
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options,
+    uint32_t column_family_id) {
+  return CreateMemTableRep(key_cmp, allocator,
+                           mutable_cf_options.prefix_extractor.get(),
+                           ioptions.info_log, column_family_id);
 }
 
 MemTable::~MemTable() {
@@ -230,29 +240,10 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key,
-                                        const KeyComparator::DecodedType& key)
-    const {
+                                        const Slice& key) const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
   return comparator.CompareKeySeq(a, key);
-}
-
-void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
-#ifndef ROCKSDB_LITE
-  throw std::runtime_error("concurrent insert not supported");
-#else
-  abort();
-#endif
-}
-
-Slice MemTableRep::UserKey(const char* key) const {
-  Slice slice = GetLengthPrefixedSlice(key);
-  return Slice(slice.data(), slice.size() - 8);
-}
-
-KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
-  *buf = allocator_->Allocate(len);
-  return static_cast<KeyHandle>(*buf);
 }
 
 // Encode a suitable internal key target for "target" and return it.
@@ -284,13 +275,15 @@ class MemTableIterator : public InternalIterator {
     } else {
       iter_ = mem.table_->GetIterator(arena);
     }
+    is_seek_for_prev_supported_ = iter_->IsSeekForPrevSupported();
   }
 
   ~MemTableIterator() {
 #ifndef NDEBUG
     // Assert that the MemTableIterator is never deleted while
     // Pinning is Enabled.
-    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
 #endif
     if (arena_mode_) {
       iter_->~Iterator();
@@ -337,13 +330,18 @@ class MemTableIterator : public InternalIterator {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    iter_->Seek(k, nullptr);
-    valid_ = iter_->Valid();
-    if (!Valid()) {
-      SeekToLast();
-    }
-    while (Valid() && comparator_.comparator.Compare(k, key()) < 0) {
-      Prev();
+    if (is_seek_for_prev_supported_) {
+      iter_->SeekForPrev(k, nullptr);
+      valid_ = iter_->Valid();
+    } else {
+      iter_->Seek(k, nullptr);
+      valid_ = iter_->Valid();
+      if (!Valid()) {
+        SeekToLast();
+      }
+      while (Valid() && comparator_.comparator.Compare(k, key()) < 0) {
+        Prev();
+      }
     }
   }
   virtual void SeekToFirst() override {
@@ -368,20 +366,16 @@ class MemTableIterator : public InternalIterator {
   }
   virtual Slice key() const override {
     assert(Valid());
-    return GetLengthPrefixedSlice(iter_->key());
+    return iter_->GetKey();
   }
   virtual Slice value() const override {
     assert(Valid());
-    Slice key_slice = GetLengthPrefixedSlice(iter_->key());
-    return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+    return iter_->GetValue();
   }
 
   virtual Status status() const override { return Status::OK(); }
 
-  virtual bool IsKeyPinned() const override {
-    // memtable data is always pinned
-    return true;
-  }
+  virtual bool IsKeyPinned() const override { return iter_->IsKeyPinned(); }
 
   virtual bool IsValuePinned() const override {
     // memtable value is always pinned, except if we allow inplace update.
@@ -396,6 +390,7 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
+  bool is_seek_for_prev_supported_;
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -448,43 +443,25 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value, bool allow_concurrent,
                    MemTablePostProcessInfo* post_process_info) {
-  // Format of an entry is concatenation of:
-  //  key_size     : varint32 of internal_key.size()
-  //  key bytes    : char[internal_key.size()]
-  //  value_size   : varint32 of value.size()
-  //  value bytes  : char[value.size()]
-  uint32_t key_size = static_cast<uint32_t>(key.size());
-  uint32_t val_size = static_cast<uint32_t>(value.size());
-  uint32_t internal_key_size = key_size + 8;
-  const uint32_t encoded_len = VarintLength(internal_key_size) +
-                               internal_key_size + VarintLength(val_size) +
-                               val_size;
-  char* buf = nullptr;
   std::unique_ptr<MemTableRep>& table =
       type == kTypeRangeDeletion ? range_del_table_ : table_;
-  KeyHandle handle = table->Allocate(encoded_len, &buf);
 
-  char* p = EncodeVarint32(buf, internal_key_size);
-  memcpy(p, key.data(), key_size);
-  Slice key_slice(p, key_size);
-  p += key_size;
-  uint64_t packed = PackSequenceAndType(s, type);
-  EncodeFixed64(p, packed);
-  p += 8;
-  p = EncodeVarint32(p, val_size);
-  memcpy(p, value.data(), val_size);
-  assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
+  InternalKey internal_key(key, s, type);
+  size_t encoded_len =
+      MemTableRep::EncodeKeyValueSize(internal_key.Encode(), value);
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
     if (insert_with_hint_prefix_extractor_ != nullptr &&
-        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
-      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
+        insert_with_hint_prefix_extractor_->InDomain(internal_key.user_key())) {
+      Slice prefix = insert_with_hint_prefix_extractor_->Transform(
+          internal_key.user_key());
+      bool res = table->InsertKeyValueWithHint(internal_key.Encode(), value,
+                                               &insert_hints_[prefix]);
       if (UNLIKELY(!res)) {
         return res;
       }
     } else {
-      bool res = table->InsertKey(handle);
+      bool res = table->InsertKeyValue(internal_key.Encode(), value);
       if (UNLIKELY(!res)) {
         return res;
       }
@@ -520,7 +497,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    bool res = table->InsertKeyConcurrently(handle);
+    bool res = table->InsertKeyValueConcurrently(internal_key.Encode(), value);
     if (UNLIKELY(!res)) {
       return res;
     }
@@ -587,30 +564,24 @@ struct Saver {
 };
 }  // namespace
 
-static bool SaveValue(void* arg, const char* entry) {
+static bool SaveValue(void* arg, const MemTableRep::KeyValuePair* pair) {
   Saver* s = reinterpret_cast<Saver*>(arg);
-  assert(s != nullptr);
   MergeContext* merge_context = s->merge_context;
   RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(merge_context != nullptr && range_del_agg != nullptr);
+  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
 
-  // entry format is:
-  //    klength  varint32
-  //    userkey  char[klength-8]
-  //    tag      uint64
-  //    vlength  varint32
-  //    value    char[vlength]
+  Slice internal_key, value;
+  std::tie(internal_key, value) = pair->GetKeyValue();
   // Check that it belongs to same user key.  We do not check the
   // sequence number since the Seek() call above should have skipped
   // all entries with overly large sequence numbers.
-  uint32_t key_length;
-  const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
   if (s->mem->GetInternalKeyComparator().user_comparator()->Equal(
-          Slice(key_ptr, key_length - 8), s->key->user_key())) {
+          ExtractUserKey(internal_key), s->key->user_key())) {
     // Correct user key
-    const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+    const uint64_t tag =
+        DecodeFixed64(internal_key.data() + internal_key.size() - 8);
     ValueType type;
     SequenceNumber seq;
     UnPackSequenceAndType(tag, &seq, &type);
@@ -622,7 +593,7 @@ static bool SaveValue(void* arg, const char* entry) {
     s->seq = seq;
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
-        range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
+        range_del_agg->ShouldDelete(internal_key)) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
@@ -640,22 +611,21 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
-	FALLTHROUGH_INTENDED;
+      FALLTHROUGH_INTENDED;
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
-        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
           if (s->value != nullptr) {
             *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), &v,
+                merge_operator, s->key->user_key(), &value,
                 merge_context->GetOperands(), s->value, s->logger,
                 s->statistics, s->env_, nullptr /* result_operand */, true);
           }
         } else if (s->value != nullptr) {
-          s->value->assign(v.data(), v.size());
+          s->value->assign(value.data(), value.size());
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
@@ -693,10 +663,9 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
-        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
-            v, s->inplace_update_support == false /* operand_pinned */);
+            value, s->inplace_update_support == false /* operand_pinned */);
         if (merge_operator->ShouldMerge(merge_context->GetOperandsDirectionBackward())) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
@@ -793,40 +762,29 @@ void MemTable::Update(SequenceNumber seq,
   iter->Seek(lkey.internal_key(), mem_key.data());
 
   if (iter->Valid()) {
-    // entry format is:
-    //    key_length  varint32
-    //    userkey  char[klength-8]
-    //    tag      uint64
-    //    vlength  varint32
-    //    value    char[vlength]
-    // Check that it belongs to same user key.  We do not check the
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
-    const char* entry = iter->key();
-    uint32_t key_length = 0;
-    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    Slice internal_key, old_value;
+    std::tie(internal_key, old_value) = iter->GetKeyValue();
     if (comparator_.comparator.user_comparator()->Equal(
-            Slice(key_ptr, key_length - 8), lkey.user_key())) {
+            ExtractUserKey(internal_key), lkey.user_key())) {
       // Correct user key
-      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      const uint64_t tag =
+          DecodeFixed64(internal_key.data() + internal_key .size() - 8);
       ValueType type;
-      SequenceNumber existing_seq;
-      UnPackSequenceAndType(tag, &existing_seq, &type);
-      assert(existing_seq != seq);
+      SequenceNumber unused;
+      UnPackSequenceAndType(tag, &unused, &type);
       if (type == kTypeValue) {
-        Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+        uint32_t old_size = static_cast<uint32_t>(old_value.size());
         uint32_t new_size = static_cast<uint32_t>(value.size());
 
-        // Update value, if new value size  <= previous value size
-        if (new_size <= prev_size) {
+        // Update value, if new value size <= old value size
+        if (new_size <= old_size) {
           char* p =
-              EncodeVarint32(const_cast<char*>(key_ptr) + key_length, new_size);
+              const_cast<char*>(old_value.data()) - VarintLength(old_size);
+          p = EncodeVarint32(p, new_size);
           WriteLock wl(GetLock(lkey.user_key()));
           memcpy(p, value.data(), value.size());
-          assert((unsigned)((p + value.size()) - entry) ==
-                 (unsigned)(VarintLength(key_length) + key_length +
-                            VarintLength(value.size()) + value.size()));
           RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
           return;
         }
@@ -835,10 +793,7 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-  bool add_res __attribute__((__unused__));
-  add_res = Add(seq, kTypeValue, key, value);
-  // We already checked unused != seq above. In that case, Add should not fail.
-  assert(add_res);
+  Add(seq, kTypeValue, key, value);
 }
 
 bool MemTable::UpdateCallback(SequenceNumber seq,
@@ -852,54 +807,48 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
   iter->Seek(lkey.internal_key(), memkey.data());
 
   if (iter->Valid()) {
-    // entry format is:
-    //    key_length  varint32
-    //    userkey  char[klength-8]
-    //    tag      uint64
-    //    vlength  varint32
-    //    value    char[vlength]
     // Check that it belongs to same user key.  We do not check the
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
-    const char* entry = iter->key();
-    uint32_t key_length = 0;
-    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    Slice internal_key, old_value;
+    std::tie(internal_key, old_value) = iter->GetKeyValue();
     if (comparator_.comparator.user_comparator()->Equal(
-            Slice(key_ptr, key_length - 8), lkey.user_key())) {
+            ExtractUserKey(internal_key), lkey.user_key())) {
       // Correct user key
-      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      const uint64_t tag =
+          DecodeFixed64(internal_key.data() + internal_key.size() - 8);
       ValueType type;
       uint64_t unused;
       UnPackSequenceAndType(tag, &unused, &type);
       switch (type) {
         case kTypeValue: {
-          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+          uint32_t old_size = static_cast<uint32_t>(old_value.size());
 
-          char* prev_buffer = const_cast<char*>(prev_value.data());
-          uint32_t new_prev_size = prev_size;
+          char* old_buffer = const_cast<char*>(old_value.data());
+          uint32_t new_inplace_size = old_size;
 
-          std::string str_value;
+          std::string merged_value;
           WriteLock wl(GetLock(lkey.user_key()));
-          auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
-                                                   delta, &str_value);
+          auto status = moptions_.inplace_callback(old_buffer, &new_inplace_size,
+                                                   delta, &merged_value);
           if (status == UpdateStatus::UPDATED_INPLACE) {
             // Value already updated by callback.
-            assert(new_prev_size <= prev_size);
-            if (new_prev_size < prev_size) {
-              // overwrite the new prev_size
-              char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                       new_prev_size);
-              if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
+            assert(new_inplace_size <= old_size);
+            if (new_inplace_size < old_size) {
+              // overwrite the new inplace size
+              char* p =
+                const_cast<char*>(old_value.data()) - VarintLength(old_size);
+              p = EncodeVarint32(p, new_inplace_size);
+              if (p < old_buffer) {
                 // shift the value buffer as well.
-                memcpy(p, prev_buffer, new_prev_size);
+                memmove(p, old_buffer, new_inplace_size);
               }
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
             UpdateFlushState();
             return true;
           } else if (status == UpdateStatus::UPDATED) {
-            Add(seq, kTypeValue, key, Slice(str_value));
+            Add(seq, kTypeValue, key, Slice(merged_value));
             RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
             UpdateFlushState();
             return true;
@@ -932,15 +881,14 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   size_t num_successive_merges = 0;
 
   for (; iter->Valid(); iter->Next()) {
-    const char* entry = iter->key();
-    uint32_t key_length = 0;
-    const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    Slice internal_key = iter->GetKey();
     if (!comparator_.comparator.user_comparator()->Equal(
-            Slice(iter_key_ptr, key_length - 8), key.user_key())) {
+            ExtractUserKey(internal_key), key.user_key())) {
       break;
     }
 
-    const uint64_t tag = DecodeFixed64(iter_key_ptr + key_length - 8);
+    const uint64_t tag =
+        DecodeFixed64(internal_key.data() + internal_key.size() - 8);
     ValueType type;
     uint64_t unused;
     UnPackSequenceAndType(tag, &unused, &type);
@@ -952,15 +900,6 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   }
 
   return num_successive_merges;
-}
-
-void MemTableRep::Get(const LookupKey& k, void* callback_args,
-                      bool (*callback_func)(void* arg, const char* entry)) {
-  auto iter = GetDynamicPrefixIterator();
-  for (iter->Seek(k.internal_key(), k.memtable_key().data());
-       iter->Valid() && callback_func(callback_args, iter->key());
-       iter->Next()) {
-  }
 }
 
 void MemTable::RefLogContainingPrepSection(uint64_t log) {
