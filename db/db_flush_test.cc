@@ -71,7 +71,7 @@ TEST_F(DBFlushTest, SyncFail) {
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  Reopen(options);
+  CreateAndReopenWithCF({"cf1"}, options);
   Put("key", "value");
   auto* cfd =
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
