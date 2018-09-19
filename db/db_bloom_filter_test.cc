@@ -22,11 +22,12 @@ class DBBloomFilterTest : public DBTestBase {
 
 class DBBloomFilterTestWithParam
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, uint32_t>> {
   //                             public testing::WithParamInterface<bool> {
  protected:
   bool use_block_based_filter_;
   bool partition_filters_;
+  uint32_t format_version_;
 
  public:
   DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
@@ -36,8 +37,11 @@ class DBBloomFilterTestWithParam
   void SetUp() override {
     use_block_based_filter_ = std::get<0>(GetParam());
     partition_filters_ = std::get<1>(GetParam());
+    format_version_ = std::get<2>(GetParam());
   }
 };
+
+class DBBloomFilterTestDefFormatVersion : public DBBloomFilterTestWithParam {};
 
 class SliceTransformLimitedDomainGeneric : public SliceTransform {
   const char* Name() const override {
@@ -62,7 +66,7 @@ class SliceTransformLimitedDomainGeneric : public SliceTransform {
 // KeyMayExist can lead to a few false positives, but not false negatives.
 // To make test deterministic, use a much larger number of bits per key-20 than
 // bits in the key, so that false positives are eliminated
-TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
+TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
   do {
     ReadOptions ropts;
     std::string value;
@@ -401,6 +405,11 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
       table_options.index_type =
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
     }
+    table_options.format_version = format_version_;
+    if (format_version_ >= 4) {
+      // value delta encoding challenged more with index interval > 1
+      table_options.index_block_restart_interval = 8;
+    }
     table_options.metadata_block_size = 32;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -456,10 +465,26 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
-INSTANTIATE_TEST_CASE_P(DBBloomFilterTestWithParam, DBBloomFilterTestWithParam,
-                        ::testing::Values(std::make_tuple(true, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(false, false)));
+INSTANTIATE_TEST_CASE_P(
+    FormatDef, DBBloomFilterTestDefFormatVersion,
+    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
+                      std::make_tuple(false, true, test::kDefaultFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kDefaultFormatVersion)));
+
+INSTANTIATE_TEST_CASE_P(
+    FormatDef, DBBloomFilterTestWithParam,
+    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
+                      std::make_tuple(false, true, test::kDefaultFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kDefaultFormatVersion)));
+
+INSTANTIATE_TEST_CASE_P(
+    FormatLatest, DBBloomFilterTestWithParam,
+    ::testing::Values(std::make_tuple(true, false, test::kLatestFormatVersion),
+                      std::make_tuple(false, true, test::kLatestFormatVersion),
+                      std::make_tuple(false, false,
+                                      test::kLatestFormatVersion)));
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {

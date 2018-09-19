@@ -2649,7 +2649,7 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
 #endif
 }
 
-TEST_F(DBTest2, IteratorPinnedMemory) {
+TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();

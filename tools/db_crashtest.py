@@ -32,6 +32,7 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
+    "flush_one_in": 1000000,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -55,6 +56,7 @@ default_params = {
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
     "format_version": lambda: random.randint(2, 4),
+    "index_block_restart_interval": lambda: random.choice(range(1, 16)),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'

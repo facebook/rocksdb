@@ -33,6 +33,7 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -40,6 +41,10 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
+
+#include <vector>
+#include <unordered_set>
+#include <map>
 
 using rocksdb::BytewiseComparator;
 using rocksdb::Cache;
@@ -108,8 +113,12 @@ using rocksdb::TransactionLogIterator;
 using rocksdb::BatchResult;
 using rocksdb::PerfLevel;
 using rocksdb::PerfContext;
+using rocksdb::MemoryUtil;
 
 using std::shared_ptr;
+using std::vector;
+using std::unordered_set;
+using std::map;
 
 extern "C" {
 
@@ -4101,6 +4110,98 @@ const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
   *vlen = v->rep.size();
   return v->rep.data();
 }
+
+// container to keep databases and caches in order to use rocksdb::MemoryUtil
+struct rocksdb_memory_consumers_t {
+  std::vector<rocksdb_t*> dbs;
+  std::unordered_set<rocksdb_cache_t*> caches;
+};
+
+// initializes new container of memory consumers
+rocksdb_memory_consumers_t* rocksdb_memory_consumers_create() {
+  return new rocksdb_memory_consumers_t;
+}
+
+// adds datatabase to the container of memory consumers
+void rocksdb_memory_consumers_add_db(rocksdb_memory_consumers_t* consumers,
+                                     rocksdb_t* db) {
+  consumers->dbs.push_back(db);
+}
+
+// adds cache to the container of memory consumers
+void rocksdb_memory_consumers_add_cache(rocksdb_memory_consumers_t* consumers,
+                                        rocksdb_cache_t* cache) {
+  consumers->caches.insert(cache);
+}
+
+// deletes container with memory consumers
+void rocksdb_memory_consumers_destroy(rocksdb_memory_consumers_t* consumers) {
+  delete consumers;
+}
+
+// contains memory usage statistics provided by rocksdb::MemoryUtil
+struct rocksdb_memory_usage_t {
+  uint64_t mem_table_total;
+  uint64_t mem_table_unflushed;
+  uint64_t mem_table_readers_total;
+  uint64_t cache_total;
+};
+
+// estimates amount of memory occupied by consumers (dbs and caches)
+rocksdb_memory_usage_t* rocksdb_approximate_memory_usage_create(
+    rocksdb_memory_consumers_t* consumers, char** errptr) {
+
+  vector<DB*> dbs;
+  for (auto db : consumers->dbs) {
+    dbs.push_back(db->rep);
+  }
+
+  unordered_set<const Cache*> cache_set;
+  for (auto cache : consumers->caches) {
+    cache_set.insert(const_cast<const Cache*>(cache->rep.get()));
+  }
+
+  std::map<rocksdb::MemoryUtil::UsageType, uint64_t> usage_by_type;
+
+  auto status = MemoryUtil::GetApproximateMemoryUsageByType(dbs, cache_set,
+                                                            &usage_by_type);
+  if (SaveError(errptr, status)) {
+    return nullptr;
+  }
+
+  auto result = new rocksdb_memory_usage_t;
+  result->mem_table_total = usage_by_type[MemoryUtil::kMemTableTotal];
+  result->mem_table_unflushed = usage_by_type[MemoryUtil::kMemTableUnFlushed];
+  result->mem_table_readers_total = usage_by_type[MemoryUtil::kTableReadersTotal];
+  result->cache_total = usage_by_type[MemoryUtil::kCacheTotal];
+  return result;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_mem_table_total(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->mem_table_total;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_mem_table_unflushed(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->mem_table_unflushed;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_mem_table_readers_total(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->mem_table_readers_total;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_cache_total(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->cache_total;
+}
+
+// deletes container with memory usage estimates
+void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
+  delete usage;
+}
+
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE

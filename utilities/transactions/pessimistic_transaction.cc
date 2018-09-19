@@ -46,7 +46,8 @@ PessimisticTransaction::PessimisticTransaction(
       waiting_key_(nullptr),
       lock_timeout_(0),
       deadlock_detect_(false),
-      deadlock_detect_depth_(0) {
+      deadlock_detect_depth_(0),
+      skip_concurrency_control_(false) {
   txn_db_impl_ =
       static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
@@ -61,6 +62,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   deadlock_detect_ = txn_options.deadlock_detect;
   deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
   write_batch_.SetMaxBytes(txn_options.max_write_batch_size);
+  skip_concurrency_control_ = txn_options.skip_concurrency_control;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
   if (lock_timeout_ < 0) {
@@ -492,11 +494,14 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
                                        bool exclusive, bool skip_validate) {
+  Status s;
+  if (UNLIKELY(skip_concurrency_control_)) {
+    return s;
+  }
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
   bool lock_upgrade = false;
-  Status s;
 
   // lock this key if this transactions hasn't already locked it
   SequenceNumber tracked_at_seq = kMaxSequenceNumber;

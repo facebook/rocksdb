@@ -120,13 +120,12 @@ class SstStatsCollector : public EventListener {
  public:
   SstStatsCollector() : num_ssts_creation_started_(0) {}
 
-  void OnTableFileCreationStarted(const TableFileCreationBriefInfo& /* info */) override {
+  void OnTableFileCreationStarted(
+      const TableFileCreationBriefInfo& /* info */) override {
     ++num_ssts_creation_started_;
   }
 
-  int num_ssts_creation_started() {
-    return num_ssts_creation_started_;
-  }
+  int num_ssts_creation_started() { return num_ssts_creation_started_; }
 
  private:
   std::atomic<int> num_ssts_creation_started_;

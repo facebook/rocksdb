@@ -593,10 +593,6 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
-  if (output_directory_) {
-    output_directory_->Fsync();
-  }
-
   compaction_stats_.micros = env_->NowMicros() - start_micros;
   MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
 
@@ -609,6 +605,10 @@ Status CompactionJob::Run() {
       status = state.status;
       break;
     }
+  }
+
+  if (status.ok() && output_directory_) {
+    status = output_directory_->Fsync();
   }
 
   if (status.ok()) {
