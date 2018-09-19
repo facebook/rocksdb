@@ -133,17 +133,15 @@ struct TombstoneStartKeyComparator {
   const Comparator* cmp;
 };
 
-void AddTombstones(RangeDelAggregator* range_del_agg,
-                   const std::vector<PersistentRangeTombstone>& range_dels) {
+std::unique_ptr<test::VectorIterator> MakeRangeDelIter(
+    const std::vector<PersistentRangeTombstone>& range_dels) {
   std::vector<std::string> keys, values;
   for (const auto& range_del : range_dels) {
     auto key_and_value = range_del.tombstone.Serialize();
     keys.push_back(key_and_value.first.Encode().ToString());
     values.push_back(key_and_value.second.ToString());
   }
-  std::unique_ptr<test::VectorIterator> range_del_iter(
-      new test::VectorIterator(keys, values));
-  range_del_agg->AddTombstones(std::move(range_del_iter));
+  return std::unique_ptr<test::VectorIterator>(new test::VectorIterator(keys, values));
 }
 
 // convert long to a big-endian slice key
@@ -193,9 +191,10 @@ int main(int argc, char** argv) {
           rocksdb::Key(start), rocksdb::Key(end), j);
     }
 
+    auto range_del_iter = rocksdb::MakeRangeDelIter(persistent_range_tombstones);
     rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
                                                      true /* auto_start */);
-    rocksdb::AddTombstones(&range_del_agg, persistent_range_tombstones);
+    range_del_agg.AddTombstones(std::move(range_del_iter));
     stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
 
     rocksdb::ParsedInternalKey parsed_key;

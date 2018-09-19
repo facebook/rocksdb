@@ -408,12 +408,25 @@ bool RangeDelAggregator::ShouldDeleteImpl(const Slice& internal_key,
 bool RangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
                                           RangeDelPositioningMode mode) {
   assert(IsValueType(parsed.type));
+  (void)mode;
+  // TODO: don't do a binary search every time
+  non_overlapping_tombstone_iter_[0]->SeekForPrev(parsed.user_key);
+
+  ParsedInternalKey cur_tombstone_start;
+  ParseInternalKey(non_overlapping_tombstone_iter_[0]->key(), &cur_tombstone_start);
+  while (icmp_.Compare(parsed, cur_tombstone_start) >= 0) {
+    // TODO: don't discard the return value -> need to propagate status up the stack, not bool
+    return false;
+  }
+  return false;
+#if 0
   assert(rep_ != nullptr);
   auto& tombstone_map = GetRangeDelMap(parsed.sequence);
   if (tombstone_map.IsEmpty()) {
     return false;
   }
   return tombstone_map.ShouldDelete(parsed, mode);
+#endif
 }
 
 bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
@@ -436,6 +449,12 @@ Status RangeDelAggregator::AddTombstones(
     std::unique_ptr<InternalIterator> input,
     const InternalKey* smallest,
     const InternalKey* largest) {
+  (void)smallest;
+  (void)largest;
+  non_overlapping_tombstone_iter_.emplace_back(std::move(input));
+  return Status::OK();
+
+#if 0
   if (input == nullptr) {
     return Status::OK();
   }
@@ -504,6 +523,7 @@ Status RangeDelAggregator::AddTombstones(
     rep_->pinned_iters_mgr_.PinIterator(input.release(), false /* arena */);
   }
   return Status::OK();
+#endif
 }
 
 void RangeDelAggregator::InvalidateRangeDelMapPositions() {

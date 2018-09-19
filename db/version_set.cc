@@ -547,7 +547,7 @@ class LevelIterator final : public InternalIterator {
       sample_file_read_inc(file_meta.file_metadata);
     }
 
-    return table_cache_->NewIterator(
+    return table_cache_->NewRangeTombstoneIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */,
@@ -676,6 +676,245 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
 }
 
 void LevelIterator::InitFileIterator(size_t new_file_index) {
+  if (new_file_index >= flevel_->num_files) {
+    file_index_ = new_file_index;
+    SetFileIterator(nullptr);
+    return;
+  } else {
+    // If the file iterator shows incomplete, we try it again if users seek
+    // to the same file, as this time we may go to a different data block
+    // which is cached in block cache.
+    //
+    if (file_iter_.iter() != nullptr && !file_iter_.status().IsIncomplete() &&
+        new_file_index == file_index_) {
+      // file_iter_ is already constructed with this iterator, so
+      // no need to change anything
+    } else {
+      file_index_ = new_file_index;
+      InternalIterator* iter = NewFileIterator();
+      SetFileIterator(iter);
+    }
+  }
+}
+
+class RangeTombstoneLevelIterator final : public InternalIterator {
+ public:
+  RangeTombstoneLevelIterator(TableCache* table_cache, const ReadOptions& read_options,
+                const EnvOptions& env_options,
+                const InternalKeyComparator& icomparator,
+                const LevelFilesBrief* flevel,
+                const SliceTransform* prefix_extractor, bool should_sample,
+                HistogramImpl* file_read_hist, bool for_compaction,
+                bool skip_filters, int level, RangeDelAggregator* range_del_agg)
+      : table_cache_(table_cache),
+        read_options_(read_options),
+        env_options_(env_options),
+        icomparator_(icomparator),
+        flevel_(flevel),
+        prefix_extractor_(prefix_extractor),
+        file_read_hist_(file_read_hist),
+        should_sample_(should_sample),
+        for_compaction_(for_compaction),
+        skip_filters_(skip_filters),
+        file_index_(flevel_->num_files),
+        level_(level),
+        range_del_agg_(range_del_agg),
+        pinned_iters_mgr_(nullptr) {
+    // Empty level is not supported.
+    assert(flevel_ != nullptr && flevel_->num_files > 0);
+  }
+
+  virtual ~RangeTombstoneLevelIterator() { delete file_iter_.Set(nullptr); }
+
+  virtual void Seek(const Slice& target) override;
+  virtual void SeekForPrev(const Slice& target) override;
+  virtual void SeekToFirst() override;
+  virtual void SeekToLast() override;
+  virtual void Next() override;
+  virtual void Prev() override;
+
+  virtual bool Valid() const override { return file_iter_.Valid(); }
+  virtual Slice key() const override {
+    assert(Valid());
+    return file_iter_.key();
+  }
+  virtual Slice value() const override {
+    assert(Valid());
+    return file_iter_.value();
+  }
+  virtual Status status() const override {
+    return file_iter_.iter() ? file_iter_.status() : Status::OK();
+  }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+    if (file_iter_.iter()) {
+      file_iter_.SetPinnedItersMgr(pinned_iters_mgr);
+    }
+  }
+  virtual bool IsKeyPinned() const override {
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           file_iter_.iter() && file_iter_.IsKeyPinned();
+  }
+  virtual bool IsValuePinned() const override {
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           file_iter_.iter() && file_iter_.IsValuePinned();
+  }
+
+ private:
+  void SkipEmptyFileForward();
+  void SkipEmptyFileBackward();
+  void SetFileIterator(InternalIterator* iter);
+  void InitFileIterator(size_t new_file_index);
+
+  const Slice& file_smallest_key(size_t file_index) {
+    assert(file_index < flevel_->num_files);
+    return flevel_->files[file_index].smallest_key;
+  }
+
+  bool KeyReachedUpperBound(const Slice& internal_key) {
+    return read_options_.iterate_upper_bound != nullptr &&
+           icomparator_.user_comparator()->Compare(
+               ExtractUserKey(internal_key),
+               *read_options_.iterate_upper_bound) >= 0;
+  }
+
+  InternalIterator* NewFileIterator() {
+    assert(file_index_ < flevel_->num_files);
+    auto file_meta = flevel_->files[file_index_];
+    if (should_sample_) {
+      sample_file_read_inc(file_meta.file_metadata);
+    }
+
+    return table_cache_->NewIterator(
+        read_options_, env_options_, icomparator_, *file_meta.file_metadata,
+        range_del_agg_, prefix_extractor_,
+        nullptr /* don't need reference to table */,
+        file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
+        level_);
+  }
+
+  TableCache* table_cache_;
+  const ReadOptions read_options_;
+  const EnvOptions& env_options_;
+  const InternalKeyComparator& icomparator_;
+  const LevelFilesBrief* flevel_;
+  mutable FileDescriptor current_value_;
+  const SliceTransform* prefix_extractor_;
+
+  HistogramImpl* file_read_hist_;
+  bool should_sample_;
+  bool for_compaction_;
+  bool skip_filters_;
+  size_t file_index_;
+  int level_;
+  RangeDelAggregator* range_del_agg_;
+  IteratorWrapper file_iter_;  // May be nullptr
+  PinnedIteratorsManager* pinned_iters_mgr_;
+};
+
+void RangeTombstoneLevelIterator::Seek(const Slice& target) {
+  size_t new_file_index = FindFile(icomparator_, *flevel_, target);
+
+  InitFileIterator(new_file_index);
+  if (file_iter_.iter() != nullptr) {
+    file_iter_.Seek(target);
+  }
+  SkipEmptyFileForward();
+}
+
+void RangeTombstoneLevelIterator::SeekForPrev(const Slice& target) {
+  size_t new_file_index = FindFile(icomparator_, *flevel_, target);
+  if (new_file_index >= flevel_->num_files) {
+    new_file_index = flevel_->num_files - 1;
+  }
+
+  InitFileIterator(new_file_index);
+  if (file_iter_.iter() != nullptr) {
+    file_iter_.SeekForPrev(target);
+    SkipEmptyFileBackward();
+  }
+}
+
+void RangeTombstoneLevelIterator::SeekToFirst() {
+  InitFileIterator(0);
+  if (file_iter_.iter() != nullptr) {
+    file_iter_.SeekToFirst();
+  }
+  SkipEmptyFileForward();
+}
+
+void RangeTombstoneLevelIterator::SeekToLast() {
+  InitFileIterator(flevel_->num_files - 1);
+  if (file_iter_.iter() != nullptr) {
+    file_iter_.SeekToLast();
+  }
+  SkipEmptyFileBackward();
+}
+
+void RangeTombstoneLevelIterator::Next() {
+  assert(Valid());
+  file_iter_.Next();
+  SkipEmptyFileForward();
+}
+
+void RangeTombstoneLevelIterator::Prev() {
+  assert(Valid());
+  file_iter_.Prev();
+  SkipEmptyFileBackward();
+}
+
+void RangeTombstoneLevelIterator::SkipEmptyFileForward() {
+  while (file_iter_.iter() == nullptr ||
+         (!file_iter_.Valid() && file_iter_.status().ok() &&
+          !file_iter_.iter()->IsOutOfBound())) {
+    // Move to next file
+    if (file_index_ >= flevel_->num_files - 1) {
+      // Already at the last file
+      SetFileIterator(nullptr);
+      return;
+    }
+    if (KeyReachedUpperBound(file_smallest_key(file_index_ + 1))) {
+      SetFileIterator(nullptr);
+      return;
+    }
+    InitFileIterator(file_index_ + 1);
+    if (file_iter_.iter() != nullptr) {
+      file_iter_.SeekToFirst();
+    }
+  }
+}
+
+void RangeTombstoneLevelIterator::SkipEmptyFileBackward() {
+  while (file_iter_.iter() == nullptr ||
+         (!file_iter_.Valid() && file_iter_.status().ok())) {
+    // Move to previous file
+    if (file_index_ == 0) {
+      // Already the first file
+      SetFileIterator(nullptr);
+      return;
+    }
+    InitFileIterator(file_index_ - 1);
+    if (file_iter_.iter() != nullptr) {
+      file_iter_.SeekToLast();
+    }
+  }
+}
+
+void RangeTombstoneLevelIterator::SetFileIterator(InternalIterator* iter) {
+  if (pinned_iters_mgr_ && iter) {
+    iter->SetPinnedItersMgr(pinned_iters_mgr_);
+  }
+
+  InternalIterator* old_iter = file_iter_.Set(iter);
+  if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
+    pinned_iters_mgr_->PinIterator(old_iter);
+  } else {
+    delete old_iter;
+  }
+}
+
+void RangeTombstoneLevelIterator::InitFileIterator(size_t new_file_index) {
   if (new_file_index >= flevel_->num_files) {
     file_index_ = new_file_index;
     SetFileIterator(nullptr);
@@ -1030,6 +1269,17 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         cfd_->internal_stats()->GetFileReadHist(level),
         false /* for_compaction */, IsFilterSkipped(level), level,
         range_del_agg));
+
+    std::unique_ptr<RangeTombstoneLevelIterator> range_tombstone_iter(
+        new (mem) RangeTombstoneLevelIterator(
+            cfd_->table_cache(), read_options, soptions,
+            cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+            mutable_cf_options_.prefix_extractor.get(),
+            should_sample_file_read(),
+            cfd_->internal_stats()->GetFileReadHist(level),
+            false /* for_compaction */, IsFilterSkipped(level), level,
+            range_del_agg));
+    range_del_agg->AddTombstones(std::move(range_tombstone_iter));
   }
 }
 

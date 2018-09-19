@@ -58,6 +58,18 @@ class TableCache {
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
 
+  // TODO: in practice, so much of this method is setting up the tablereader that
+  // it would be worthwhile to just use NewIterator to return both the data
+  // and range tombstone iterators; though this doesn't matter for the prototype
+  InternalIterator* NewRangeTombstoneIterator(
+      const ReadOptions& options, const EnvOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
+      const SliceTransform* prefix_extractor = nullptr,
+      TableReader** table_reader_ptr = nullptr,
+      HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
+      Arena* arena = nullptr, bool skip_filters = false, int level = -1);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.
