@@ -356,10 +356,10 @@ void IndexBlockIter::Seek(const Slice& target) {
     ok = PrefixSeek(target, &index);
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 active_comparator_);
+                                 comparator_);
   } else {
     ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               active_comparator_);
+                               comparator_);
   }
 
   if (!ok) {
@@ -762,7 +762,11 @@ BlockBasedTableOptions::DataBlockIndexType Block::IndexType() const {
   return index_type;
 }
 
-Block::~Block() { TEST_SYNC_POINT("Block::~Block"); }
+Block::~Block() {
+  // This sync point can be re-enabled if RocksDB can control the
+  // initialization order of any/all static options created by the user.
+  // TEST_SYNC_POINT("Block::~Block");
+}
 
 Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
              size_t read_amp_bytes_per_bit, Statistics* statistics)

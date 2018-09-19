@@ -62,7 +62,7 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
 Status SequentialFileReader::Skip(uint64_t n) {
 #ifndef ROCKSDB_LITE
   if (use_direct_io()) {
-    offset_ += n;
+    offset_ += static_cast<size_t>(n);
     return Status::OK();
   }
 #endif  // !ROCKSDB_LITE
@@ -81,9 +81,9 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
       size_t alignment = file_->GetRequiredBufferAlignment();
-      size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
-      size_t offset_advance = offset - aligned_offset;
-      size_t read_size = Roundup(offset + n, alignment) - aligned_offset;
+      size_t aligned_offset = TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
+      size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
+      size_t read_size = Roundup(static_cast<size_t>(offset + n), alignment) - aligned_offset;
       AlignedBuffer buf;
       buf.Alignment(alignment);
       buf.AllocateNewBuffer(read_size);
@@ -673,7 +673,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
       // Only a few requested bytes are in the buffer. memmove those chunk of
       // bytes to the beginning, and memcpy them back into the new buffer if a
       // new buffer is created.
-      chunk_offset_in_buffer = Rounddown(offset - buffer_offset_, alignment);
+      chunk_offset_in_buffer = Rounddown(static_cast<size_t>(offset - buffer_offset_), alignment);
       chunk_len = buffer_.CurrentSize() - chunk_offset_in_buffer;
       assert(chunk_offset_in_buffer % alignment == 0);
       assert(chunk_len % alignment == 0);
@@ -694,11 +694,11 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
     buffer_.Alignment(alignment);
     buffer_.AllocateNewBuffer(static_cast<size_t>(roundup_len),
                               copy_data_to_new_buffer, chunk_offset_in_buffer,
-                              chunk_len);
+                              static_cast<size_t>(chunk_len));
   } else if (chunk_len > 0) {
     // New buffer not needed. But memmove bytes from tail to the beginning since
     // chunk_len is greater than 0.
-    buffer_.RefitTail(chunk_offset_in_buffer, chunk_len);
+    buffer_.RefitTail(static_cast<size_t>(chunk_offset_in_buffer), static_cast<size_t>(chunk_len));
   }
 
   Slice result;
@@ -707,7 +707,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
                    buffer_.BufferStart() + chunk_len);
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
-    buffer_.Size(chunk_len + result.size());
+    buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   }
   return s;
 }
@@ -715,7 +715,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
                                           Slice* result) {
   if (track_min_offset_ && offset < min_offset_read_) {
-    min_offset_read_ = offset;
+    min_offset_read_ = static_cast<size_t>(offset);
   }
   if (!enable_ || offset < buffer_offset_) {
     return false;

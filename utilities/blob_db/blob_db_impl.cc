@@ -738,11 +738,9 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
     return raw;
   }
   StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  CompressionType type = bdb_options_.compression;
-  CompressionOptions opts;
-  CompressionContext context(type);
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type);
-  CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat,
+  CompressionType ct = bdb_options_.compression;
+  CompressionContext compression_ctx(ct);
+  CompressBlock(raw, compression_ctx, &ct, kBlockBasedTableVersionFormat,
                 compression_output);
   return *compression_output;
 }
@@ -1008,14 +1006,14 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   uint64_t record_size = sizeof(uint32_t) + key.size() + blob_index.size();
 
   // Allocate the buffer. This is safe in C++11
-  std::string buffer_str(record_size, static_cast<char>(0));
+  std::string buffer_str(static_cast<size_t>(record_size), static_cast<char>(0));
   char* buffer = &buffer_str[0];
 
   // A partial blob record contain checksum, key and value.
   Slice blob_record;
   {
     StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-    s = reader->Read(record_offset, record_size, &blob_record, buffer);
+    s = reader->Read(record_offset, static_cast<size_t>(record_size), &blob_record, buffer);
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
   if (!s.ok()) {
@@ -1041,7 +1039,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
   Slice crc_slice(blob_record.data(), sizeof(uint32_t));
   Slice blob_value(blob_record.data() + sizeof(uint32_t) + key.size(),
-                   blob_index.size());
+                   static_cast<size_t>(blob_index.size()));
   uint32_t crc_exp;
   if (!GetFixed32(&crc_slice, &crc_exp)) {
     ROCKS_LOG_DEBUG(db_options_.info_log,
@@ -1075,11 +1073,9 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     {
       StopWatch decompression_sw(env_, statistics_,
                                  BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(bfile->compression());
-      UncompressionInfo info(context, CompressionDict::GetEmptyDict(),
-                             bfile->compression());
+      UncompressionContext uncompression_ctx(bfile->compression());
       s = UncompressBlockContentsForCompressionType(
-          info, blob_value.data(), blob_value.size(), &contents,
+          uncompression_ctx, blob_value.data(), blob_value.size(), &contents,
           kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
     }
     value->PinSelf(contents.data);
@@ -1736,7 +1732,11 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
   // directory change. Fsync
   if (file_deleted) {
-    dir_ent_->Fsync();
+    Status s = dir_ent_->Fsync();
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log, "Failed to sync dir %s: %s",
+                      blob_dir_.c_str(), s.ToString().c_str());
+    }
   }
 
   // put files back into obsolete if for some reason, delete failed

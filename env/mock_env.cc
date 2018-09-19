@@ -201,7 +201,7 @@ class MockSequentialFile : public SequentialFile {
     if (n > available) {
       n = available;
     }
-    pos_ += n;
+    pos_ += static_cast<size_t>(n);
     return Status::OK();
   }
 

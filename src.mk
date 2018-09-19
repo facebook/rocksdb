@@ -328,6 +328,7 @@ MAIN_SOURCES =                                                          \
   db/redis_test.cc                                                      \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
+  db/range_del_aggregator_bench.cc                                      \
   db/table_properties_collector_test.cc                                 \
   db/util_merge_operators_test.cc                                       \
   db/version_builder_test.cc                                            \

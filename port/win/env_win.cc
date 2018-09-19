@@ -235,7 +235,7 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
         MapViewOfFileEx(hMap, FILE_MAP_READ,
         0,  // High DWORD of access start
         0,  // Low DWORD
-        fileSize,
+        static_cast<SIZE_T>(fileSize),
         NULL);  // Let the OS choose the mapping
 
       if (!mapped_region) {
@@ -246,7 +246,7 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
       }
 
       result->reset(new WinMmapReadableFile(fname, hFile, hMap, mapped_region,
-        fileSize));
+				static_cast<size_t>(fileSize)));
 
       mapGuard.release();
       fileGuard.release();
@@ -448,7 +448,7 @@ Status WinEnvIO::NewMemoryMappedFileBuffer(const std::string & fname,
   void* base = MapViewOfFileEx(hMap, FILE_MAP_WRITE,
     0,  // High DWORD of access start
     0,  // Low DWORD
-    fileSize,
+		static_cast<SIZE_T>(fileSize),
     NULL);  // Let the OS choose the mapping
 
   if (!base) {
@@ -706,6 +706,9 @@ Status WinEnvIO::LinkFile(const std::string& src,
 
   if (!CreateHardLinkA(target.c_str(), src.c_str(), NULL)) {
     DWORD lastError = GetLastError();
+    if (lastError == ERROR_NOT_SAME_DEVICE) {
+      return Status::NotSupported("No cross FS links allowed");
+    }
 
     std::string text("Failed to link: ");
     text.append(src).append(" to: ").append(target);

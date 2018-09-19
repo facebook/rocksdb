@@ -446,8 +446,8 @@ bool TransactionLockMgr::IncrementWaiters(
     const autovector<TransactionID>& wait_ids, const std::string& key,
     const uint32_t& cf_id, const bool& exclusive, Env* const env) {
   auto id = txn->GetID();
-  std::vector<int> queue_parents(txn->GetDeadlockDetectDepth());
-  std::vector<TransactionID> queue_values(txn->GetDeadlockDetectDepth());
+  std::vector<int> queue_parents(static_cast<size_t>(txn->GetDeadlockDetectDepth()));
+  std::vector<TransactionID> queue_values(static_cast<size_t>(txn->GetDeadlockDetectDepth()));
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   assert(!wait_txn_map_.Contains(id));
 

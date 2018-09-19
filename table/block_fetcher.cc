@@ -227,13 +227,10 @@ Status BlockFetcher::ReadBlockContents() {
 
   if (do_uncompress_ && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
-    UncompressionContext context(compression_type);
-    CompressionDict dict;
-    dict.Init(compression_dict_, CompressionDict::Mode::kUncompression,
-              compression_type);
-    UncompressionInfo info(context, dict, compression_type);
-    status_ = UncompressBlockContents(info, slice_.data(), block_size_,
-                                      contents_, footer_.version(), ioptions_);
+    UncompressionContext uncompression_ctx(compression_type, compression_dict_);
+    status_ =
+        UncompressBlockContents(uncompression_ctx, slice_.data(), block_size_,
+                                contents_, footer_.version(), ioptions_);
   } else {
     GetBlockContents();
   }

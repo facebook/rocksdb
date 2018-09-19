@@ -16,8 +16,7 @@
 // non-const method, all threads accessing the same Slice must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_SLICE_H_
-#define STORAGE_ROCKSDB_INCLUDE_SLICE_H_
+#pragma once
 
 #include <assert.h>
 #include <cstdio>
@@ -257,5 +256,3 @@ inline size_t Slice::difference_offset(const Slice& b) const {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_H_

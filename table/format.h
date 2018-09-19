@@ -55,7 +55,6 @@ class BlockHandle {
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
   Status DecodeSizeFrom(uint64_t offset, Slice* input);
-  void EncodeSizeTo(std::string* dst) const;
 
   // Return a string that contains the copy of handle.
   std::string ToString(bool hex = true) const;
@@ -250,17 +249,16 @@ extern Status ReadBlockContents(
 // free this buffer.
 // For description of compress_format_version and possible values, see
 // util/compression.h
-extern Status UncompressBlockContents(const UncompressionInfo& info,
-                                      const char* data, size_t n,
-                                      BlockContents* contents,
-                                      uint32_t compress_format_version,
-                                      const ImmutableCFOptions& ioptions);
+extern Status UncompressBlockContents(
+    const UncompressionContext& uncompression_ctx, const char* data, size_t n,
+    BlockContents* contents, uint32_t compress_format_version,
+    const ImmutableCFOptions& ioptions);
 
 // This is an extension to UncompressBlockContents that accepts
 // a specific compression type. This is used by un-wrapped blocks
 // with no compression header.
 extern Status UncompressBlockContentsForCompressionType(
-    const UncompressionInfo& info, const char* data, size_t n,
+    const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
     const ImmutableCFOptions& ioptions);
 

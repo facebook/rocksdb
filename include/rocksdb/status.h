@@ -14,8 +14,7 @@
 // non-const method, all threads accessing the same Status must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_STATUS_H_
-#define STORAGE_ROCKSDB_INCLUDE_STATUS_H_
+#pragma once
 
 #include <string>
 #include "rocksdb/slice.h"
@@ -348,5 +347,3 @@ inline bool Status::operator!=(const Status& rhs) const {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

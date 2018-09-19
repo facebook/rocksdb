@@ -19,10 +19,7 @@
 
 // Can not use port/port.h macros as this is a c file
 #ifdef OS_WIN
-
 #include <windows.h>
-
-#define snprintf _snprintf
 
 // Ok for uniqueness
 int geteuid() {
@@ -33,6 +30,11 @@ int geteuid() {
 
   return result;
 }
+
+// VS < 2015
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
+#define snprintf _snprintf
+#endif
 
 #endif
 
@@ -47,12 +49,19 @@ static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
   phase = name;
 }
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning (disable: 4996) // getenv security warning
+#endif
 static const char* GetTempDir(void) {
     const char* ret = getenv("TEST_TMPDIR");
     if (ret == NULL || ret[0] == '\0')
         ret = "/tmp";
     return ret;
 }
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #define CheckNoError(err)                                               \
   if ((err) != NULL) {                                                  \
@@ -643,7 +652,7 @@ int main(int argc, char** argv) {
     rocksdb_sstfilewriter_t* writer =
         rocksdb_sstfilewriter_create(env_opt, io_options);
 
-    unlink(sstfilename);
+    remove(sstfilename);
     rocksdb_sstfilewriter_open(writer, sstfilename, &err);
     CheckNoError(err);
     rocksdb_sstfilewriter_put(writer, "sstk1", 5, "v1", 2, &err);
@@ -664,7 +673,7 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "sstk2", "v2");
     CheckGet(db, roptions, "sstk3", "v3");
 
-    unlink(sstfilename);
+    remove(sstfilename);
     rocksdb_sstfilewriter_open(writer, sstfilename, &err);
     CheckNoError(err);
     rocksdb_sstfilewriter_put(writer, "sstk2", 5, "v4", 2, &err);
@@ -1334,6 +1343,47 @@ int main(int argc, char** argv) {
     rocksdb_destroy_db(options, dbname, &err);
   }
 
+  // Check memory usage stats
+  StartPhase("approximate_memory_usage");
+  {
+    // Create database
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_memory_consumers_t* consumers;
+    consumers = rocksdb_memory_consumers_create();
+    rocksdb_memory_consumers_add_db(consumers, db);
+    rocksdb_memory_consumers_add_cache(consumers, cache);
+
+    // take memory usage report before write-read operation
+    rocksdb_memory_usage_t* mu1;
+    mu1 = rocksdb_approximate_memory_usage_create(consumers, &err);
+    CheckNoError(err);
+
+    // Put data (this should affect memtables)
+    rocksdb_put(db, woptions, "memory", 6, "test", 4, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "memory", "test");
+
+    // take memory usage report after write-read operation
+    rocksdb_memory_usage_t* mu2;
+    mu2 = rocksdb_approximate_memory_usage_create(consumers, &err);
+    CheckNoError(err);
+
+    // amount of memory used within memtables should grow
+    CheckCondition(rocksdb_approximate_memory_usage_get_mem_table_total(mu2) >=
+                   rocksdb_approximate_memory_usage_get_mem_table_total(mu1));
+    CheckCondition(rocksdb_approximate_memory_usage_get_mem_table_unflushed(mu2) >=
+                   rocksdb_approximate_memory_usage_get_mem_table_unflushed(mu1));
+
+    rocksdb_memory_consumers_destroy(consumers);
+    rocksdb_approximate_memory_usage_destroy(mu1);
+    rocksdb_approximate_memory_usage_destroy(mu2);
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("cuckoo_options");
   {
     rocksdb_cuckoo_table_options_t* cuckoo_options;
@@ -1675,7 +1725,7 @@ int main(int argc, char** argv) {
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
   }
-  
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
