@@ -5,6 +5,7 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
+#include <atomic>
 #include <memory>
 
 #include "rocksdb/table_properties.h"
@@ -24,12 +25,12 @@ class CompactOnDeletionCollectorFactory
 
   // Change the value of sliding_window_size "N"
   void SetWindowSize(size_t sliding_window_size) {
-    sliding_window_size_ = sliding_window_size;
+    sliding_window_size_.store(sliding_window_size);
   }
 
   // Change the value of deletion_trigger "D"
   void SetDeletionTrigger(size_t deletion_trigger) {
-    deletion_trigger_ = deletion_trigger;
+    deletion_trigger_.store(deletion_trigger);
   }
 
   virtual const char* Name() const override {
@@ -53,8 +54,8 @@ class CompactOnDeletionCollectorFactory
           sliding_window_size_(sliding_window_size),
           deletion_trigger_(deletion_trigger) {}
 
-  size_t sliding_window_size_;
-  size_t deletion_trigger_;
+  std::atomic<size_t> sliding_window_size_;
+  std::atomic<size_t> deletion_trigger_;
 };
 
 // Creates a factory of a table property collector that marks a SST

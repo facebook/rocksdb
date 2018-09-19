@@ -71,7 +71,7 @@ TablePropertiesCollector*
 CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context /*context*/) {
   return new CompactOnDeletionCollector(
-      sliding_window_size_, deletion_trigger_);
+      sliding_window_size_.load(), deletion_trigger_.load());
 }
 
 std::shared_ptr<CompactOnDeletionCollectorFactory>
