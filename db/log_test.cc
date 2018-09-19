@@ -762,7 +762,7 @@ TEST_P(RetriableLogTest, TailLog_PartialHeader) {
         "RetriableLogTest::TailLog:BeforePart2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  int delta = header_size - 1;
+  size_t delta = header_size - 1;
   port::Thread log_writer_thread([&]() {
     size_t old_sz = contents().size();
     Encode("foo");
@@ -798,7 +798,7 @@ TEST_P(RetriableLogTest, TailLog_FullHeader) {
         "RetriableLogTest::TailLog:BeforePart2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  int delta = header_size + 1;
+  size_t delta = header_size + 1;
   port::Thread log_writer_thread([&]() {
     size_t old_sz = contents().size();
     Encode("foo");
