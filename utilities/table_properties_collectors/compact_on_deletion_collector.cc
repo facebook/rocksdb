@@ -20,7 +20,6 @@ CompactOnDeletionCollector::CompactOnDeletionCollector(
       deletion_trigger_(deletion_trigger),
       need_compaction_(false),
       finished_(false) {
-  assert(bucket_size_ > 0U);
   memset(num_deletions_in_buckets_, 0, sizeof(size_t) * kNumBuckets);
 }
 
@@ -35,6 +34,11 @@ Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
                                               SequenceNumber /*seq*/,
                                               uint64_t /*file_size*/) {
   assert(!finished_);
+  if (bucket_size_ == 0) {
+    // This collector is effectively disabled
+    return Status::OK();
+  }
+
   if (need_compaction_) {
     // If the output file already needs to be compacted, skip the check.
     return Status::OK();

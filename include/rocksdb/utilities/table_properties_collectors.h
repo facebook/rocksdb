@@ -24,6 +24,7 @@ class CompactOnDeletionCollectorFactory
       TablePropertiesCollectorFactory::Context context) override;
 
   // Change the value of sliding_window_size "N"
+  // Setting it to 0 disables the delete triggered compaction
   void SetWindowSize(size_t sliding_window_size) {
     sliding_window_size_.store(sliding_window_size);
   }

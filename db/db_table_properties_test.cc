@@ -304,6 +304,25 @@ TEST_F(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GT(NumTableFilesAtLevel(1), 0);
 
+  // Change the window size to disable delete triggered compaction
+  kWindowSize = 0;
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  for (int i = 0; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
 }
 
 }  // namespace rocksdb
