@@ -43,13 +43,13 @@ DEFINE_uint64(num_locks, 10001, "number of locks");
 DEFINE_bool(random_prefix, false, "randomize prefix");
 DEFINE_uint64(total_prefixes, 100000, "total number of prefixes");
 DEFINE_uint64(items_per_prefix, 1, "total number of values per prefix");
-DEFINE_int64(write_buffer_size, 33554432, "");
-DEFINE_int32(max_write_buffer_number, 2, "");
-DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
+DEFINE_int64(write_buffer_size_prefix_test, 33554432, "");
+DEFINE_int32(max_write_buffer_number_prefix_test, 2, "");
+DEFINE_int32(min_write_buffer_number_to_merge_prefix_test, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
 DEFINE_double(memtable_prefix_bloom_size_ratio, 0.1, "");
 DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
-DEFINE_int32(value_size, 40, "");
+DEFINE_int32(value_size_prefix_test, 40, "");
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 // Path to the database on file system
@@ -220,10 +220,11 @@ class PrefixTest : public testing::Test {
     DB* db;
 
     options.create_if_missing = true;
-    options.write_buffer_size = FLAGS_write_buffer_size;
-    options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options.write_buffer_size = FLAGS_write_buffer_size_prefix_test;
+    options.max_write_buffer_number =
+      FLAGS_max_write_buffer_number_prefix_test;
     options.min_write_buffer_number_to_merge =
-      FLAGS_min_write_buffer_number_to_merge;
+      FLAGS_min_write_buffer_number_to_merge_prefix_test;
 
     options.memtable_prefix_bloom_size_ratio =
         FLAGS_memtable_prefix_bloom_size_ratio;
@@ -598,7 +599,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
 
         std::string s;
         Slice key = TestKeyToSlice(s, test_key);
-        std::string value(FLAGS_value_size, 0);
+        std::string value(FLAGS_value_size_prefix_test, 0);
 
         get_perf_context()->Reset();
         StopWatchNano timer(Env::Default(), true);

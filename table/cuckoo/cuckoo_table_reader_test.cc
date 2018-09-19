@@ -38,7 +38,9 @@ DEFINE_string(file_dir, "", "Directory where the files will be created"
 DEFINE_bool(enable_perf, false, "Run Benchmark Tests too.");
 DEFINE_bool(write, false,
     "Should write new values to file in performance tests?");
-DEFINE_bool(identity_as_first_hash, true, "use identity as first hash");
+DEFINE_bool(identity_as_first_hash_cuckoo_table_reader_test, true,
+    "use identity as first hash");
+
 
 namespace rocksdb {
 
@@ -414,7 +416,9 @@ void WriteFile(const std::vector<std::string>& keys,
       new WritableFileWriter(std::move(writable_file), fname, env_options));
   CuckooTableBuilder builder(
       file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
-      false, FLAGS_identity_as_first_hash, nullptr, 0 /* column_family_id */,
+      false,
+      FLAGS_identity_as_first_hash_cuckoo_table_reader_test,
+      nullptr, 0 /* column_family_id */,
       kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
