@@ -311,8 +311,7 @@ protected:
   virtual Iterator* NewIterator() override {
     return new SkipListIterator(&index_);
   }
-  virtual void NewIterator(IteratorStorage& storage, bool ephemeral) override {
-    (void)ephemeral;
+  virtual void NewIterator(IteratorStorage& storage, bool /*ephemeral*/) override {
     static_assert(sizeof(SkipListIterator) <= sizeof storage.buffer,
                   "Need larger buffer for SkipListIterator");
     storage.iter = new (storage.buffer) SkipListIterator(&index_);
@@ -339,12 +338,11 @@ protected:
 const WriteBatchEntryIndexFactory* WriteBatchEntrySkipListIndexFactory() {
   class SkipListIndexFactory : public WriteBatchEntryIndexFactory {
    public:
-    WriteBatchEntryIndex* New(WriteBatchEntryIndexContext* ctx,
+    WriteBatchEntryIndex* New(WriteBatchEntryIndexContext* /*ctx*/,
                               WriteBatchKeyExtractor e,
                               const Comparator* c, Arena* a,
                               bool overwite_key) const override {
       if (overwite_key) {
-        (void)ctx;
         typedef WriteBatchEntrySkipListIndex<true> index_t;
         return new (a->AllocateAligned(sizeof(index_t))) index_t(e, c, a);
       } else {

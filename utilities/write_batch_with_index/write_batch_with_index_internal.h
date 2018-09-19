@@ -125,8 +125,7 @@ class WriteBatchEntryIndexFactory {
  public:
   // object MUST allocated from arena, allow return nullptr
   // context will not delete, only when call destructor
-  virtual WriteBatchEntryIndexContext* NewContext(Arena* a) const {
-    (void)a;
+  virtual WriteBatchEntryIndexContext* NewContext(Arena* /*a*/) const {
     return nullptr;
   }
   virtual WriteBatchEntryIndex* New(WriteBatchEntryIndexContext* ctx,
