@@ -208,6 +208,30 @@ TEST_F(RangeDelAggregatorTest, GapsBetweenRanges) {
                   {{"a", "b", 5}, {"c", "d", 10}, {"e", "f", 15}});
 }
 
+TEST_F(RangeDelAggregatorTest, IdenticalSameSeqNo) {
+  VerifyRangeDels({{"a", "b", 5}, {"a", "b", 5}},
+                  {{" ", 0}, {"a", 5}, {"b", 0}},
+                  {{"a", "b", 5}});
+}
+
+TEST_F(RangeDelAggregatorTest, ContiguousSameSeqNo) {
+  VerifyRangeDels({{"a", "b", 5}, {"b", "c", 5}},
+                  {{" ", 0}, {"a", 5}, {"b", 5}, {"c", 0}},
+                  {{"a", "c", 5}});
+}
+
+TEST_F(RangeDelAggregatorTest, OverlappingSameSeqNo) {
+  VerifyRangeDels({{"a", "c", 5}, {"b", "d", 5}},
+                  {{" ", 0}, {"a", 5}, {"b", 5}, {"c", 5}, {"d", 0}},
+                  {{"a", "d", 5}});
+}
+
+TEST_F(RangeDelAggregatorTest, CoverSameSeqNo) {
+  VerifyRangeDels({{"a", "d", 5}, {"b", "c", 5}},
+                  {{" ", 0}, {"a", 5}, {"b", 5}, {"c", 5}, {"d", 0}},
+                  {{"a", "d", 5}});
+}
+
 // Note the Cover* tests also test cases where tombstones are inserted under a
 // larger one when VerifyRangeDels() runs them in reverse
 TEST_F(RangeDelAggregatorTest, CoverMultipleFromLeft) {
