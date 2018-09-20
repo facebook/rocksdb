@@ -25,7 +25,7 @@ LIB_SOURCES =                                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
-  db/error_handler.cc						\
+  db/error_handler.cc                                           \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
@@ -236,7 +236,7 @@ TOOL_LIB_SOURCES = \
   utilities/blob_db/blob_dump_tool.cc                           \
 
 ANALYZER_LIB_SOURCES = \
-  tools/trace_analyzer_tool.cc					\
+  tools/trace_analyzer_tool.cc                                  \
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
@@ -300,7 +300,7 @@ MAIN_SOURCES =                                                          \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
-  db/error_handler_test.cc                                        	\
+  db/error_handler_test.cc                                              \
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -318,7 +318,7 @@ MAIN_SOURCES =                                                          \
   db/memtable_list_test.cc                                              \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
-  db/obsolete_files_test.cc						\
+  db/obsolete_files_test.cc                                             \
   db/options_settable_test.cc                                           \
   db/options_file_test.cc                                               \
   db/partitioned_filter_block_test.cc                                   \
@@ -367,7 +367,7 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc						\
+  tools/trace_analyzer_test.cc                                          \
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
