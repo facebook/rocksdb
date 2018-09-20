@@ -297,7 +297,8 @@ Status DBImpl::ResumeImpl() {
     s = Status::ShutdownInProgress();
   }
   if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log,
         "DB resume requested but failed due to Fatal/Unrecoverable error");
     s = bg_error;
   }
@@ -2397,7 +2398,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
         job_context.Clean();
         return Status::OK();
       }
-      // trans user_key to 
+      // trans user_key to internal_key
       std::vector<std::pair<InternalKey, InternalKey>> deleted_range_storage;
       std::vector<Range> deleted_range;
       deleted_range_storage.resize(n);
@@ -2475,9 +2476,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           for (auto f : vstorage->LevelFiles(i)) {
             std::unique_ptr<TableProperties> prop;
             FileMetaData file_meta;
-            auto s = map_builder.Build(
-                {CompactionInputFiles{i, {f}}}, deleted_range,
-                {}, kMapSst, i, f->fd.GetPathId(), vstorage, cfd, &edit);
+            auto s = map_builder.Build({CompactionInputFiles{i, {f}}},
+                                       deleted_range, {}, kMapSst, i,
+                                       f->fd.GetPathId(), vstorage, cfd, &edit);
             if (!s.ok()) {
               return s;
             }
@@ -2636,7 +2637,8 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  char* buffer = reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
+  char* buffer =
+      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
   Slice id;
   s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
   if (!s.ok()) {

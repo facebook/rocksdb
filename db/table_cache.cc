@@ -75,166 +75,170 @@ InternalIterator* TranslateVarietySstIterator(
   InternalIterator* result =
       NewVarietySstIterator(file_meta, variety_sst_iter, depend_files, icomp,
                             create_iter_arg, create_iter, arena);
-  result->RegisterCleanup([](void* arg1, void* arg2) {
-    auto param_iter = (InternalIterator*)arg1;
-    auto param_arena = (Arena*)arg2;
-    if (param_arena == nullptr) {
-      delete param_iter;
-    } else {
-      param_iter->~InternalIterator();
-    }
-  }, variety_sst_iter, arena);
+  result->RegisterCleanup(
+      [](void* arg1, void* arg2) {
+        auto param_iter = static_cast<InternalIterator*>(arg1);
+        auto param_arena = static_cast<Arena*>(arg2);
+        if (param_arena == nullptr) {
+          delete param_iter;
+        } else {
+          param_iter->~InternalIterator();
+        }
+      },
+      variety_sst_iter, arena);
   return result;
 }
 
-Status GetFromVarietySst(
-    const FileMetaData& file_meta, TableReader* table_reader,
-    const InternalKeyComparator& icomp, const Slice& k,
-    GetContext* get_context, void* arg,
-    bool(*get_from_sst)(void* arg, const Slice& find_k, uint64_t sst_id,
-                        Status& status)) {
+Status GetFromVarietySst(const FileMetaData& file_meta,
+                         TableReader* table_reader,
+                         const InternalKeyComparator& icomp, const Slice& k,
+                         GetContext* get_context, void* arg,
+                         bool (*get_from_sst)(void* arg, const Slice& find_k,
+                                              uint64_t sst_id,
+                                              Status& status)) {
   Status s;
   switch (file_meta.sst_variety) {
-  case kLinkSst: {
-    InternalKey smallest_key;
-    auto get_from_link = [&](const Slice& largest_key,
-                             const Slice& link_value) {
-      // Manual inline LinkSstElement::Decode
-      Slice link_input = link_value;
-      uint64_t sst_id;
-      Slice find_k = k;
+    case kLinkSst: {
+      InternalKey smallest_key;
+      auto get_from_link = [&](const Slice& largest_key,
+                               const Slice& link_value) {
+        // Manual inline LinkSstElement::Decode
+        Slice link_input = link_value;
+        uint64_t sst_id;
+        Slice find_k = k;
 
-      if (smallest_key.size() == 0) {
-        if (icomp.Compare(k, file_meta.smallest.Encode()) < 0) {
-          if (icomp.user_comparator()->Compare(file_meta.smallest.user_key(),
-                                               ExtractUserKey(k)) != 0) {
-            // k is less than file_meta.smallest ? is this a bug ?
-            return false;
+        if (smallest_key.size() == 0) {
+          if (icomp.Compare(k, file_meta.smallest.Encode()) < 0) {
+            if (icomp.user_comparator()->Compare(file_meta.smallest.user_key(),
+                                                 ExtractUserKey(k)) != 0) {
+              // k is less than file_meta.smallest ? is this a bug ?
+              return false;
+            }
+            find_k = file_meta.smallest.Encode();
           }
-          find_k = file_meta.smallest.Encode();
+        } else {
+          assert(icomp.user_comparator()->Compare(smallest_key.user_key(),
+                                                  ExtractUserKey(k)) == 0);
+          // shrink to smallest_key
+          find_k = smallest_key.Encode();
         }
-      } else {
-        assert(icomp.user_comparator()->Compare(smallest_key.user_key(),
-                                                ExtractUserKey(k)) == 0);
-        // shrink to smallest_key
-        find_k = smallest_key.Encode();
-      }
 
-      if (!GetFixed64(&link_input, &sst_id)) {
-        s = Status::Corruption("Link sst invalid link_value");
-        return false;
-      }
-      if (!get_from_sst(arg, find_k, sst_id, s)) {
-        // error or found
-        return false;
-      }
-      if (icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
-                                           ExtractUserKey(k)) != 0 ||
-          ExtractInternalKeyFooter(largest_key) == 0) {
-        // next smallest_key is current largest_key
-        // k less than next link smallest_key
-        return false;
-      }
-      // trans largest_key to next smallest_key
-      assert(ExtractInternalKeyFooter(largest_key) > 0);
-      smallest_key.DecodeFrom(largest_key);
-      EncodeFixed64(
-          &smallest_key.rep()->front() + smallest_key.user_key().size(),
-          ExtractInternalKeyFooter(largest_key) - 1);
-      return true;
-    };
-    table_reader->RangeScan(&k, &get_from_link,
-                            c_style_callback(get_from_link));
-    return s;
-  }
-  case kMapSst: {  
-    auto get_from_map = [&](const Slice& largest_key,
-                            const Slice& map_value) {
-      // Manual inline MapSstElement::Decode
-      Slice map_input = map_value;
-      Slice smallest_key;
-      uint64_t link_count;
-      uint64_t flags;
-      Slice find_k = k;
-      InternalKey find_storage;
-      
-      if (!GetLengthPrefixedSlice(&map_input, &smallest_key) ||
-          !GetVarint64(&map_input, &link_count) ||
-          !GetVarint64(&map_input, &flags) ||
-          map_input.size() < link_count * sizeof(uint64_t)) {
-        s = Status::Corruption("Map sst invalid link_value");
-        return false;
-      }
-      // don't care kNoRecords, Get call need load RangeDelAggregator
-      int include_smallest = (flags >> MapSstElement::kIncludeSmallest) & 1;
-      int include_largest = (flags >> MapSstElement::kIncludeLargest) & 1;
-
-      // include_smallest ? cmp_result > 0 : cmp_result >= 0
-      if (icomp.Compare(smallest_key, k) >= include_smallest) {
-        if (icomp.user_comparator()->Compare(ExtractUserKey(smallest_key),
-                                             ExtractUserKey(k)) != 0) {
-          // k is out of smallest bound
+        if (!GetFixed64(&link_input, &sst_id)) {
+          s = Status::Corruption("Link sst invalid link_value");
           return false;
         }
-        assert(ExtractInternalKeyFooter(k) >
-                   ExtractInternalKeyFooter(smallest_key));
-        // same user_key, shrink to smallest_key
-        if (include_smallest) {
-          find_k = smallest_key;
-        } else {
-          uint64_t seq_type = ExtractInternalKeyFooter(smallest_key);
-          if (seq_type == 0) {
-            // 'smallest_key' has the largest seq_type of current user_key
+        if (!get_from_sst(arg, find_k, sst_id, s)) {
+          // error or found
+          return false;
+        }
+        if (icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
+                                             ExtractUserKey(k)) != 0 ||
+            ExtractInternalKeyFooter(largest_key) == 0) {
+          // next smallest_key is current largest_key
+          // k less than next link smallest_key
+          return false;
+        }
+        // trans largest_key to next smallest_key
+        assert(ExtractInternalKeyFooter(largest_key) > 0);
+        smallest_key.DecodeFrom(largest_key);
+        EncodeFixed64(
+            &smallest_key.rep()->front() + smallest_key.user_key().size(),
+            ExtractInternalKeyFooter(largest_key) - 1);
+        return true;
+      };
+      table_reader->RangeScan(&k, &get_from_link,
+                              c_style_callback(get_from_link));
+      return s;
+    }
+    case kMapSst: {
+      auto get_from_map = [&](const Slice& largest_key,
+                              const Slice& map_value) {
+        // Manual inline MapSstElement::Decode
+        Slice map_input = map_value;
+        Slice smallest_key;
+        uint64_t link_count;
+        uint64_t flags;
+        Slice find_k = k;
+        InternalKey find_storage;
+
+        if (!GetLengthPrefixedSlice(&map_input, &smallest_key) ||
+            !GetVarint64(&map_input, &link_count) ||
+            !GetVarint64(&map_input, &flags) ||
+            map_input.size() < link_count * sizeof(uint64_t)) {
+          s = Status::Corruption("Map sst invalid link_value");
+          return false;
+        }
+        // don't care kNoRecords, Get call need load RangeDelAggregator
+        int include_smallest = (flags >> MapSstElement::kIncludeSmallest) & 1;
+        int include_largest = (flags >> MapSstElement::kIncludeLargest) & 1;
+
+        // include_smallest ? cmp_result > 0 : cmp_result >= 0
+        if (icomp.Compare(smallest_key, k) >= include_smallest) {
+          if (icomp.user_comparator()->Compare(ExtractUserKey(smallest_key),
+                                               ExtractUserKey(k)) != 0) {
             // k is out of smallest bound
             return false;
           }
-          // make find_k a bit greater than k
-          find_storage.DecodeFrom(smallest_key);
-          EncodeFixed64(
-              &find_storage.rep()->front() + find_storage.user_key().size(),
-              seq_type - 1);
-          find_k = find_storage.Encode();
+          assert(ExtractInternalKeyFooter(k) >
+                 ExtractInternalKeyFooter(smallest_key));
+          // same user_key, shrink to smallest_key
+          if (include_smallest) {
+            find_k = smallest_key;
+          } else {
+            uint64_t seq_type = ExtractInternalKeyFooter(smallest_key);
+            if (seq_type == 0) {
+              // 'smallest_key' has the largest seq_type of current user_key
+              // k is out of smallest bound
+              return false;
+            }
+            // make find_k a bit greater than k
+            find_storage.DecodeFrom(smallest_key);
+            EncodeFixed64(
+                &find_storage.rep()->front() + find_storage.user_key().size(),
+                seq_type - 1);
+            find_k = find_storage.Encode();
+          }
         }
-      }
 
-      bool is_largest_user_key =
-          icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
-                                           ExtractUserKey(k)) == 0;
-      uint64_t min_seq_type_backup = get_context->GetMinSequenceAndType();
-      if (is_largest_user_key) {
-        // shrink seqno to largest_key, make sure can't read greater keys
-        uint64_t seq_type = ExtractInternalKeyFooter(largest_key);
-        assert(seq_type <=
-                   PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-        // For safety. may kValueTypeForSeek can be 255 in the future ?
-        if (seq_type == port::kMaxUint64 && !include_largest) {
-          // 'largest_key' has the smallest seq_type of current user_key
-          // k is out of largest bound
-          return true;
+        bool is_largest_user_key =
+            icomp.user_comparator()->Compare(ExtractUserKey(largest_key),
+                                             ExtractUserKey(k)) == 0;
+        uint64_t min_seq_type_backup = get_context->GetMinSequenceAndType();
+        if (is_largest_user_key) {
+          // shrink seqno to largest_key, make sure can't read greater keys
+          uint64_t seq_type = ExtractInternalKeyFooter(largest_key);
+          assert(seq_type <=
+                 PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+          // For safety. may kValueTypeForSeek can be 255 in the future ?
+          if (seq_type == port::kMaxUint64 && !include_largest) {
+            // 'largest_key' has the smallest seq_type of current user_key
+            // k is out of largest bound
+            return true;
+          }
+          get_context->SetMinSequenceAndType(
+              std::max(min_seq_type_backup, seq_type + !include_largest));
         }
-        get_context->SetMinSequenceAndType(
-            std::max(min_seq_type_backup, seq_type + !include_largest));
-      }
 
-      for (uint64_t i = 0; i < link_count; ++i) {
-        // Manual inline GetFixed64
-        uint64_t sst_id = DecodeFixed64(map_input.data());
-        if (!get_from_sst(arg, find_k, sst_id, s)) {
-          // error or found, recovery min_seq_type_backup is unnecessary
-          return false;
+        for (uint64_t i = 0; i < link_count; ++i) {
+          // Manual inline GetFixed64
+          uint64_t sst_id = DecodeFixed64(map_input.data());
+          if (!get_from_sst(arg, find_k, sst_id, s)) {
+            // error or found, recovery min_seq_type_backup is unnecessary
+            return false;
+          }
+          map_input.remove_prefix(sizeof(uint64_t));
         }
-        map_input.remove_prefix(sizeof(uint64_t));
-      }
-      // recovery min_seq_backup
-      get_context->SetMinSequenceAndType(min_seq_type_backup);
-      return is_largest_user_key;
-    };
-    table_reader->RangeScan(&k, &get_from_map, c_style_callback(get_from_map));
-    return s;
-  }
-  default:
-    assert(false);
-    return s;
+        // recovery min_seq_backup
+        get_context->SetMinSequenceAndType(min_seq_type_backup);
+        return is_largest_user_key;
+      };
+      table_reader->RangeScan(&k, &get_from_map,
+                              c_style_callback(get_from_map));
+      return s;
+    }
+    default:
+      assert(false);
+      return s;
   }
 }
 
@@ -439,38 +443,43 @@ InternalIterator* TableCache::NewIterator(
           bool skip_filters;
           int level;
 
-          InternalIterator* operator()(
-              const FileMetaData* _f, const DependFileMap& _depend_files,
-              Arena* _arena, TableReader** _reader_ptr) {
+          InternalIterator* operator()(const FileMetaData* _f,
+                                       const DependFileMap& _depend_files,
+                                       Arena* _arena,
+                                       TableReader** _reader_ptr) {
             return table_cache->NewIterator(
-                       options, env_options, icomparator, *_f, _depend_files,
-                       range_del_agg, prefix_extractor, _reader_ptr,
-                       nullptr, for_compaction, _arena, skip_filters, level);
+                options, env_options, icomparator, *_f, _depend_files,
+                range_del_agg, prefix_extractor, _reader_ptr, nullptr,
+                for_compaction, _arena, skip_filters, level);
           }
         };
+        using CreateIteratorStorage =
+            std::aligned_storage<sizeof(CreateIterator)>::type;
         void* buffer;
         if (arena != nullptr) {
           buffer = arena->AllocateAligned(sizeof(CreateIterator));
         } else {
-          buffer = new std::aligned_storage<sizeof(CreateIterator)>::type();
+          buffer = new CreateIteratorStorage();
         }
-        CreateIterator* create_iter = new(buffer) CreateIterator{
-          this, options, env_options, icomparator,
-          file_meta.sst_variety == kLinkSst ? nullptr : range_del_agg,
-          prefix_extractor, for_compaction, skip_filters, level
-        };
-        result->RegisterCleanup([](void* arg1, void* arg2) {
-          auto param_create_iter = (CreateIterator*)arg1;
-          auto param_arena = (Arena*)arg2;
-          param_create_iter->~CreateIterator();
-          if (param_arena == nullptr) {
-            delete (std::aligned_storage<sizeof(CreateIterator)>::type*)arg1;
-          }
-        }, create_iter, arena);
-        result = TranslateVarietySstIterator(file_meta, result, depend_files,
-                                             icomparator, create_iter,
-                                             c_style_callback(*create_iter),
-                                             arena);
+        bool ignore_range_del_agg = file_meta.sst_variety == kLinkSst;
+        CreateIterator* create_iter = new (buffer)
+            CreateIterator{this, options, env_options, icomparator,
+                           ignore_range_del_agg ? nullptr : range_del_agg,
+                           prefix_extractor, for_compaction, skip_filters,
+                           level};
+        result->RegisterCleanup(
+            [](void* arg1, void* arg2) {
+              auto param_create_iter = static_cast<CreateIterator*>(arg1);
+              auto param_arena = static_cast<Arena*>(arg2);
+              param_create_iter->~CreateIterator();
+              if (param_arena == nullptr) {
+                delete static_cast<CreateIteratorStorage*>(arg1);
+              }
+            },
+            create_iter, arena);
+        result = TranslateVarietySstIterator(
+            file_meta, result, depend_files, icomparator, create_iter,
+            c_style_callback(*create_iter), arena);
       }
     }
     if (create_new_table_reader) {
@@ -522,7 +531,7 @@ Status TableCache::Get(const ReadOptions& options,
                        GetContext* get_context,
                        const SliceTransform* prefix_extractor,
                        HistogramImpl* file_read_hist, bool skip_filters,
-                      int level) {
+                       int level) {
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;

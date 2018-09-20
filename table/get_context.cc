@@ -169,7 +169,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
     if (DecodeFixed64(parsed_key.user_key.data() +
-                          parsed_key.user_key.size()) < min_seq_type_) {
+                      parsed_key.user_key.size()) < min_seq_type_) {
       // for map sst, this key is masked
       return false;
     }
@@ -268,7 +268,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           merge_context_->PushOperand(value, false);
         }
         if (merge_operator_ != nullptr &&
-            merge_operator_->ShouldMerge(merge_context_->GetOperandsDirectionBackward())) {
+            merge_operator_->ShouldMerge(
+                merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
             Status merge_status = MergeHelper::TimedFullMerge(

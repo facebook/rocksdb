@@ -26,17 +26,12 @@ struct IteratorSource {
   SourceType type;
   uintptr_t data;
 
-  IteratorSource()
-      : type(kUnknow),
-        data(0) {}
+  IteratorSource() : type(kUnknow), data(0) {}
 
-  IteratorSource(const void* ptr)
-      : type(kUnknow),
-        data((uintptr_t)ptr) {}
+  IteratorSource(const void* ptr) : type(kUnknow), data((uintptr_t)ptr) {}
 
   IteratorSource(SourceType _type, uintptr_t _data)
-      : type(_type),
-        data(_data) {}
+      : type(_type), data(_data) {}
 
   bool operator==(const IteratorSource& other) {
     return type == other.type && data == other.data;

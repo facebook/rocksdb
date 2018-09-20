@@ -328,12 +328,13 @@ class VersionBuilder::Rep {
       do {
         depend_changed = false;
         // depend files <- mid -> deleted files
-        size_t mid = std::partition(
-                         depend_files_.begin(),
-                         depend_files_.begin() + depend_file_count,
-                         [&](FileMetaData* f) {
-                           return depend_map_.count(f->fd.GetNumber()) > 0;
-                         }) - depend_files_.begin();
+        size_t mid =
+            std::partition(depend_files_.begin(),
+                           depend_files_.begin() + depend_file_count,
+                           [&](FileMetaData* f) {
+                             return depend_map_.count(f->fd.GetNumber()) > 0;
+                           }) -
+            depend_files_.begin();
         while (depend_file_count > mid) {
           auto f = depend_files_[--depend_file_count];
           if (f->sst_variety != 0) {
@@ -378,17 +379,17 @@ class VersionBuilder::Rep {
     // Reclaim depend files
     if (depend_map_.empty()) {
       depend_file_count = 0;
-    } else if (depend_changed &&
-               depend_files_.size() > depend_file_count) {
+    } else if (depend_changed && depend_files_.size() > depend_file_count) {
       do {
         depend_changed = false;
         // depend files <- mid -> deleted files
-        size_t mid = std::partition(
-                         depend_files_.begin() + depend_file_count,
-                         depend_files_.end(),
-                         [&](FileMetaData* f) {
-                           return depend_map_.count(f->fd.GetNumber()) > 0;
-                         }) - depend_files_.begin();
+        size_t mid =
+            std::partition(depend_files_.begin() + depend_file_count,
+                           depend_files_.end(),
+                           [&](FileMetaData* f) {
+                             return depend_map_.count(f->fd.GetNumber()) > 0;
+                           }) -
+            depend_files_.begin();
         for (; depend_file_count < mid; ++depend_file_count) {
           auto f = depend_files_[depend_file_count];
           if (f->sst_variety != 0) {
@@ -464,7 +465,7 @@ class VersionBuilder::Rep {
       auto added_end = added_files.end();
       while (added_iter != added_end || base_iter != base_end) {
         if (base_iter == base_end ||
-                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+            (added_iter != added_end && cmp(*added_iter, *base_iter))) {
           maybe_add_file(*added_iter++);
         } else {
           maybe_add_file(*base_iter++);
@@ -475,12 +476,13 @@ class VersionBuilder::Rep {
     size_t depend_file_count = 0;
     while (!depend_map_.empty()) {
       // depend files <- mid -> deleted files
-      size_t mid = std::partition(
-                       deleted_files.begin() + depend_file_count,
-                       deleted_files.end(),
-                       [&](FileMetaData* f) {
-                         return depend_map_.count(f->fd.GetNumber()) > 0;
-                       }) - deleted_files.begin();
+      size_t mid =
+          std::partition(deleted_files.begin() + depend_file_count,
+                         deleted_files.end(),
+                         [&](FileMetaData* f) {
+                           return depend_map_.count(f->fd.GetNumber()) > 0;
+                         }) -
+          deleted_files.begin();
       depend_map_.clear();
       for (; depend_file_count < mid; ++depend_file_count) {
         auto f = deleted_files[depend_file_count];

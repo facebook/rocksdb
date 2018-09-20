@@ -28,7 +28,6 @@ class TableCache;
 class VersionEdit;
 class VersionSet;
 
-
 class MapBuilder {
  public:
   // All params are reference
@@ -59,8 +58,8 @@ class MapBuilder {
  private:
   Status WriteOutputFile(const FileMetaDataBoundBuilder& bound_builder,
                          MapSstElementIterator* range_iter,
-                         uint32_t output_path_id,
-                         ColumnFamilyData* cfd, FileMetaData* file_meta,
+                         uint32_t output_path_id, ColumnFamilyData* cfd,
+                         FileMetaData* file_meta,
                          std::unique_ptr<TableProperties>* porp);
 
   int job_id_;

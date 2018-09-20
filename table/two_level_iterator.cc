@@ -246,10 +246,10 @@ class LinkSstIterator final : public InternalIterator {
   }
 
  public:
-  LinkSstIterator(
-      const FileMetaData& file_meta, InternalIterator* iter,
-      const DependFileMap& depend_files, const InternalKeyComparator& icomp,
-      void* create_arg, const IteratorCache::CreateIterCallback& create)
+  LinkSstIterator(const FileMetaData& file_meta, InternalIterator* iter,
+                  const DependFileMap& depend_files,
+                  const InternalKeyComparator& icomp, void* create_arg,
+                  const IteratorCache::CreateIterCallback& create)
       : file_meta_(file_meta),
         first_level_iter_(iter),
         second_level_iter_(nullptr),
@@ -357,15 +357,9 @@ class LinkSstIterator final : public InternalIterator {
       second_level_iter_ = nullptr;
     }
   }
-  virtual Slice key() const override {
-    return second_level_iter_->key();
-  }
-  virtual Slice value() const override {
-    return second_level_iter_->value();
-  }
-  virtual Status status() const override {
-    return status_;
-  }
+  virtual Slice key() const override { return second_level_iter_->key(); }
+  virtual Slice value() const override { return second_level_iter_->value(); }
+  virtual Status status() const override { return status_; }
   virtual IteratorSource source() const override {
     return second_level_iter_->source();
   }
@@ -382,7 +376,6 @@ class LinkSstIterator final : public InternalIterator {
   }
 };
 
- 
 class MapSstIterator final : public InternalIterator {
  private:
   const FileMetaData& file_meta_;
@@ -402,8 +395,7 @@ class MapSstIterator final : public InternalIterator {
   template<bool is_less>
   class HeapComparator {
    public:
-    HeapComparator(const InternalKeyComparator& comparator)
-        : c_(comparator) {}
+    HeapComparator(const InternalKeyComparator& comparator) : c_(comparator) {}
 
     bool operator()(const HeapElement& a, const HeapElement& b) const {
       return is_less ? c_.Compare(a.key, b.key) < 0
@@ -411,6 +403,7 @@ class MapSstIterator final : public InternalIterator {
     }
 
     const InternalKeyComparator& internal_comparator() const { return c_; }
+
    private:
     const InternalKeyComparator& c_;
   };
@@ -534,10 +527,10 @@ class MapSstIterator final : public InternalIterator {
   }
 
  public:
-  MapSstIterator(
-      const FileMetaData& file_meta, InternalIterator* iter,
-      const DependFileMap& depend_files, const InternalKeyComparator& icomp,
-      void* create_arg, const IteratorCache::CreateIterCallback& create)
+  MapSstIterator(const FileMetaData& file_meta, InternalIterator* iter,
+                 const DependFileMap& depend_files,
+                 const InternalKeyComparator& icomp, void* create_arg,
+                 const IteratorCache::CreateIterCallback& create)
       : file_meta_(file_meta),
         first_level_iter_(iter),
         is_backword_(false),
@@ -550,13 +543,9 @@ class MapSstIterator final : public InternalIterator {
     }
   }
 
-  ~MapSstIterator() {
-    min_heap_.~BinaryHeap();
-  }
+  ~MapSstIterator() { min_heap_.~BinaryHeap(); }
 
-  virtual bool Valid() const override {
-    return !min_heap_.empty();
-  }
+  virtual bool Valid() const override { return !min_heap_.empty(); }
   virtual void SeekToFirst() override {
     is_backword_ = false;
     first_level_iter_->SeekToFirst();
@@ -707,15 +696,11 @@ class MapSstIterator final : public InternalIterator {
       assert(IsInRange());
     }
   }
-  virtual Slice key() const override {
-    return min_heap_.top().key;
-  }
+  virtual Slice key() const override { return min_heap_.top().key; }
   virtual Slice value() const override {
     return min_heap_.top().iter->value();
   }
-  virtual Status status() const override {
-    return status_;
-  }
+  virtual Status status() const override { return status_; }
   virtual IteratorSource source() const override {
     return min_heap_.top().iter->source();
   }
@@ -732,7 +717,7 @@ class MapSstIterator final : public InternalIterator {
 };
 
 template<class IteratorType>
-InternalIterator* NewVarietySstIteratorTpl (
+InternalIterator* NewVarietySstIteratorTpl(
     const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* create_iter_arg,
@@ -742,8 +727,8 @@ InternalIterator* NewVarietySstIteratorTpl (
                             create_iter_arg, create_iter);
   } else {
     void* buffer = arena->AllocateAligned(sizeof(IteratorType));
-    return new(buffer) IteratorType(file_meta, variety_sst_iter, depend_files,
-                                    icomp, create_iter_arg, create_iter);
+    return new (buffer) IteratorType(file_meta, variety_sst_iter, depend_files,
+                                     icomp, create_iter_arg, create_iter);
   }
 }
 
@@ -761,17 +746,17 @@ InternalIterator* NewVarietySstIterator(
     void* create_iter_arg,
     const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
   switch (file_meta.sst_variety) {
-  case kLinkSst:
-    return NewVarietySstIteratorTpl<LinkSstIterator>(
-               file_meta, variety_sst_iter, depend_files, icomp,
-               create_iter_arg, create_iter, arena);
-  case kMapSst:
-    return NewVarietySstIteratorTpl<MapSstIterator>(
-               file_meta, variety_sst_iter, depend_files, icomp,
-               create_iter_arg, create_iter, arena);
-  default:
-    assert(file_meta.sst_variety != 0);
-    return variety_sst_iter;
+    case kLinkSst:
+      return NewVarietySstIteratorTpl<LinkSstIterator>(
+          file_meta, variety_sst_iter, depend_files, icomp, create_iter_arg,
+          create_iter, arena);
+    case kMapSst:
+      return NewVarietySstIteratorTpl<MapSstIterator>(
+          file_meta, variety_sst_iter, depend_files, icomp, create_iter_arg,
+          create_iter, arena);
+    default:
+      assert(file_meta.sst_variety != 0);
+      return variety_sst_iter;
   }
 }
 

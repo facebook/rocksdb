@@ -132,8 +132,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        const MutableCFOptions& _mutable_cf_options,
                        std::vector<CompactionInputFiles> _inputs,
                        int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_compaction_bytes, uint32_t _output_path_id,
-                       CompressionType _compression,
+                       uint64_t _max_compaction_bytes,
+                       uint32_t _output_path_id, CompressionType _compression,
                        CompressionOptions _compression_opts,
                        uint32_t _max_subcompactions,
                        std::vector<FileMetaData*> _grandparents,
@@ -249,8 +249,8 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (!(start_level_ != output_level_ && num_input_levels() == 1 &&
-          input(0, 0)->fd.GetPathId() == output_path_id() &&
-          InputCompressionMatchesOutput())) {
+        input(0, 0)->fd.GetPathId() == output_path_id() &&
+        InputCompressionMatchesOutput())) {
     return false;
   }
 

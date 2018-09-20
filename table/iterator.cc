@@ -109,7 +109,7 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
 namespace {
 class EmptyIterator : public Iterator {
  public:
-  explicit EmptyIterator(const Status& s) : status_(s) { }
+  explicit EmptyIterator(const Status& s) : status_(s) {}
   virtual bool Valid() const override { return false; }
   virtual void Seek(const Slice& /*target*/) override {}
   virtual void SeekForPrev(const Slice& /*target*/) override {}
@@ -160,7 +160,7 @@ template <class TValue = Slice>
 class SourceInternalIteratorWrapperBase
     : public SourceInternalIteratorBase<TValue> {
  public:
-  SourceInternalIteratorWrapperBase(InternalIteratorBase<TValue> *inner)
+  SourceInternalIteratorWrapperBase(InternalIteratorBase<TValue>* inner)
       : inner_(inner) {}
   virtual bool Valid() const override { return inner_->Valid(); }
   virtual void Seek(const Slice& target) override { inner_->Seek(target); }
@@ -180,26 +180,25 @@ class SourceInternalIteratorWrapperBase
     inner_->SetPinnedItersMgr(pinned_iters_mgr);
   }
   virtual bool IsKeyPinned() const override { return inner_->IsKeyPinned(); }
-  virtual bool IsValuePinned() const override { return inner_->IsValuePinned(); }
-  virtual Status GetProperty(std::string prop_name, std::string* prop) override {
+  virtual bool IsValuePinned() const override {
+    return inner_->IsValuePinned();
+  }
+  virtual Status GetProperty(std::string prop_name,
+                             std::string* prop) override {
     return inner_->GetProperty(prop_name, prop);
   }
 
  private:
-  InternalIteratorBase<TValue> *inner_;
+  InternalIteratorBase<TValue>* inner_;
 };
 
 }  // namespace
 
-Iterator* NewEmptyIterator() {
-  return new EmptyIterator(Status::OK());
-}
+Iterator* NewEmptyIterator() { return new EmptyIterator(Status::OK()); }
 
 Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
 }
-
-
 
 template <class TValue>
 InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
@@ -215,11 +214,11 @@ template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator(
     Arena* arena);
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
 
-
 template <class TValue>
 InternalIteratorBase<TValue>* NewSourceInternalIterator(
     InternalIteratorBase<TValue>* inner, Arena* arena) {
-  using SourceInternalIteratorWrapper = SourceInternalIteratorWrapperBase<TValue>;
+  using SourceInternalIteratorWrapper =
+      SourceInternalIteratorWrapperBase<TValue>;
   if (arena == nullptr) {
     return new SourceInternalIteratorWrapper(inner);
   } else {
@@ -247,6 +246,5 @@ template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
-
 
 }  // namespace rocksdb

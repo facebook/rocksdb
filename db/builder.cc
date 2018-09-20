@@ -56,8 +56,8 @@ TableBuilder* NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, compression_dict, skip_filters,
-                          ignore_key_type, column_family_name,
-                          level, creation_time, oldest_key_time),
+                          ignore_key_type, column_family_name, level,
+                          creation_time, oldest_key_time),
       column_family_id, file);
 }
 

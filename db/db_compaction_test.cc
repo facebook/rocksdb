@@ -384,11 +384,9 @@ TEST_F(DBCompactionTest, LazyCompactionTest) {
   InternalKeyComparator ic(BytewiseComparator());
   std::vector<SequenceNumber> sv;
   RangeDelAggregator range_del_agg(ic, sv);
-  std::unique_ptr<InternalIterator, void(*)(InternalIterator*)> iter(
+  std::unique_ptr<InternalIterator, void (*)(InternalIterator*)> iter(
       dbfull()->NewInternalIterator(&arena, &range_del_agg),
-      [](InternalIterator* arena_iter) {
-        arena_iter->~InternalIterator();
-      });
+      [](InternalIterator* arena_iter) { arena_iter->~InternalIterator(); });
   iter->SeekToFirst();
   for (auto it = verify.begin(); it != verify.end(); ++it) {
     ASSERT_TRUE(iter->Valid());

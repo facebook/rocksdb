@@ -325,9 +325,9 @@ Compaction* CompactionPicker::CompactFiles(
                      output_level, compact_options.output_file_size_limit,
                      mutable_cf_options.max_compaction_bytes, output_path_id,
                      compact_options.compression, ioptions_.compression_opts,
-                     compact_options.max_subcompactions,
-                     {} /* grandparents */, true /* manual_compaction */,
-                     -1 /* score */, false /* deletion_compaction */,
+                     compact_options.max_subcompactions, {} /* grandparents */,
+                     true /* manual_compaction */, -1 /* score */,
+                     false /* deletion_compaction */,
                      false /* single_output */,
                      false /* enable_partial_compaction */,
                      compact_options.compaction_varieties);
@@ -1245,7 +1245,8 @@ void LevelCompactionBuilder::SetupInitialFiles() {
 
     // PickFilesMarkedForCompaction();
     compaction_picker_->PickFilesMarkedForCompaction(
-        cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_);
+        cf_name_, vstorage_, &start_level_, &output_level_,
+        &start_level_inputs_);
     if (!start_level_inputs_.empty()) {
       is_manual_ = true;
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
@@ -1545,8 +1546,7 @@ bool FIFOCompactionPicker::NeedsCompaction(
 }
 
 namespace {
-uint64_t GetTotalFilesSize(
-    const std::vector<FileMetaData*>& files) {
+uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files) {
   uint64_t total_size = 0;
   for (const auto& f : files) {
     total_size += f->fd.file_size;

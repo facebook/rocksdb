@@ -145,9 +145,7 @@ class Compaction {
   bool enable_partial_compaction() const { return enable_partial_compaction_; }
 
   // Compaction varieties
-  SstVarieties compaction_varieties() const {
-    return compaction_varieties_;
-  }
+  SstVarieties compaction_varieties() const { return compaction_varieties_; }
 
   // Range limit for inputs
   const std::vector<RangeStorage>& input_range() const {

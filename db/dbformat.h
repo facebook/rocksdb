@@ -683,8 +683,7 @@ struct MapSstElement {
     uint64_t link_count;
     uint64_t flags;
     if (!GetLengthPrefixedSlice(&value, &smallest_key_) ||
-        !GetVarint64(&value, &link_count) ||
-        !GetVarint64(&value, &flags) ||
+        !GetVarint64(&value, &link_count) || !GetVarint64(&value, &flags) ||
         value.size() < link_count * sizeof(uint64_t) * 2) {
       return false;
     }
@@ -708,10 +707,9 @@ struct MapSstElement {
     buffer->clear();
     PutLengthPrefixedSlice(buffer, smallest_key_);
     PutVarint64(buffer, link_.size());
-    uint64_t flags =
-        (!!include_smallest_ << kIncludeSmallest) |
-        (!!include_largest_ << kIncludeLargest) |
-        (!!no_records_ << kNoRecords);
+    uint64_t flags = ((include_smallest_ ? 1ULL : 0ULL) << kIncludeSmallest) |
+                     (( include_largest_ ? 1ULL : 0ULL) << kIncludeLargest ) |
+                     ((      no_records_ ? 1ULL : 0ULL) << kNoRecords      );
     PutVarint64(buffer, flags);
     buffer->reserve(buffer->size() + sizeof(LinkTarget) * link_.size());
     for (auto& l : link_) {

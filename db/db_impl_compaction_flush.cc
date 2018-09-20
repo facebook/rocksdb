@@ -354,7 +354,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
     s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
-      false /* writes_stopped*/);
+                      false /* writes_stopped*/);
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;
@@ -1175,7 +1175,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 // it against various constrains and delays flush if it'd cause write stall.
 // Called should check status and flush_needed to see if flush already happened.
 Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
-    bool* flush_needed) {
+                                                 bool* flush_needed) {
   {
     *flush_needed = true;
     InstrumentedMutexLock l(&mutex_);
@@ -1304,7 +1304,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // we paused the background work
     return;
   } else if (error_handler_.IsBGWorkStopped() &&
-      !error_handler_.IsRecoveryInProgress()) {
+             !error_handler_.IsRecoveryInProgress()) {
     // There has been a hard error and this call is not part of the recovery
     // sequence. Bail out here so we don't get into an endless loop of
     // scheduling BG work which will again call this function

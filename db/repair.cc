@@ -528,10 +528,9 @@ class Repairer {
         break;
       }
     }
-    auto new_end = std::remove_if(tables_.begin(), tables_.end(),
-                                  [](TableInfo& t) {
-                                    return t.column_family_id == uint32_t(-1);
-                                  });
+    auto new_end = std::remove_if(
+        tables_.begin(), tables_.end(),
+        [](TableInfo& t) { return t.column_family_id == uint32_t(-1); });
     tables_.erase(new_end, tables_.end());
   }
 

@@ -98,9 +98,7 @@ struct RangeBase {
   bool include_start;
   bool include_limit;
 
-  RangeBase()
-      : include_start(true),
-        include_limit(true) {}
+  RangeBase() : include_start(true), include_limit(true) {}
   RangeBase(const Slice& _start, const Slice& _limit,
             bool _include_start = true, bool _include_limit = true)
       : start(_start.data(), _start.size()),

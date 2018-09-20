@@ -7,9 +7,7 @@
 
 #include "db/range_del_aggregator.h"
 
-
 namespace rocksdb {
-  
 
 IteratorCache::IteratorCache(const DependFileMap& depend_files,
                              void* create_iter_arg,
@@ -25,8 +23,8 @@ IteratorCache::~IteratorCache() {
   }
 }
 
-InternalIterator* IteratorCache::GetIterator(
-    const FileMetaData* f, TableReader** reader_ptr) {
+InternalIterator* IteratorCache::GetIterator(const FileMetaData* f,
+                                             TableReader** reader_ptr) {
   auto find = iterator_map_.find(f->fd.GetNumber());
   if (find != iterator_map_.end()) {
     if (reader_ptr != nullptr) {
@@ -35,8 +33,8 @@ InternalIterator* IteratorCache::GetIterator(
     return find->second.iter;
   }
   CacheItem item;
-  item.iter = create_iter_(create_iter_arg_, f, depend_files_, &arena_,
-                           &item.reader);
+  item.iter =
+      create_iter_(create_iter_arg_, f, depend_files_, &arena_, &item.reader);
   item.meta = f;
   assert(item.iter != nullptr);
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -47,8 +45,8 @@ InternalIterator* IteratorCache::GetIterator(
   return item.iter;
 }
 
-InternalIterator* IteratorCache::GetIterator(
-    uint64_t sst_id, TableReader** reader_ptr) {
+InternalIterator* IteratorCache::GetIterator(uint64_t sst_id,
+                                             TableReader** reader_ptr) {
   auto find = iterator_map_.find(sst_id);
   if (find != iterator_map_.end()) {
     if (reader_ptr != nullptr) {
@@ -65,8 +63,8 @@ InternalIterator* IteratorCache::GetIterator(
     item.meta = nullptr;
   } else {
     auto f = find_f->second;
-    item.iter = create_iter_(create_iter_arg_, f, depend_files_, &arena_,
-                             &item.reader);
+    item.iter =
+        create_iter_(create_iter_arg_, f, depend_files_, &arena_, &item.reader);
     item.meta = f;
     assert(item.iter != nullptr);
   }
@@ -98,5 +96,4 @@ void IteratorCache::SetPinnedItersMgr(
   }
 }
 
-
-}
+}  // namespace rocksdb

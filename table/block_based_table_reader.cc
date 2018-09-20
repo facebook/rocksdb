@@ -825,7 +825,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       PersistentCacheOptions(rep->table_options.persistent_cache,
                              std::string(rep->persistent_cache_key_prefix,
                                          rep->persistent_cache_key_prefix_size),
-                                         rep->ioptions.statistics);
+                             rep->ioptions.statistics);
 
   // Read meta index
   std::unique_ptr<Block> meta;
@@ -878,7 +878,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (s.ok()) {
       s = ReadProperties(meta_iter->value(), rep->file.get(),
                          prefetch_buffer.get(), rep->footer, rep->ioptions,
-                         &table_properties, false /* compression_type_missing */);
+                         &table_properties,
+                         false /* compression_type_missing */);
     }
 
     if (!s.ok()) {
@@ -907,7 +908,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   bool found_compression_dict;
   BlockHandle compression_dict_handle;
   s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict,
-    &compression_dict_handle);
+                                 &compression_dict_handle);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
         rep->ioptions.info_log,
@@ -921,9 +922,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     ReadOptions read_options;
     read_options.verify_checksums = false;
     BlockFetcher compression_block_fetcher(
-      rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
-      compression_dict_handle, compression_dict_cont.get(), rep->ioptions, false /* decompress */,
-      Slice() /*compression dict*/, cache_options);
+        rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
+        compression_dict_handle, compression_dict_cont.get(), rep->ioptions,
+        false /* decompress */, Slice() /*compression dict*/, cache_options);
     s = compression_block_fetcher.ReadBlockContents();
 
     if (!s.ok()) {
@@ -1094,7 +1095,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (tail_prefetch_stats != nullptr) {
       assert(prefetch_buffer->min_offset_read() < file_size);
       tail_prefetch_stats->RecordEffectiveSize(
-				static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
+          static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
     }
     *table_reader = std::move(new_table);
   }
@@ -1540,7 +1541,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     }
   }
 
-  return { filter, cache_handle };
+  return {filter, cache_handle};
 }
 
 // disable_prefix_seek should be set to true when prefix_extractor found in SST
@@ -1635,7 +1636,6 @@ InternalIteratorBase<BlockHandle>* BlockBasedTable::NewIndexIterator(
         return NewErrorInternalIterator<BlockHandle>(s);
       }
     }
-
   }
 
   assert(cache_handle);

@@ -18,10 +18,10 @@ struct c_style_callback_fetcher {
     return (*(Lambda*)vlamb)(std::forward<Args>(args)...);
   }
 
-  template<class R, class ...Args>
-  using target_callback = R(*)(void*, Args...);
+  template<class R, class... Args>
+  using target_callback = R (*)(void*, Args...);
 
-  template<class R, class ...Args>
+  template<class R, class... Args>
   operator target_callback<R, Args...>() const {
     return &c_style_callback_fetcher::invoke<R, Args...>;
   }

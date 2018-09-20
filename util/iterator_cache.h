@@ -22,8 +22,8 @@ typedef std::unordered_map<uint64_t, const FileMetaData*> DependFileMap;
 class IteratorCache {
  public:
   using CreateIterCallback =
-      InternalIterator*(*)(void* arg, const FileMetaData*,
-                           const DependFileMap&, Arena*, TableReader**);
+      InternalIterator* (*)(void* arg, const FileMetaData*,
+                            const DependFileMap&, Arena*, TableReader**);
 
   IteratorCache(const DependFileMap& depend_files, void* create_iter_arg,
                 const CreateIterCallback& create_iter);
@@ -56,4 +56,4 @@ class IteratorCache {
   std::unordered_map<uint64_t, CacheItem> iterator_map_;
 };
 
-}
+}  // namespace rocksdb

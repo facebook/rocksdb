@@ -90,9 +90,7 @@ class GetContext {
 
   bool sample() const { return sample_; }
 
-  bool is_finished() const {
-    return state_ != kNotFound && state_ != kMerge;
-  }
+  bool is_finished() const { return state_ != kNotFound && state_ != kMerge; }
 
   void SetMinSequenceAndType(uint64_t min_seq_type) {
     min_seq_type_ = min_seq_type;

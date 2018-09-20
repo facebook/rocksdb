@@ -283,7 +283,7 @@ struct CompactionJob::CompactionState {
             range_end = f->largest.Encode();
           }
         }
-      } else if(!level_files.files.empty()) {
+      } else if (!level_files.files.empty()) {
         auto f0 = level_files.files.front();
         auto f1 = level_files.files.back();
         if (range_start.empty() ||
@@ -867,15 +867,15 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   switch (sub_compact->compaction->compaction_varieties()) {
-  case kGeneralSst:
-    ProcessGeneralCompaction(sub_compact);
-    break;
-  case kLinkSst:
-    ProcessLinkCompaction(sub_compact);
-    break;
-  case kMapSst:
-    // do nothing ...
-    break;
+    case kGeneralSst:
+      ProcessGeneralCompaction(sub_compact);
+      break;
+    case kLinkSst:
+      ProcessLinkCompaction(sub_compact);
+      break;
+    case kMapSst:
+      // do nothing ...
+      break;
   }
 }
 
@@ -1227,7 +1227,6 @@ void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
 }
 
 void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
-
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
@@ -1238,16 +1237,15 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::vector<uint64_t> sst_depend;
   size_t sst_read_amp = 1;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
-  collectors.emplace_back(
-      new SstVarietyPropertiesCollectorFactory((uint8_t)kLinkSst, &sst_depend,
-                                               &sst_read_amp));
+  collectors.emplace_back(new SstVarietyPropertiesCollectorFactory(
+      (uint8_t)kLinkSst, &sst_depend, &sst_read_amp));
 
   auto& s = sub_compact->status;
   s = OpenCompactionOutputFile(sub_compact, &collectors);
   if (!s.ok()) {
     return;
   }
-  
+
   const Slice* start = sub_compact->start;
   const Slice* end = sub_compact->end;
   if (start != nullptr) {
@@ -1269,9 +1267,8 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
 
   auto update_key = [&] {
     ++key_count;
-    assert(last_key.size() == 0 ||
-           cfd->internal_comparator().Compare(last_key.Encode(),
-                                              input->key()) < 0);
+    assert(last_key.size() == 0 || cfd->internal_comparator().Compare(
+                                       last_key.Encode(), input->key()) < 0);
     last_key.DecodeFrom(input->key());
     meta.UpdateBoundaries(last_key.Encode(),
                           GetInternalKeySeqno(last_key.Encode()));
@@ -1310,7 +1307,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
       update_key();
     }
     put_link_element();
-    
+
     // Prepare sst_depend, IntTblPropCollector::Finish will read it
     sst_depend.reserve(sst_depend_build.size());
     sst_depend.insert(sst_depend.end(), sst_depend_build.begin(),
@@ -1326,7 +1323,6 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   // Update metadata
   meta.sst_variety = kLinkSst;
   meta.sst_depend = std::move(sst_depend);
-
 }
 
 void CompactionJob::RecordDroppedKeys(
@@ -1608,7 +1604,6 @@ Status CompactionJob::InstallCompactionResults(
   if (!compaction->input_range().empty() ||
       compaction->mutable_cf_options()->enable_lazy_compaction ||
       compaction->compaction_varieties() == kMapSst) {
-
     MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
                            stats_, table_cache_, dbname_);
     auto cfd = compaction->column_family_data();
@@ -1623,8 +1618,7 @@ Status CompactionJob::InstallCompactionResults(
         bool include_end = false;
         if (sub_compact.actual_end.size() == 0) {
           if (sub_compact.end != nullptr) {
-            sub_compact.actual_end.SetMinPossibleForUserKey(
-                *sub_compact.end);
+            sub_compact.actual_end.SetMinPossibleForUserKey(*sub_compact.end);
             include_end = true;
           } else {
             sub_compact.actual_end.SetMaxPossibleForUserKey(
@@ -1776,8 +1770,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
-      cfd->internal_comparator(), collectors,
-      cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
+      cfd->internal_comparator(), collectors, cfd->GetID(), cfd->GetName(),
+      sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), &sub_compact->compression_dict,

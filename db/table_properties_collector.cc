@@ -33,8 +33,8 @@ Status InternalKeyPropertiesCollector::InternalAdd(const Slice& key,
 Status InternalKeyPropertiesCollector::Finish(
     UserCollectedProperties* properties) {
   assert(properties);
-  assert(properties->find(
-        InternalKeyTablePropertiesNames::kDeletedKeys) == properties->end());
+  assert(properties->find(InternalKeyTablePropertiesNames::kDeletedKeys) ==
+         properties->end());
   assert(properties->find(InternalKeyTablePropertiesNames::kMergeOperands) ==
          properties->end());
 
@@ -79,15 +79,15 @@ Status SstVarietyPropertiesCollector::Finish(
 
   std::string sst_read_amp;
   PutVarint64(&sst_read_amp, *sst_read_amp_);
-  
+
   properties->insert(
       {SSTVarietiesTablePropertiesNames::kSstReadAmp, sst_read_amp});
 
   return Status::OK();
 }
 
-UserCollectedProperties
-SstVarietyPropertiesCollector::GetReadableProperties() const {
+UserCollectedProperties SstVarietyPropertiesCollector::GetReadableProperties()
+    const {
   std::string sst_depend;
   if (sst_depend_->empty()) {
     sst_depend += "[]";
@@ -139,11 +139,10 @@ Status UserKeyTablePropertiesCollector::Finish(
   return collector_->Finish(properties);
 }
 
-UserCollectedProperties
-UserKeyTablePropertiesCollector::GetReadableProperties() const {
+UserCollectedProperties UserKeyTablePropertiesCollector::GetReadableProperties()
+    const {
   return collector_->GetReadableProperties();
 }
-
 
 const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
     "rocksdb.deleted.keys";
@@ -156,8 +155,7 @@ const std::string SSTVarietiesTablePropertiesNames::kSstDepend =
 const std::string SSTVarietiesTablePropertiesNames::kSstReadAmp =
     "rocksdb.sst.read_amp";
 
-uint64_t GetDeletedKeys(
-    const UserCollectedProperties& props) {
+uint64_t GetDeletedKeys(const UserCollectedProperties& props) {
   bool property_present_ignored;
   return GetUint64Property(props, InternalKeyTablePropertiesNames::kDeletedKeys,
                            &property_present_ignored);
@@ -169,8 +167,7 @@ uint64_t GetMergeOperands(const UserCollectedProperties& props,
       props, InternalKeyTablePropertiesNames::kMergeOperands, property_present);
 }
 
-uint8_t GetSstVariety(
-    const UserCollectedProperties& props) {
+uint8_t GetSstVariety(const UserCollectedProperties& props) {
   auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstVariety);
   if (pos == props.end()) {
     return 0;
@@ -179,8 +176,7 @@ uint8_t GetSstVariety(
   return raw[0];
 }
 
-std::vector<uint64_t> GetSstDepend(
-    const UserCollectedProperties& props) {
+std::vector<uint64_t> GetSstDepend(const UserCollectedProperties& props) {
   std::vector<uint64_t> result;
   auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstDepend);
   if (pos == props.end()) {
@@ -202,8 +198,7 @@ std::vector<uint64_t> GetSstDepend(
   return result;
 }
 
-size_t GetSstReadAmp(
-    const UserCollectedProperties& props) {
+size_t GetSstReadAmp(const UserCollectedProperties& props) {
   bool ignore;
   return GetUint64Property(
       props, SSTVarietiesTablePropertiesNames::kSstReadAmp, &ignore);

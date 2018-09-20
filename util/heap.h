@@ -82,7 +82,7 @@ class BinaryHeap {
     }
   }
 
-  void swap(BinaryHeap &other) {
+  void swap(BinaryHeap& other) {
     std::swap(cmp_, other.cmp_);
     data_.swap(other.data_);
     std::swap(root_cmp_cache_, other.root_cmp_cache_);

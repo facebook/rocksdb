@@ -92,9 +92,9 @@ class InternalKeyPropertiesCollectorFactory
 // Used for repair. E.g missing manifest
 class SstVarietyPropertiesCollector final : public IntTblPropCollector {
  public:
-   SstVarietyPropertiesCollector(
-      uint8_t _sst_variety, std::vector<uint64_t>* _sst_depend,
-      size_t *_sst_read_amp)
+  SstVarietyPropertiesCollector(uint8_t _sst_variety,
+                                std::vector<uint64_t>* _sst_depend,
+                                size_t* _sst_read_amp)
       : sst_variety_(_sst_variety),
         sst_depend_(_sst_depend),
         sst_read_amp_(_sst_read_amp) {}
@@ -115,15 +115,15 @@ class SstVarietyPropertiesCollector final : public IntTblPropCollector {
  private:
   uint8_t sst_variety_;
   std::vector<uint64_t>* sst_depend_;
-  size_t *sst_read_amp_;
+  size_t* sst_read_amp_;
 };
 
 class SstVarietyPropertiesCollectorFactory final
     : public IntTblPropCollectorFactory {
  public:
-  SstVarietyPropertiesCollectorFactory(
-      uint8_t _sst_variety, std::vector<uint64_t>* _sst_depend,
-      size_t *_sst_read_amp)
+  SstVarietyPropertiesCollectorFactory(uint8_t _sst_variety,
+                                       std::vector<uint64_t>* _sst_depend,
+                                       size_t* _sst_read_amp)
       : sst_variety_(_sst_variety),
         sst_depend_(_sst_depend),
         sst_read_amp_(_sst_read_amp) {}
@@ -137,10 +137,11 @@ class SstVarietyPropertiesCollectorFactory final
   virtual const char* Name() const override {
     return "SstVarietyPropertiesCollectorFactory";
   }
+
  private:
   uint8_t sst_variety_;
   std::vector<uint64_t>* sst_depend_;
-  size_t *sst_read_amp_;
+  size_t* sst_read_amp_;
 };
 
 // When rocksdb creates a new table, it will encode all "user keys" into

@@ -13,8 +13,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <algorithm>
 #include <inttypes.h>
+#include <algorithm>
 #include <list>
 #include <string>
 #include <unordered_map>
@@ -29,7 +29,7 @@
 #include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
-  
+
 struct FileMetaDataBoundBuilder {
   const InternalKeyComparator& icomp;
   InternalKey smallest, largest;
@@ -83,14 +83,12 @@ bool IsPrefaceRange(const Range& range, const FileMetaData* f,
 
 namespace {
 
-
 struct RangeWithDepend {
   InternalKey point[2];
   bool include[2];
   std::vector<uint64_t> depend;
 
   RangeWithDepend() = default;
-
 
   RangeWithDepend(const FileMetaData* f) {
     point[0] = f->smallest;
@@ -136,47 +134,45 @@ bool IsEmptyMapSstElement(const RangeWithDepend& range,
 }
 
 int CompInclude(int c, size_t ab, size_t ai, size_t bb, size_t bi) {
-#define CASE(a,b,c,d) \
-    (((a) ? 1 : 0) | ((b) ? 2 : 0) | ((c) ? 4 : 0) | ((d) ? 8 : 0))
+#define CASE(a, b, c, d) \
+  (((a) ? 1 : 0) | ((b) ? 2 : 0) | ((c) ? 4 : 0) | ((d) ? 8 : 0))
   if (c != 0) {
     return c;
   }
   switch (CASE(ab, ai, bb, bi)) {
     // a: [   [   (   )   )   [
     // b: (   )   ]   ]   (   ]
-  case CASE(0, 1, 0, 0):
-  case CASE(0, 1, 1, 0):
-  case CASE(0, 0, 1, 1):
-  case CASE(1, 0, 1, 1):
-  case CASE(1, 0, 0, 0):
-  case CASE(0, 1, 1, 1):
-    return -1;
+    case CASE(0, 1, 0, 0):
+    case CASE(0, 1, 1, 0):
+    case CASE(0, 0, 1, 1):
+    case CASE(1, 0, 1, 1):
+    case CASE(1, 0, 0, 0):
+    case CASE(0, 1, 1, 1):
+      return -1;
     // a: (   )   ]   ]   (   ]
     // b: [   [   (   )   )   [
-  case CASE(0, 0, 0, 1):
-  case CASE(1, 0, 0, 1):
-  case CASE(1, 1, 0, 0):
-  case CASE(1, 1, 1, 0):
-  case CASE(0, 0, 1, 0):
-  case CASE(1, 1, 0, 1):
-    return 1;
+    case CASE(0, 0, 0, 1):
+    case CASE(1, 0, 0, 1):
+    case CASE(1, 1, 0, 0):
+    case CASE(1, 1, 1, 0):
+    case CASE(0, 0, 1, 0):
+    case CASE(1, 1, 0, 1):
+      return 1;
     // a: [   ]   (   )
     // b: [   ]   (   )
-  default:
-    return 0;
+    default:
+      return 0;
   }
 #undef CASE
 }
-}
+}  // namespace
 
 class MapSstElementIterator {
  public:
   MapSstElementIterator(const std::vector<RangeWithDepend>& ranges,
                         IteratorCache& iterator_cache,
                         const InternalKeyComparator& icomp)
-      : ranges_(ranges),
-        iterator_cache_(iterator_cache),
-        icomp_(icomp) {}
+      : ranges_(ranges), iterator_cache_(iterator_cache), icomp_(icomp) {}
   bool Valid() const { return !buffer_.empty(); }
   void SeekToFirst() {
     where_ = ranges_.begin();
@@ -187,11 +183,11 @@ class MapSstElementIterator {
   Slice value() const { return buffer_; }
   Status status() const { return status_; }
 
- const std::unordered_set<uint64_t>& GetSstDepend() const {
-   return sst_depend_build_;
- }
+  const std::unordered_set<uint64_t>& GetSstDepend() const {
+    return sst_depend_build_;
+  }
 
- size_t GetSstReadAmp() const { return sst_read_amp_; }
+  size_t GetSstReadAmp() const { return sst_read_amp_; }
 
  private:
   void PrepareNext() {
@@ -281,8 +277,7 @@ class MapSstElementIterator {
       if (icomp_.Compare(temp_start_, temp_end_) <= 0) {
         uint64_t start_offset =
             reader->ApproximateOffsetOf(temp_start_.Encode());
-        uint64_t end_offset =
-            reader->ApproximateOffsetOf(temp_end_.Encode());
+        uint64_t end_offset = reader->ApproximateOffsetOf(temp_end_.Encode());
         no_records = false;
         link.size = end_offset - start_offset;
       }
@@ -307,10 +302,10 @@ class MapSstElementIterator {
 
 namespace {
 
-Status LoadRangeWithDepend(
-    std::vector<RangeWithDepend>& ranges,
-    FileMetaDataBoundBuilder* bound_builder, IteratorCache& iterator_cache,
-    const FileMetaData* const* file_meta, size_t n) {
+Status LoadRangeWithDepend(std::vector<RangeWithDepend>& ranges,
+                           FileMetaDataBoundBuilder* bound_builder,
+                           IteratorCache& iterator_cache,
+                           const FileMetaData* const* file_meta, size_t n) {
   MapSstElement map_element;
   for (size_t i = 0; i < n; ++i) {
     auto f = file_meta[i];
@@ -362,8 +357,7 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   std::vector<RangeWithDepend> output;
   assert(!ranges_a.empty() && !ranges_b.empty());
   auto put_left = [&](const InternalKey& key, bool include) {
-    assert(output.empty() ||
-           icomp.Compare(output.back().point[1], key) < 0 ||
+    assert(output.empty() || icomp.Compare(output.back().point[1], key) < 0 ||
            !output.back().include[1] || !include);
     output.emplace_back();
     auto& back = output.back();
@@ -372,9 +366,8 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   };
   auto put_right = [&](const InternalKey& key, bool include) {
     auto& back = output.back();
-    if (back.depend.empty() ||
-        (icomp.Compare(key, back.point[0]) == 0 &&
-         (!back.include[0] || !include))) {
+    if (back.depend.empty() || (icomp.Compare(key, back.point[0]) == 0 &&
+                                (!back.include[0] || !include))) {
       output.pop_back();
       return;
     }
@@ -389,36 +382,36 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
     auto& depend = output.back().depend;
     assert(a != nullptr || b != nullptr);
     switch (type) {
-    case PartitionType::kMerge:
-      if (a != nullptr) {
-        depend.insert(depend.end(), a->depend.begin(), a->depend.end());
-      }
-      if (b != nullptr) {
-        depend.insert(depend.end(), b->depend.begin(), b->depend.end());
-      }
-      assert(!depend.empty());
-      break;
-    case PartitionType::kReplace:
-      if (b == nullptr) {
-        depend.insert(depend.end(), a->depend.begin(), a->depend.end());
-      } else if (a != nullptr) {
-        depend.insert(depend.end(), b->depend.begin(), b->depend.end());
-      }
-      break;
-    case PartitionType::kDelete:
-      if (b == nullptr) {
-        depend.insert(depend.end(), a->depend.begin(), a->depend.end());
-      } else {
-        assert(b->depend.empty());
-      }
-      break;
+      case PartitionType::kMerge:
+        if (a != nullptr) {
+          depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+        }
+        if (b != nullptr) {
+          depend.insert(depend.end(), b->depend.begin(), b->depend.end());
+        }
+        assert(!depend.empty());
+        break;
+      case PartitionType::kReplace:
+        if (b == nullptr) {
+          depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+        } else if (a != nullptr) {
+          depend.insert(depend.end(), b->depend.begin(), b->depend.end());
+        }
+        break;
+      case PartitionType::kDelete:
+        if (b == nullptr) {
+          depend.insert(depend.end(), a->depend.begin(), a->depend.end());
+        } else {
+          assert(b->depend.empty());
+        }
+        break;
     }
   };
   size_t ai = 0, bi = 0;  // range index
   size_t ac, bc;          // changed
   size_t ab = 0, bb = 0;  // left bound or right bound
-#define CASE(a,b,c,d) \
-      (((a) ? 1 : 0) | ((b) ? 2 : 0) | ((c) ? 4 : 0) | ((d) ? 8 : 0))
+#define CASE(a, b, c, d) \
+  (((a) ? 1 : 0) | ((b) ? 2 : 0) | ((c) ? 4 : 0) | ((d) ? 8 : 0))
   do {
     int c;
     if (ai < ranges_a.size() && bi < ranges_b.size()) {
@@ -431,59 +424,59 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
     ac = c <= 0;
     bc = c >= 0;
     switch (CASE(ab, bb, ac, bc)) {
-    // out ranges_a , out ranges_b , enter ranges_a
-    case CASE(0, 0, 1, 0):
-      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      put_depend(&ranges_a[ai], nullptr);
-      break;
-    // in ranges_a , out ranges_b , leave ranges_a
-    case CASE(1, 0, 1, 0):
-      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      break;
-    // out ranges_a , out ranges_b , enter ranges_b
-    case CASE(0, 0, 0, 1):
-      put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
-      put_depend(nullptr, &ranges_b[bi]);
-      break;
-    // out ranges_a , in ranges_b , leave ranges_b
-    case CASE(0, 1, 0, 1):
-      put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
-      break;
-    // in ranges_a , out ranges_b , begin ranges_b
-    case CASE(1, 0, 0, 1):
-      put_right(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
-      put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
-      put_depend(&ranges_a[ai], &ranges_b[bi]);
-      break;
-    // in ranges_a , in ranges_b , leave ranges_b
-    case CASE(1, 1, 0, 1):
-      put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
-      put_left(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
-      put_depend(&ranges_a[ai], nullptr);
-      break;
-    // out ranges_a , in ranges_b , begin ranges_a
-    case CASE(0, 1, 1, 0):
-      put_right(ranges_a[ai].point[ab], !ranges_a[ai].include[ab]);
-      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      put_depend(&ranges_a[ai], &ranges_b[bi]);
-      break;
-    // in ranges_a , in ranges_b , leave ranges_a
-    case CASE(1, 1, 1, 0):
-      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      put_left(ranges_a[ai].point[ab], !ranges_a[ai].include[ab]);
-      put_depend(nullptr, &ranges_b[bi]);
-      break;
-    // out ranges_a , out ranges_b , enter ranges_a , enter ranges_b
-    case CASE(0, 0, 1, 1):
-      put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      put_depend(&ranges_a[ai], &ranges_b[bi]);
-      break;
-    // in ranges_a , in ranges_b , leave ranges_a , leave ranges_b
-    case CASE(1, 1, 1, 1):
-      put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
-      break;
-    default:
-      assert(false);
+      // out ranges_a , out ranges_b , enter ranges_a
+      case CASE(0, 0, 1, 0):
+        put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+        put_depend(&ranges_a[ai], nullptr);
+        break;
+      // in ranges_a , out ranges_b , leave ranges_a
+      case CASE(1, 0, 1, 0):
+        put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+        break;
+      // out ranges_a , out ranges_b , enter ranges_b
+      case CASE(0, 0, 0, 1):
+        put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+        put_depend(nullptr, &ranges_b[bi]);
+        break;
+      // out ranges_a , in ranges_b , leave ranges_b
+      case CASE(0, 1, 0, 1):
+        put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+        break;
+      // in ranges_a , out ranges_b , begin ranges_b
+      case CASE(1, 0, 0, 1):
+        put_right(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
+        put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+        put_depend(&ranges_a[ai], &ranges_b[bi]);
+        break;
+      // in ranges_a , in ranges_b , leave ranges_b
+      case CASE(1, 1, 0, 1):
+        put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb]);
+        put_left(ranges_b[bi].point[bb], !ranges_b[bi].include[bb]);
+        put_depend(&ranges_a[ai], nullptr);
+        break;
+      // out ranges_a , in ranges_b , begin ranges_a
+      case CASE(0, 1, 1, 0):
+        put_right(ranges_a[ai].point[ab], !ranges_a[ai].include[ab]);
+        put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+        put_depend(&ranges_a[ai], &ranges_b[bi]);
+        break;
+      // in ranges_a , in ranges_b , leave ranges_a
+      case CASE(1, 1, 1, 0):
+        put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+        put_left(ranges_a[ai].point[ab], !ranges_a[ai].include[ab]);
+        put_depend(nullptr, &ranges_b[bi]);
+        break;
+      // out ranges_a , out ranges_b , enter ranges_a , enter ranges_b
+      case CASE(0, 0, 1, 1):
+        put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+        put_depend(&ranges_a[ai], &ranges_b[bi]);
+        break;
+      // in ranges_a , in ranges_b , leave ranges_a , leave ranges_b
+      case CASE(1, 1, 1, 1):
+        put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab]);
+        break;
+      default:
+        assert(false);
     }
     ai += (ab + ac) / 2;
     bi += (bb + bc) / 2;
@@ -494,13 +487,12 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   return output;
 }
 
-}
+}  // namespace
 
-MapBuilder::MapBuilder(
-    int job_id, const ImmutableDBOptions& db_options,
-    const EnvOptions& env_options, VersionSet* versions,
-    Statistics* stats, std::shared_ptr<Cache> table_cache,
-    const std::string& dbname)
+MapBuilder::MapBuilder(int job_id, const ImmutableDBOptions& db_options,
+                       const EnvOptions& env_options, VersionSet* versions,
+                       Statistics* stats, std::shared_ptr<Cache> table_cache,
+                       const std::string& dbname)
     : job_id_(job_id),
       dbname_(dbname),
       db_options_(db_options),
@@ -520,9 +512,8 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          ColumnFamilyData* cfd, VersionEdit* edit,
                          FileMetaData* file_meta_ptr,
                          std::unique_ptr<TableProperties>* prop_ptr) {
-
-  assert(compaction_varieties != kMapSst ||
-         deleted_range.empty() || added_files.empty());
+  assert(compaction_varieties != kMapSst || deleted_range.empty() ||
+         added_files.empty());
   assert(compaction_varieties != kLinkSst || !added_files.empty());
 
   auto& icomp = cfd->internal_comparator();
@@ -530,21 +521,18 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
   auto create_iterator = [&](const FileMetaData* f,
                              const DependFileMap& depend_files, Arena* arena,
-                             TableReader** reader_ptr)->InternalIterator* {
+                             TableReader** reader_ptr) -> InternalIterator* {
     ReadOptions read_options;
     read_options.verify_checksums = true;
     read_options.fill_cache = false;
     read_options.total_order_seek = true;
 
     return cfd->table_cache()->NewIterator(
-               read_options, env_options_for_read_,
-               cfd->internal_comparator(), *f,
-               f->sst_variety == kMapSst ? empty_delend_files : depend_files,
-               nullptr,
-               cfd->GetCurrentMutableCFOptions()->prefix_extractor.get(),
-               reader_ptr, nullptr /* no per level latency histogram */,
-               true /* for_compaction */, arena,
-               false /* skip_filters */, -1);
+        read_options, env_options_for_read_, cfd->internal_comparator(), *f,
+        f->sst_variety == kMapSst ? empty_delend_files : depend_files, nullptr,
+        cfd->GetCurrentMutableCFOptions()->prefix_extractor.get(), reader_ptr,
+        nullptr /* no per level latency histogram */, true /* for_compaction */,
+        arena, false /* skip_filters */, -1);
   };
 
   IteratorCache iterator_cache(vstorage->depend_files(), &create_iterator,
@@ -564,26 +552,24 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     if (level_files.level == 0) {
       for (auto f : level_files.files) {
         std::vector<RangeWithDepend> ranges;
-        s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache, &f,
-                                1);
+        s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache, &f, 1);
         if (!s.ok()) {
           return s;
         }
         assert(std::is_sorted(
-                   ranges.begin(), ranges.end(),
-                   [&icomp](const RangeWithDepend& a,
-                            const RangeWithDepend& b) {
-                     return icomp.Compare(a.point[1], b.point[1]) < 0;
-                   }));
+            ranges.begin(), ranges.end(),
+            [&icomp](const RangeWithDepend& a, const RangeWithDepend& b) {
+              return icomp.Compare(a.point[1], b.point[1]) < 0;
+            }));
         level_ranges.emplace_back(std::move(ranges));
       }
     } else {
       std::vector<RangeWithDepend> ranges;
       assert(std::is_sorted(
-                 level_files.files.begin(), level_files.files.end(),
-                 [&icomp](const FileMetaData* f1, const FileMetaData* f2) {
-                   return icomp.Compare(f1->largest, f2->largest) < 0;
-                 }));
+          level_files.files.begin(), level_files.files.end(),
+          [&icomp](const FileMetaData* f1, const FileMetaData* f2) {
+            return icomp.Compare(f1->largest, f2->largest) < 0;
+          }));
       s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
                               level_files.files.data(),
                               level_files.files.size());
@@ -591,11 +577,10 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
         return s;
       }
       assert(std::is_sorted(
-                 ranges.begin(), ranges.end(),
-                 [&icomp](const RangeWithDepend& a,
-                          const RangeWithDepend& b) {
-                   return icomp.Compare(a.point[1], b.point[1]) < 0;
-                 }));
+          ranges.begin(), ranges.end(),
+          [&icomp](const RangeWithDepend& a, const RangeWithDepend& b) {
+            return icomp.Compare(a.point[1], b.point[1]) < 0;
+          }));
       level_ranges.emplace_back(std::move(ranges));
     }
   }
@@ -616,9 +601,9 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     }
     union_b = std::next(union_a);
     level_ranges.insert(
-        union_a, PartitionRangeWithDepend(*union_a, *union_b,
-                                          cfd->internal_comparator(),
-                                          PartitionType::kMerge));
+        union_a,
+        PartitionRangeWithDepend(*union_a, *union_b, cfd->internal_comparator(),
+                                 PartitionType::kMerge));
     level_ranges.erase(union_a);
     level_ranges.erase(union_b);
   }
@@ -631,15 +616,13 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       ranges.emplace_back(r);
     }
     assert(std::is_sorted(
-               ranges.begin(), ranges.end(),
-               [&icomp](const RangeWithDepend& a,
-                        const RangeWithDepend& b) {
-                 return icomp.Compare(a.point[1], b.point[1]) < 0;
-               }));
-    level_ranges.front() =
-        PartitionRangeWithDepend(level_ranges.front(), ranges,
-                                 cfd->internal_comparator(),
-                                 PartitionType::kDelete);
+        ranges.begin(), ranges.end(),
+        [&icomp](const RangeWithDepend& a, const RangeWithDepend& b) {
+          return icomp.Compare(a.point[1], b.point[1]) < 0;
+        }));
+    level_ranges.front() = PartitionRangeWithDepend(
+        level_ranges.front(), ranges, cfd->internal_comparator(),
+        PartitionType::kDelete);
     if (level_ranges.front().empty()) {
       level_ranges.pop_front();
     }
@@ -647,11 +630,10 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   if (!added_files.empty()) {
     std::vector<RangeWithDepend> ranges;
     assert(std::is_sorted(
-               added_files.begin(), added_files.end(),
-               [&icomp](const FileMetaData* f1,
-                        const FileMetaData* f2) {
-                 return icomp.Compare(f1->largest, f2->largest) < 0;
-               }));
+        added_files.begin(), added_files.end(),
+        [&icomp](const FileMetaData* f1, const FileMetaData* f2) {
+          return icomp.Compare(f1->largest, f2->largest) < 0;
+        }));
     s = LoadRangeWithDepend(ranges, &bound_builder, iterator_cache,
                             added_files.data(), added_files.size());
     if (!s.ok()) {
@@ -661,12 +643,11 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       assert(compaction_varieties == kGeneralSst);
       level_ranges.emplace_back(std::move(ranges));
     } else {
-      PartitionType type
-          = compaction_varieties == kLinkSst ? PartitionType::kReplace
-                                             : PartitionType::kMerge;
-      level_ranges.front() =
-          PartitionRangeWithDepend(level_ranges.front(), ranges,
-                                   cfd->internal_comparator(), type);
+      PartitionType type = compaction_varieties == kLinkSst
+                               ? PartitionType::kReplace
+                               : PartitionType::kMerge;
+      level_ranges.front() = PartitionRangeWithDepend(
+          level_ranges.front(), ranges, cfd->internal_comparator(), type);
     }
   }
 
@@ -719,18 +700,18 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     return s;
   }
   sst_live.clear();
-  
+
   using IterType = MapSstElementIterator;
   void* buffer = iterator_cache.GetArena()->AllocateAligned(sizeof(IterType));
-  std::unique_ptr<IterType, void(*)(IterType*)> output_iter(
-      new(buffer) IterType(ranges, iterator_cache, cfd->internal_comparator()),
+  std::unique_ptr<IterType, void (*)(IterType*)> output_iter(
+      new (buffer) IterType(ranges, iterator_cache, cfd->internal_comparator()),
       [](IterType* iter) { iter->~IterType(); });
-  
-  assert(std::is_sorted(ranges.begin(), ranges.end(),
-                        [&icomp](const RangeWithDepend& f1,
-                                 const RangeWithDepend& f2) {
-                          return icomp.Compare(f1.point[1], f2.point[1]) < 0;
-                        }));
+
+  assert(std::is_sorted(
+      ranges.begin(), ranges.end(),
+      [&icomp](const RangeWithDepend& f1, const RangeWithDepend& f2) {
+        return icomp.Compare(f1.point[1], f2.point[1]) < 0;
+      }));
 
   FileMetaData file_meta;
   std::unique_ptr<TableProperties> prop;
@@ -758,20 +739,17 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   return s;
 }
 
-
 Status MapBuilder::WriteOutputFile(
     const FileMetaDataBoundBuilder& bound_builder,
     MapSstElementIterator* range_iter, uint32_t output_path_id,
     ColumnFamilyData* cfd, FileMetaData* file_meta,
     std::unique_ptr<TableProperties>* prop) {
-
   // Used for write properties
   std::vector<uint64_t> sst_depend;
   size_t sst_read_amp = 1;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
-  collectors.emplace_back(
-      new SstVarietyPropertiesCollectorFactory((uint8_t)kMapSst, &sst_depend,
-                                               &sst_read_amp));
+  collectors.emplace_back(new SstVarietyPropertiesCollectorFactory(
+      (uint8_t)kMapSst, &sst_depend, &sst_read_amp));
 
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
@@ -788,28 +766,27 @@ Status MapBuilder::WriteOutputFile(
   unique_ptr<WritableFile> writable_file;
   auto s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(
-        db_options_.info_log,
-        "[%s] [JOB %d] BuildMapSst for table #%" PRIu64
-        " fails at NewWritableFile with status %s",
-        cfd->GetName().c_str(), job_id_, file_number, s.ToString().c_str());
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "[%s] [JOB %d] BuildMapSst for table #%" PRIu64
+                    " fails at NewWritableFile with status %s",
+                    cfd->GetName().c_str(), job_id_, file_number,
+                    s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
-        nullptr, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
-        fname, -1, FileDescriptor(), TableProperties(),
+        nullptr, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, -1,
+        FileDescriptor(), TableProperties(),
         TableFileCreationReason::kCompaction, s);
     return s;
   }
 
-  file_meta->fd =
-      FileDescriptor(file_number, output_path_id, 0);
+  file_meta->fd = FileDescriptor(file_number, output_path_id, 0);
 
   writable_file->SetIOPriority(Env::IO_LOW);
   writable_file->SetWriteLifeTimeHint(Env::WLTH_SHORT);
   // map sst always small
   writable_file->SetPreallocationBlockSize(4ULL << 20);
-  std::unique_ptr<WritableFileWriter> outfile(
-      new WritableFileWriter(std::move(writable_file), fname, env_options_, stats_));
+  std::unique_ptr<WritableFileWriter> outfile(new WritableFileWriter(
+      std::move(writable_file), fname, env_options_, stats_));
 
   uint64_t output_file_creation_time = bound_builder.creation_time;
   if (output_file_creation_time == 0) {
@@ -827,13 +804,12 @@ Status MapBuilder::WriteOutputFile(
   }
 
   // map sst don't need compression or filters
-  std::unique_ptr<TableBuilder> builder(
-      NewTableBuilder(*cfd->ioptions(), *cfd->GetCurrentMutableCFOptions(),
-                      cfd->internal_comparator(), &collectors,
-                      cfd->GetID(), cfd->GetName(), outfile.get(),
-                      kNoCompression, CompressionOptions(), -1 /*level*/,
-                      nullptr /*compression_dict*/, true /*skip_filters*/,
-                      true /*ignore_key_type*/, output_file_creation_time));
+  std::unique_ptr<TableBuilder> builder(NewTableBuilder(
+      *cfd->ioptions(), *cfd->GetCurrentMutableCFOptions(),
+      cfd->internal_comparator(), &collectors, cfd->GetID(), cfd->GetName(),
+      outfile.get(), kNoCompression, CompressionOptions(), -1 /*level*/,
+      nullptr /*compression_dict*/, true /*skip_filters*/,
+      true /*ignore_key_type*/, output_file_creation_time));
   LogFlush(db_options_.info_log);
 
   // Update boundaries
@@ -891,13 +867,13 @@ Status MapBuilder::WriteOutputFile(
                    current_entries, current_bytes, compaction_msg);
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
-      nullptr, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      -1, file_meta->fd, **prop, TableFileCreationReason::kCompaction, s);
+      nullptr, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, -1,
+      file_meta->fd, **prop, TableFileCreationReason::kCompaction, s);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
-  auto sfm = static_cast<SstFileManagerImpl*>(
-                 db_options_.sst_file_manager.get());
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm && file_meta->fd.GetPathId() == 0) {
     sfm->OnAddFile(fname);
     if (sfm->IsMaxAllowedSpaceReached()) {
