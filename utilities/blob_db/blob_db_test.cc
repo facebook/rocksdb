@@ -370,6 +370,8 @@ TEST_F(BlobDBTest, GetIOError) {
   fault_injection_env_->SetFilesystemActive(false, Status::IOError());
   Status s = blob_db_->Get(ReadOptions(), column_family, "foo", &value);
   ASSERT_TRUE(s.IsIOError());
+  // Reactivate file system to allow test to close DB.
+  fault_injection_env_->SetFilesystemActive(true);
 }
 
 TEST_F(BlobDBTest, WriteBatch) {
