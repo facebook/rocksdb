@@ -17,6 +17,10 @@
 #include "rocksdb/slice.h"
 #include "port/port.h"
 
+
+
+using namespace std;
+
 namespace rocksdb {
 
 struct ComparatorJniCallbackOptions {
@@ -29,6 +33,23 @@ struct ComparatorJniCallbackOptions {
 
   ComparatorJniCallbackOptions() : use_adaptive_mutex(false) {
   }
+};
+
+//
+//wgao Thread Local class that hold jobject
+//
+class ThreadLocalJObject {
+public:
+    ThreadLocalJObject();
+
+	~ThreadLocalJObject();
+
+public:
+	volatile long lInited = 0;
+	volatile long lObjAssigned = 0;
+	JavaVM* m_jvm     = nullptr;
+    JNIEnv* m_pJniEnv = nullptr;
+	jobject m_jSlice  = nullptr;
 };
 
 /**
@@ -57,7 +78,7 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
       std::string* start, const Slice& limit) const;
     virtual void FindShortSuccessor(std::string* key) const;
 
- private:
+protected:
     // used for synchronisation in compare method
     std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
@@ -79,6 +100,10 @@ class ComparatorJniCallback : public BaseComparatorJniCallback {
         JNIEnv* env, jobject jComparator,
         const ComparatorJniCallbackOptions* copt);
       ~ComparatorJniCallback();
+      virtual int Compare(const Slice& a, const Slice& b) const;
+	  int CompareNoLock(JNIEnv* env, const jobject& jSliceA,
+                                const jobject& jSliceB, const Slice& a,
+                                const Slice& b, jboolean attached_thread) const;
 };
 
 class DirectComparatorJniCallback : public BaseComparatorJniCallback {
