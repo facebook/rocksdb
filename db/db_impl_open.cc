@@ -897,8 +897,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   return status;
 }
 
-Status DBImpl::RestoreAliveLogFiles(
-    const std::vector<uint64_t>& log_numbers) {
+Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers) {
   if (log_numbers.empty()) {
     return Status::OK();
   }
@@ -935,6 +934,9 @@ Status DBImpl::RestoreAliveLogFiles(
       if (truncate_status.ok()) {
         truncate_status = last_log->Truncate(log.size);
       }
+      if (truncate_status.ok()) {
+        truncate_status = last_log->Close();
+      }
       // Not a critical error if fail to truncate.
       if (!truncate_status.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -942,11 +944,6 @@ Status DBImpl::RestoreAliveLogFiles(
                        truncate_status.ToString().c_str());
       }
     }
-  }
-  // Trigger flush if total_log_size_ > max_total_wal_size.
-  if (s.ok() && total_log_size_ > GetMaxTotalWalSize()) {
-    WriteContext write_context;
-    s = SwitchWAL(&write_context);
   }
   if (two_write_queues_) {
     log_write_mutex_.Unlock();

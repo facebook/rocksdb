@@ -1329,6 +1329,66 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
   }
 }
 
+// Tests that total log size is recovered if we set
+// avoid_flush_during_recovery=true.
+// Flush should trigger if max_total_wal_size is reached.
+TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
+  class TestFlushListener : public EventListener {
+   public:
+    std::atomic<int> count{0};
+
+    TestFlushListener() = default;
+
+    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) {
+      count++;
+      assert(FlushReason::kWriteBufferManager == flush_job_info.flush_reason);
+    }
+  };
+  std::shared_ptr<TestFlushListener> test_listener(new TestFlushListener());
+
+  constexpr size_t kKB = 1024;
+  constexpr size_t kMB = 1024 * 1024;
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  options.max_total_wal_size = 1 * kMB;
+  options.listeners.push_back(test_listener);
+  // Have to open DB in multi-CF mode to trigger flush when
+  // max_total_wal_size is reached.
+  CreateAndReopenWithCF({"one"}, options);
+  // Write some keys and we will end up with one log file which is slightly
+  // smaller than 1MB.
+  std::string value_100k(100 * kKB, 'v');
+  std::string value_300k(300 * kKB, 'v');
+  ASSERT_OK(Put(0, "foo", "v1"));
+  for (int i = 0; i < 9; i++) {
+    ASSERT_OK(Put(1, "key" + ToString(i), value_100k));
+  }
+  // Get log files before reopen.
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  uint64_t log_size_before = log_files_before[0]->SizeFileBytes();
+  ASSERT_GT(log_size_before, 900 * kKB);
+  ASSERT_LT(log_size_before, 1 * kMB);
+  ReopenWithColumnFamilies({"default", "one"}, options);
+  // Write one more value to make log larger than 1MB.
+  ASSERT_OK(Put(1, "bar", value_300k));
+  // Get log files again. A new log file will be opened.
+  VectorLogPtr log_files_after_reopen;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after_reopen));
+  ASSERT_EQ(2, log_files_after_reopen.size());
+  ASSERT_EQ(log_files_before[0]->LogNumber(),
+            log_files_after_reopen[0]->LogNumber());
+  ASSERT_GT(log_files_after_reopen[0]->SizeFileBytes() +
+                log_files_after_reopen[1]->SizeFileBytes(),
+            1 * kMB);
+  // Write one more key to trigger flush.
+  ASSERT_OK(Put(0, "foo", "v2"));
+  dbfull()->TEST_WaitForFlushMemTable();
+  // Flushed two column families.
+  ASSERT_EQ(2, test_listener->count.load());
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBWALTest, WalTermTest) {
