@@ -445,6 +445,8 @@ extern MemTableRepFactory* NewHashCuckooRepFactory(
     size_t write_buffer_size, size_t average_data_size = 64,
     unsigned int hash_function_count = 4);
 
+#endif  // ROCKSDB_LITE
+
 struct MemTableRegister {
   typedef MemTableRepFactory*
     (*FactoryCreator)
@@ -469,5 +471,4 @@ CreateMemTableRepFactory(
     const std::unordered_map<std::string, std::string>& options,
     Status*);
 
-#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
