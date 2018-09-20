@@ -1217,7 +1217,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     size_t max = 0;
     for (auto& l : range.link_) {
       sum += l.size;
-      max = std::max(max, l.size);
+      max = std::max<size_t>(max, l.size);
     }
     return std::make_pair(sum, max);
   };

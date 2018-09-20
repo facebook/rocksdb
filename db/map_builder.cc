@@ -136,7 +136,8 @@ bool IsEmptyMapSstElement(const RangeWithDepend& range,
 }
 
 int CompInclude(int c, size_t ab, size_t ai, size_t bb, size_t bi) {
-#define CASE(a,b,c,d) (!!(a) | (!!(b) << 1) | (!!(c) << 2) | (!!(d) << 3))
+#define CASE(a,b,c,d) \
+    (((a) ? 1 : 0) | ((b) ? 2 : 0) | ((c) ? 4 : 0) | ((d) ? 8 : 0))
   if (c != 0) {
     return c;
   }
@@ -416,7 +417,8 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   size_t ai = 0, bi = 0;  // range index
   size_t ac, bc;          // changed
   size_t ab = 0, bb = 0;  // left bound or right bound
-#define CASE(a,b,c,d) (!!(a) | (!!(b) << 1) | (!!(c) << 2) | (!!(d) << 3))
+#define CASE(a,b,c,d) \
+      (((a) ? 1 : 0) | ((b) ? 2 : 0) | ((c) ? 4 : 0) | ((d) ? 8 : 0))
   do {
     int c;
     if (ai < ranges_a.size() && bi < ranges_b.size()) {

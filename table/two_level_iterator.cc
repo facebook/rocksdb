@@ -256,7 +256,11 @@ class LinkSstIterator final : public InternalIterator {
         has_bound_(false),
         is_backword_(false),
         icomp_(icomp),
-        iterator_cache_(depend_files, create_arg, create) {}
+        iterator_cache_(depend_files, create_arg, create) {
+    if (file_meta_.sst_variety != kLinkSst) {
+      abort();
+    }
+  }
 
   virtual bool Valid() const override {
     return second_level_iter_ != nullptr && second_level_iter_->Valid();
@@ -370,8 +374,7 @@ class LinkSstIterator final : public InternalIterator {
     iterator_cache_.SetPinnedItersMgr(pinned_iters_mgr);
   }
   virtual bool IsKeyPinned() const override {
-    return second_level_iter_ != nullptr &&
-           second_level_iter_->IsKeyPinned();
+    return second_level_iter_ != nullptr && second_level_iter_->IsKeyPinned();
   }
   virtual bool IsValuePinned() const override {
     return second_level_iter_ != nullptr &&
@@ -541,7 +544,11 @@ class MapSstIterator final : public InternalIterator {
         iterator_cache_(depend_files, create_arg, create),
         include_smallest_(false),
         include_largest_(false),
-        min_heap_(icomp) {}
+        min_heap_(icomp) {
+    if (file_meta_.sst_variety != kMapSst) {
+      abort();
+    }
+  }
 
   ~MapSstIterator() {
     min_heap_.~BinaryHeap();
@@ -717,12 +724,10 @@ class MapSstIterator final : public InternalIterator {
     iterator_cache_.SetPinnedItersMgr(pinned_iters_mgr);
   }
   virtual bool IsKeyPinned() const override {
-    return !min_heap_.empty() &&
-           min_heap_.top().iter->IsKeyPinned();
+    return !min_heap_.empty() && min_heap_.top().iter->IsKeyPinned();
   }
   virtual bool IsValuePinned() const override {
-    return !min_heap_.empty() &&
-           min_heap_.top().iter->IsValuePinned();
+    return !min_heap_.empty() && min_heap_.top().iter->IsValuePinned();
   }
 };
 

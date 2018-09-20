@@ -174,13 +174,14 @@ class SourceInternalIteratorWrapperBase
   Slice key() const override { return inner_->key(); }
   TValue value() const override { return inner_->value(); }
   virtual Status status() const override { return inner_->status(); }
-  virtual bool IsOutOfBound() { return inner_->IsOutOfBound(); }
-  virtual void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
+  virtual bool IsOutOfBound() override { return inner_->IsOutOfBound(); }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
     inner_->SetPinnedItersMgr(pinned_iters_mgr);
   }
-  virtual bool IsKeyPinned() const { return inner_->IsKeyPinned(); }
-  virtual bool IsValuePinned() const { return inner_->IsValuePinned(); }
-  virtual Status GetProperty(std::string prop_name, std::string* prop) {
+  virtual bool IsKeyPinned() const override { return inner_->IsKeyPinned(); }
+  virtual bool IsValuePinned() const override { return inner_->IsValuePinned(); }
+  virtual Status GetProperty(std::string prop_name, std::string* prop) override {
     return inner_->GetProperty(prop_name, prop);
   }
 
