@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/flush_manager.h"
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "util/fault_injection_test_env.h"
@@ -23,6 +25,40 @@ class DBFlushDirectIOTest : public DBFlushTest,
                             public ::testing::WithParamInterface<bool> {
  public:
   DBFlushDirectIOTest() : DBFlushTest() {}
+};
+
+class SequentialFlushManager : public FlushManager {
+ public:
+  virtual Status OnHandleWriteBufferFull(FlushCallbackArg* arg) override {
+    assert(arg != nullptr);
+    ChooseColumnFamilies(arg->candidates, &(arg->to_flush));
+    return Status::OK();
+  }
+
+  virtual Status OnSwitchWAL(FlushCallbackArg* arg) override {
+    assert(arg != nullptr);
+    ChooseColumnFamilies(arg->candidates, &(arg->to_flush));
+    return Status::OK();
+  }
+
+  virtual Status OnScheduleFlushes(FlushCallbackArg* arg) override {
+    assert(arg != nullptr);
+    TEST_SYNC_POINT_CALLBACK("SequentialFlushManager::OnScheduleFlushes",
+                             nullptr /* arg */);
+    ChooseColumnFamilies(arg->candidates, &(arg->to_flush));
+    return Status::OK();
+  }
+
+ private:
+  void ChooseColumnFamilies(
+      const std::vector<uint32_t>& cf_ids,
+      std::vector<std::vector<uint32_t>>* to_flush) const {
+    std::vector<uint32_t> tmp_vec;
+    for (const auto id : cf_ids) {
+      tmp_vec.push_back(id);
+    }
+    to_flush->emplace_back(tmp_vec);
+  }
 };
 
 // We had issue when two background threads trying to flush at the same time,
@@ -168,6 +204,39 @@ TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
 
   // Manual flush should return, without waiting for flush indefinitely.
   t.join();
+}
+
+TEST_F(DBFlushTest, CustomFlushManager) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.flush_manager.reset(new SequentialFlushManager());
+  options.write_buffer_size = (static_cast<size_t>(64) << 10);
+  std::string cf1_name("cf1"), cf2_name("cf2");
+  CreateAndReopenWithCF({cf1_name, cf2_name}, options);
+
+  bool on_schedule_flushes_called = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "SequentialFlushManager::OnScheduleFlushes",
+      [&](void* /* arg */) { on_schedule_flushes_called = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i != 100000; ++i) {
+    for (int j = 0; j != 3; ++j) {
+      ASSERT_OK(Put(j /* cf */, std::to_string(i), "val" + std::to_string(i)));
+    }
+  }
+  ASSERT_TRUE(on_schedule_flushes_called);
+
+  // Reopen and verify
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name, cf2_name},
+                           options);
+  for (int j = 0; j != 3; ++j) {
+    for (int i = 0; i != 10000; ++i) {
+      std::string value = Get(j /* cf */, std::to_string(i));
+      ASSERT_EQ("val" + std::to_string(i), value);
+    }
+  }
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
