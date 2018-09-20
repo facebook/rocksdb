@@ -209,6 +209,7 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
   std::unique_ptr<RandomAccessFile> rfile;
   Status s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
   if (!s.ok()) {
+    printf("here\n");
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file for random-read: %s status: '%s'"
                     " exists: '%s'",
