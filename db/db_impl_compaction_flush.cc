@@ -1257,9 +1257,16 @@ Status DBImpl::WaitForFlushMemTables(
     const autovector<const uint64_t*>& flush_memtable_ids) {
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  return WaitForFlushMemTablesWithLock(cfds, flush_memtable_ids);
+  Status s = WaitForFlushMemTablesWithLock(cfds, flush_memtable_ids);
+  if (error_handler_.IsDBStopped()) {
+    s = error_handler_.GetBGError();
+  }
+  return s;
 }
 
+/*
+ * This function can be called by both foreground and background threads.
+ */
 Status DBImpl::WaitForFlushMemTablesWithLock(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids) {
@@ -1293,11 +1300,7 @@ Status DBImpl::WaitForFlushMemTablesWithLock(
     }
     bg_cv_.Wait();
   }
-  Status s;
-  if (error_handler_.IsDBStopped()) {
-    s = error_handler_.GetBGError();
-  }
-  return s;
+  return Status::OK();
 }
 
 Status DBImpl::EnableAutoCompaction(
