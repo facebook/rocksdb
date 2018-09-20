@@ -296,11 +296,8 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
-  // hold write mutex on file and call
-  // creates a Random Access reader for GET call
-  std::shared_ptr<RandomAccessFileReader> GetOrOpenRandomAccessReader(
-      const std::shared_ptr<BlobFile>& bfile, Env* env,
-      const EnvOptions& env_options);
+  Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
+                           std::shared_ptr<RandomAccessFileReader>* reader);
 
   // hold write mutex on file and call.
   // Close the above Random Access reader

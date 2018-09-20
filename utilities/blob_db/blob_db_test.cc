@@ -16,6 +16,7 @@
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
 #include "util/cast_util.h"
+#include "util/fault_injection_test_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -40,6 +41,7 @@ class BlobDBTest : public testing::Test {
   BlobDBTest()
       : dbname_(test::PerThreadDBPath("blob_db_test")),
         mock_env_(new MockTimeEnv(Env::Default())),
+        fault_injection_env_(new FaultInjectionTestEnv(Env::Default())),
         blob_db_(nullptr) {
     Status s = DestroyBlobDB(dbname_, Options(), BlobDBOptions());
     assert(s.ok());
@@ -236,6 +238,7 @@ class BlobDBTest : public testing::Test {
 
   const std::string dbname_;
   std::unique_ptr<MockTimeEnv> mock_env_;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
   BlobDB *blob_db_;
 };  // class BlobDBTest
 
@@ -354,6 +357,23 @@ TEST_F(BlobDBTest, GetExpiration) {
   ASSERT_EQ(300 /* = 100 + 200 */, expiration);
 }
 
+TEST_F(BlobDBTest, GetIOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;  // Make sure value write to blob file
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options, options);
+  ColumnFamilyHandle *column_family = blob_db_->DefaultColumnFamily();
+  PinnableSlice value;
+  ASSERT_OK(Put("foo", "bar"));
+  fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+  Status s = blob_db_->Get(ReadOptions(), column_family, "foo", &value);
+  ASSERT_TRUE(s.IsIOError());
+  // Reactivate file system to allow test to close DB.
+  fault_injection_env_->SetFilesystemActive(true);
+}
+
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
   BlobDBOptions bdb_options;
@@ -461,7 +481,6 @@ TEST_F(BlobDBTest, DecompressAfterReopen) {
   Reopen(bdb_options);
   VerifyDB(data);
 }
-
 #endif
 
 TEST_F(BlobDBTest, MultipleWriters) {
