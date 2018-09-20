@@ -362,10 +362,18 @@ const WriteBatchEntryIndexFactory* skip_list_WriteBatchEntryIndexFactory() {
 
 WriteBatchEntryIndexFactoryRegister::WriteBatchEntryIndexFactoryRegister(
     const char* name, const WriteBatchEntryIndexFactory* factory) {
-  GetWriteBatchEntryIndexFactoryMap().emplace(name, factory);
+  auto ib = GetWriteBatchEntryIndexFactoryMap().emplace(name, factory);
+  assert(ib.second);
+  if (!ib.second) {
+    fprintf(stderr,
+      "ERROR: duplicate MemTable name: %s, DLL may be loaded multi times\n",
+      name);
+    abort();
+  }
 }
 
-const WriteBatchEntryIndexFactory* GetWriteBatchEntryIndexFactory(const char* name) {
+const WriteBatchEntryIndexFactory*
+   GetWriteBatchEntryIndexFactory(const char* name) {
   auto& factoryMap = GetWriteBatchEntryIndexFactoryMap();
   auto find = factoryMap.find(name);
   if (find == factoryMap.end()) {

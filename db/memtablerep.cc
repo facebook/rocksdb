@@ -130,8 +130,14 @@ GetMemtableFactoryMap() {
 }
 
 MemTableRegister::MemTableRegister(const char* name, FactoryCreator fc) {
-  auto ib = GetMemtableFactoryMap().insert(std::make_pair(name, fc));
+  auto ib = GetMemtableFactoryMap().emplace(name, fc);
   assert(ib.second);
+  if (!ib.second) {
+    fprintf(stderr,
+      "ERROR: duplicate MemTable name: %s, DLL may be loaded multi times\n",
+      name);
+    abort();
+  }
 }
 
 MemTableRepFactory* CreateMemTableRepFactory(
