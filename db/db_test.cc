@@ -5471,7 +5471,7 @@ class WriteStallListener : public EventListener {
       expected_set_ = true;
       while (expected != condition_) {
         // We bail out on timeout 500 milliseconds
-        const uint64_t timeout_us = 500000;
+        const uint64_t timeout_us = 4*500000;
         if (cond_.TimedWait(timeout_us)) {
           expected_set_ = false;
           return false;

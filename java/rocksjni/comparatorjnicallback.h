@@ -12,10 +12,15 @@
 #include <jni.h>
 #include <memory>
 #include <string>
+#include <map>
 #include "rocksjni/jnicallback.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
+
+
+
+using namespace std;
 
 namespace rocksdb {
 
@@ -29,6 +34,23 @@ struct ComparatorJniCallbackOptions {
 
   ComparatorJniCallbackOptions() : use_adaptive_mutex(false) {
   }
+};
+
+//
+//wgao Thread Local class that hold jobject
+//
+class ThreadLocalJObject {
+public:
+    ThreadLocalJObject();
+
+	~ThreadLocalJObject();
+
+public:
+	volatile long lInited = 0;
+	volatile long lObjAssigned = 0;
+	JavaVM* m_jvm     = nullptr;
+    JNIEnv* m_pJniEnv = nullptr;
+	jobject m_jSlice  = nullptr;
 };
 
 /**
@@ -53,11 +75,12 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
       const ComparatorJniCallbackOptions* copt);
     virtual const char* Name() const;
     virtual int Compare(const Slice& a, const Slice& b) const;
+
     virtual void FindShortestSeparator(
       std::string* start, const Slice& limit) const;
     virtual void FindShortSuccessor(std::string* key) const;
 
- private:
+protected:
     // used for synchronisation in compare method
     std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
@@ -66,6 +89,7 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
     jmethodID m_jCompareMethodId;
     jmethodID m_jFindShortestSeparatorMethodId;
     jmethodID m_jFindShortSuccessorMethodId;
+
 
  protected:
     jobject m_jSliceA;
@@ -79,6 +103,10 @@ class ComparatorJniCallback : public BaseComparatorJniCallback {
         JNIEnv* env, jobject jComparator,
         const ComparatorJniCallbackOptions* copt);
       ~ComparatorJniCallback();
+      virtual int Compare(const Slice& a, const Slice& b) const;
+	  int CompareNoLock(JNIEnv* env, const jobject& jSliceA,
+                                const jobject& jSliceB, const Slice& a,
+                                const Slice& b, jboolean attached_thread) const;
 };
 
 class DirectComparatorJniCallback : public BaseComparatorJniCallback {
