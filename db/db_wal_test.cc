@@ -1339,12 +1339,13 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
 
     TestFlushListener() = default;
 
-    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) {
+    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
       count++;
       assert(FlushReason::kWriteBufferManager == flush_job_info.flush_reason);
     }
   };
-  std::shared_ptr<TestFlushListener> test_listener(new TestFlushListener());
+  std::shared_ptr<TestFlushListener> test_listener =
+      std::make_shared<TestFlushListener>();
 
   constexpr size_t kKB = 1024;
   constexpr size_t kMB = 1024 * 1024;
