@@ -282,8 +282,7 @@ class MemTableIterator : public InternalIterator {
 #ifndef NDEBUG
     // Assert that the MemTableIterator is never deleted while
     // Pinning is Enabled.
-    assert(!pinned_iters_mgr_ ||
-           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 #endif
     if (arena_mode_) {
       iter_->~Iterator();
@@ -793,7 +792,10 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-  Add(seq, kTypeValue, key, value);
+  bool add_res __attribute__((__unused__));
+  add_res = Add(seq, kTypeValue, key, value);
+  // We already checked unused != seq above. In that case, Add should not fail.
+  assert(add_res);
 }
 
 bool MemTable::UpdateCallback(SequenceNumber seq,

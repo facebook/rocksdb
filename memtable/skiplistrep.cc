@@ -177,7 +177,7 @@ bool InsertKeyValueConcurrently(const Slice& internal_key,
       iter_.SeekToLast();
     }
 
-    virtual bool IsSeekForPrevSupported() const { return true; }
+    virtual bool IsSeekForPrevSupported() const override { return true; }
    protected:
     std::string tmp_;       // For passing to EncodeKey
   };

@@ -131,9 +131,7 @@ GetMemtableFactoryMap() {
 
 MemTableRegister::MemTableRegister(const char* name, FactoryCreator fc) {
   auto ib = GetMemtableFactoryMap().insert(std::make_pair(name, fc));
-  if (!ib.second) {
-    fprintf(stderr, "ERROR: duplicate MemTable name: %s\n", name);
-  }
+  assert(ib.second);
 }
 
 MemTableRepFactory* CreateMemTableRepFactory(
