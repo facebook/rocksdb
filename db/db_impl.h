@@ -241,6 +241,7 @@ class DBImpl : public DB {
   SequenceNumber TEST_GetLastVisibleSequence() const;
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
+  //wgao do UT test
 
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
