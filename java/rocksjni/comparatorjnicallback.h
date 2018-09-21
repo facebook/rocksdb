@@ -50,6 +50,7 @@ public:
 	JavaVM* m_jvm     = nullptr;
     JNIEnv* m_pJniEnv = nullptr;
 	jobject m_jSlice  = nullptr;
+	
 };
 
 /**
