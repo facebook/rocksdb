@@ -39,6 +39,10 @@ jlong rocksdb_open_helper(
     // exception thrown: OutOfMemoryError
     return 0;
   }
+  
+  
+  
+  
 
   auto* opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   rocksdb::DB* db = nullptr;
