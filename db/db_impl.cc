@@ -1796,6 +1796,8 @@ Status DBImpl::NewIterators(
   if (read_options.managed) {
     return Status::NotSupported("Managed iterator is not supported anymore.");
   }
+    
+    
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
