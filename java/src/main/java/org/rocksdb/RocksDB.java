@@ -72,6 +72,10 @@ public class RocksDB extends RocksObject {
       return;
     }
 
+    
+    
+    
+    
     while (libraryLoaded.get() == LibraryState.LOADING) {
       try {
         Thread.sleep(10);
