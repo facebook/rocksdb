@@ -58,7 +58,6 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
     virtual void FindShortSuccessor(std::string* key) const;
 
  private:
- 
     // used for synchronisation in compare method
     std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
