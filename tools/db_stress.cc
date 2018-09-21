@@ -133,6 +133,9 @@ DEFINE_bool(test_batches_snapshots, false,
             "\t(b) No long validation at the end (more speed up)\n"
             "\t(c) Test snapshot and atomicity of batch writes");
 
+DEFINE_bool(atomic_flush, false,
+            "If true, the test enables atomic flush\n");
+
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
 DEFINE_int32(ttl, -1,
@@ -3329,15 +3332,64 @@ class BatchedOpsStressTest : public StressTest {
 
 class AtomicFlushStressTest : public StressTest {
  public:
-  AtomicFlushStressTest() {}
+  AtomicFlushStressTest(): batch_id_(0) {}
+
   virtual ~AtomicFlushStressTest() {}
 
   virtual Status TestPut(
       ThreadState* thread,
       WriteOptions& write_opts, const ReadOptions& /* read_opts */,
       const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys,
+      const std::vector<int64_t>& /*rand_keys*/,
       char (&value)[100], std::unique_ptr<MutexLock>& /* lock */) {
+    int64_t curr_key = batch_id_.fetch_add(1);
+    std::string key_str = Key(curr_key);
+    Slice key = key_str;
+    uint64_t value_base = batch_id_.fetch_add(1);
+    size_t sz = GenerateValue(value_base, value, sizeof(value));
+    Slice v(value, sz);
+    Status s;
+    for (auto cf : rand_column_families) {
+      ColumnFamilyHandle* cfh = column_families_[cf];
+      if (FLAGS_use_merge) {
+        if (!FLAGS_use_txn) {
+          s = db_->Merge(write_opts, cfh, key, v);
+        } else {
+#ifndef ROCKSDB_LITE
+          Transaction* txn = nullptr;
+          s = NewTxn(write_opts, &txn);
+          if (s.ok()) {
+            s = txn->Merge(cfh, key, v);
+            if (s.ok()) {
+              s = CommitTxn(txn);
+            }
+          }
+#endif
+        }
+      } else { /* !FLAGS_use_merge */
+#ifndef ROCKSDB_LITE
+        if (!FLAGS_use_txn) {
+          s = db_->Put(write_opts, cfh, key, v);
+        } else {
+          Transaction* txn = nullptr;
+          s = NewTxn(write_opts, &txn);
+          if (s.ok()) {
+            s = txn->Put(cfh, key, v);
+            if (s.ok()) {
+              s = CommitTxn(txn);
+            }
+          }
+        }
+#endif
+      }
+      if (!s.ok()) {
+        fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
+      thread->stats.AddBytesForWrites(1, sz);
+      PrintKeyValue(cf, static_cast<uint32_t>(curr_key), value, sz);
+    }
+    return s;
   }
 
   virtual Status TestDelete(
@@ -3346,6 +3398,11 @@ class AtomicFlushStressTest : public StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys,
       std::unique_ptr<MutexLock>& /* lock */) {
+    (void) thread;
+    (void) write_opts;
+    (void) rand_column_families;
+    (void) rand_keys;
+    return Status::OK();
   }
 
   virtual Status TestDeleteRange(
@@ -3354,6 +3411,7 @@ class AtomicFlushStressTest : public StressTest {
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
       std::unique_ptr<MutexLock>& /* lock */) {
+    return Status::OK();
   }
 
   virtual void TestIngestExternalFile(
@@ -3366,14 +3424,59 @@ class AtomicFlushStressTest : public StressTest {
   virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
+    (void) thread;
+    (void) readoptions;
+    (void) rand_column_families;
+    (void) rand_keys;
+    return Status::OK();
   }
 
   virtual Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
+    (void) thread;
+    (void) readoptions;
+    (void) rand_column_families;
+    (void) rand_keys;
+    return Status::OK();
   }
 
-  virtual void VerifyDb(ThreadState* /* thread */) const {}
+  virtual void VerifyDb(ThreadState* thread) const {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    assert(thread != nullptr);
+    auto shared = thread->shared;
+    unique_ptr<Iterator> iter(db_->NewIterator(options, column_families_[0]));
+    iter->SeekToFirst();
+    for (; iter->Valid(); iter->Next()) {
+      Slice key = iter->key();
+      std::string expected_value = iter->value().ToString();
+      for (size_t cf = 1; cf < column_families_.size(); ++cf) {
+        std::string value;
+        Status s = db_->Get(options, column_families_[cf], key, &value);
+        if (s.IsNotFound() || (s.ok() && value != expected_value)) {
+          fprintf(stderr, "Verification failed between cf%s and cf%s, status:%s\n",
+                  column_families_[0]->GetName().c_str(), column_families_[cf]->GetName().c_str(),
+                  s.ToString().c_str());
+          shared->SetVerificationFailure();
+        }
+      }
+    }
+  }
+
+  virtual std::vector<int> GenerateColumnFamilies(
+      const int /* num_column_families */,
+      int /* rand_column_family */) const {
+    std::vector<int> ret;
+    int num = static_cast<int>(column_families_.size());
+    int k = 0;
+    std::generate_n(back_inserter(ret), num, [&k]() -> int{
+        return k++;
+        });
+    return ret;
+  }
+
+ private:
+  std::atomic<int64_t> batch_id_;
 };
 
 }  // namespace rocksdb
@@ -3479,6 +3582,8 @@ int main(int argc, char** argv) {
   std::unique_ptr<rocksdb::StressTest> stress;
   if (FLAGS_test_batches_snapshots) {
     stress.reset(new rocksdb::BatchedOpsStressTest());
+  } else if (FLAGS_atomic_flush) {
+    stress.reset(new rocksdb::AtomicFlushStressTest());
   } else {
     stress.reset(new rocksdb::NonBatchedOpsStressTest());
   }
