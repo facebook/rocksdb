@@ -57,7 +57,7 @@ struct FileMetaDataBoundBuilder {
 
 bool IsPrefaceRange(const Range& range, const FileMetaData* f,
                     const InternalKeyComparator& icomp) {
-  assert(f->sst_variety != kMapSst);
+  assert(f->sst_purpose != kMapSst);
   if (!range.include_start ||
       icomp.Compare(f->smallest.Encode(), range.start) != 0) {
     return false;
@@ -310,7 +310,7 @@ Status LoadRangeWithDepend(std::vector<RangeWithDepend>& ranges,
   for (size_t i = 0; i < n; ++i) {
     auto f = file_meta[i];
     TableReader* reader;
-    if (f->sst_variety == kMapSst) {
+    if (f->sst_purpose == kMapSst) {
       auto iter = iterator_cache.GetIterator(f, &reader);
       assert(iter != nullptr);
       if (!iter->status().ok()) {
@@ -529,7 +529,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
 
     return cfd->table_cache()->NewIterator(
         read_options, env_options_for_read_, cfd->internal_comparator(), *f,
-        f->sst_variety == kMapSst ? empty_delend_files : depend_files, nullptr,
+        f->sst_purpose == kMapSst ? empty_delend_files : depend_files, nullptr,
         cfd->GetCurrentMutableCFOptions()->prefix_extractor.get(), reader_ptr,
         nullptr /* no per level latency histogram */, true /* for_compaction */,
         arena, false /* skip_filters */, -1);
@@ -748,7 +748,7 @@ Status MapBuilder::WriteOutputFile(
   std::vector<uint64_t> sst_depend;
   size_t sst_read_amp = 1;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
-  collectors.emplace_back(new SstVarietyPropertiesCollectorFactory(
+  collectors.emplace_back(new SstPurposePropertiesCollectorFactory(
       (uint8_t)kMapSst, &sst_depend, &sst_read_amp));
 
   // no need to lock because VersionSet::next_file_number_ is atomic
@@ -887,7 +887,7 @@ Status MapBuilder::WriteOutputFile(
   builder.reset();
 
   // Update metadata
-  file_meta->sst_variety = kMapSst;
+  file_meta->sst_purpose = kMapSst;
   file_meta->sst_depend = std::move(sst_depend);
 
   return s;

@@ -60,14 +60,14 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
 Status SstVarietyPropertiesCollector::Finish(
     UserCollectedProperties* properties) {
   assert(properties);
-  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstVariety) ==
+  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstPurpose) ==
          properties->end());
   assert(properties->find(SSTVarietiesTablePropertiesNames::kSstDepend) ==
          properties->end());
 
   auto sst_variety_value = std::string((const char*)&sst_variety_, 1);
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstVariety, sst_variety_value});
+      {SSTVarietiesTablePropertiesNames::kSstPurpose, sst_variety_value});
 
   std::string sst_depend;
   PutVarint64(&sst_depend, sst_depend_->size());
@@ -99,7 +99,7 @@ UserCollectedProperties SstVarietyPropertiesCollector::GetReadableProperties()
     }
     sst_depend.back() = ']';
   }
-  return {{"kSstVariety", ToString((int)sst_variety_)},
+  return {{"kSstPurpose", ToString((int)sst_variety_)},
           {"kSstDepend", sst_depend},
           {"kSstReadAmp", ToString(*sst_read_amp_)}};
 }
@@ -148,7 +148,7 @@ const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
     "rocksdb.deleted.keys";
 const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
-const std::string SSTVarietiesTablePropertiesNames::kSstVariety =
+const std::string SSTVarietiesTablePropertiesNames::kSstPurpose =
     "rocksdb.sst.variety";
 const std::string SSTVarietiesTablePropertiesNames::kSstDepend =
     "rocksdb.sst.depend";
@@ -167,8 +167,8 @@ uint64_t GetMergeOperands(const UserCollectedProperties& props,
       props, InternalKeyTablePropertiesNames::kMergeOperands, property_present);
 }
 
-uint8_t GetSstVariety(const UserCollectedProperties& props) {
-  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstVariety);
+uint8_t GetSstPurpose(const UserCollectedProperties& props) {
+  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstPurpose);
   if (pos == props.end()) {
     return 0;
   }

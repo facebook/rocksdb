@@ -199,7 +199,7 @@ Status BuildTable(
     if (s.ok() && !empty) {
       // this sst has no depend ...
       DependFileMap empty_depend_files;
-      assert(meta->sst_variety == 0);
+      assert(meta->sst_purpose == 0);
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
       // here because this is a special case after we finish the table building

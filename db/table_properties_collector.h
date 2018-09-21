@@ -20,7 +20,7 @@ struct InternalKeyTablePropertiesNames {
 };
 
 struct SSTVarietiesTablePropertiesNames {
-  static const std::string kSstVariety;
+  static const std::string kSstPurpose;
   static const std::string kSstDepend;
   static const std::string kSstReadAmp;
 };
@@ -118,10 +118,10 @@ class SstVarietyPropertiesCollector final : public IntTblPropCollector {
   size_t* sst_read_amp_;
 };
 
-class SstVarietyPropertiesCollectorFactory final
+class SstPurposePropertiesCollectorFactory final
     : public IntTblPropCollectorFactory {
  public:
-  SstVarietyPropertiesCollectorFactory(uint8_t _sst_variety,
+  SstPurposePropertiesCollectorFactory(uint8_t _sst_variety,
                                        std::vector<uint64_t>* _sst_depend,
                                        size_t* _sst_read_amp)
       : sst_variety_(_sst_variety),
@@ -135,7 +135,7 @@ class SstVarietyPropertiesCollectorFactory final
   }
 
   virtual const char* Name() const override {
-    return "SstVarietyPropertiesCollectorFactory";
+    return "SstPurposePropertiesCollectorFactory";
   }
 
  private:

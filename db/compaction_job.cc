@@ -552,7 +552,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
           }
         }
         for (size_t i = 0; i < num_files; i++) {
-          if (flevel->files[i].file_metadata->sst_variety == kMapSst) {
+          if (flevel->files[i].file_metadata->sst_purpose == kMapSst) {
             auto& depend_files =
                 c->input_version()->storage_info()->depend_files();
             for (auto sst_id : flevel->files[i].file_metadata->sst_depend) {
@@ -1237,7 +1237,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::vector<uint64_t> sst_depend;
   size_t sst_read_amp = 1;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>> collectors;
-  collectors.emplace_back(new SstVarietyPropertiesCollectorFactory(
+  collectors.emplace_back(new SstPurposePropertiesCollectorFactory(
       (uint8_t)kLinkSst, &sst_depend, &sst_read_amp));
 
   auto& s = sub_compact->status;
@@ -1277,7 +1277,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     LinkSstElement link;
     link.largest_key_ = last_key.Encode();
     const FileMetaData* source_meta = (const FileMetaData*)last_source.data;
-    assert(source_meta->sst_variety == 0);
+    assert(source_meta->sst_purpose == 0);
     link.sst_id_ = source_meta->fd.GetNumber();
     sst_depend_build.emplace(link.sst_id_);
     link.key_count_ = key_count;
@@ -1321,7 +1321,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
                                  range_del_agg.get(), &range_del_out_stats);
 
   // Update metadata
-  meta.sst_variety = kLinkSst;
+  meta.sst_purpose = kLinkSst;
   meta.sst_depend = std::move(sst_depend);
 }
 

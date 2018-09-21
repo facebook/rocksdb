@@ -68,7 +68,7 @@ InternalIterator* TranslateVarietySstIterator(
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* create_iter_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
-  if (file_meta.sst_variety == 0) {
+  if (file_meta.sst_purpose == 0) {
     assert(false);
     return variety_sst_iter;
   }
@@ -89,15 +89,13 @@ InternalIterator* TranslateVarietySstIterator(
   return result;
 }
 
-Status GetFromVarietySst(const FileMetaData& file_meta,
-                         TableReader* table_reader,
-                         const InternalKeyComparator& icomp, const Slice& k,
-                         GetContext* get_context, void* arg,
-                         bool (*get_from_sst)(void* arg, const Slice& find_k,
-                                              uint64_t sst_id,
-                                              Status& status)) {
+Status RecursiveGet(const FileMetaData& file_meta, TableReader* table_reader,
+                    const InternalKeyComparator& icomp, const Slice& k,
+                    GetContext* get_context, void* arg,
+                    bool (*get_from_sst)(void* arg, const Slice& find_k,
+                                         uint64_t sst_id, Status& status)) {
   Status s;
-  switch (file_meta.sst_variety) {
+  switch (file_meta.sst_purpose) {
     case kLinkSst: {
       InternalKey smallest_key;
       auto get_from_link = [&](const Slice& largest_key,
@@ -429,7 +427,7 @@ InternalIterator* TableCache::NewIterator(
         result = NewSourceInternalIterator(result, arena);
         result->SetSource(source);
       }
-      if (file_meta.sst_variety != 0 && !depend_files.empty()) {
+      if (file_meta.sst_purpose != 0 && !depend_files.empty()) {
         // Store params for create depend table iterator in future
         // DON'T REF THIS OBJECT, DEEP COPY IT !
         struct CreateIterator {
@@ -461,7 +459,7 @@ InternalIterator* TableCache::NewIterator(
         } else {
           buffer = new CreateIteratorStorage();
         }
-        bool ignore_range_del_agg = file_meta.sst_variety == kLinkSst;
+        bool ignore_range_del_agg = file_meta.sst_purpose == kLinkSst;
         CreateIterator* create_iter = new (buffer)
             CreateIterator{this, options, env_options, icomparator,
                            ignore_range_del_agg ? nullptr : range_del_agg,
@@ -498,7 +496,7 @@ InternalIterator* TableCache::NewIterator(
     }
   }
   if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions &&
-      file_meta.sst_variety != kMapSst) {
+      file_meta.sst_purpose != kMapSst) {
     if (range_del_agg->AddFile(fd.GetNumber())) {
       std::unique_ptr<InternalIterator> range_del_iter(
           table_reader->NewRangeTombstoneIterator(options));
@@ -542,7 +540,7 @@ Status TableCache::Get(const ReadOptions& options,
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence() &&
-      file_meta.sst_variety == 0) {
+      file_meta.sst_purpose == 0) {
     uint64_t fd_number = fd.GetNumber();
     auto user_key = ExtractUserKey(k);
     // We use the user key as cache key instead of the internal key,
@@ -606,7 +604,7 @@ Status TableCache::Get(const ReadOptions& options,
       }
     }
     if (s.ok() && get_context->range_del_agg() != nullptr &&
-        !options.ignore_range_deletions && file_meta.sst_variety != kMapSst) {
+        !options.ignore_range_deletions && file_meta.sst_purpose != kMapSst) {
       std::unique_ptr<InternalIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
       if (range_del_iter != nullptr) {
@@ -621,7 +619,7 @@ Status TableCache::Get(const ReadOptions& options,
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      if (file_meta.sst_variety == 0) {
+      if (file_meta.sst_purpose == 0) {
         s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
       } else if (depend_files.empty()) {
         s = Status::Corruption("Variety sst depend files missing");
@@ -640,9 +638,8 @@ Status TableCache::Get(const ReadOptions& options,
 
           return status.ok() && !get_context->is_finished();
         };
-        s = GetFromVarietySst(file_meta, t, internal_comparator, k,
-                              get_context, &get_from_sst,
-                              c_style_callback(get_from_sst));
+        s = RecursiveGet(file_meta, t, internal_comparator, k, get_context,
+                         &get_from_sst, c_style_callback(get_from_sst));
       }
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {

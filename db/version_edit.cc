@@ -52,7 +52,7 @@ enum CustomTag : uint32_t {
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
-  kSstVariety = 64,
+  kSstPurpose = 64,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -123,7 +123,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     }
     bool has_customized_fields = false;
     if (f.marked_for_compaction || has_min_log_number_to_keep_ ||
-        f.sst_variety != 0) {
+        f.sst_purpose != 0) {
       PutVarint32(dst, kNewFile4);
       has_customized_fields = true;
     } else if (f.fd.GetPathId() == 0) {
@@ -186,10 +186,10 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
         PutLengthPrefixedSlice(dst, Slice(varint_log_number));
         min_log_num_written = true;
       }
-      if (f.sst_variety != 0) {
-        PutVarint32(dst, CustomTag::kSstVariety);
+      if (f.sst_purpose != 0) {
+        PutVarint32(dst, CustomTag::kSstPurpose);
         std::string encode_buffer;
-        encode_buffer += (char)f.sst_variety;
+        encode_buffer += (char)f.sst_purpose;
         PutVarint64(&encode_buffer, f.sst_depend.size());
         for (auto sst_id : f.sst_depend) {
           PutVarint64(&encode_buffer, sst_id);
@@ -301,13 +301,13 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           has_min_log_number_to_keep_ = true;
           break;
-        case kSstVariety:
+        case kSstPurpose:
           do {
-            const char* error_msg = "sst_variety field wrong size";
+            const char* error_msg = "sst_purpose field wrong size";
             if (field.empty()) {
               return error_msg;
             }
-            f.sst_variety = (uint8_t)field[0];
+            f.sst_purpose = (uint8_t)field[0];
             field.remove_prefix(1);
             uint64_t size;
             if (!GetVarint64(&field, &size)) {

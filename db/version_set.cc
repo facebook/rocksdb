@@ -1443,7 +1443,7 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
         // size of deletion entries in a stable workload, the deletion
         // compensation logic might introduce unwanted effet which changes the
         // shape of LSM tree.
-        if (f->sst_variety == 0) {
+        if (f->sst_purpose == 0) {
           if (f->num_deletions * 2 >= f->num_entries) {
             compensated_file_size += (f->num_deletions * 2 - f->num_entries) *
                                      average_value_size *
@@ -1800,7 +1800,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   level_files->push_back(f);
   if (level == -1) {
     depend_files_.emplace(f->fd.GetNumber(), f);
-  } else if (f->sst_variety != 0) {
+  } else if (f->sst_purpose != 0) {
     has_space_amplification_.emplace(level);
   }
 }
@@ -4064,7 +4064,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->sst_variety,
+                       f->marked_for_compaction, f->sst_purpose,
                        f->sst_depend);
         }
       }
@@ -4178,7 +4178,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
                                      const FileMetaData* file_meta,
                                      const FileDescriptor& fd) {
     uint64_t result = 0;
-    if (file_meta->sst_variety == 0) {
+    if (file_meta->sst_purpose == 0) {
       auto& icomp = v->cfd_->internal_comparator();
       if (icomp.Compare(file_meta->largest.Encode(), key) <= 0) {
         // Entire file is before "key", so just add the file size

@@ -306,7 +306,7 @@ class VersionBuilder::Rep {
         auto exising = levels_[level].added_files.find(number);
         if (exising != levels_[level].added_files.end()) {
           auto f = exising->second;
-          if (f->sst_variety != 0) {
+          if (f->sst_purpose != 0) {
             UnloadSstDepend(f, depend_map_);
             depend_changed = true;
           }
@@ -337,7 +337,7 @@ class VersionBuilder::Rep {
             depend_files_.begin();
         while (depend_file_count > mid) {
           auto f = depend_files_[--depend_file_count];
-          if (f->sst_variety != 0) {
+          if (f->sst_purpose != 0) {
             UnloadSstDepend(f, depend_map_);
             depend_changed = true;
           }
@@ -358,7 +358,7 @@ class VersionBuilder::Rep {
           assert(depend_map_.count(f->fd.GetNumber()) == 0);
           levels_[level].deleted_files.erase(f->fd.GetNumber());
           levels_[level].added_files[f->fd.GetNumber()] = f;
-          if (f->sst_variety != 0) {
+          if (f->sst_purpose != 0) {
             LoadSstDepend(f, depend_map_);
             depend_changed = true;
           }
@@ -392,7 +392,7 @@ class VersionBuilder::Rep {
             depend_files_.begin();
         for (; depend_file_count < mid; ++depend_file_count) {
           auto f = depend_files_[depend_file_count];
-          if (f->sst_variety != 0) {
+          if (f->sst_purpose != 0) {
             LoadSstDepend(f, depend_map_);
             depend_changed = true;
           }

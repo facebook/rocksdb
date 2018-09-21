@@ -257,7 +257,7 @@ class LinkSstIterator final : public InternalIterator {
         is_backword_(false),
         icomp_(icomp),
         iterator_cache_(depend_files, create_arg, create) {
-    if (file_meta_.sst_variety != kLinkSst) {
+    if (file_meta_.sst_purpose != kLinkSst) {
       abort();
     }
   }
@@ -538,7 +538,7 @@ class MapSstIterator final : public InternalIterator {
         include_smallest_(false),
         include_largest_(false),
         min_heap_(icomp) {
-    if (file_meta_.sst_variety != kMapSst) {
+    if (file_meta_.sst_purpose != kMapSst) {
       abort();
     }
   }
@@ -745,7 +745,7 @@ InternalIterator* NewVarietySstIterator(
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* create_iter_arg,
     const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
-  switch (file_meta.sst_variety) {
+  switch (file_meta.sst_purpose) {
     case kLinkSst:
       return NewVarietySstIteratorTpl<LinkSstIterator>(
           file_meta, variety_sst_iter, depend_files, icomp, create_iter_arg,
@@ -755,7 +755,7 @@ InternalIterator* NewVarietySstIterator(
           file_meta, variety_sst_iter, depend_files, icomp, create_iter_arg,
           create_iter, arena);
     default:
-      assert(file_meta.sst_variety != 0);
+      assert(file_meta.sst_purpose != 0);
       return variety_sst_iter;
   }
 }

@@ -526,7 +526,7 @@ struct BlockBasedTable::Rep {
 };
 
 template <class TBlockIter, typename TValue = Slice>
-class BlockBasedTableIterator : public SourceInternalIteratorBase<TValue> {
+class BlockBasedTableIterator : public InternalIteratorWithSourceBase<TValue> {
  public:
   BlockBasedTableIterator(BlockBasedTable* table,
                           const ReadOptions& read_options,

@@ -220,7 +220,7 @@ struct TableProperties {
 extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
 extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
                                  bool* property_present);
-extern uint8_t GetSstVariety(const UserCollectedProperties&);
+extern uint8_t GetSstPurpose(const UserCollectedProperties&);
 extern std::vector<uint64_t> GetSstDepend(
     const UserCollectedProperties& props);
 extern size_t GetSstReadAmp(const UserCollectedProperties& props);

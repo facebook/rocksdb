@@ -221,7 +221,7 @@ UniversalCompactionPicker::CalculateSortedRuns(
   auto get_files_size_lambda = [&vstorage,
                                 &get_files_size](const FileMetaData* f) {
     uint64_t file_size = f->fd.GetFileSize();
-    if (f->sst_variety == 0) {
+    if (f->sst_purpose == 0) {
       file_size = f->fd.GetFileSize();
     } else {
       for (auto sst_id : f->sst_depend) {
@@ -1308,7 +1308,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
       return false;
     }
     auto f = find->second;
-    if (f->sst_variety != 0) {
+    if (f->sst_purpose != 0) {
       return false;
     }
     Range r(e.smallest_key_, e.largest_key_, e.include_smallest_,

@@ -434,7 +434,7 @@ class Repairer {
 
   void ExtractMetaData() {
     DependFileMap depend_files;
-    std::map<uint64_t, TableInfo*> variety_set;
+    std::map<uint64_t, TableInfo*> purpose_set;
     // make sure tables_ enouth, so we can hold ptr of elements
     tables_.reserve(table_fds_.size());
     for (size_t i = 0; i < table_fds_.size(); i++) {
@@ -453,15 +453,15 @@ class Repairer {
       } else {
         tables_.push_back(t);
         depend_files.emplace(t.meta.fd.GetNumber(), &tables_.back().meta);
-        if (t.meta.sst_variety != 0) {
-          variety_set.emplace(t.meta.fd.GetNumber(), &tables_.back());
+        if (t.meta.sst_purpose != 0) {
+          purpose_set.emplace(t.meta.fd.GetNumber(), &tables_.back());
         }
       }
     }
-    // recover variety sst meta data
-    while (!variety_set.empty()) {
-      size_t variety_set_count = variety_set.size();
-      for (auto it = variety_set.begin(); it != variety_set.end(); ) {
+    // recover map/link sst meta data
+    while (!purpose_set.empty()) {
+      size_t variety_set_count = purpose_set.size();
+      for (auto it = purpose_set.begin(); it != purpose_set.end(); ) {
         auto& t = *it->second;
         auto cfd =
             vset_.GetColumnFamilySet()->GetColumnFamily(t.column_family_id);
@@ -476,7 +476,7 @@ class Repairer {
             result = kError;
             break;
           }
-          if (variety_set.count(sst_id) > 0) {
+          if (purpose_set.count(sst_id) > 0) {
             // depend file is variety sst, retry next loop
             assert(sst_id != t.meta.fd.GetNumber());
             result = kRetry;
@@ -511,13 +511,13 @@ class Repairer {
         if (result == kRetry) {
           ++it;
         } else {
-          variety_set.erase(it++);
+          purpose_set.erase(it++);
         }
       }
-      if (variety_set_count == variety_set.size()) {
+      if (variety_set_count == purpose_set.size()) {
         // cyclic depend files ???
         char file_num_buf[kFormatFileNumberBufSize];
-        for (auto& pair : variety_set) {
+        for (auto& pair : purpose_set) {
           auto& t = *pair.second;
           FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
                            file_num_buf, sizeof(file_num_buf));
@@ -625,7 +625,7 @@ class Repairer {
                      t->meta.fd.GetNumber(), counter,
                      status.ToString().c_str());
 
-      t->meta.sst_variety = GetSstVariety(props->user_collected_properties);
+      t->meta.sst_purpose = GetSstPurpose(props->user_collected_properties);
       t->meta.sst_depend = GetSstDepend(props->user_collected_properties);
     }
     return status;
@@ -655,7 +655,7 @@ class Repairer {
 
       std::set<uint64_t> depend_set;
       for (const auto* table : cf_id_and_tables.second) {
-        if (table->meta.sst_variety != 0) {
+        if (table->meta.sst_purpose != 0) {
           auto& sst_depend = table->meta.sst_depend;
           depend_set.insert(sst_depend.begin(), sst_depend.end());
         }
@@ -671,7 +671,7 @@ class Repairer {
                      table->meta.fd.GetFileSize(), table->meta.smallest,
                      table->meta.largest, table->min_sequence,
                      table->max_sequence, table->meta.marked_for_compaction,
-                     table->meta.sst_variety, table->meta.sst_depend);
+                     table->meta.sst_purpose, table->meta.sst_depend);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
