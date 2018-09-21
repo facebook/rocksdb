@@ -52,7 +52,8 @@ DEFINE_int32(seed, 0, "random number generator seed");
 
 DEFINE_int32(should_deletes_per_run, 1, "number of ShouldDelete calls per run");
 
-DEFINE_int32(add_tombstones_per_run, 1, "number of AddTombstones calls per run");
+DEFINE_int32(add_tombstones_per_run, 1,
+             "number of AddTombstones calls per run");
 
 namespace {
 
@@ -177,12 +178,12 @@ int main(int argc, char** argv) {
       all_persistent_range_tombstones(FLAGS_add_tombstones_per_run);
   for (int i = 0; i < FLAGS_add_tombstones_per_run; i++) {
     all_persistent_range_tombstones[i] =
-        std::vector<rocksdb::PersistentRangeTombstone>(FLAGS_num_range_tombstones);
+        std::vector<rocksdb::PersistentRangeTombstone>(
+            FLAGS_num_range_tombstones);
   }
-  auto mode =
-      FLAGS_use_collapsed
-          ? rocksdb::RangeDelPositioningMode::kForwardTraversal
-          : rocksdb::RangeDelPositioningMode::kFullScan;
+  auto mode = FLAGS_use_collapsed
+                  ? rocksdb::RangeDelPositioningMode::kForwardTraversal
+                  : rocksdb::RangeDelPositioningMode::kFullScan;
 
   for (int i = 0; i < FLAGS_num_runs; i++) {
     auto icmp = rocksdb::InternalKeyComparator(rocksdb::BytewiseComparator());
