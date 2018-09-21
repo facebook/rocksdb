@@ -287,7 +287,10 @@ Status DBImpl::Resume() {
 Status DBImpl::ResumeImpl() {
   mutex_.AssertHeld();
   WaitForBackgroundWork();
-
+    
+    
+    
+    
   Status bg_error = error_handler_.GetBGError();
   Status s;
   if (shutdown_initiated_) {
