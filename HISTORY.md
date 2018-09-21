@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.16.2 (9/21/2018)
+### Bug Fixes
+* Fix bug in partition filters with format_version=4.
+
 ## 5.16.1 (9/17/2018)
 ### Bug Fixes
 * Remove trace_analyzer_tool from rocksdb_lib target in TARGETS file.
