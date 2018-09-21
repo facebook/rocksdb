@@ -98,6 +98,7 @@
 
 namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
+const std::string kPersistentStatsColumnFamilyName("_persistent_stats");
 void DumpRocksDBBuildVersion(Logger* log);
 
 CompressionType GetCompressionFlush(
@@ -237,7 +238,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   table_cache_ = NewLRUCache(table_cache_size,
                              immutable_db_options_.table_cache_numshardbits);
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
+  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, &mutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_));
   column_family_memtables_.reset(
@@ -688,17 +689,7 @@ void DBImpl::MaybePersistStats() {
                    "------- PERSISTING STATS -------");
     WriteOptions wo;
     ColumnFamilyOptions cf_options;
-    std::string persist_stats_cf_name_("cf._persistent_stats");
     std::string now_micros_string = std::to_string(now_micros);
-    if (!persist_stats_cf_handle_) {
-      Status st = CreateColumnFamily(cf_options, persist_stats_cf_name_,
-                                          &persist_stats_cf_handle_);
-      if (!st.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "Persisting stats failed: Failed to create column family cf._persistent_stats.");
-        return;
-      }
-    }
     for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
       // how do we maintain a historical view if key/value pairs are overwritten?
       std::string key = iter->first + now_micros_string;
@@ -708,7 +699,6 @@ void DBImpl::MaybePersistStats() {
               iter->second.c_str());
     }
 #endif  // !ROCKSDB_LITE
-    // PrintStatistics();
   }
 }
 

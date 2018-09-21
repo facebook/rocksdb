@@ -2757,6 +2757,7 @@ struct VersionSet::ManifestWriter {
 
 VersionSet::VersionSet(const std::string& dbname,
                        const ImmutableDBOptions* _db_options,
+                       MutableDBOptions* mutable_db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller)
@@ -2766,6 +2767,7 @@ VersionSet::VersionSet(const std::string& dbname,
       env_(_db_options->env),
       dbname_(dbname),
       db_options_(_db_options),
+      mutable_db_options_(mutable_db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),
@@ -2977,6 +2979,7 @@ Status VersionSet::ProcessManifestWrites(
     if (s.ok()) {
       for (auto& e : batch_edits) {
         std::string record;
+        // fprintf(stdout, "encoding edit: %s\n", e->DebugString().c_str());
         if (!e->EncodeTo(&record)) {
           s = Status::Corruption("Unable to encode VersionEdit:" +
                                  e->DebugString(true));
@@ -3286,9 +3289,11 @@ Status VersionSet::ApplyOneVersionEdit(
 
   if (edit.is_column_family_add_) {
     if (cf_in_builders || cf_in_not_found) {
-      return Status::Corruption(
-          "Manifest adding the same column family twice: " +
-          edit.column_family_name_);
+      fprintf(stdout, "skipping versionedit: %s\n", edit.DebugString().c_str());
+      return Status::OK();
+      // return Status::Corruption(
+      //     "Manifest adding the same column family twice: " +
+      //     edit.column_family_name_);
     }
     auto cf_options = name_to_options.find(edit.column_family_name_);
     if (cf_options == name_to_options.end()) {
@@ -3390,6 +3395,7 @@ Status VersionSet::Recover(
     bool read_only) {
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (auto cf : column_families) {
+    // fprintf(stdout, "VersionSet::Recover: adding cf name = %s\n", cf.name.c_str());
     cf_name_to_options.insert({cf.name, cf.options});
   }
   // keeps track of column families in manifest that were not found in
@@ -3465,6 +3471,25 @@ Status VersionSet::Recover(
   // initialized earlier.
   default_cfd->set_initialized();
   builders.insert({0, new BaseReferencedVersionBuilder(default_cfd)});
+  // fprintf(stdout, "default_cf_edit = %s\n", default_cf_edit.DebugString().c_str());
+
+  if (mutable_db_options_->stats_persist_period_sec != 0) {
+    // add persistent stats column family
+    auto persistent_stats_cf_iter = cf_name_to_options.find(kPersistentStatsColumnFamilyName);
+    if (persistent_stats_cf_iter == cf_name_to_options.end()) {
+      return Status::InvalidArgument("Persistent Stats column family not specified");
+    }
+    VersionEdit persistent_stats_cf_edit;
+    persistent_stats_cf_edit.AddColumnFamily(kPersistentStatsColumnFamilyName);
+    persistent_stats_cf_edit.SetColumnFamily(1);
+    ColumnFamilyData* persistent_stats_cfd =
+        CreateColumnFamily(persistent_stats_cf_iter->second, &persistent_stats_cf_edit);
+    // In recovery, nobody else can access it, so it's fine to set it to be
+    // initialized earlier.
+    persistent_stats_cfd->set_initialized();
+    builders.insert({1, new BaseReferencedVersionBuilder(persistent_stats_cfd)});
+    // fprintf(stdout, "persistent_stats_cf_edit = %s\n", persistent_stats_cf_edit.DebugString().c_str());
+  }
 
   {
     VersionSet::LogReporter reporter;
@@ -3482,6 +3507,7 @@ Status VersionSet::Recover(
       if (!s.ok()) {
         break;
       }
+      // fprintf(stdout, "edit.toString = %s\n", edit.DebugString().c_str());
 
       if (edit.is_in_atomic_group_) {
         if (replay_buffer.empty()) {
@@ -3738,12 +3764,13 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   ImmutableDBOptions db_options(*options);
+  MutableDBOptions mutable_db_options(*options);
   ColumnFamilyOptions cf_options(*options);
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, env_options, tc.get(), &wb, &wc);
+  VersionSet versions(dbname, &db_options, &mutable_db_options, env_options, tc.get(), &wb, &wc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;

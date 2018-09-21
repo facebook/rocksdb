@@ -25,13 +25,25 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  if (db_options.stats_persist_period_sec != 0) {
+    column_families.push_back(
+        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+  }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = BlobDB::Open(db_options, bdb_options, dbname, column_families,
                           &handles, blob_db);
   if (s.ok()) {
-    assert(handles.size() == 1);
+    if (db_options.stats_persist_period_sec != 0) {
+      assert(handles.size() == 2);
+    }
+    else {
+      assert(handles.size() == 1);
+    }
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
+    if (db_options.stats_persist_period_sec != 0) {
+      delete handles[1];
+    }
     delete handles[0];
   }
   return s;
@@ -42,8 +54,11 @@ Status BlobDB::Open(const DBOptions& db_options,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles,
                     BlobDB** blob_db) {
-  if (column_families.size() != 1 ||
-      column_families[0].name != kDefaultColumnFamilyName) {
+  if ((column_families.size() != 1 ||
+        column_families[0].name != kDefaultColumnFamilyName) &&
+      (column_families.size() != 2 ||
+        column_families[0].name != kDefaultColumnFamilyName ||
+        column_families[1].name != kPersistentStatsColumnFamilyName)) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
   }

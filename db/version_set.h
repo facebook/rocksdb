@@ -742,6 +742,7 @@ class BaseReferencedVersionBuilder;
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
+             MutableDBOptions* mutable_db_options,
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller);
@@ -975,6 +976,8 @@ class VersionSet {
 
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
+  MutableDBOptions* mutable_db_options() { return mutable_db_options_; }
+
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
 
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
@@ -1027,6 +1030,7 @@ class VersionSet {
   Env* const env_;
   const std::string dbname_;
   const ImmutableDBOptions* const db_options_;
+  MutableDBOptions* mutable_db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any log number equal or lower than this should be ignored during recovery,
   // and is qualified for being deleted in 2PC mode. In non-2PC mode, this

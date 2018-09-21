@@ -1194,7 +1194,7 @@ class DBImpl : public DB {
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
-  ColumnFamilyHandle* persist_stats_cf_handle_;
+  ColumnFamilyHandleImpl* persist_stats_cf_handle_;
   InternalStats* default_cf_internal_stats_;
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {

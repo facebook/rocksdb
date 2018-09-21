@@ -208,6 +208,7 @@ class BlobDB : public StackableDB {
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
                      const std::string& dbname, BlobDB** blob_db);
 
+  // column_families should contain {"default", "_persistent_stats"}
   static Status Open(const DBOptions& db_options,
                      const BlobDBOptions& bdb_options,
                      const std::string& dbname,

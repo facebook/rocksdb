@@ -266,6 +266,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "manifest_preallocation_size=1222;"
                              "allow_mmap_writes=false;"
                              "stats_dump_period_sec=70127;"
+                             "stats_persist_period_sec=54321;"
                              "allow_fallocate=true;"
                              "allow_mmap_reads=false;"
                              "use_direct_reads=false;"

@@ -57,6 +57,8 @@ class TraceWriter;
 using std::unique_ptr;
 
 extern const std::string kDefaultColumnFamilyName;
+extern const std::string kPersistentStatsColumnFamilyName;
+
 struct ColumnFamilyDescriptor {
   std::string name;
   ColumnFamilyOptions options;

@@ -412,6 +412,10 @@ Status DBImpl::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
+    if (mutable_db_options_.stats_persist_period_sec != 0) {
+      persist_stats_cf_handle_ = new ColumnFamilyHandleImpl(
+          versions_->GetColumnFamilySet()->GetColumnFamily(kPersistentStatsColumnFamilyName), this, &mutex_);
+    }
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
@@ -1045,12 +1049,24 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  if (db_options.stats_persist_period_sec != 0) {
+    column_families.push_back(
+        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+  }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
-    assert(handles.size() == 1);
+    if (db_options.stats_persist_period_sec != 0) {
+      assert(handles.size() == 2);
+    }
+    else {
+      assert(handles.size() == 1);
+    }
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
+    if (db_options.stats_persist_period_sec != 0) {
+      delete handles[1];
+    }
     delete handles[0];
   }
   return s;

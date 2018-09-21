@@ -31,9 +31,10 @@ class FlushJobTest : public testing::Test {
         options_(),
         db_options_(options_),
         column_family_names_({kDefaultColumnFamilyName, "foo", "bar"}),
+        mutable_db_options_(options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
+        versions_(new VersionSet(dbname_, &db_options_, &mutable_db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
                                  &write_controller_)),
         shutting_down_(false),
@@ -103,6 +104,7 @@ class FlushJobTest : public testing::Test {
   Options options_;
   ImmutableDBOptions db_options_;
   const std::vector<std::string> column_family_names_;
+  MutableDBOptions mutable_db_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;

@@ -714,8 +714,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
 
   PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
 
+  // TODO(Zhongyi): fix this for _persistent_stats
   assert(!single_column_family_mode_ ||
-         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
+          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
   if (UNLIKELY(status.ok() && !single_column_family_mode_ &&
                total_log_size_ > GetMaxTotalWalSize())) {
     status = SwitchWAL(write_context);
