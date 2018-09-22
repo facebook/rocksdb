@@ -179,6 +179,11 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   iter->Prev();
   verify_state(iter, "a", "v7");
 
+  // Since the unprep_seqs_ data were faked for testing, we do not want the
+  // destructor for the transaction to be rolling back data that did not
+  // exist.
+  wup_txn->unprep_seqs_.clear();
+
   db->ReleaseSnapshot(snapshot0);
   db->ReleaseSnapshot(snapshot2);
   db->ReleaseSnapshot(snapshot4);
@@ -188,108 +193,235 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   delete txn;
 }
 
-TEST_P(WriteUnpreparedTransactionTest, RecoveryRollbackUnprepared) {
+// This tests how write unprepared behaves during recovery when the DB crashes
+// after a transaction has either been unprepared or prepared, and tests if
+// the changes are correctly applied for prepared transactions if we decide to
+// rollback/commit.
+TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
   WriteOptions write_options;
   write_options.disableWAL = false;
-  uint64_t seq_used = kMaxSequenceNumber;
-  uint64_t log_number;
-  WriteBatch batch;
+  TransactionOptions txn_options;
   std::vector<Transaction*> prepared_trans;
   WriteUnpreparedTxnDB* wup_db;
   options.disable_auto_compactions = true;
 
-  // Try unprepared batches with empty database.
-  for (int num_batches = 0; num_batches < 10; num_batches++) {
-    // Reset database.
-    prepared_trans.clear();
-    ReOpen();
-    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+  enum Action { UNPREPARED, ROLLBACK, COMMIT };
 
-    // Write num_batches unprepared batches into the WAL.
-    for (int i = 0; i < num_batches; i++) {
-      batch.Clear();
-      // TODO(lth): Instead of manually calling WriteImpl with a write batch,
-      // use methods on Transaction instead once it is implemented.
-      ASSERT_OK(WriteBatchInternal::InsertNoop(&batch));
-      ASSERT_OK(WriteBatchInternal::Put(&batch,
-                                        db->DefaultColumnFamily()->GetID(),
-                                        "k" + ToString(i), "value"));
-      // MarkEndPrepare will change the Noop marker into an unprepared marker.
-      ASSERT_OK(WriteBatchInternal::MarkEndPrepare(
-          &batch, Slice("xid1"), /* write after commit */ false,
-          /* unprepared batch */ true));
-      ASSERT_OK(wup_db->db_impl_->WriteImpl(
-          write_options, &batch, /*callback*/ nullptr, &log_number,
-          /*log ref*/ 0, /* disable memtable */ true, &seq_used,
-          /* prepare_batch_cnt_ */ 1));
+  // batch_size of 1 causes writes to DB for every marker.
+  for (size_t batch_size : {1, 1000000}) {
+    txn_options.max_write_batch_size = batch_size;
+    for (bool empty : {true, false}) {
+      for (Action a : {UNPREPARED, ROLLBACK, COMMIT}) {
+        for (int num_batches = 1; num_batches < 10; num_batches++) {
+          // Reset database.
+          prepared_trans.clear();
+          ReOpen();
+          wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+          if (!empty) {
+            for (int i = 0; i < num_batches; i++) {
+              ASSERT_OK(db->Put(WriteOptions(), "k" + ToString(i),
+                                "before value" + ToString(i)));
+            }
+          }
+
+          // Write num_batches unprepared batches.
+          Transaction* txn = db->BeginTransaction(write_options, txn_options);
+          WriteUnpreparedTxn* wup_txn = dynamic_cast<WriteUnpreparedTxn*>(txn);
+          txn->SetName("xid");
+          for (int i = 0; i < num_batches; i++) {
+            ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
+            if (txn_options.max_write_batch_size == 1) {
+              ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
+            } else {
+              ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
+            }
+          }
+          if (a == UNPREPARED) {
+            // This is done to prevent the destructor from rolling back the
+            // transaction for us, since we want to pretend we crashed and
+            // test that recovery does the rollback.
+            wup_txn->unprep_seqs_.clear();
+          } else {
+            txn->Prepare();
+          }
+          delete txn;
+
+          // Crash and run recovery code paths.
+          wup_db->db_impl_->FlushWAL(true);
+          wup_db->TEST_Crash();
+          ReOpenNoDelete();
+          assert(db != nullptr);
+
+          db->GetAllPreparedTransactions(&prepared_trans);
+          ASSERT_EQ(prepared_trans.size(), a == UNPREPARED ? 0 : 1);
+          if (a == ROLLBACK) {
+            ASSERT_OK(prepared_trans[0]->Rollback());
+            delete prepared_trans[0];
+          } else if (a == COMMIT) {
+            ASSERT_OK(prepared_trans[0]->Commit());
+            delete prepared_trans[0];
+          }
+
+          Iterator* iter = db->NewIterator(ReadOptions());
+          iter->SeekToFirst();
+          // Check that DB has before values.
+          if (!empty || a == COMMIT) {
+            for (int i = 0; i < num_batches; i++) {
+              ASSERT_TRUE(iter->Valid());
+              ASSERT_EQ(iter->key().ToString(), "k" + ToString(i));
+              if (a == COMMIT) {
+                ASSERT_EQ(iter->value().ToString(), "value" + ToString(i));
+              } else {
+                ASSERT_EQ(iter->value().ToString(),
+                          "before value" + ToString(i));
+              }
+              iter->Next();
+            }
+          }
+          ASSERT_FALSE(iter->Valid());
+          delete iter;
+        }
+      }
     }
-
-    // Crash and run recovery code paths.
-    wup_db->db_impl_->FlushWAL(true);
-    wup_db->TEST_Crash();
-    ReOpenNoDelete();
-    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
-
-    db->GetAllPreparedTransactions(&prepared_trans);
-    ASSERT_EQ(prepared_trans.size(), 0);
-
-    // Check that DB is empty.
-    Iterator* iter = db->NewIterator(ReadOptions());
-    iter->SeekToFirst();
-    ASSERT_FALSE(iter->Valid());
-    delete iter;
   }
+}
 
-  // Try unprepared batches with non-empty database.
-  for (int num_batches = 1; num_batches < 10; num_batches++) {
-    // Reset database.
-    prepared_trans.clear();
-    ReOpen();
-    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
-    for (int i = 0; i < num_batches; i++) {
-      ASSERT_OK(db->Put(WriteOptions(), "k" + ToString(i),
-                        "before value " + ToString(i)));
+// Basic test to see that unprepared batch gets written to DB when batch size
+// is exceeded. It also does some basic checks to see if commit/rollback works
+// as expected for write unprepared.
+TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  const int kNumKeys = 10;
+
+  // batch_size of 1 causes writes to DB for every marker.
+  for (size_t batch_size : {1, 1000000}) {
+    txn_options.max_write_batch_size = batch_size;
+    for (bool prepare : {false, true}) {
+      for (bool commit : {false, true}) {
+        ReOpen();
+        Transaction* txn = db->BeginTransaction(write_options, txn_options);
+        WriteUnpreparedTxn* wup_txn = dynamic_cast<WriteUnpreparedTxn*>(txn);
+        txn->SetName("xid");
+
+        for (int i = 0; i < kNumKeys; i++) {
+          txn->Put("k" + ToString(i), "v" + ToString(i));
+          if (txn_options.max_write_batch_size == 1) {
+            ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
+          } else {
+            ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
+          }
+        }
+
+        if (prepare) {
+          ASSERT_OK(txn->Prepare());
+        }
+
+        Iterator* iter = db->NewIterator(ReadOptions());
+        iter->SeekToFirst();
+        assert(!iter->Valid());
+        ASSERT_FALSE(iter->Valid());
+        delete iter;
+
+        if (commit) {
+          ASSERT_OK(txn->Commit());
+        } else {
+          ASSERT_OK(txn->Rollback());
+        }
+        delete txn;
+
+        iter = db->NewIterator(ReadOptions());
+        iter->SeekToFirst();
+
+        for (int i = 0; i < (commit ? kNumKeys : 0); i++) {
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ(iter->key().ToString(), "k" + ToString(i));
+          ASSERT_EQ(iter->value().ToString(), "v" + ToString(i));
+          iter->Next();
+        }
+        ASSERT_FALSE(iter->Valid());
+        delete iter;
+      }
     }
+  }
+}
 
-    // Write num_batches unprepared batches into the WAL.
-    for (int i = 0; i < num_batches; i++) {
-      batch.Clear();
-      // TODO(lth): Instead of manually calling WriteImpl with a write batch,
-      // use methods on Transaction instead once it is implemented.
-      ASSERT_OK(WriteBatchInternal::InsertNoop(&batch));
-      ASSERT_OK(WriteBatchInternal::Put(&batch,
-                                        db->DefaultColumnFamily()->GetID(),
-                                        "k" + ToString(i), "value"));
-      // MarkEndPrepare will change the Noop marker into an unprepared marker.
-      ASSERT_OK(WriteBatchInternal::MarkEndPrepare(
-          &batch, Slice("xid1"), /* write after commit */ false,
-          /* unprepared batch */ true));
-      ASSERT_OK(wup_db->db_impl_->WriteImpl(
-          write_options, &batch, /*callback*/ nullptr, &log_number,
-          /*log ref*/ 0, /* disable memtable */ true, &seq_used,
-          /* prepare_batch_cnt_ */ 1));
+// Test whether logs containing unprepared/prepared batches are kept even
+// after memtable finishes flushing, and whether they are removed when
+// transaction commits/aborts.
+//
+// TODO(lth): Merge with TransactionTest/TwoPhaseLogRollingTest tests.
+TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  // batch_size of 1 causes writes to DB for every marker.
+  txn_options.max_write_batch_size = 1;
+  const int kNumKeys = 10;
+
+  WriteOptions wopts;
+  wopts.sync = true;
+
+  for (bool prepare : {false, true}) {
+    for (bool commit : {false, true}) {
+      ReOpen();
+      auto wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+      auto db_impl = wup_db->db_impl_;
+
+      Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+      ASSERT_OK(txn1->SetName("xid1"));
+
+      Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+      ASSERT_OK(txn2->SetName("xid2"));
+
+      // Spread this transaction across multiple log files.
+      for (int i = 0; i < kNumKeys; i++) {
+        ASSERT_OK(txn1->Put("k1" + ToString(i), "v" + ToString(i)));
+        if (i >= kNumKeys / 2) {
+          ASSERT_OK(txn2->Put("k2" + ToString(i), "v" + ToString(i)));
+        }
+
+        if (i > 0) {
+          db_impl->TEST_SwitchWAL();
+        }
+      }
+
+      ASSERT_GT(txn1->GetLogNumber(), 0);
+      ASSERT_GT(txn2->GetLogNumber(), 0);
+
+      ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+                txn1->GetLogNumber());
+      ASSERT_GT(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+
+      if (prepare) {
+        ASSERT_OK(txn1->Prepare());
+        ASSERT_OK(txn2->Prepare());
+      }
+
+      ASSERT_GE(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+      ASSERT_GE(db_impl->TEST_LogfileNumber(), txn2->GetLogNumber());
+
+      ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+                txn1->GetLogNumber());
+      if (commit) {
+        ASSERT_OK(txn1->Commit());
+      } else {
+        ASSERT_OK(txn1->Rollback());
+      }
+
+      ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+                txn2->GetLogNumber());
+
+      if (commit) {
+        ASSERT_OK(txn2->Commit());
+      } else {
+        ASSERT_OK(txn2->Rollback());
+      }
+
+      ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+      delete txn1;
+      delete txn2;
     }
-
-    // Crash and run recovery code paths.
-    wup_db->db_impl_->FlushWAL(true);
-    wup_db->TEST_Crash();
-    ReOpenNoDelete();
-    wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
-
-    db->GetAllPreparedTransactions(&prepared_trans);
-    ASSERT_EQ(prepared_trans.size(), 0);
-
-    // Check that DB has before values.
-    Iterator* iter = db->NewIterator(ReadOptions());
-    iter->SeekToFirst();
-    for (int i = 0; i < num_batches; i++) {
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ(iter->key().ToString(), "k" + ToString(i));
-      ASSERT_EQ(iter->value().ToString(), "before value " + ToString(i));
-      iter->Next();
-    }
-    ASSERT_FALSE(iter->Valid());
-    delete iter;
   }
 }
 

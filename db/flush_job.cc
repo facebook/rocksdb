@@ -78,6 +78,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Auto Compaction";
     case FlushReason::kManualFlush:
       return "Manual Flush";
+    case FlushReason::kErrorRecovery:
+      return "Error Recovery";
     default:
       return "Invalid";
   }
@@ -371,8 +373,8 @@ Status FlushJob::WriteLevel0Table() {
                    s.ToString().c_str(),
                    meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (output_file_directory_ != nullptr) {
-      output_file_directory_->Fsync();
+    if (s.ok() && output_file_directory_ != nullptr) {
+      s = output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");
     db_mutex_->Lock();
@@ -389,7 +391,7 @@ Status FlushJob::WriteLevel0Table() {
     // Add file to L0
     edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
-                   meta_.smallest_seqno, meta_.largest_seqno,
+                   meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction);
   }
 

@@ -781,7 +781,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
   if (rate_limiter) {
-    copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
+    copy_file_buffer_size_ = static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
   }
 
   // A set into which we will insert the dst_paths that are calculated for live
@@ -874,19 +874,19 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)),
         &backup_private_directory);
     if (backup_private_directory != nullptr) {
-      backup_private_directory->Fsync();
+      s = backup_private_directory->Fsync();
     }
-    if (private_directory_ != nullptr) {
-      private_directory_->Fsync();
+    if (s.ok() && private_directory_ != nullptr) {
+      s = private_directory_->Fsync();
     }
-    if (meta_directory_ != nullptr) {
-      meta_directory_->Fsync();
+    if (s.ok() && meta_directory_ != nullptr) {
+      s = meta_directory_->Fsync();
     }
-    if (shared_directory_ != nullptr) {
-      shared_directory_->Fsync();
+    if (s.ok() && shared_directory_ != nullptr) {
+      s = shared_directory_->Fsync();
     }
-    if (backup_directory_ != nullptr) {
-      backup_directory_->Fsync();
+    if (s.ok() && backup_directory_ != nullptr) {
+      s = backup_directory_->Fsync();
     }
   }
 
@@ -1078,7 +1078,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(
 
   RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
   if (rate_limiter) {
-    copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
+    copy_file_buffer_size_ = static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
   }
   Status s;
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
@@ -1214,7 +1214,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   }
 
   unique_ptr<WritableFileWriter> dest_writer(
-      new WritableFileWriter(std::move(dst_file), env_options));
+      new WritableFileWriter(std::move(dst_file), dst, env_options));
   unique_ptr<SequentialFileReader> src_reader;
   unique_ptr<char[]> buf;
   if (!src.empty()) {
@@ -1231,7 +1231,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
     if (!src.empty()) {
       size_t buffer_to_read = (copy_file_buffer_size_ < size_limit)
                                   ? copy_file_buffer_size_
-                                  : size_limit;
+                                  : static_cast<size_t>(size_limit);
       s = src_reader->Read(buffer_to_read, &data, buf.get());
       processed_buffer_size += buffer_to_read;
     } else {
@@ -1426,7 +1426,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
       return Status::Incomplete("Backup stopped");
     }
     size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
-      copy_file_buffer_size_ : size_limit;
+      copy_file_buffer_size_ : static_cast<size_t>(size_limit);
     s = src_reader->Read(buffer_to_read, &data, buf.get());
 
     if (!s.ok()) {
@@ -1754,7 +1754,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
 
-    // +1 to accomodate newline character
+    // +1 to accommodate newline character
     size_t hex_meta_strlen = kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
     if (hex_meta_strlen >= buf_size) {
       return Status::Corruption("Buffer too small to fit backup metadata");

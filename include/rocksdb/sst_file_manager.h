@@ -75,6 +75,10 @@ class SstFileManager {
   // Update trash/DB size ratio where new files will be deleted immediately
   // thread-safe
   virtual void SetMaxTrashDBRatio(double ratio) = 0;
+
+  // Return the total size of trash files
+  // thread-safe
+  virtual uint64_t GetTotalTrashSize() = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB

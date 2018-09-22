@@ -23,3 +23,8 @@
 2018/05/25-14:34:21.048592 7f82bd676200 [DEBUG] [db/db_impl_files.cc:261] [JOB 45] Delete /tmp/rocksdbtest-155919/dbbench/000084.sst type=2 #84 -- OK
 2018/05/25-14:34:21.048603 7f82bd676200 EVENT_LOG_v1 {"time_micros": 1527284061048600, "job": 45, "event": "table_file_deletion", "file_number": 84}
 2018/05/25-14:34:21.048981 7f82bd676200 [db/db_impl.cc:398] Shutdown complete
+2018/05/25-14:34:21.049000 7f82bd676200 [db/db_impl.cc:563] [col-fam-A] random log message for testing
+2018/05/25-14:34:21.049010 7f82bd676200 [db/db_impl.cc:234] [col-fam-B] log continuing on next line
+remaining part of the log
+2018/05/25-14:34:21.049020 7f82bd676200 [db/db_impl.cc:653] [col-fam-A] another random log message
+2018/05/25-14:34:21.049025 7f82bd676200 [db/db_impl.cc:331] [unknown] random log message no column family

@@ -134,8 +134,15 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   for (size_t i = 0; i < result.db_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
-#endif
 
+  // Create a default SstFileManager for purposes of tracking compaction size
+  // and facilitating recovery from out of space errors.
+  if (result.sst_file_manager.get() == nullptr) {
+    std::shared_ptr<SstFileManager> sst_file_manager(
+        NewSstFileManager(result.env, result.info_log));
+    result.sst_file_manager = sst_file_manager;
+  }
+#endif
   return result;
 }
 
@@ -232,7 +239,7 @@ Status DBImpl::NewDB() {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), env_options));
+        new WritableFileWriter(std::move(file), manifest, env_options));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -361,7 +368,7 @@ Status DBImpl::Recover(
       s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
                                     customized_env);
       if (!s.ok()) {
-        const char* error_msg = s.ToString().c_str();
+        std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_env.use_direct_reads = false;
         s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
@@ -371,7 +378,7 @@ Status DBImpl::Recover(
               "Direct I/O is not supported by the specified DB.");
         } else {
           return Status::InvalidArgument(
-              "Found options incompatible with filesystem", error_msg);
+              "Found options incompatible with filesystem", error_str.c_str());
         }
       }
     }
@@ -598,8 +605,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
-                       &reporter, true /*checksum*/, 0 /*initial_offset*/,
-                       log_number);
+                       &reporter, true /*checksum*/, log_number);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -969,7 +975,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   if (s.ok() && meta.fd.GetFileSize() > 0) {
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.smallest_seqno, meta.largest_seqno,
+                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction);
   }
 
@@ -1051,6 +1057,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         break;
       }
     }
+
+    // For recovery from NoSpace() error, we can only handle
+    // the case where the database is stored in a single path
+    if (paths.size() <= 1) {
+      impl->error_handler_.EnableAutoRecovery();
+    }
   }
 
   if (!s.ok()) {
@@ -1075,10 +1087,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->immutable_db_options_.env->OptimizeForLogWrite(
             soptions, BuildDBOptions(impl->immutable_db_options_,
                                      impl->mutable_db_options_));
-    s = NewWritableFile(
-        impl->immutable_db_options_.env,
-        LogFileName(impl->immutable_db_options_.wal_dir, new_log_number),
-        &lfile, opt_env_options);
+    std::string log_fname =
+        LogFileName(impl->immutable_db_options_.wal_dir, new_log_number);
+    s = NewWritableFile(impl->immutable_db_options_.env, log_fname, &lfile,
+                        opt_env_options);
     if (s.ok()) {
       lfile->SetWriteLifeTimeHint(write_hint);
       lfile->SetPreallocationBlockSize(
@@ -1086,8 +1098,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       {
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
-        unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), opt_env_options));
+        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+            std::move(lfile), log_fname, opt_env_options));
         impl->logs_.emplace_back(
             new_log_number,
             new log::Writer(
@@ -1214,6 +1226,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         }
       }
     }
+
+    // Reserve some disk buffer space. This is a heuristic - when we run out
+    // of disk space, this ensures that there is atleast write_buffer_size
+    // amount of free space before we resume DB writes. In low disk space
+    // conditions, we want to avoid a lot of small L0 files due to frequent
+    // WAL write failures and resultant forced flushes
+    sfm->ReserveDiskBuffer(max_write_buffer_size,
+                           impl->immutable_db_options_.db_paths[0].path);
   }
 #endif  // !ROCKSDB_LITE
 

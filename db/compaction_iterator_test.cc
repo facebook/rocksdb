@@ -247,9 +247,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         earliest_write_conflict_snapshot, snapshot_checker_.get(),
-        Env::Default(), false /* report_detailed_time */,
-        false, range_del_agg_.get(), std::move(compaction), filter,
-        &shutting_down_));
+        Env::Default(), false /* report_detailed_time */, false,
+        range_del_agg_.get(), std::move(compaction), filter, &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot,
@@ -672,8 +671,12 @@ TEST_P(CompactionIteratorTest, ZeroOutSequenceAtBottomLevel) {
 TEST_P(CompactionIteratorTest, RemoveDeletionAtBottomLevel) {
   AddSnapshot(1);
   RunTest({test::KeyStr("a", 1, kTypeDeletion),
-           test::KeyStr("b", 2, kTypeDeletion)},
-          {"", ""}, {test::KeyStr("b", 2, kTypeDeletion)}, {""},
+           test::KeyStr("b", 3, kTypeDeletion),
+           test::KeyStr("b", 1, kTypeValue)},
+          {"", "", ""},
+          {test::KeyStr("b", 3, kTypeDeletion),
+           test::KeyStr("b", 0, kTypeValue)},
+          {"", ""},
           kMaxSequenceNumber /*last_commited_seq*/, nullptr /*merge_operator*/,
           nullptr /*compaction_filter*/, true /*bottommost_level*/);
 }
@@ -842,9 +845,22 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
       {test::KeyStr("a", 1, kTypeDeletion), test::KeyStr("b", 2, kTypeDeletion),
        test::KeyStr("c", 3, kTypeDeletion)},
       {"", "", ""},
-      {test::KeyStr("b", 2, kTypeDeletion),
-       test::KeyStr("c", 3, kTypeDeletion)},
+      {},
       {"", ""}, kMaxSequenceNumber /*last_commited_seq*/,
+      nullptr /*merge_operator*/, nullptr /*compaction_filter*/,
+      true /*bottommost_level*/);
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       NotRemoveDeletionIfValuePresentToEarlierSnapshot) {
+  AddSnapshot(2,1);
+  RunTest(
+      {test::KeyStr("a", 4, kTypeDeletion), test::KeyStr("a", 1, kTypeValue),
+          test::KeyStr("b", 3, kTypeValue)},
+      {"", "", ""},
+      {test::KeyStr("a", 4, kTypeDeletion), test::KeyStr("a", 0, kTypeValue),
+            test::KeyStr("b", 3, kTypeValue)},
+      {"", "", ""}, kMaxSequenceNumber /*last_commited_seq*/,
       nullptr /*merge_operator*/, nullptr /*compaction_filter*/,
       true /*bottommost_level*/);
 }

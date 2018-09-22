@@ -115,8 +115,8 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule delete obs files periods
   static constexpr uint32_t kDeleteObsoleteFilesPeriodMillisecs = 10 * 1000;
 
-  // how often to schedule check seq files period
-  static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
+  // how often to schedule expired files eviction.
+  static constexpr uint32_t kEvictExpiredFilesPeriodMillisecs = 10 * 1000;
 
   // when should oldest file be evicted:
   // on reaching 90% of blob_dir_size
@@ -129,6 +129,10 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::Get;
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
+
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             uint64_t* expiration) override;
 
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
@@ -151,12 +155,6 @@ class BlobDBImpl : public BlobDB {
 
   virtual Status Close() override;
 
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size,
-                              bool flush_memtable = true) override;
-  virtual void GetLiveFilesMetaData(
-      std::vector<LiveFileMetaData>* ) override;
-
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
@@ -170,6 +168,15 @@ class BlobDBImpl : public BlobDB {
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
              const DBOptions& db_options,
              const ColumnFamilyOptions& cf_options);
+
+  virtual Status DisableFileDeletions() override;
+
+  virtual Status EnableFileDeletions(bool force) override;
+
+  virtual Status GetLiveFiles(std::vector<std::string>&,
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true) override;
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
 
   ~BlobDBImpl();
 
@@ -200,6 +207,8 @@ class BlobDBImpl : public BlobDB {
 
   void TEST_RunGC();
 
+  void TEST_EvictExpiredFiles();
+
   void TEST_DeleteObsoleteFiles();
 
   uint64_t TEST_live_sst_size();
@@ -215,10 +224,10 @@ class BlobDBImpl : public BlobDB {
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value);
+                 PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
-                      PinnableSlice* value);
+                      PinnableSlice* value, uint64_t* expiration = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -234,9 +243,6 @@ class BlobDBImpl : public BlobDB {
   // REQUIRED: hold write lock of mutex_ or during DB open.
   void ObsoleteBlobFile(std::shared_ptr<BlobFile> blob_file,
                         SequenceNumber obsolete_seq, bool update_size);
-
-  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
-                             Slice* value_slice, std::string* new_value);
 
   Status PutBlobValue(const WriteOptions& options, const Slice& key,
                       const Slice& value, uint64_t expiration,
@@ -269,7 +275,7 @@ class BlobDBImpl : public BlobDB {
 
   // periodically check if open blob files and their TTL's has expired
   // if expired, close the sequential writer and make the file immutable
-  std::pair<bool, int64_t> CheckSeqFiles(bool aborted);
+  std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
 
   // if the number of open files, approaches ULIMIT's this
   // task will close random readers, which are kept around for
@@ -290,11 +296,8 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
-  // hold write mutex on file and call
-  // creates a Random Access reader for GET call
-  std::shared_ptr<RandomAccessFileReader> GetOrOpenRandomAccessReader(
-      const std::shared_ptr<BlobFile>& bfile, Env* env,
-      const EnvOptions& env_options);
+  Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
+                           std::shared_ptr<RandomAccessFileReader>* reader);
 
   // hold write mutex on file and call.
   // Close the above Random Access reader
@@ -337,7 +340,6 @@ class BlobDBImpl : public BlobDB {
   // the base DB
   DBImpl* db_impl_;
   Env* env_;
-  TTLExtractor* ttl_extractor_;
 
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;
@@ -405,6 +407,26 @@ class BlobDBImpl : public BlobDB {
   uint64_t evict_expiration_up_to_;
 
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
+
+  // DeleteObsoleteFiles, DiableFileDeletions and EnableFileDeletions block
+  // on the mutex to avoid contention.
+  //
+  // While DeleteObsoleteFiles hold both mutex_ and delete_file_mutex_, note
+  // the difference. mutex_ only needs to be held when access the
+  // data-structure, and delete_file_mutex_ needs to be held the whole time
+  // during DeleteObsoleteFiles to avoid being run simultaneously with
+  // DisableFileDeletions.
+  //
+  // If both of mutex_ and delete_file_mutex_ needs to be held, it is adviced
+  // to hold delete_file_mutex_ first to avoid deadlock.
+  mutable port::Mutex delete_file_mutex_;
+
+  // Each call of DisableFileDeletions will increase disable_file_deletion_
+  // by 1. EnableFileDeletions will either decrease the count by 1 or reset
+  // it to zeor, depending on the force flag.
+  //
+  // REQUIRES: access with delete_file_mutex_ held.
+  int disable_file_deletions_ = 0;
 
   uint32_t debug_level_;
 };

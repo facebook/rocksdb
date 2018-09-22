@@ -130,7 +130,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual Status RollbackInternal() = 0;
 
-  void Initialize(const TransactionOptions& txn_options);
+  virtual void Initialize(const TransactionOptions& txn_options);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
 
@@ -182,6 +182,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
+
+  // Refer to TransactionOptions::skip_concurrency_control
+  bool skip_concurrency_control_;
 
   virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
                                   const Slice& key,

@@ -227,16 +227,24 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
   }
   ASSERT_OK(dbi->EnableFileDeletions(true /* force */));
   ASSERT_EQ(optsfiles_nums.size(), optsfiles_keep.size());
-  int size = static_cast<int>(optsfiles_nums.size());
-  int kept_opts_files_count = 0;
-  for (int i = 0; i != size; ++i) {
-    if (optsfiles_keep[i]) {
-      ++kept_opts_files_count;
-    }
-  }
-  ASSERT_EQ(2, kept_opts_files_count);
 
   CloseDB();
+
+  std::vector<std::string> files;
+  int opts_file_count = 0;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  for (const auto& file : files) {
+    uint64_t file_num;
+    Slice dummy_info_log_name_prefix;
+    FileType type;
+    WalFileType log_type;
+    if (ParseFileName(file, &file_num, dummy_info_log_name_prefix, &type,
+                      &log_type) &&
+        type == kOptionsFile) {
+      opts_file_count++;
+    }
+  }
+  ASSERT_EQ(2, opts_file_count);
 }
 
 } //namespace rocksdb

@@ -12,6 +12,8 @@
 
 #include <stdint.h>
 #include "rocksdb/slice.h"
+#include "rocksdb/table.h"
+#include "table/data_block_hash_index.h"
 
 namespace rocksdb {
 
@@ -21,14 +23,19 @@ class BlockBuilder {
   void operator=(const BlockBuilder&) = delete;
 
   explicit BlockBuilder(int block_restart_interval,
-                        bool use_delta_encoding = true);
+                        bool use_delta_encoding = true,
+                        bool use_value_delta_encoding = false,
+                        BlockBasedTableOptions::DataBlockIndexType index_type =
+                            BlockBasedTableOptions::kDataBlockBinarySearch,
+                        double data_block_hash_table_util_ratio = 0.75);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
-  void Add(const Slice& key, const Slice& value);
+  void Add(const Slice& key, const Slice& value,
+           const Slice* const delta_value = nullptr);
 
   // Finish building the block and return a slice that refers to the
   // block contents.  The returned slice will remain valid for the
@@ -37,7 +44,11 @@ class BlockBuilder {
 
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
-  inline size_t CurrentSizeEstimate() const { return estimate_; }
+  inline size_t CurrentSizeEstimate() const {
+    return estimate_ + (data_block_hash_index_builder_.Valid()
+                            ? data_block_hash_index_builder_.EstimateSize()
+                            : 0);
+  }
 
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;
@@ -49,7 +60,10 @@ class BlockBuilder {
 
  private:
   const int          block_restart_interval_;
+  // TODO(myabandeh): put it into a separate IndexBlockBuilder
   const bool         use_delta_encoding_;
+  // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values
+  const bool use_value_delta_encoding_;
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
@@ -57,6 +71,7 @@ class BlockBuilder {
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
+  DataBlockHashIndexBuilder data_block_hash_index_builder_;
 };
 
 }  // namespace rocksdb

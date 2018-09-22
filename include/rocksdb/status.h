@@ -14,8 +14,7 @@
 // non-const method, all threads accessing the same Status must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_STATUS_H_
-#define STORAGE_ROCKSDB_INCLUDE_STATUS_H_
+#pragma once
 
 #include <string>
 #include "rocksdb/slice.h"
@@ -282,8 +281,6 @@ class Status {
   Severity sev_;
   const char* state_;
 
-  static const char* msgs[static_cast<int>(kMaxSubCode)];
-
   explicit Status(Code _code, SubCode _subcode = kNone)
       : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
 
@@ -350,5 +347,3 @@ inline bool Status::operator!=(const Status& rhs) const {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

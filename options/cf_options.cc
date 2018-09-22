@@ -191,6 +191,33 @@ void MutableCFOptions::Dump(Logger* log) const {
                  report_bg_io_stats);
   ROCKS_LOG_INFO(log, "                              compression: %d",
                  static_cast<int>(compression));
+
+  // Universal Compaction Options
+  ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
+                 compaction_options_universal.size_ratio);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.min_merge_width : %d",
+                 compaction_options_universal.min_merge_width);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.max_merge_width : %d",
+                 compaction_options_universal.max_merge_width);
+  ROCKS_LOG_INFO(
+      log, "compaction_options_universal.max_size_amplification_percent : %d",
+      compaction_options_universal.max_size_amplification_percent);
+  ROCKS_LOG_INFO(log,
+                 "compaction_options_universal.compression_size_percent : %d",
+                 compaction_options_universal.compression_size_percent);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.stop_style : %d",
+                 compaction_options_universal.stop_style);
+  ROCKS_LOG_INFO(
+      log, "compaction_options_universal.allow_trivial_move : %d",
+      static_cast<int>(compaction_options_universal.allow_trivial_move));
+
+  // FIFO Compaction Options
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,
+                 compaction_options_fifo.max_table_files_size);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.ttl : %" PRIu64,
+                 compaction_options_fifo.ttl);
+  ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
+                 compaction_options_fifo.allow_compaction);
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

@@ -100,7 +100,7 @@ void ColumnAwareEncodingReader::DecodeBlocks(
 
     size_t num_kv_pairs;
     const char* header_content_ptr = content_ptr;
-    num_kv_pairs = DecodeFixed64(header_content_ptr);
+    num_kv_pairs = static_cast<size_t>(DecodeFixed64(header_content_ptr));
 
     header_content_ptr += sizeof(size_t);
     size_t num_key_columns = key_col_bufs.size();
@@ -118,7 +118,7 @@ void ColumnAwareEncodingReader::DecodeBlocks(
       key_content_ptr[i] = col_content_ptr;
       key_content_ptr[i] += key_col_bufs[i]->Init(key_content_ptr[i]);
       size_t offset;
-      offset = DecodeFixed64(header_content_ptr);
+      offset = static_cast<size_t>(DecodeFixed64(header_content_ptr));
       header_content_ptr += sizeof(size_t);
       col_content_ptr += offset;
     }
@@ -126,7 +126,7 @@ void ColumnAwareEncodingReader::DecodeBlocks(
       value_content_ptr[i] = col_content_ptr;
       value_content_ptr[i] += value_col_bufs[i]->Init(value_content_ptr[i]);
       size_t offset;
-      offset = DecodeFixed64(header_content_ptr);
+      offset = static_cast<size_t>(DecodeFixed64(header_content_ptr));
       header_content_ptr += sizeof(size_t);
       col_content_ptr += offset;
     }

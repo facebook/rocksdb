@@ -144,13 +144,31 @@ class FullFilterBitsReader : public FilterBitsReader {
       : data_(const_cast<char*>(contents.data())),
         data_len_(static_cast<uint32_t>(contents.size())),
         num_probes_(0),
-        num_lines_(0) {
+        num_lines_(0),
+        log2_cache_line_size_(0) {
     assert(data_);
     GetFilterMeta(contents, &num_probes_, &num_lines_);
     // Sanitize broken parameter
     if (num_lines_ != 0 && (data_len_-5) % num_lines_ != 0) {
       num_lines_ = 0;
       num_probes_ = 0;
+    } else if (num_lines_ != 0) {
+      while (true) {
+        uint32_t num_lines_at_curr_cache_size =
+            (data_len_ - 5) >> log2_cache_line_size_;
+        if (num_lines_at_curr_cache_size == 0) {
+          // The cache line size seems not a power of two. It's not supported
+          // and indicates a corruption so disable using this filter.
+          assert(false);
+          num_lines_ = 0;
+          num_probes_ = 0;
+          break;
+        }
+        if (num_lines_at_curr_cache_size == num_lines_) {
+          break;
+        }
+        ++log2_cache_line_size_;
+      }
     }
   }
 
@@ -173,6 +191,7 @@ class FullFilterBitsReader : public FilterBitsReader {
   uint32_t data_len_;
   size_t num_probes_;
   uint32_t num_lines_;
+  uint32_t log2_cache_line_size_;
 
   // Get num_probes, and num_lines from filter
   // If filter format broken, set both to 0.
@@ -180,10 +199,10 @@ class FullFilterBitsReader : public FilterBitsReader {
                              uint32_t* num_lines);
 
   // "filter" contains the data appended by a preceding call to
-  // CreateFilterFromHash() on this class.  This method must return true if
-  // the key was in the list of keys passed to CreateFilter().
-  // This method may return true or false if the key was not on the
-  // list, but it should aim to return false with a high probability.
+  // FilterBitsBuilder::Finish. This method must return true if the key was
+  // passed to FilterBitsBuilder::AddKey. This method may return true or false
+  // if the key was not on the list, but it should aim to return false with a
+  // high probability.
   //
   // hash: target to be checked
   // filter: the whole filter, including meta data bytes
@@ -222,19 +241,20 @@ bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
   // It is ensured the params are valid before calling it
   assert(num_probes != 0);
   assert(num_lines != 0 && (len - 5) % num_lines == 0);
-  uint32_t cache_line_size = (len - 5) / num_lines;
   const char* data = filter.data();
 
   uint32_t h = hash;
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  uint32_t b = (h % num_lines) * (cache_line_size * 8);
+  // Left shift by an extra 3 to convert bytes to bits
+  uint32_t b = (h % num_lines) << (log2_cache_line_size_ + 3);
   PREFETCH(&data[b / 8], 0 /* rw */, 1 /* locality */);
-  PREFETCH(&data[b / 8 + cache_line_size - 1], 0 /* rw */, 1 /* locality */);
+  PREFETCH(&data[b / 8 + (1 << log2_cache_line_size_) - 1], 0 /* rw */,
+           1 /* locality */);
 
   for (uint32_t i = 0; i < num_probes; ++i) {
     // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
     //  to a simple and operation by compiler.
-    const uint32_t bitpos = b + (h % (cache_line_size * 8));
+    const uint32_t bitpos = b + (h & ((1 << (log2_cache_line_size_ + 3)) - 1));
     if (((data[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
       return false;
     }

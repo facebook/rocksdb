@@ -169,6 +169,7 @@ void BlockFetcher::GetBlockContents() {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
+      assert(used_buf_ != heap_buf_.get());
       heap_buf_.reset(new char[block_size_ + kBlockTrailerSize]);
       memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
     }

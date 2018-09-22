@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
+#include "util/filename.h"
 #include "util/testutil.h"
 
 namespace rocksdb {
@@ -1290,6 +1291,39 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   delete iter;
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  Status s = db_->IngestExternalFile({"non_existing_file"},
+                                     IngestExternalFileOptions());
+  ASSERT_NOK(s);
+
+  // Verify file deletion is not impacted (verify a bug fix)
+  ASSERT_OK(Put(Key(1), Key(1)));
+  ASSERT_OK(Put(Key(9), Key(9)));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(1), Key(1)));
+  ASSERT_OK(Put(Key(9), Key(9)));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // After full compaction, there should be only 1 file.
+  std::vector<std::string> files;
+  env_->GetChildren(dbname_, &files);
+  int num_sst_files = 0;
+  for (auto& f : files) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == kTableFile) {
+      num_sst_files++;
+    }
+  }
+  ASSERT_EQ(1, num_sst_files);
 }
 
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {

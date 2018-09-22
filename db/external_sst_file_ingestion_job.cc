@@ -29,7 +29,8 @@
 namespace rocksdb {
 
 Status ExternalSstFileIngestionJob::Prepare(
-    const std::vector<std::string>& external_files_paths, SuperVersion* sv) {
+    const std::vector<std::string>& external_files_paths,
+    uint64_t next_file_number, SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
@@ -90,7 +91,7 @@ Status ExternalSstFileIngestionJob::Prepare(
 
   // Copy/Move external files into DB
   for (IngestedFileInfo& f : files_to_ingest_) {
-    f.fd = FileDescriptor(versions_->NewFileNumber(), 0, f.file_size);
+    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
 
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
@@ -343,7 +344,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       file_to_ingest->global_seqno_offset = 0;
       return Status::Corruption("Was not able to find file global seqno field");
     }
-    file_to_ingest->global_seqno_offset = offsets_iter->second;
+    file_to_ingest->global_seqno_offset = static_cast<size_t>(offsets_iter->second);
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());
@@ -475,9 +476,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         const SequenceNumber level_largest_seqno =
             (*max_element(level_files.begin(), level_files.end(),
                           [](FileMetaData* f1, FileMetaData* f2) {
-                            return f1->largest_seqno < f2->largest_seqno;
+                            return f1->fd.largest_seqno < f2->fd.largest_seqno;
                           }))
-                ->largest_seqno;
+                ->fd.largest_seqno;
         // should only assign seqno to current level's largest seqno when
         // the file fits
         if (level_largest_seqno != 0 &&
@@ -522,7 +523,7 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
   // at some upper level
   for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
     for (auto file : vstorage->LevelFiles(lvl)) {
-      if (file->smallest_seqno == 0) {
+      if (file->fd.smallest_seqno == 0) {
         return Status::InvalidArgument(
           "Can't ingest_behind file as despite allow_ingest_behind=true "
           "there are files with 0 seqno in database at upper levels!");
@@ -547,24 +548,27 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         "field");
   }
 
-  std::unique_ptr<RandomRWFile> rwfile;
-  Status status = env_->NewRandomRWFile(file_to_ingest->internal_file_path,
-                                        &rwfile, env_options_);
-  if (!status.ok()) {
-    return status;
+  if (ingestion_options_.write_global_seqno) {
+    // Determine if we can write global_seqno to a given offset of file.
+    // If the file system does not support random write, then we should not.
+    // Otherwise we should.
+    std::unique_ptr<RandomRWFile> rwfile;
+    Status status = env_->NewRandomRWFile(file_to_ingest->internal_file_path,
+                                          &rwfile, env_options_);
+    if (status.ok()) {
+      std::string seqno_val;
+      PutFixed64(&seqno_val, seqno);
+      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
+      if (!status.ok()) {
+        return status;
+      }
+    } else if (!status.IsNotSupported()) {
+      return status;
+    }
   }
 
-  // Write the new seqno in the global sequence number field in the file
-  std::string seqno_val;
-  PutFixed64(&seqno_val, seqno);
-  status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
-  if (status.ok()) {
-    status = rwfile->Fsync();
-  }
-  if (status.ok()) {
-    file_to_ingest->assigned_seqno = seqno;
-  }
-  return status;
+  file_to_ingest->assigned_seqno = seqno;
+  return Status::OK();
 }
 
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(

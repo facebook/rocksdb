@@ -76,6 +76,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Write(my_batch);
+    }
+  }
   if (write_options.sync && write_options.disableWAL) {
     return Status::InvalidArgument("Sync writes has to enable WAL.");
   }
@@ -311,7 +317,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
-            0 /*recovery_log_number*/, this, parallel, seq_per_batch_);
+            0 /*recovery_log_number*/, this, parallel, seq_per_batch_,
+            batch_per_txn_);
       } else {
         SequenceNumber next_sequence = current_sequence;
         // Note: the logic for advancing seq here must be consistent with the
@@ -346,7 +353,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               &w, w.sequence, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/, seq_per_batch_,
-              w.batch_cnt);
+              w.batch_cnt, batch_per_txn_);
         }
       }
       if (seq_used != nullptr) {
@@ -508,7 +515,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       memtable_write_group.status = WriteBatchInternal::InsertInto(
           memtable_write_group, w.sequence, column_family_memtables_.get(),
           &flush_scheduler_, write_options.ignore_missing_column_families,
-          0 /*log_number*/, this, seq_per_batch_);
+          0 /*log_number*/, this, false /*concurrent_memtable_writes*/,
+          seq_per_batch_, batch_per_txn_);
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
@@ -565,7 +573,6 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
-  WriteContext write_context;
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
   nonmem_write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
@@ -703,6 +710,10 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   assert(write_context != nullptr && need_log_sync != nullptr);
   Status status;
 
+  if (error_handler_.IsDBStopped()) {
+    status = error_handler_.GetBGError();
+  }
+
   PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
 
   assert(!single_column_family_mode_ ||
@@ -719,10 +730,6 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
     status = HandleWriteBufferFull(write_context);
-  }
-
-  if (UNLIKELY(status.ok())) {
-    status = error_handler_.GetBGError();
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
@@ -1057,6 +1064,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
                  oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
+  FlushRequest flush_req;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
@@ -1066,11 +1074,14 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       if (!status.ok()) {
         break;
       }
+      flush_req.emplace_back(cfd, cfd->imm()->GetLatestMemTableID());
       cfd->imm()->FlushRequested();
-      SchedulePendingFlush(cfd, FlushReason::kWriteBufferManager);
     }
   }
-  MaybeScheduleFlushOrCompaction();
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    MaybeScheduleFlushOrCompaction();
+  }
   return status;
 }
 
@@ -1109,14 +1120,26 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       }
     }
   }
+
+  autovector<ColumnFamilyData*> cfds;
   if (cfd_picked != nullptr) {
-    status = SwitchMemtable(cfd_picked, write_context,
-                            FlushReason::kWriteBufferFull);
-    if (status.ok()) {
-      cfd_picked->imm()->FlushRequested();
-      SchedulePendingFlush(cfd_picked, FlushReason::kWriteBufferFull);
-      MaybeScheduleFlushOrCompaction();
+    cfds.push_back(cfd_picked);
+  }
+  FlushRequest flush_req;
+  for (const auto cfd : cfds) {
+    cfd->Ref();
+    status = SwitchMemtable(cfd, write_context);
+    cfd->Unref();
+    if (!status.ok()) {
+      break;
     }
+    uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+    cfd->imm()->FlushRequested();
+    flush_req.emplace_back(cfd, flush_memtable_id);
+  }
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    MaybeScheduleFlushOrCompaction();
   }
   return status;
 }
@@ -1161,7 +1184,11 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       mutex_.Lock();
     }
 
-    while (!error_handler_.IsDBStopped() && write_controller_.IsStopped()) {
+    // Don't wait if there's a background error, even if its a soft error. We
+    // might wait here indefinitely as the background compaction may never
+    // finish successfully, resulting in the stall condition lasting
+    // indefinitely
+    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped()) {
       if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
@@ -1177,7 +1204,19 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     RecordTick(stats_, STALL_MICROS, time_delayed);
   }
 
-  return error_handler_.GetBGError();
+  // If DB is not in read-only mode and write_controller is not stopping
+  // writes, we can ignore any background errors and allow the write to
+  // proceed
+  Status s;
+  if (write_controller_.IsStopped()) {
+    // If writes are still stopped, it means we bailed due to a background
+    // error
+    s = Status::Incomplete(error_handler_.GetBGError().ToString());
+  }
+  if (error_handler_.IsDBStopped()) {
+    s = error_handler_.GetBGError();
+  }
+  return s;
 }
 
 Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
@@ -1212,16 +1251,28 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ColumnFamilyData* cfd;
+  FlushRequest flush_req;
+  Status status;
   while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-    auto status = SwitchMemtable(cfd, context, FlushReason::kWriteBufferFull);
+    status = SwitchMemtable(cfd, context);
+    bool should_schedule = true;
     if (cfd->Unref()) {
       delete cfd;
+      should_schedule = false;
     }
     if (!status.ok()) {
-      return status;
+      break;
+    }
+    if (should_schedule) {
+      uint64_t flush_memtable_id = cfd->imm()->GetLatestMemTableID();
+      flush_req.emplace_back(cfd, flush_memtable_id);
     }
   }
-  return Status::OK();
+  if (status.ok()) {
+    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    MaybeScheduleFlushOrCompaction();
+  }
+  return status;
 }
 
 #ifndef ROCKSDB_LITE
@@ -1242,8 +1293,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
-                              FlushReason flush_reason) {
+Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {
@@ -1312,6 +1362,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   auto write_hint = CalculateWALWriteHint();
   mutex_.Unlock();
   {
+    std::string log_fname =
+        LogFileName(immutable_db_options_.wal_dir, new_log_number);
     if (creating_new_log) {
       EnvOptions opt_env_opt =
           env_->OptimizeForLogWrite(env_options_, db_options);
@@ -1319,14 +1371,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "reusing log %" PRIu64 " from recycle list\n",
                        recycle_log_number);
-        s = env_->ReuseWritableFile(
-            LogFileName(immutable_db_options_.wal_dir, new_log_number),
-            LogFileName(immutable_db_options_.wal_dir, recycle_log_number),
-            &lfile, opt_env_opt);
+        std::string old_log_fname =
+            LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
+        s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
+                                    opt_env_opt);
       } else {
-        s = NewWritableFile(
-            env_, LogFileName(immutable_db_options_.wal_dir, new_log_number),
-            &lfile, opt_env_opt);
+        s = NewWritableFile(env_, log_fname, &lfile, opt_env_opt);
       }
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
@@ -1337,7 +1387,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
         lfile->SetPreallocationBlockSize(preallocate_block_size);
         lfile->SetWriteLifeTimeHint(write_hint);
         unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), opt_env_opt));
+            new WritableFileWriter(std::move(lfile), log_fname, opt_env_opt));
         new_log = new log::Writer(
             std::move(file_writer), new_log_number,
             immutable_db_options_.recycle_log_file_num > 0, manual_wal_flush_);
@@ -1415,7 +1465,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options, flush_reason);
+                                     mutable_cf_options);
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }

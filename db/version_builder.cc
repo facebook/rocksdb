@@ -35,11 +35,11 @@
 namespace rocksdb {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->largest_seqno != b->largest_seqno) {
-    return a->largest_seqno > b->largest_seqno;
+  if (a->fd.largest_seqno != b->fd.largest_seqno) {
+    return a->fd.largest_seqno > b->fd.largest_seqno;
   }
-  if (a->smallest_seqno != b->smallest_seqno) {
-    return a->smallest_seqno > b->smallest_seqno;
+  if (a->fd.smallest_seqno != b->fd.smallest_seqno) {
+    return a->fd.smallest_seqno > b->fd.smallest_seqno;
   }
   // Break ties by file number
   return a->fd.GetNumber() > b->fd.GetNumber();
@@ -162,22 +162,24 @@ class VersionBuilder::Rep {
             abort();
           }
 
-          if (f2->smallest_seqno == f2->largest_seqno) {
+          if (f2->fd.smallest_seqno == f2->fd.largest_seqno) {
             // This is an external file that we ingested
-            SequenceNumber external_file_seqno = f2->smallest_seqno;
-            if (!(external_file_seqno < f1->largest_seqno ||
+            SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
+            if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
-              fprintf(stderr, "L0 file with seqno %" PRIu64 " %" PRIu64
-                              " vs. file with global_seqno %" PRIu64 "\n",
-                      f1->smallest_seqno, f1->largest_seqno,
+              fprintf(stderr,
+                      "L0 file with seqno %" PRIu64 " %" PRIu64
+                      " vs. file with global_seqno %" PRIu64 "\n",
+                      f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
               abort();
             }
-          } else if (f1->smallest_seqno <= f2->smallest_seqno) {
-            fprintf(stderr, "L0 files seqno %" PRIu64 " %" PRIu64
-                            " vs. %" PRIu64 " %" PRIu64 "\n",
-                    f1->smallest_seqno, f1->largest_seqno, f2->smallest_seqno,
-                    f2->largest_seqno);
+          } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
+            fprintf(stderr,
+                    "L0 files seqno %" PRIu64 " %" PRIu64 " vs. %" PRIu64
+                    " %" PRIu64 "\n",
+                    f1->fd.smallest_seqno, f1->fd.largest_seqno,
+                    f2->fd.smallest_seqno, f2->fd.largest_seqno);
             abort();
           }
         } else {
@@ -322,8 +324,6 @@ class VersionBuilder::Rep {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
       const auto& base_files = base_vstorage_->LevelFiles(level);
-      auto base_iter = base_files.begin();
-      auto base_end = base_files.end();
       const auto& unordered_added_files = levels_[level].added_files;
       vstorage->Reserve(level,
                         base_files.size() + unordered_added_files.size());
@@ -337,30 +337,27 @@ class VersionBuilder::Rep {
       std::sort(added_files.begin(), added_files.end(), cmp);
 
 #ifndef NDEBUG
-      FileMetaData* prev_file = nullptr;
-#endif
-
+      FileMetaData* prev_added_file = nullptr;
       for (const auto& added : added_files) {
-#ifndef NDEBUG
-        if (level > 0 && prev_file != nullptr) {
+        if (level > 0 && prev_added_file != nullptr) {
           assert(base_vstorage_->InternalComparator()->Compare(
-                     prev_file->smallest, added->smallest) <= 0);
+                     prev_added_file->smallest, added->smallest) <= 0);
         }
-        prev_file = added;
+        prev_added_file = added;
+      }
 #endif
 
-        // Add all smaller files listed in base_
-        for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
-             base_iter != bpos; ++base_iter) {
-          MaybeAddFile(vstorage, level, *base_iter);
+      auto base_iter = base_files.begin();
+      auto base_end = base_files.end();
+      auto added_iter = added_files.begin();
+      auto added_end = added_files.end();
+      while (added_iter != added_end || base_iter != base_end) {
+        if (base_iter == base_end ||
+                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+          MaybeAddFile(vstorage, level, *added_iter++);
+        } else {
+          MaybeAddFile(vstorage, level, *base_iter++);
         }
-
-        MaybeAddFile(vstorage, level, added);
-      }
-
-      // Add remaining base files
-      for (; base_iter != base_end; ++base_iter) {
-        MaybeAddFile(vstorage, level, *base_iter);
       }
     }
 
@@ -382,7 +379,7 @@ class VersionBuilder::Rep {
     }
 
     std::atomic<size_t> next_file_meta_idx(0);
-    std::function<void()> load_handlers_func = [&]() {
+    std::function<void()> load_handlers_func([&]() {
       while (true) {
         size_t file_idx = next_file_meta_idx.fetch_add(1);
         if (file_idx >= files_meta.size()) {
@@ -403,7 +400,7 @@ class VersionBuilder::Rep {
               file_meta->table_reader_handle);
         }
       }
-    };
+    });
 
     std::vector<port::Thread> threads;
     for (int i = 1; i < max_threads; i++) {

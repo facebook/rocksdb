@@ -16,8 +16,7 @@
 // non-const method, all threads accessing the same Iterator must use
 // external synchronization.
 
-#ifndef INCLUDE_ROCKSDB_CLEANABLE_H_
-#define INCLUDE_ROCKSDB_CLEANABLE_H_
+#pragma once
 
 namespace rocksdb {
 
@@ -78,5 +77,3 @@ class Cleanable {
 };
 
 }  // namespace rocksdb
-
-#endif  // INCLUDE_ROCKSDB_CLEANABLE_H_

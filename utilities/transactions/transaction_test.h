@@ -100,6 +100,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
+    assert(!s.ok() || db != nullptr);
     return s;
   }
 
@@ -121,6 +122,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB(cfs, handles);
     }
+    assert(db != nullptr);
     return s;
   }
 
@@ -134,6 +136,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
+    assert(db != nullptr);
     return s;
   }
 
@@ -184,15 +187,17 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
                             &root_db, use_seq_per_batch, use_batch_per_txn);
-    StackableDB* stackable_db = new StackableDB(root_db);
-    if (s.ok()) {
-      assert(root_db != nullptr);
-      assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
-                                         compaction_enabled_cf_indices, handles,
-                                         &db);
-      delete handles[0];
+    if (!s.ok()) {
+      delete root_db;
+      return s;
     }
+    StackableDB* stackable_db = new StackableDB(root_db);
+    assert(root_db != nullptr);
+    assert(handles.size() == 1);
+    s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+                                       compaction_enabled_cf_indices, handles,
+                                       &db);
+    delete handles[0];
     if (!s.ok()) {
       delete stackable_db;
       // just in case it was not deleted (and not set to nullptr).
@@ -272,8 +277,6 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
-    auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-    pdb->UnregisterTransaction(txn);
     delete txn;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
@@ -387,12 +390,6 @@ class TransactionTestBase : public ::testing::Test {
             ASSERT_OK(txn->Prepare());
           }
           ASSERT_OK(txn->Commit());
-          if (type == 2) {
-            auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-            // TODO(myabandeh): this is counter-intuitive. The destructor should
-            // also do the unregistering.
-            pdb->UnregisterTransaction(txn);
-          }
           delete txn;
           break;
         default:
@@ -414,7 +411,7 @@ class TransactionTestBase : public ::testing::Test {
     if (empty_wal) {
       ASSERT_OK(s);
     } else {
-      // Test that we can detect the WAL that is produced by an incompatbile
+      // Test that we can detect the WAL that is produced by an incompatible
       // WritePolicy and fail fast before mis-interpreting the WAL.
       ASSERT_TRUE(s.IsNotSupported());
       return;

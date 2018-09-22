@@ -66,6 +66,18 @@ Status BlockHandle::DecodeFrom(Slice* input) {
   }
 }
 
+Status BlockHandle::DecodeSizeFrom(uint64_t _offset, Slice* input) {
+  if (GetVarint64(input, &size_)) {
+    offset_ = _offset;
+    return Status::OK();
+  } else {
+    // reset in case failure after partially decoding
+    offset_ = 0;
+    size_ = 0;
+    return Status::Corruption("bad block handle");
+  }
+}
+
 // Return a string that contains the copy of handle.
 std::string BlockHandle::ToString(bool hex) const {
   std::string handle_str;

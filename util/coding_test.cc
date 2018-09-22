@@ -14,6 +14,19 @@
 namespace rocksdb {
 
 class Coding { };
+TEST(Coding, Fixed16) {
+  std::string s;
+  for (uint16_t v = 0; v < 0xFFFF; v++) {
+    PutFixed16(&s, v);
+  }
+
+  const char* p = s.data();
+  for (uint16_t v = 0; v < 0xFFFF; v++) {
+    uint16_t actual = DecodeFixed16(p);
+    ASSERT_EQ(v, actual);
+    p += sizeof(uint16_t);
+  }
+}
 
 TEST(Coding, Fixed32) {
   std::string s;

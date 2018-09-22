@@ -387,7 +387,7 @@ InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
                                      Arena* arena, bool prefix_seek_mode) {
   assert(n >= 0);
   if (n == 0) {
-    return NewEmptyInternalIterator(arena);
+    return NewEmptyInternalIterator<Slice>(arena);
   } else if (n == 1) {
     return list[0];
   } else {

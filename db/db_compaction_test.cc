@@ -116,6 +116,21 @@ private:
   std::vector<std::atomic<int>> compaction_completed_;
 };
 
+class SstStatsCollector : public EventListener {
+ public:
+  SstStatsCollector() : num_ssts_creation_started_(0) {}
+
+  void OnTableFileCreationStarted(
+      const TableFileCreationBriefInfo& /* info */) override {
+    ++num_ssts_creation_started_;
+  }
+
+  int num_ssts_creation_started() { return num_ssts_creation_started_; }
+
+ private:
+  std::atomic<int> num_ssts_creation_started_;
+};
+
 static const int kCDTValueSize = 1000;
 static const int kCDTKeysPerBuffer = 4;
 static const int kCDTNumLevels = 8;
@@ -3485,12 +3500,13 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
       // ensure the auto compaction doesn't finish until manual compaction has
       // had a chance to be delayed.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
-          {{"DBImpl::CompactRange:StallWait", "CompactionJob::Run():End"}});
+          {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+            "CompactionJob::Run():End"}});
     } else {
       // ensure the auto-compaction doesn't finish until manual compaction has
       // continued without delay.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
-          {{"DBImpl::CompactRange:StallWaitDone", "CompactionJob::Run():End"}});
+          {{"DBImpl::FlushMemTable:StallWaitDone", "CompactionJob::Run():End"}});
     }
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3538,12 +3554,13 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
       // ensure the flush doesn't finish until manual compaction has had a
       // chance to be delayed.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
-          {{"DBImpl::CompactRange:StallWait", "FlushJob::WriteLevel0Table"}});
+          {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+            "FlushJob::WriteLevel0Table"}});
     } else {
       // ensure the flush doesn't finish until manual compaction has continued
       // without delay.
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
-          {{"DBImpl::CompactRange:StallWaitDone",
+          {{"DBImpl::FlushMemTable:StallWaitDone",
             "FlushJob::WriteLevel0Table"}});
     }
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -3553,6 +3570,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
       ASSERT_OK(Put(Key(0), RandomString(&rnd, 1024)));
       FlushOptions flush_opts;
       flush_opts.wait = false;
+      flush_opts.allow_write_stall = true;
       dbfull()->Flush(flush_opts);
     }
 
@@ -3588,7 +3606,7 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
     // The auto-compaction waits until the manual compaction finishes to ensure
     // the signal comes from closing CF/DB, not from compaction making progress.
     rocksdb::SyncPoint::GetInstance()->LoadDependency(
-        {{"DBImpl::CompactRange:StallWait",
+        {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
           "DBCompactionTest::CompactRangeShutdownWhileDelayed:PreShutdown"},
          {"DBCompactionTest::CompactRangeShutdownWhileDelayed:PostManual",
           "CompactionJob::Run():End"}});
@@ -3639,18 +3657,21 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   // began. So it unblocks CompactRange and precludes its flush. Throughout the
   // test, stall conditions are upheld via high L0 file count.
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::CompactRange:StallWait",
+      {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
         "DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush"},
        {"DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush",
-        "DBImpl::CompactRange:StallWaitDone"},
-       {"DBImpl::CompactRange:StallWaitDone", "CompactionJob::Run():End"}});
+        "DBImpl::FlushMemTable:StallWaitDone"},
+       {"DBImpl::FlushMemTable:StallWaitDone", "CompactionJob::Run():End"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
+  //used for the delayable flushes
+  FlushOptions flush_opts;
+  flush_opts.allow_write_stall = true;
   for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
     for (int j = 0; j < 2; ++j) {
       ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
     }
-    Flush();
+    dbfull()->Flush(flush_opts);
   }
   auto manual_compaction_thread = port::Thread([this]() {
     CompactRangeOptions cro;
@@ -3660,7 +3681,7 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
 
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush");
   Put(ToString(0), RandomString(&rnd, 1024));
-  Flush();
+  dbfull()->Flush(flush_opts);
   Put(ToString(0), RandomString(&rnd, 1024));
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
   manual_compaction_thread.join();
@@ -3814,6 +3835,30 @@ TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {
       "DBCompactionTest::CompactFilesOutputRangeConflict:Thread2End");
 
   bg_thread.join();
+}
+
+TEST_F(DBCompactionTest, CompactionHasEmptyOutput) {
+  Options options = CurrentOptions();
+  SstStatsCollector* collector = new SstStatsCollector();
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(collector);
+  Reopen(options);
+
+  // Make sure the L0 files overlap to prevent trivial move.
+  ASSERT_OK(Put("a", "val"));
+  ASSERT_OK(Put("b", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("a"));
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Flush());
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+
+  // Expect one file creation to start for each flush, and zero for compaction
+  // since no keys are written.
+  ASSERT_EQ(2, collector->num_ssts_creation_started());
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
