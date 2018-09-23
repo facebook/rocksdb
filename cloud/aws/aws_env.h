@@ -64,6 +64,10 @@ class AwsS3ClientWrapper {
   class Timer;
 };
 
+namespace detail {
+struct JobHandle;
+}  // namespace detail
+
 //
 // The S3 environment for rocksdb. This class overrides all the
 // file/dir access methods and delegates all other methods to the
@@ -311,7 +315,7 @@ class AwsEnv : public CloudEnvImpl {
   void RemoveFileFromDeletionQueue(const std::string& filename);
 
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
-    std::lock_guard<std::mutex> lk(file_deletion_lock_);
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
     file_deletion_delay_ = delay;
   }
 
@@ -347,15 +351,10 @@ class AwsEnv : public CloudEnvImpl {
 
   std::unique_ptr<CloudLogController> cloud_log_controller_;
 
+  std::mutex files_to_delete_mutex_;
   std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
-  std::thread file_deletion_thread_;
-  std::mutex file_deletion_lock_;
-  std::condition_variable file_deletion_cv_;
-  using FilesToDeleteList =
-      std::list<std::pair<std::chrono::steady_clock::time_point, std::string>>;
-  FilesToDeleteList files_to_delete_list_;
-  std::unordered_map<std::string, FilesToDeleteList::iterator>
-      files_to_delete_map_;
+  std::unordered_map<std::string, std::shared_ptr<detail::JobHandle>>
+      files_to_delete_;
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
 

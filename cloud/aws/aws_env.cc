@@ -21,6 +21,107 @@
 
 namespace rocksdb {
 
+namespace detail {
+
+using ScheduledJob =
+    std::pair<std::chrono::steady_clock::time_point, std::function<void(void)>>;
+struct Comp {
+  bool operator()(const ScheduledJob& a, const ScheduledJob& b) {
+    return a.first < b.first;
+  }
+};
+struct JobHandle {
+  std::multiset<ScheduledJob, Comp>::iterator itr;
+  JobHandle(std::multiset<ScheduledJob, Comp>::iterator i)
+      : itr(std::move(i)) {}
+};
+
+class JobExecutor {
+ public:
+  shared_ptr<JobHandle> ScheduleJob(std::chrono::steady_clock::time_point time,
+                                    std::function<void(void)> callback);
+  void CancelJob(JobHandle* handle);
+
+  JobExecutor();
+  ~JobExecutor();
+
+ private:
+  void DoWork();
+
+  std::mutex mutex_;
+  // Notified when the earliest job to be scheduled has changed.
+  std::condition_variable jobs_changed_cv_;
+  std::multiset<ScheduledJob, Comp> scheduled_jobs_;
+  bool shutting_down_{false};
+
+  std::thread thread_;
+};
+
+JobExecutor::JobExecutor() {
+  thread_ = std::thread([this]() { DoWork(); });
+}
+
+JobExecutor::~JobExecutor() {
+  {
+    std::lock_guard<std::mutex> lk(mutex_);
+    shutting_down_ = true;
+    jobs_changed_cv_.notify_all();
+  }
+  if (thread_.joinable()) {
+    thread_.join();
+  }
+}
+
+shared_ptr<JobHandle> JobExecutor::ScheduleJob(
+    std::chrono::steady_clock::time_point time,
+    std::function<void(void)> callback) {
+  std::lock_guard<std::mutex> lk(mutex_);
+  auto itr = scheduled_jobs_.emplace(time, std::move(callback));
+  if (itr == scheduled_jobs_.begin()) {
+    jobs_changed_cv_.notify_all();
+  }
+  return std::make_shared<JobHandle>(itr);
+}
+
+void JobExecutor::CancelJob(JobHandle* handle) {
+  std::lock_guard<std::mutex> lk(mutex_);
+  if (scheduled_jobs_.begin() == handle->itr) {
+    jobs_changed_cv_.notify_all();
+  }
+  scheduled_jobs_.erase(handle->itr);
+}
+
+void JobExecutor::DoWork() {
+  while (true) {
+    std::unique_lock<std::mutex> lk(mutex_);
+    if (shutting_down_) {
+        break;
+    }
+    if (scheduled_jobs_.empty()) {
+        jobs_changed_cv_.wait(lk);
+        continue;
+    }
+    auto earliest_job = scheduled_jobs_.begin();
+    auto earliest_job_time = earliest_job->first;
+    if (earliest_job_time >= std::chrono::steady_clock::now()) {
+        jobs_changed_cv_.wait_until(lk, earliest_job_time);
+        continue;
+    }
+    // invoke the function
+    lk.unlock();
+    earliest_job->second();
+    lk.lock();
+    scheduled_jobs_.erase(earliest_job);
+  }
+}
+
+}  // namespace detail
+
+detail::JobExecutor* GetJobExecutor() {
+  static detail::JobExecutor executor;
+  return &executor;
+}
+
 class AwsS3ClientWrapper::Timer {
  public:
   Timer(CloudRequestCallback* callback, CloudRequestOpType type,
@@ -313,55 +414,19 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
         "[aws] NewAwsEnv Unable to create environment %s",
         create_bucket_status_.ToString().c_str());
   }
-
-  file_deletion_thread_ = std::thread([&]() {
-    while (true) {
-      std::unique_lock<std::mutex> lk(file_deletion_lock_);
-      // wait until we're shutting down or there are some files to delete
-      file_deletion_cv_.wait(lk, [&]() {
-        return running_.load() == false || !files_to_delete_list_.empty();
-      });
-      if (running_.load() == false) {
-        // we're shutting down
-        break;
-      }
-      assert(!files_to_delete_list_.empty());
-      assert(files_to_delete_list_.size() == files_to_delete_map_.size());
-      bool pred = file_deletion_cv_.wait_until(
-          lk, files_to_delete_list_.front().first,
-          [&] { return running_.load() == false; });
-      if (pred) {
-        // i.e. running_ == false
-        break;
-      }
-      // We need to recheck files_to_delete_list_ because it's possible that the
-      // file was removed from the list.
-      if (!files_to_delete_list_.empty() &&
-          files_to_delete_list_.front().first <=
-              std::chrono::steady_clock::now()) {
-        auto deleting_file = std::move(files_to_delete_list_.front());
-        files_to_delete_list_.pop_front();
-        files_to_delete_map_.erase(deleting_file.second);
-        auto fname = GetDestObjectPrefix() + "/" + deleting_file.second;
-        // we are ready to delete the file!
-        auto st = DeletePathInS3(GetDestBucketPrefix(), fname);
-        if (!st.ok() && !st.IsNotFound()) {
-          Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-              "[s3] DeleteFile DeletePathInS3 file %s error %s", fname.c_str(),
-              st.ToString().c_str());
-        }
-      }
-    }
-  });
 }
 
 AwsEnv::~AwsEnv() {
+  running_ = false;
+
   {
-    std::lock_guard<std::mutex> lk(file_deletion_lock_);
-    running_ = false;
-    file_deletion_cv_.notify_one();
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    using std::swap;
+    for (auto& e : files_to_delete_) {
+      GetJobExecutor()->CancelJob(e.second.get());
+    }
+    files_to_delete_.clear();
   }
-  file_deletion_thread_.join();
 
   StopPurger();
   if (tid_ && tid_->joinable()) {
@@ -969,11 +1034,11 @@ Status AwsEnv::GetChildren(const std::string& path,
 }
 
 void AwsEnv::RemoveFileFromDeletionQueue(const std::string& filename) {
-  std::lock_guard<std::mutex> lk(file_deletion_lock_);
-  auto pos = files_to_delete_map_.find(filename);
-  if (pos != files_to_delete_map_.end()) {
-    files_to_delete_list_.erase(pos->second);
-    files_to_delete_map_.erase(pos);
+  std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+  auto itr = files_to_delete_.find(filename);
+  if (itr != files_to_delete_.end()) {
+    GetJobExecutor()->CancelJob(itr->second.get());
+    files_to_delete_.erase(itr);
   }
 }
 
@@ -1047,16 +1112,39 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
 Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
   assert(!GetDestBucketPrefix().empty());
   auto base = basename(fname);
-  // add the remote file deletion to the queue
-  std::unique_lock<std::mutex> lk(file_deletion_lock_);
-  if (files_to_delete_map_.find(base) == files_to_delete_map_.end()) {
-    files_to_delete_list_.emplace_back(
-        std::chrono::steady_clock::now() + file_deletion_delay_,
-        basename(fname));
-    auto itr = files_to_delete_list_.end();
-    --itr;
-    files_to_delete_map_.emplace(base, std::move(itr));
-    file_deletion_cv_.notify_one();
+  // add the job to delete the file in 1 hour
+  auto doDeleteFile = [this, base]() {
+    {
+      std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+      auto itr = files_to_delete_.find(base);
+      if (itr == files_to_delete_.end()) {
+        // File was removed from files_to_delete_, do not delete!
+        return;
+      }
+      files_to_delete_.erase(itr);
+    }
+    auto path = GetDestObjectPrefix() + "/" + base;
+    // we are ready to delete the file!
+    auto st = DeletePathInS3(GetDestBucketPrefix(), path);
+    if (!st.ok() && !st.IsNotFound()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[s3] DeleteFile DeletePathInS3 file %s error %s", path.c_str(),
+          st.ToString().c_str());
+    }
+  };
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    if (files_to_delete_.find(base) != files_to_delete_.end()) {
+      // already in the queue
+      return Status::OK();
+    }
+  }
+  auto handle = GetJobExecutor()->ScheduleJob(
+      std::chrono::steady_clock::now() + file_deletion_delay_,
+      std::move(doDeleteFile));
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    files_to_delete_.emplace(base, std::move(handle));
   }
   return Status::OK();
 }
