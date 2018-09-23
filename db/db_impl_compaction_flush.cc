@@ -284,10 +284,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     const MutableCFOptions& mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
-    const uint64_t* memtable_id = &(bg_flush_args[i].memtable_id_);
+    const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
     jobs.emplace_back(
         dbname_, cfds[i], immutable_db_options_, mutable_cf_options,
-        memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
+        max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
@@ -314,7 +314,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
     // If there are more than one column families, we need to make sure that
     // all the log files except the most recent one are synced. Otherwise if
     // the host crashes after flushing and before WAL is persistent, the

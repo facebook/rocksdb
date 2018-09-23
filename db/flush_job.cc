@@ -88,8 +88,9 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
-                   const uint64_t* memtable_id, const EnvOptions& env_options,
-                   VersionSet* versions, InstrumentedMutex* db_mutex,
+                   const uint64_t* max_memtable_id,
+                   const EnvOptions& env_options, VersionSet* versions,
+                   InstrumentedMutex* db_mutex,
                    std::atomic<bool>* shutting_down,
                    std::vector<SequenceNumber> existing_snapshots,
                    SequenceNumber earliest_write_conflict_snapshot,
@@ -103,7 +104,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       cfd_(cfd),
       db_options_(db_options),
       mutable_cf_options_(mutable_cf_options),
-      memtable_id_(memtable_id),
+      max_memtable_id_(max_memtable_id),
       env_options_(env_options),
       versions_(versions),
       db_mutex_(db_mutex),
@@ -165,7 +166,7 @@ void FlushJob::PickMemTable() {
   assert(!pick_memtable_called);
   pick_memtable_called = true;
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(memtable_id_, &mems_);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
   if (mems_.empty()) {
     return;
   }

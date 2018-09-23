@@ -514,14 +514,14 @@ bool MemTableList::IsFlushPending() const {
 }
 
 // Returns the memtables that need to be flushed.
-void MemTableList::PickMemtablesToFlush(const uint64_t* memtable_id,
+void MemTableList::PickMemtablesToFlush(const uint64_t* max_memtable_id,
                                         autovector<MemTable*>* ret) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
-    if (memtable_id != nullptr && *memtable_id < m->GetID()) {
+    if (max_memtable_id != nullptr && m->GetID() > *max_memtable_id) {
       continue;
     }
     if (!m->flush_in_progress_) {

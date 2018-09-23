@@ -898,18 +898,18 @@ class DBImpl : public DB {
   // Argument required by background flush thread.
   struct BGFlushArg {
     BGFlushArg()
-        : cfd_(nullptr), memtable_id_(0), superversion_context_(nullptr) {}
-    BGFlushArg(ColumnFamilyData* cfd, uint64_t memtable_id,
+        : cfd_(nullptr), max_memtable_id_(0), superversion_context_(nullptr) {}
+    BGFlushArg(ColumnFamilyData* cfd, uint64_t max_memtable_id,
                SuperVersionContext* superversion_context)
         : cfd_(cfd),
-          memtable_id_(memtable_id),
+          max_memtable_id_(max_memtable_id),
           superversion_context_(superversion_context) {}
 
     // Column family to flush.
     ColumnFamilyData* cfd_;
     // Maximum ID of memtable to flush. In this column family, memtables with
     // IDs smaller than this value must be flushed before this flush completes.
-    uint64_t memtable_id_;
+    uint64_t max_memtable_id_;
     // Pointer to a SuperVersionContext object. After flush completes, RocksDB
     // installs a new superversion for the column family. This operation
     // requires a SuperVersionContext object (currently embedded in JobContext).
