@@ -1111,11 +1111,23 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   return manual.status;
 }
 
+void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
+                                  FlushRequest* req) {
+  assert(req != nullptr);
+  for (const auto cfd : cfds) {
+    if (nullptr == cfd) {
+      // cfd may be null, see DBImpl::ScheduleFlushes
+      continue;
+    }
+    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID();
+    req->emplace_back(cfd, max_memtable_id);
+  }
+}
+
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason, bool writes_stopped) {
   Status s;
-  uint64_t flush_memtable_id = 0;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
     s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
@@ -1125,6 +1137,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
   }
   FlushRequest flush_req;
+  autovector<ColumnFamilyData*> cfds;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -1134,18 +1147,27 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
-      s = SwitchMemtable(cfd, &context);
-      flush_memtable_id = cfd->imm()->GetLatestMemTableID();
-      flush_req.emplace_back(cfd, flush_memtable_id);
+    if (atomic_flush_) {
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+    } else {
+      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          !cached_recoverable_state_empty_.load()) {
+        cfds.push_back(cfd);
+      }
     }
 
-    if (s.ok() && !flush_req.empty()) {
-      for (auto& elem : flush_req) {
-        ColumnFamilyData* loop_cfd = elem.first;
-        loop_cfd->imm()->FlushRequested();
+    for (auto tmp_cfd : cfds) {
+      s = SwitchMemtable(tmp_cfd, &context);
+      if (!s.ok()) {
+        break;
       }
+    }
+
+    if (s.ok()) {
+      for (auto tmp_cfd : cfds) {
+        tmp_cfd->imm()->FlushRequested();
+      }
+      GenerateFlushRequest(cfds, &flush_req);
       SchedulePendingFlush(flush_req, flush_reason);
       MaybeScheduleFlushOrCompaction();
     }
@@ -1156,16 +1178,27 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   }
 
   if (s.ok() && flush_options.wait) {
-    autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
-      cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids);
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
+}
+
+void DBImpl::SelectColumnFamiliesForAtomicFlush(
+    autovector<ColumnFamilyData*>* cfds) {
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+        !cached_recoverable_state_empty_.load()) {
+      cfds->push_back(cfd);
+    }
+  }
 }
 
 // Calling FlushMemTable(), whether from DB::Flush() or from Backup Engine, can

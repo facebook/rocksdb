@@ -945,6 +945,8 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
+  void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
+
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason, bool writes_stopped = false);
@@ -1028,6 +1030,9 @@ class DBImpl : public DB {
   // work of flushing this column family. After completing the work for all
   // column families in this request, this flush is considered complete.
   typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+
+  void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
+                            FlushRequest* req);
 
   void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
 
@@ -1556,6 +1561,8 @@ class DBImpl : public DB {
   bool closed_;
 
   ErrorHandler error_handler_;
+
+  bool atomic_flush_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

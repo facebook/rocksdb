@@ -1557,8 +1557,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           0}},
         {"atomic_flush",
          {offsetof(struct DBOptions, atomic_flush), OptionType::kBoolean,
-           OptionVerificationType::kNormal, false,
-           offsetof(struct ImmutableDBOptions, atomic_flush)}}};
+          OptionVerificationType::kNormal, false,
+          offsetof(struct ImmutableDBOptions, atomic_flush)}}};
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {

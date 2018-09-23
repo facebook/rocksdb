@@ -944,7 +944,10 @@ struct DBOptions {
   // file.
   bool manual_wal_flush = false;
 
-  // If true flushes all column families atomically.
+  // If true flushes all column families atomically. Note that it is NOT
+  // necessary to set atomic_flush to true if WAL is always enabled. This
+  // option is useful only when there are column families with writes NOT
+  // protected by WAL.
   bool atomic_flush = false;
 };
 
