@@ -533,6 +533,7 @@ TESTS = \
 	write_unprepared_transaction_test \
 	db_universal_compaction_test \
 	trace_analyzer_test \
+	repeatable_thread_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1554,6 +1555,9 @@ range_del_aggregator_bench: db/range_del_aggregator_bench.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+repeatable_thread_test: util/repeatable_thread_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
