@@ -399,7 +399,6 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
                                          uint32_t cfh_id,
                                          const std::string& key,
                                          bool exclusive) {
-  //fprintf(stderr, "AAA: PessimisticTransactionDB::TryLock calling extra lock\n");
   if (use_range_locking)
     return range_lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
   else

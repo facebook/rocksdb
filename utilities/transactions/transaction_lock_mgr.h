@@ -105,6 +105,8 @@ class RangeLockMgr :public BaseLockMgr {
 
   }
 
+  void KillLockWait(void *cdata);
+
  private:
   toku::locktree_manager ltm;
   toku::locktree *lt; // only one tree for now

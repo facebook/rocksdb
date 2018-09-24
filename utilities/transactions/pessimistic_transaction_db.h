@@ -142,6 +142,11 @@ class PessimisticTransactionDB : public TransactionDB {
   virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
   virtual void UpdateCFComparatorMap(ColumnFamilyHandle*) {}
 
+  void KillLockWait(void *cdata) override 
+  { 
+    if (use_range_locking)
+      range_lock_mgr_.KillLockWait(cdata);
+  }
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;

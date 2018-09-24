@@ -306,6 +306,10 @@ Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
                             timeout, std::move(lock_info));
 }
 
+void RangeLockMgr::KillLockWait(void *cdata)
+{
+  ltm.kill_waiter(cdata);
+}
 
 // psergey: new code:
 //   (TODO: the below ignores column_family_id !)
@@ -319,10 +323,14 @@ Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
 
   toku_fill_dbt(&key_dbt, key.data(), key.size());
   request.set(lt, txn->GetID(), &key_dbt, &key_dbt, toku::lock_request::WRITE,
-              false /* not a big txn */, nullptr /*client_extra*/);
+              false /* not a big txn */, (void*)txn->GetID() /*client_extra*/);
   
-  const uint64_t wait_time_msec=1000*1000*1000;
-  const uint64_t killed_time_msec=1000*1000*1000;
+  uint64_t killed_time_msec = 0; // TODO: what should this have?
+  uint64_t wait_time_msec = txn->GetLockTimeout();
+  // convert microseconds to milliseconds
+  if (wait_time_msec != (uint64_t)-1)
+    wait_time_msec = (wait_time_msec + 500) / 1000;
+
   request.start();
   const int r = request.wait(wait_time_msec, killed_time_msec, 
                              nullptr, /* killed_callback */
@@ -689,7 +697,7 @@ another_lock_mgr_release_lock_int(toku::locktree *lt,
 void RangeLockMgr::UnLock(PessimisticTransaction* txn,
                             uint32_t column_family_id,
                             const std::string& key, Env* env) {
-  fprintf(stderr, "RangeLockMgr::UnLock (key)\n");
+  //fprintf(stderr, "RangeLockMgr::UnLock (key)\n");
   another_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 }
@@ -697,7 +705,7 @@ void RangeLockMgr::UnLock(PessimisticTransaction* txn,
 void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
                             const TransactionKeyMap* key_map, Env* env) {
 
-  fprintf(stderr, "RangeLockMgr::UnLock(key_map)\n");
+  //fprintf(stderr, "RangeLockMgr::UnLock(key_map)\n");
 
 
   for (auto& key_map_iter : *key_map) {

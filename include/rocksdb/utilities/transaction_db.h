@@ -302,6 +302,8 @@ class TransactionDB : public StackableDB {
 
   // psergey-TODO: move this elsewhere.
   bool use_range_locking;
+
+  virtual void KillLockWait(void *cdata){};
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
