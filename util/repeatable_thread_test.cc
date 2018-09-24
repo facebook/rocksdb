@@ -38,7 +38,7 @@ TEST_F(RepeatableThreadTest, TimedTest) {
           test_cv.SignalAll();
         }
       },
-      "repeatable_thread_test", env, 1 * kSecond);
+      "rt_test", env, 1 * kSecond);
   // Wait for execution finish.
   {
     rocksdb::MutexLock l(&mutex);
@@ -56,8 +56,8 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
   constexpr int kIteration = 3;
   mock_env_->set_current_time(0);  // in seconds
   std::atomic<int> count{0};
-  rocksdb::RepeatableThread thread([&] { count++; }, "repeatable_thread_test",
-                                   mock_env_.get(), 1 * kSecond, 1 * kSecond);
+  rocksdb::RepeatableThread thread([&] { count++; }, "rt_test", mock_env_.get(),
+                                   1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {
     // Bump current time
     thread.TEST_WaitForRun([&] { mock_env_->set_current_time(i + 1); });
