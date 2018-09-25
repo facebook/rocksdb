@@ -24,7 +24,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.FlinkCompactionFilter.StateType;
-import org.rocksdb.FlinkCompactionFilter.TimeProvider;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +37,6 @@ public class FlinkCompactionFilterTest {
     private static final byte DELIMITER = ',';
     private static final long TTL = 100;
 
-    private TestTimeProvider timeProvider;
     private List<StateContext> stateContexts;
     private List<ColumnFamilyDescriptor> cfDescs;
     private List<ColumnFamilyHandle> cfHandles;
@@ -48,15 +46,16 @@ public class FlinkCompactionFilterTest {
 
     @Before
     public void init() {
-        timeProvider = new TestTimeProvider();
         stateContexts = new ArrayList<>(StateType.values().length);
         cfDescs = new ArrayList<>();
         cfHandles = new ArrayList<>();
         cfDescs.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
         for (StateType type : StateType.values()) {
-            StateContext stateContext = StateContext.create(type, timeProvider);
-            stateContexts.add(stateContext);
-            cfDescs.add(stateContext.getCfDesc());
+            if (type != StateType.Disabled) {
+                StateContext stateContext = StateContext.create(type);
+                stateContexts.add(stateContext);
+                cfDescs.add(stateContext.getCfDesc());
+            }
         }
     }
 
@@ -76,6 +75,7 @@ public class FlinkCompactionFilterTest {
         assertThat(StateType.Value.ordinal()).isEqualTo(0);
         assertThat(StateType.List.ordinal()).isEqualTo(1);
         assertThat(StateType.Map.ordinal()).isEqualTo(2);
+        assertThat(StateType.Disabled.ordinal()).isEqualTo(3);
     }
 
     @Test
@@ -90,9 +90,8 @@ public class FlinkCompactionFilterTest {
                     assertThat(stateContext.getValueWithTimestamp(rocksDb)).isEqualTo(stateContext.unexpiredValue());
                 }
 
-                timeProvider.expire();
-
                 for (StateContext stateContext : stateContexts) {
+                    stateContext.expire();
                     assertThat(stateContext.getValueWithTimestamp(rocksDb)).isEqualTo(stateContext.unexpiredValue());
                     rocksDb.compactRange(stateContext.columnFamilyHandle);
                     assertThat(stateContext.getValueWithTimestamp(rocksDb)).isEqualTo(stateContext.expiredValue());
@@ -120,19 +119,6 @@ public class FlinkCompactionFilterTest {
         return db;
     }
 
-    private static class TestTimeProvider implements TimeProvider {
-        long time = 0;
-
-        @Override
-        public long currentTimestamp() {
-            return time;
-        }
-
-        void expire() {
-            time += TTL + TTL / 2;
-        }
-    }
-
     private static class StateContext {
         private static final int LONG_LENGTH = 8;
 
@@ -145,22 +131,31 @@ public class FlinkCompactionFilterTest {
 
         ColumnFamilyHandle columnFamilyHandle;
 
-        static StateContext create(StateType type, TimeProvider timeProvider) {
+        static StateContext create(StateType type) {
             if (type == StateType.Map) {
-                return new MapStateContext(timeProvider);
+                return new MapStateContext();
             } else if (type == StateType.List) {
-                return new ListStateContext(timeProvider);
+                return new ListStateContext();
             } else {
-                return new StateContext(type, timeProvider);
+                return new StateContext(type, 0);
             }
         }
 
-        private StateContext(StateType type, TimeProvider timeProvider) {
-            this.currentTime = timeProvider.currentTimestamp();
+        void expire() {
+            filter.setCurrentTimestamp(currentTime + TTL + TTL / 2);
+        }
+
+        private StateContext(StateType type, int timestampOffset) {
+            this(type, timestampOffset, 0L);
+        }
+
+        private StateContext(StateType type, int timestampOffset, long currentTime) {
+            this.currentTime = currentTime;
             userValue = type.name() + "StateValue";
             cf = type.name() + "StateCf";
             key = type.name() + "StateKey";
-            filter = new FlinkCompactionFilter(type, TTL, timeProvider);
+            filter = new FlinkCompactionFilter();
+            filter.configure(type, timestampOffset, TTL, false);
             cfDesc = new ColumnFamilyDescriptor(getASCII(cf), getOptionsWithFilter(filter));
         }
 
@@ -226,8 +221,8 @@ public class FlinkCompactionFilterTest {
         private static class MapStateContext extends StateContext {
             private static final int MAP_NULL_VALUE_OFFSET = 1;
 
-            private MapStateContext(TimeProvider timeProvider) {
-                super(StateType.Map, timeProvider);
+            private MapStateContext() {
+                super(StateType.Map, 1);
             }
 
             @Override
@@ -237,8 +232,8 @@ public class FlinkCompactionFilterTest {
         }
 
         private static class ListStateContext extends StateContext {
-            private ListStateContext(TimeProvider timeProvider) {
-                super(StateType.List, timeProvider);
+            private ListStateContext() {
+                super(StateType.List, 0);
             }
 
             @Override

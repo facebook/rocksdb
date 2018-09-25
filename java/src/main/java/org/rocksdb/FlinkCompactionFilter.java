@@ -14,25 +14,29 @@ public class FlinkCompactionFilter
     // WARNING!!! Do not change the order of enum entries as it is important for jni translation
     Value,
     List,
-    Map
+    Map,
+    Disabled
   }
 
-  public interface TimeProvider {
-    long currentTimestamp();
+  public FlinkCompactionFilter() {
+    super(createNewFlinkCompactionFilter0(InfoLogLevel.ERROR_LEVEL.getValue()));
   }
 
-  private final TimeProvider timeProvider;
-
-  public FlinkCompactionFilter(StateType stateType, long ttl, TimeProvider timeProvider) {
-    super(createNewFlinkCompactionFilter0(timeProvider, stateType.ordinal(), ttl, timeProvider == null));
-    this.timeProvider = timeProvider;
+  public FlinkCompactionFilter(InfoLogLevel logLevel) {
+    super(createNewFlinkCompactionFilter0(logLevel.getValue()));
   }
 
-  @SuppressWarnings("unused")
-  public long currentTimestamp() {
-    return timeProvider.currentTimestamp();
+  public void configure(StateType stateType, int timestampOffset, long ttl, boolean useSystemTime) {
+    configureFlinkCompactionFilter(nativeHandle_, stateType.ordinal(), timestampOffset, ttl, useSystemTime);
   }
 
-  private native static long createNewFlinkCompactionFilter0(
-          Object filter, int stateType, long ttl, boolean useSystemTime);
+  public void setCurrentTimestamp(long currentTimestamp) {
+    setCurrentTimestamp(nativeHandle_, currentTimestamp);
+  }
+
+  private native static long createNewFlinkCompactionFilter0(byte logLevel);
+  private native static long configureFlinkCompactionFilter(
+          long filterHandle, int stateType, int timestampOffset, long ttl, boolean useSystemTime);
+  private native static long setCurrentTimestamp(
+          long filterHandle, long currentTimestamp);
 }

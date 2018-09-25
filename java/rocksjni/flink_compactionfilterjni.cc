@@ -6,57 +6,67 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_FlinkCompactionFilter.h"
+#include <include/rocksdb/env.h>
 #include "utilities/flink/flink_compaction_filter.h"
 #include "rocksjni/jnicallback.h"
+#include "loggerjnicallback.h"
 
-#define TIME_PROVIDER_METHOD "currentTimestamp"
-#define JTIME_PROVIDER_CLASS "org/rocksdb/FlinkCompactionFilter$TimeProvider"
+//
+// Simple logger that prints message on stdout
+//
+class ConsoleLogger : public rocksdb::Logger {
+public:
+    using Logger::Logv;
+    explicit ConsoleLogger(rocksdb::InfoLogLevel logLevel) : Logger(logLevel) {}
 
-/**
- * Wrapper around org/rocksdb/FlinkCompactionFilter$TimeProvider::currentTimestamp method.
- */
-class FlinkTimeProvider : rocksdb::JniCallback, public rocksdb::flink::TimeProvider {
-  public:
-    FlinkTimeProvider(JNIEnv* env, jobject jtime_provider) : JniCallback(env, jtime_provider) {
-      jclass jcls = env->FindClass(JTIME_PROVIDER_CLASS);
-      assert(jcls != nullptr);
-      m_jcurrent_timestamp_method_methodid = env->GetMethodID(jcls, TIME_PROVIDER_METHOD, "()J");
-      assert(m_jcurrent_timestamp_method_methodid != nullptr);
+    void Logv(const char* format, va_list ap) override {
+        vprintf(format, ap);
+        printf("\n");
     }
-
-    int64_t CurrentTimestamp() const override {
-      jboolean attached_thread = JNI_FALSE;
-      JNIEnv* env = getJniEnv(&attached_thread);
-      assert(env != nullptr);
-
-      jlong ts = env->CallLongMethod(m_jcallback_obj, m_jcurrent_timestamp_method_methodid);
-
-      if(env->ExceptionCheck()) {
-          // exception thrown from CallVoidMethod
-          env->ExceptionDescribe();  // print out exception to stderr
-          ts = 0;
-      }
-      releaseJniEnv(attached_thread);
-      return static_cast<int64_t>(ts);
-    };
-
-  private:
-    jmethodID m_jcurrent_timestamp_method_methodid;
 };
 
 /*
  * Class:     org_rocksdb_FlinkCompactionFilter
  * Method:    createNewFlinkCompactionFilter0
- * Signature: (Ljava/lang/Object;IJZ)J
+ * Signature: (B)J
  */
-jlong  __unused Java_org_rocksdb_FlinkCompactionFilter_createNewFlinkCompactionFilter0(
-    JNIEnv* env, jclass /* jcls */, jobject jtime_provider, jint ji_state_type, jlong jl_ttl_milli, jboolean use_system_time) {
+jlong Java_org_rocksdb_FlinkCompactionFilter_createNewFlinkCompactionFilter0(
+        JNIEnv* /* env */, jclass /* jcls */, jbyte jlog_level) {
   using namespace rocksdb::flink;
-  auto state_type = static_cast<FlinkCompactionFilter::StateType>(ji_state_type);
-  auto ttl = static_cast<int64_t>(jl_ttl_milli);
-  auto* compaction_filter = (bool)(use_system_time == JNI_TRUE) ?
-    new FlinkCompactionFilter(state_type, ttl) :
-    new FlinkCompactionFilter(state_type, ttl, new FlinkTimeProvider(env, jtime_provider));
   // set the native handle to our native compaction filter
-  return reinterpret_cast<jlong>(compaction_filter);
+  auto* logger= new ConsoleLogger(static_cast<rocksdb::InfoLogLevel>(jlog_level));
+  return reinterpret_cast<jlong>(new FlinkCompactionFilter(logger));
+}
+
+/*
+ * Class:     org_rocksdb_FlinkCompactionFilter
+ * Method:    configureFlinkCompactionFilter
+ * Signature: (JIIJZJ)J
+ */
+jlong Java_org_rocksdb_FlinkCompactionFilter_configureFlinkCompactionFilter(
+        JNIEnv* /* env */, jclass /* jcls */,
+        jlong handle, jint ji_state_type, jint ji_timestamp_offset,
+        jlong jl_ttl_milli, jboolean jb_use_system_time) {
+    using namespace rocksdb::flink;
+    auto state_type = static_cast<FlinkCompactionFilter::StateType>(ji_state_type);
+    auto timestamp_offset = static_cast<size_t>(ji_timestamp_offset);
+    auto ttl = static_cast<int64_t>(jl_ttl_milli);
+    auto use_system_time = (bool)(jb_use_system_time == JNI_TRUE);
+    auto filter = reinterpret_cast<FlinkCompactionFilter*>(handle);
+    filter->Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, use_system_time});
+    return handle;
+}
+
+/*
+ * Class:     org_rocksdb_FlinkCompactionFilter
+ * Method:    setCurrentTimestamp
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_FlinkCompactionFilter_setCurrentTimestamp(
+        JNIEnv* /* env */, jclass /* jcls */, jlong handle, jlong jl_current_timestamp) {
+    using namespace rocksdb::flink;
+    auto filter = reinterpret_cast<FlinkCompactionFilter*>(handle);
+    auto current_timestamp = static_cast<int64_t>(jl_current_timestamp);
+    filter->SetCurrentTimestamp(current_timestamp);
+    return handle;
 }

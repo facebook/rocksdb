@@ -13,6 +13,7 @@ namespace flink {
 #define VALUE FlinkCompactionFilter::StateType::Value
 #define LIST FlinkCompactionFilter::StateType::List
 #define MAP FlinkCompactionFilter::StateType::Map
+#define DISABLED FlinkCompactionFilter::StateType::Disabled
 
 #define KVALUE CompactionFilter::ValueType::kValue
 #define KMERGE CompactionFilter::ValueType::kMergeOperand
@@ -22,6 +23,8 @@ namespace flink {
 
 #define EXPIRE (time += ttl + 20)
 
+#define FLINK_MAP_STATE_NULL_BYTE_OFFSET 1
+
 std::random_device rd; // NOLINT
 std::mt19937 mt(rd()); // NOLINT
 std::uniform_int_distribution<int64_t> rnd(0, JAVA_MAX_LONG); // NOLINT
@@ -29,19 +32,15 @@ std::uniform_int_distribution<int64_t> rnd(0, JAVA_MAX_LONG); // NOLINT
 int64_t time = 0;
 int64_t ttl = 100;
 
-class TestTimeProvider : public TimeProvider {
-public:
-  int64_t CurrentTimestamp() const override { return time; }
-};
-
 Slice key = Slice("key"); // NOLINT
 char data[16];
 std::string stub = ""; // NOLINT
 
 FlinkCompactionFilter::StateType state_type;
 CompactionFilter::ValueType value_type;
+FlinkCompactionFilter filter; // NOLINT
 
-void SetTimestamp(int64_t timestamp = time, int offset = 0, char* value = data) {
+void SetTimestamp(int64_t timestamp = time, size_t offset = 0, char* value = data) {
   time = timestamp;
   for (unsigned long i = 0; i < sizeof(uint64_t); i++) {
     value[offset + i] = static_cast<char>(static_cast<uint64_t>(timestamp)
@@ -49,14 +48,16 @@ void SetTimestamp(int64_t timestamp = time, int offset = 0, char* value = data) 
   }
 }
 
-FlinkCompactionFilter init(FlinkCompactionFilter::StateType stype, CompactionFilter::ValueType vtype, int offset = 0) {
-  SetTimestamp(rnd(mt), offset);
+void init(FlinkCompactionFilter::StateType stype, CompactionFilter::ValueType vtype, size_t timestamp_offset = 0) {
+  SetTimestamp(rnd(mt), timestamp_offset);
   state_type = stype;
   value_type = vtype;
-  return FlinkCompactionFilter(state_type, ttl, new TestTimeProvider());
+  
+  filter.Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false});
 }
 
-CompactionFilter::Decision decide(FlinkCompactionFilter& filter, size_t data_size = sizeof(data)) {
+CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {
+  filter.SetCurrentTimestamp(time);
   return filter.FilterV2(0, key, value_type, Slice(data, data_size), &stub, &stub);
 }
 
@@ -67,63 +68,64 @@ TEST(FlinkStateTtlTest, CheckStateTypeEnumOrder) { // NOLINT
   EXPECT_EQ(VALUE, 0);
   EXPECT_EQ(LIST, 1);
   EXPECT_EQ(MAP, 2);
+  EXPECT_EQ(DISABLED, 3);
 }
 
 TEST(FlinkStateTtlTest, SkipShortDataWithoutTimestamp) { // NOLINT
-  auto filter = init(VALUE, KVALUE);
+  init(VALUE, KVALUE);
   EXPIRE;
-  EXPECT_EQ(decide(filter, TIMESTAMP_BYTE_SIZE - 1), KKEEP);
+  EXPECT_EQ(decide(TIMESTAMP_BYTE_SIZE - 1), KKEEP);
 }
 
 TEST(FlinkValueStateTtlTest, Unexpired) { // NOLINT
-  auto filter = init(VALUE, KVALUE);
-  EXPECT_EQ(decide(filter), KKEEP);
+  init(VALUE, KVALUE);
+  EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkValueStateTtlTest, Expired) { // NOLINT
-  auto filter = init(VALUE, KVALUE);
+  init(VALUE, KVALUE);
   EXPIRE;
-  EXPECT_EQ(decide(filter), KREMOVE);
+  EXPECT_EQ(decide(), KREMOVE);
 }
 
 TEST(FlinkValueStateTtlTest, WrongFilterValueType) { // NOLINT
-  auto filter = init(VALUE, KMERGE);
+  init(VALUE, KMERGE);
   EXPIRE;
-  EXPECT_EQ(decide(filter), KKEEP);
+  EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkListStateTtlTest, Unexpired) { // NOLINT
-  auto filter = init(LIST, KMERGE);
-  EXPECT_EQ(decide(filter), KKEEP);
+  init(LIST, KMERGE);
+  EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkListStateTtlTest, Expired) { // NOLINT
-  auto filter = init(LIST, KMERGE);
+  init(LIST, KMERGE);
   EXPIRE;
-  EXPECT_EQ(decide(filter), KREMOVE);
+  EXPECT_EQ(decide(), KREMOVE);
 }
 
 TEST(FlinkListStateTtlTest, WrongFilterValueType) { // NOLINT
-  auto filter = init(LIST, KVALUE);
+  init(LIST, KVALUE);
   EXPIRE;
-  EXPECT_EQ(decide(filter), KKEEP);
+  EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkMapStateTtlTest, Unexpired) { // NOLINT
-  auto filter = init(MAP, KVALUE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
-  EXPECT_EQ(decide(filter), KKEEP);
+  init(MAP, KVALUE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
+  EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkMapStateTtlTest, Expired) { // NOLINT
-  auto filter = init(MAP, KVALUE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
+  init(MAP, KVALUE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
   EXPIRE;
-  EXPECT_EQ(decide(filter), KREMOVE);
+  EXPECT_EQ(decide(), KREMOVE);
 }
 
 TEST(FlinkMapStateTtlTest, WrongFilterValueType) { // NOLINT
-  auto filter = init(MAP, KMERGE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
+  init(MAP, KMERGE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
   EXPIRE;
-  EXPECT_EQ(decide(filter), KKEEP);
+  EXPECT_EQ(decide(), KKEEP);
 }
 
 } // namespace flink
