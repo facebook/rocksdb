@@ -3345,12 +3345,10 @@ class AtomicFlushStressTest : public StressTest {
                          std::unique_ptr<MutexLock>& /* lock */) {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
-    if (StringToHex(key_str).find("0000000000003070") != std::string::npos) {
-      fprintf(stderr, "y7jin put key int64=%d\n", (int)rand_keys[0]);
-    }
     uint64_t value_base = batch_id_.fetch_add(1);
     size_t sz = GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
     Slice v(value, sz);
+    fprintf(stderr, "y7jin put key=%s value=%s\n", key.ToString(true).c_str(), v.ToString(true).c_str());
     Status s;
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* cfh = column_families_[cf];
@@ -3480,13 +3478,6 @@ class AtomicFlushStressTest : public StressTest {
     ReadOptions options;
     assert(thread != nullptr);
     auto shared = thread->shared;
-    {
-      unique_ptr<Iterator> it(db_->NewIterator(options, column_families_[0]));
-      std::string key_str = Key(12400);
-      Slice key = key_str;
-      it->Seek(key);
-      fprintf(stderr, "y7jin seek to key directly. key=%s value=%s\n", it->key().ToString(true).c_str(), it->value().ToString(true).c_str());
-    }
     unique_ptr<Iterator> iter(db_->NewIterator(options, column_families_[0]));
     iter->SeekToFirst();
     for (; iter->Valid(); iter->Next()) {
@@ -3508,8 +3499,7 @@ class AtomicFlushStressTest : public StressTest {
               column_families_[0]->GetName().c_str(),
               column_families_[cf]->GetName().c_str(), s.ToString().c_str());
           fprintf(stderr, "key=%s: (get) %s != (iter) %s\n", key.ToString(true).c_str(), StringToHex(value).c_str(), StringToHex(expected_value).c_str());
-          //shared->SetVerificationFailure();
-          (void) shared;
+          shared->SetVerificationFailure();
         }
       }
     }
