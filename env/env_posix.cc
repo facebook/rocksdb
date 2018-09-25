@@ -520,7 +520,8 @@ class PosixEnv : public Env {
       return Status::OK();
     }
 
-    switch (errno) {
+    int err = errno;
+    switch (err) {
       case EACCES:
       case ELOOP:
       case ENAMETOOLONG:
@@ -528,8 +529,8 @@ class PosixEnv : public Env {
       case ENOTDIR:
         return Status::NotFound();
       default:
-        assert(result == EIO || result == ENOMEM);
-        return Status::IOError("Unexpected error(" + ToString(result) +
+        assert(err == EIO || err == ENOMEM);
+        return Status::IOError("Unexpected error(" + ToString(err) +
                                ") accessing file `" + fname + "' ");
     }
   }
