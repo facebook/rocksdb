@@ -85,8 +85,6 @@ class RepeatableThread {
       }
 #ifndef NDEBUG
       waiting_ = false;
-      executed_ = true;
-      cond_var_.SignalAll();
 #endif
     }
     return running_;
@@ -109,6 +107,10 @@ class RepeatableThread {
     }
     do {
       function_();
+#ifndef NDEBUG
+      executed_ = true;
+      cond_var_.SignalAll();
+#endif
     } while (wait(delay_us_));
   }
 
