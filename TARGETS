@@ -1,4 +1,3 @@
-
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 
 REPO_PATH = package_name() + "/"
