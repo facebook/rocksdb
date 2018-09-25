@@ -146,6 +146,13 @@ class UncollapsedRangeDelMap : public RangeDelMap {
 // is installed to indicate that no tombstone exists. This occurs at keys n and
 // t in the example above.
 //
+// To provide end-key-inclusive semantics for truncated range tombstones, the
+// map actually stores two sequence numbers: one for the "point" seqnum that applies
+// to the key of the entry, and one for the "range" seqnum that applies from the
+// current key until the next key, exclusive on both ends. For untruncated range
+// tombstones, the point and range seqnums are equal, so the semantics match
+// to the description above.
+//
 // To check whether a key K is covered by a tombstone, the map is binary
 // searched for the last key less than K. K is covered iff the map entry has a
 // larger seqno than K. As an example, consider the key h @ 4. It would be
@@ -278,18 +285,20 @@ class CollapsedRangeDelMap : public RangeDelMap {
       return it == rep_.begin() ? 0 : std::prev(it)->second.range_seqnum;
     };
 
-    // end_seq stores the seqno of the last transition that the new tombstone
-    // covered. This is the seqno that we'll install if we need to insert a
-    // transition for the new tombstone's end key.
+    // end_seq stores the range seqno of the last transition that the new
+    // tombstone covered. This is the range seqno that we'll install if we need
+    // to insert a transition for the new tombstone's end key.
     SequenceNumber end_seq = 0;
 
-    // In the diagrams below, the new tombstone is always [c, k) @ 2. The
-    // existing tombstones are varied to depict different scenarios. Uppercase
-    // letters are used to indicate points that exist in the map, while
-    // lowercase letters are used to indicate points that do not exist in the
-    // map. The location of the iterator is marked with a caret; it may point
-    // off the end of the diagram to indicate that it is positioned at a
-    // entry with a larger key whose specific key is irrelevant.
+    // In the diagrams below, the new tombstone is [c, k) @ 2, or [c, k] @ 2 if
+    // specified. The existing tombstones are varied to depict different
+    // scenarios. Uppercase letters are used to indicate points that exist in
+    // the map, while lowercase letters are used to indicate points that do not
+    // exist in the map. The location of the iterator is marked with a caret;
+    // it may point off the end of the diagram to indicate that it is
+    // positioned at a entry with a larger key whose specific key is
+    // irrelevant. Truncated end keys not pointed at by the caret are marked by a *;
+    // those pointed at by the caret are marked by a !.
 
     if (t.seq_ > prev_point_seq() || t.seq_ > prev_range_seq()) {
       // The new tombstone's start point covers the existing tombstone:
