@@ -96,6 +96,9 @@ void VerifyRangeDels(
           if (expected_point.expectAlive) {
             ASSERT_FALSE(range_del_agg.ShouldDelete(parsed_key, mode));
           } else {
+            if (!range_del_agg.ShouldDelete(parsed_key, mode)) {
+              assert(false);
+            }
             ASSERT_TRUE(range_del_agg.ShouldDelete(parsed_key, mode));
           }
         }
@@ -328,7 +331,7 @@ TEST_F(RangeDelAggregatorTest, TruncateTombstones) {
       {{"a", 10, true},  // truncated
        {"b", 10, false}, // not truncated
        {"d", 10, false}, // not truncated
-       {"e", 10, true}}, // truncated
+       {"e", 10, false}}, // not truncated
       {{"b", "c", 10}, {"d", "e", 10}},
       &smallest, &largest);
 }
@@ -344,7 +347,7 @@ TEST_F(RangeDelAggregatorTest, OverlappingLargestKeyTruncateTombstones) {
        {"b", 10, false}, // not truncated
        {"d", 10, false}, // not truncated
        {"e", 10, false}}, // not truncated
-      {{"b", "c", 10}, {"d", "f", 10}},
+      {{"b", "c", 10}, {"d", "e", 10}},
       &smallest, &largest);
 }
 
