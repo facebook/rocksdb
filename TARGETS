@@ -1,3 +1,4 @@
+
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 
 REPO_PATH = package_name() + "/"
@@ -917,11 +918,6 @@ ROCKS_TESTS = [
     [
         "range_del_aggregator_test",
         "db/range_del_aggregator_test.cc",
-        "serial",
-    ],
-    [
-        "range_del_aggregator_bench",
-        "db/range_del_aggregator_bench.cc",
         "serial",
     ],
     [
