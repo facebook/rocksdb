@@ -305,6 +305,7 @@ cpp_library(
     srcs = [
         "db/db_test_util.cc",
         "table/mock_table.cc",
+        "tools/trace_analyzer_tool.cc",
         "util/fault_injection_test_env.cc",
         "util/testharness.cc",
         "util/testutil.cc",
