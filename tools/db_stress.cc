@@ -133,8 +133,7 @@ DEFINE_bool(test_batches_snapshots, false,
             "\t(b) No long validation at the end (more speed up)\n"
             "\t(c) Test snapshot and atomicity of batch writes");
 
-DEFINE_bool(atomic_flush, false,
-            "If true, the test enables atomic flush\n");
+DEFINE_bool(atomic_flush, false, "If true, the test enables atomic flush\n");
 
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
@@ -2221,6 +2220,8 @@ class StressTest {
     fprintf(stdout, "Format version            : %d\n", FLAGS_format_version);
     fprintf(stdout, "TransactionDB             : %s\n",
             FLAGS_use_txn ? "true" : "false");
+    fprintf(stdout, "Atomic flush              : %s\n",
+            FLAGS_atomic_flush ? "true" : "false");
     fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
     if (!FLAGS_test_batches_snapshots) {
       fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -3332,21 +3333,20 @@ class BatchedOpsStressTest : public StressTest {
 
 class AtomicFlushStressTest : public StressTest {
  public:
-  AtomicFlushStressTest(): batch_id_(0) {}
+  AtomicFlushStressTest() : batch_id_(0) {}
 
   virtual ~AtomicFlushStressTest() {}
 
-  virtual Status TestPut(
-      ThreadState* thread,
-      WriteOptions& write_opts, const ReadOptions& /* read_opts */,
-      const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& /*rand_keys*/,
-      char (&value)[100], std::unique_ptr<MutexLock>& /* lock */) {
-    int64_t curr_key = batch_id_.fetch_add(1);
-    std::string key_str = Key(curr_key);
+  virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
+                         const ReadOptions& /* read_opts */,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         char (&value)[100],
+                         std::unique_ptr<MutexLock>& /* lock */) {
+    std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     uint64_t value_base = batch_id_.fetch_add(1);
-    size_t sz = GenerateValue(value_base, value, sizeof(value));
+    size_t sz = GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
     Slice v(value, sz);
     Status s;
     for (auto cf : rand_column_families) {
@@ -3387,27 +3387,24 @@ class AtomicFlushStressTest : public StressTest {
         std::terminate();
       }
       thread->stats.AddBytesForWrites(1, sz);
-      PrintKeyValue(cf, static_cast<uint32_t>(curr_key), value, sz);
+      PrintKeyValue(cf, static_cast<uint32_t>(rand_keys[0]), value, sz);
     }
     return s;
   }
 
-  virtual Status TestDelete(
-      ThreadState* thread,
-      WriteOptions& write_opts,
-      const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys,
-      std::unique_ptr<MutexLock>& /* lock */) {
-    (void) thread;
-    (void) write_opts;
-    (void) rand_column_families;
-    (void) rand_keys;
+  virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
+                            const std::vector<int>& rand_column_families,
+                            const std::vector<int64_t>& rand_keys,
+                            std::unique_ptr<MutexLock>& /* lock */) {
+    (void)thread;
+    (void)write_opts;
+    (void)rand_column_families;
+    (void)rand_keys;
     return Status::OK();
   }
 
   virtual Status TestDeleteRange(
-      ThreadState* /* thread */,
-      WriteOptions& /* write_opts */,
+      ThreadState* /* thread */, WriteOptions& /* write_opts */,
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
       std::unique_ptr<MutexLock>& /* lock */) {
@@ -3418,27 +3415,61 @@ class AtomicFlushStressTest : public StressTest {
       ThreadState* /* thread */,
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) {
-  }
+      std::unique_ptr<MutexLock>& /* lock */) {}
 
   virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
-      const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys) {
-    (void) thread;
-    (void) readoptions;
-    (void) rand_column_families;
-    (void) rand_keys;
-    return Status::OK();
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys) {
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    auto cfh =
+        column_families_[rand_column_families[thread->rand.Next() %
+                                              rand_column_families.size()]];
+    std::string from_db;
+    Status s = db_->Get(readoptions, cfh, key, &from_db);
+    if (s.ok()) {
+      thread->stats.AddGets(1, 1);
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(1, 0);
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    return s;
   }
 
-  virtual Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
-      const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys) {
-    (void) thread;
-    (void) readoptions;
-    (void) rand_column_families;
-    (void) rand_keys;
-    return Status::OK();
+  virtual Status TestPrefixScan(ThreadState* thread,
+                                const ReadOptions& readoptions,
+                                const std::vector<int>& rand_column_families,
+                                const std::vector<int64_t>& rand_keys) {
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    Slice prefix = Slice(key.data(), FLAGS_prefix_size);
+
+    std::string upper_bound;
+    Slice ub_slice;
+    ReadOptions ro_copy = readoptions;
+    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+      ub_slice = Slice(upper_bound);
+      ro_copy.iterate_upper_bound = &ub_slice;
+    }
+    auto cfh =
+        column_families_[rand_column_families[thread->rand.Next() %
+                                              rand_column_families.size()]];
+    Iterator* iter = db_->NewIterator(ro_copy, cfh);
+    int64_t count = 0;
+    for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
+         iter->Next()) {
+      ++count;
+    }
+    assert(count <= (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
+    Status s = iter->status();
+    if (s.ok()) {
+      thread->stats.AddPrefixes(1, static_cast<int>(count));
+    } else {
+      thread->stats.AddErrors(1);
+    }
+    delete iter;
+    return s;
   }
 
   virtual void VerifyDb(ThreadState* thread) const {
@@ -3454,9 +3485,10 @@ class AtomicFlushStressTest : public StressTest {
         std::string value;
         Status s = db_->Get(options, column_families_[cf], key, &value);
         if (s.IsNotFound() || (s.ok() && value != expected_value)) {
-          fprintf(stderr, "Verification failed between cf%s and cf%s, status:%s\n",
-                  column_families_[0]->GetName().c_str(), column_families_[cf]->GetName().c_str(),
-                  s.ToString().c_str());
+          fprintf(
+              stderr, "Verification failed between cf%s and cf%s, status:%s\n",
+              column_families_[0]->GetName().c_str(),
+              column_families_[cf]->GetName().c_str(), s.ToString().c_str());
           shared->SetVerificationFailure();
         }
       }
@@ -3464,14 +3496,11 @@ class AtomicFlushStressTest : public StressTest {
   }
 
   virtual std::vector<int> GenerateColumnFamilies(
-      const int /* num_column_families */,
-      int /* rand_column_family */) const {
+      const int /* num_column_families */, int /* rand_column_family */) const {
     std::vector<int> ret;
     int num = static_cast<int>(column_families_.size());
     int k = 0;
-    std::generate_n(back_inserter(ret), num, [&k]() -> int{
-        return k++;
-        });
+    std::generate_n(back_inserter(ret), num, [&k]() -> int { return k++; });
     return ret;
   }
 
