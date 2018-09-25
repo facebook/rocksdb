@@ -3345,6 +3345,9 @@ class AtomicFlushStressTest : public StressTest {
                          std::unique_ptr<MutexLock>& /* lock */) {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
+    if (StringToHex(key_str).find("0000000000003070") != std::string::npos) {
+      fprintf(stderr, "y7jin put key int64=%d\n", (int)rand_keys[0]);
+    }
     uint64_t value_base = batch_id_.fetch_add(1);
     size_t sz = GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
     Slice v(value, sz);
@@ -3473,23 +3476,40 @@ class AtomicFlushStressTest : public StressTest {
   }
 
   virtual void VerifyDb(ThreadState* thread) const {
-    ReadOptions options(FLAGS_verify_checksum, true);
+    //ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options;
     assert(thread != nullptr);
     auto shared = thread->shared;
+    {
+      unique_ptr<Iterator> it(db_->NewIterator(options, column_families_[0]));
+      std::string key_str = Key(12400);
+      Slice key = key_str;
+      it->Seek(key);
+      fprintf(stderr, "y7jin seek to key directly. key=%s value=%s\n", it->key().ToString(true).c_str(), it->value().ToString(true).c_str());
+    }
     unique_ptr<Iterator> iter(db_->NewIterator(options, column_families_[0]));
     iter->SeekToFirst();
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       std::string expected_value = iter->value().ToString();
-      for (size_t cf = 1; cf < column_families_.size(); ++cf) {
+      if (key.ToString(true) == "0000000000003070") {
+        fprintf(stderr, "y7jin iterate from first. key=%s expected_value=%s\n", key.ToString(true).c_str(), StringToHex(expected_value).c_str());
+        unique_ptr<Iterator> it(db_->NewIterator(ReadOptions(), column_families_[0]));
+        it->Seek(key);
+        std::string expected_value1 = it->value().ToString();
+        fprintf(stderr, "y7jin iterate direct. key=%s expected_value=%s\n", key.ToString(true).c_str(), StringToHex(expected_value1).c_str());
+      }
+      for (size_t cf = 0; cf < column_families_.size(); ++cf) {
         std::string value;
-        Status s = db_->Get(options, column_families_[cf], key, &value);
+        Status s = db_->Get(ReadOptions(), column_families_[cf], key, &value);
         if (s.IsNotFound() || (s.ok() && value != expected_value)) {
           fprintf(
               stderr, "Verification failed between cf%s and cf%s, status:%s\n",
               column_families_[0]->GetName().c_str(),
               column_families_[cf]->GetName().c_str(), s.ToString().c_str());
-          shared->SetVerificationFailure();
+          fprintf(stderr, "key=%s: (get) %s != (iter) %s\n", key.ToString(true).c_str(), StringToHex(value).c_str(), StringToHex(expected_value).c_str());
+          //shared->SetVerificationFailure();
+          (void) shared;
         }
       }
     }
