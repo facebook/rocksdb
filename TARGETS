@@ -326,6 +326,7 @@ cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
         "tools/db_bench_tool.cc",
+        "tools/trace_analyzer_tool.cc",
         "util/testutil.cc",
     ],
     headers = AutoHeaders.RECURSIVE_GLOB,
@@ -917,11 +918,6 @@ ROCKS_TESTS = [
     [
         "range_del_aggregator_test",
         "db/range_del_aggregator_test.cc",
-        "serial",
-    ],
-    [
-        "range_del_aggregator_bench",
-        "db/range_del_aggregator_bench.cc",
         "serial",
     ],
     [
