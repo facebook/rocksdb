@@ -96,9 +96,6 @@ void VerifyRangeDels(
           if (expected_point.expectAlive) {
             ASSERT_FALSE(range_del_agg.ShouldDelete(parsed_key, mode));
           } else {
-            if (!range_del_agg.ShouldDelete(parsed_key, mode)) {
-              assert(false);
-            }
             ASSERT_TRUE(range_del_agg.ShouldDelete(parsed_key, mode));
           }
         }
