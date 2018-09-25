@@ -18,7 +18,8 @@ Status CuckooTableFactory::NewTableReader(
     std::unique_ptr<TableReader>* table,
     bool /*prefetch_index_and_filter_in_cache*/) const {
   std::unique_ptr<CuckooTableReader> new_reader(new CuckooTableReader(
-      table_reader_options.ioptions, std::move(file), file_size,
+      table_reader_options.ioptions, std::move(file),
+      table_reader_options.file_number, file_size,
       table_reader_options.internal_comparator.user_comparator(), nullptr));
   Status s = new_reader->status();
   if (s.ok()) {

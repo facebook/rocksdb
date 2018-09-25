@@ -62,7 +62,7 @@ class MockTableReader : public TableReader {
   const stl_wrappers::KVMap& table_;
 };
 
-class MockTableIterator : public SourceInternalIterator {
+class MockTableIterator : public InternalIterator {
  public:
   explicit MockTableIterator(const stl_wrappers::KVMap& table) : table_(table) {
     itr_ = table_.end();

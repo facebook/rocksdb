@@ -118,8 +118,8 @@ class CuckooReaderTest : public testing::Test {
     unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
-    CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
-                             GetSliceHash);
+    CuckooTableReader reader(ioptions, std::move(file_reader), uint64_t(-1),
+                             file_size, ucomp, GetSliceHash);
     ASSERT_OK(reader.status());
     // Assume no merge/deletion
     for (uint32_t i = 0; i < num_items; ++i) {
@@ -147,8 +147,8 @@ class CuckooReaderTest : public testing::Test {
     unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
-    CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
-                             GetSliceHash);
+    CuckooTableReader reader(ioptions, std::move(file_reader), uint64_t(-1),
+                             file_size, ucomp, GetSliceHash);
     ASSERT_OK(reader.status());
     InternalIterator* it =
         reader.NewIterator(ReadOptions(), nullptr, nullptr, false);
@@ -326,8 +326,8 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(read_file), fname));
   const ImmutableCFOptions ioptions(options);
-  CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
-                           GetSliceHash);
+  CuckooTableReader reader(ioptions, std::move(file_reader), uint64_t(-1),
+                           file_size, ucmp, GetSliceHash);
   ASSERT_OK(reader.status());
   // Search for a key with colliding hash values.
   std::string not_found_user_key = "key" + NumToStr(num_items);
@@ -436,8 +436,8 @@ void WriteFile(const std::vector<std::string>& keys,
       new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
-  CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
-                           test::Uint64Comparator(), nullptr);
+  CuckooTableReader reader(ioptions, std::move(file_reader), uint64_t(-1),
+                           file_size, test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   ReadOptions r_options;
   PinnableSlice value;
@@ -468,8 +468,8 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
       new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
-  CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
-                           test::Uint64Comparator(), nullptr);
+  CuckooTableReader reader(ioptions, std::move(file_reader), uint64_t(-1),
+                           file_size, test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   const UserCollectedProperties user_props =
     reader.GetTableProperties()->user_collected_properties;

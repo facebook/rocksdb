@@ -49,7 +49,7 @@ class MapBuilder {
   Status Build(const std::vector<CompactionInputFiles>& inputs,
                const std::vector<Range>& deleted_range,
                const std::vector<const FileMetaData*>& added_files,
-               SstVarieties compaction_varieties, int output_level,
+               SstPurpose compaction_purpose, int output_level,
                uint32_t output_path_id, VersionStorageInfo* vstorage,
                ColumnFamilyData* cfd, VersionEdit* edit,
                FileMetaData* file_meta = nullptr,

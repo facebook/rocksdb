@@ -42,11 +42,10 @@ extern InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
     TwoLevelIteratorState* state,
     InternalIteratorBase<BlockHandle>* first_level_iter);
 
-extern InternalIterator* NewVarietySstIterator(
-    const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
+extern InternalIterator* NewCompositeSstIterator(
+    const FileMetaData& file_meta, InternalIterator* composite_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
-    void* create_iter_arg,
-    const IteratorCache::CreateIterCallback& create_iter,
+    void* callback_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena = nullptr);
 
 }  // namespace rocksdb

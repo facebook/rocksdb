@@ -72,7 +72,8 @@ class PlainTableReader: public TableReader {
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table,
+                     uint64_t file_number, uint64_t file_size,
+                     unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
                      bool full_scan_mode,
@@ -103,12 +104,16 @@ class PlainTableReader: public TableReader {
     return arena_.MemoryAllocatedBytes();
   }
 
+  uint64_t FileNumber() const {
+    return file_number_;
+  }
+
   PlainTableReader(const ImmutableCFOptions& ioptions,
                    unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
-                   EncodingType encoding_type, uint64_t file_size,
-                   const TableProperties* table_properties,
+                   EncodingType encoding_type, uint64_t file_number,
+                   uint64_t file_size, const TableProperties* table_properties,
                    const SliceTransform* prefix_extractor);
   virtual ~PlainTableReader();
 
@@ -157,6 +162,7 @@ class PlainTableReader: public TableReader {
   std::unique_ptr<char[]> bloom_block_alloc_;
 
   const ImmutableCFOptions& ioptions_;
+  uint64_t file_number_;
   uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 

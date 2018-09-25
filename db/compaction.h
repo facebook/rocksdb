@@ -46,7 +46,7 @@ class Compaction {
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false, bool single_output = false,
              bool enable_partial_compaction = false,
-             SstVarieties compaction_varieties = kGeneralSst,
+             SstPurpose compaction_purpose = kNormalSst,
              const std::vector<RangeStorage>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
 
@@ -144,8 +144,8 @@ class Compaction {
   // If true, then enable partial compaction
   bool enable_partial_compaction() const { return enable_partial_compaction_; }
 
-  // Compaction varieties
-  SstVarieties compaction_varieties() const { return compaction_varieties_; }
+  // Compaction purpose
+  SstPurpose compaction_purpose() const { return compaction_purpose_; }
 
   // Range limit for inputs
   const std::vector<RangeStorage>& input_range() const {
@@ -315,8 +315,8 @@ class Compaction {
   // If true, then enable partial compaction
   const bool enable_partial_compaction_;
 
-  // Compaction varieties
-  const SstVarieties compaction_varieties_;
+  // Compaction purpose
+  const SstPurpose compaction_purpose_;
 
   // Range limit for inputs
   const std::vector<RangeStorage> input_range_;

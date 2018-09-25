@@ -738,7 +738,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const BlockBasedTableOptions& table_options,
                              const InternalKeyComparator& internal_comparator,
                              unique_ptr<RandomAccessFileReader>&& file,
-                             uint64_t file_size,
+                             uint64_t file_number, uint64_t file_size,
                              unique_ptr<TableReader>* table_reader,
                              const SliceTransform* prefix_extractor,
                              const bool prefetch_index_and_filter_in_cache,
@@ -956,6 +956,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     }
   }
 
+  rep->file_number = file_number;
+
   // Read the range del meta block
   bool found_range_del_block;
   s = SeekToRangeDelBlock(meta_iter.get(), &found_range_del_block,
@@ -1135,6 +1137,11 @@ size_t BlockBasedTable::ApproximateMemoryUsage() const {
     usage += rep_->index_reader->ApproximateMemoryUsage();
   }
   return usage;
+}
+
+
+uint64_t BlockBasedTable::FileNumber() const {
+  return rep_->file_number;
 }
 
 // Load the meta-block from the file. On success, return the loaded meta block

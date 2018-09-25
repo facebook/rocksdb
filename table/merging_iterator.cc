@@ -93,11 +93,11 @@ class MergingIterator : public InternalIterator {
     return current_ != nullptr && status_.ok();
   }
 
-  virtual IteratorSource source() const override {
-    return current_->source();
-  }
-
   virtual Status status() const override { return status_; }
+
+  virtual uint64_t FileNumber() const override {
+    return current_->FileNumber();
+  }
 
   virtual void SeekToFirst() override {
     ClearHeaps();

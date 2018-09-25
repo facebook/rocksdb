@@ -89,7 +89,8 @@ class BlockBasedTable : public TableReader {
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, unique_ptr<TableReader>* table_reader,
+                     uint64_t file_number, uint64_t file_size,
+                     unique_ptr<TableReader>* table_reader,
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
@@ -144,6 +145,8 @@ class BlockBasedTable : public TableReader {
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   size_t ApproximateMemoryUsage() const override;
+
+  uint64_t FileNumber() const;
 
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file,
@@ -516,6 +519,7 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+  uint64_t file_number;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
@@ -526,7 +530,7 @@ struct BlockBasedTable::Rep {
 };
 
 template <class TBlockIter, typename TValue = Slice>
-class BlockBasedTableIterator : public InternalIteratorWithSourceBase<TValue> {
+class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
  public:
   BlockBasedTableIterator(BlockBasedTable* table,
                           const ReadOptions& read_options,
@@ -579,6 +583,9 @@ class BlockBasedTableIterator : public InternalIteratorWithSourceBase<TValue> {
     } else {
       return Status::OK();
     }
+  }
+  uint64_t FileNumber() const override {
+    return table_->FileNumber();
   }
 
   bool IsOutOfBound() override { return is_out_of_bound_; }

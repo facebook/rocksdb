@@ -200,10 +200,11 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, table_reader_options.prefix_extractor,
-      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
-      table_reader_options.level, table_reader_options.immortal,
-      table_reader_options.largest_seqno, &tail_prefetch_stats_);
+      table_reader_options.file_number, file_size, table_reader,
+      table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
+      table_reader_options.skip_filters, table_reader_options.level,
+      table_reader_options.immortal, table_reader_options.largest_seqno,
+      &tail_prefetch_stats_);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(

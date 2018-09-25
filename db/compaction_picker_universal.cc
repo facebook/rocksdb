@@ -326,7 +326,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
             continue;
           }
           if (vstorage->LevelFiles(level).size() > 1) {
-            // PickGeneralCompaction for rebuild map
+            // PickCompositeCompaction for rebuild map
             level_max_read_amp = 1;
             break;
           }
@@ -346,7 +346,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       }
       if (need_reduce_sorted_runs) {
         for (auto cip : compactions_in_progress_) {
-          if (cip->compaction_varieties() == kMapSst) {
+          if (cip->compaction_purpose() == kMapSst) {
             need_reduce_sorted_runs = false;
             break;
           }
@@ -414,7 +414,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     }
   }
   if (c == nullptr && table_cache_ != nullptr) {
-    c = PickGeneralCompaction(cf_name, mutable_cf_options, vstorage,
+    c = PickCompositeCompaction(cf_name, mutable_cf_options, vstorage,
                               log_buffer);
   }
 
@@ -752,7 +752,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRunsOld(
                             enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kGeneralSst, {} /* input_range */,
+      false /* enable_partial_compaction */, kNormalSst, {} /* input_range */,
       compaction_reason);
 }
 
@@ -894,7 +894,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kGeneralSst, {} /* input_range */,
+      false /* enable_partial_compaction */, kNormalSst, {} /* input_range */,
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -1005,10 +1005,10 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
   }
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
-  SstVarieties compaction_varieties = kGeneralSst;
+  SstPurpose compaction_purpose = kNormalSst;
   uint32_t max_subcompactions = 0;
   if (mutable_cf_options.enable_lazy_compaction && output_level != 0) {
-    compaction_varieties = kMapSst;
+    compaction_purpose = kMapSst;
     max_subcompactions = 1;
   }
   return new Compaction(
@@ -1021,7 +1021,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
       GetCompressionOptions(ioptions_, vstorage, output_level),
       max_subcompactions, /* grandparents */ {}, /* is manual */ true, score,
       false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, compaction_varieties,
+      false /* enable_partial_compaction */, compaction_purpose,
       {} /* input_range */, CompactionReason::kFilesMarkedForCompaction);
 }
 
@@ -1114,12 +1114,12 @@ Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
       LLONG_MAX, path_id, kNoCompression, ioptions_.compression_opts, 0,
       /* grandparents */ {}, /* is manual */ false, 0,
       false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kGeneralSst, {},
+      false /* enable_partial_compaction */, kNormalSst, {},
       CompactionReason::kTrivialMoveLevel);
   return c;
 }
 
-Compaction* UniversalCompactionPicker::PickGeneralCompaction(
+Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
   if (!vstorage->has_space_amplification()) {
@@ -1156,7 +1156,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     return nullptr;
   }
   inputs.files = vstorage->LevelFiles(inputs.level);
-  SstVarieties compaction_varieties = kGeneralSst;
+  SstPurpose compaction_purpose = kNormalSst;
   bool single_output = false;
   uint32_t max_subcompactions = ioptions_.max_subcompactions;
   std::vector<RangeStorage> input_range;
@@ -1189,12 +1189,12 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
         GetCompressionOptions(ioptions_, vstorage, inputs.level, true),
         max_subcompactions, /* grandparents */ {}, /* is manual */ false, 0,
         false /* deletion_compaction */, single_output,
-        true /* enable_partial_compaction */, compaction_varieties,
-        input_range, CompactionReason::kVarietiesAmplification);
+        true /* enable_partial_compaction */, compaction_purpose,
+        input_range, CompactionReason::kCompositeAmplification);
   };
 
   if (inputs.files.size() > 1) {
-    compaction_varieties = kMapSst;
+    compaction_purpose = kMapSst;
     single_output = false;
     max_subcompactions = 1;
     return new_compaction();
@@ -1277,7 +1277,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     input_range.emplace_back(std::move(range));
   }
   if (!input_range.empty()) {
-    compaction_varieties = kLinkSst;
+    compaction_purpose = kLinkSst;
     single_output = false;
     return new_compaction();
   }
@@ -1376,7 +1376,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
               [=](const RangeStorage& a, const RangeStorage& b) {
                 return uc->Compare(a.limit, b.limit) < 0;
               });
-    compaction_varieties = kGeneralSst;
+    compaction_purpose = kNormalSst;
     single_output = false;
     return new_compaction();
   }
@@ -1415,7 +1415,7 @@ Compaction* UniversalCompactionPicker::PickGeneralCompaction(
     input_range.emplace_back(std::move(range));
   }
   if (!input_range.empty()) {
-    compaction_varieties = kGeneralSst;
+    compaction_purpose = kNormalSst;
     single_output = false;
     return new_compaction();
   }
@@ -1657,10 +1657,10 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
                      file_num_buf);
   }
 
-  SstVarieties compaction_varieties = kGeneralSst;
+  SstPurpose compaction_purpose = kNormalSst;
   uint32_t max_subcompactions = 0;
   if (output_level != 0) {
-    compaction_varieties = kMapSst;
+    compaction_purpose = kMapSst;
     max_subcompactions = 1;
   }
   return new Compaction(
@@ -1674,7 +1674,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
                             enable_compression),
       max_subcompactions, /* grandparents */ {}, /* is manual */ false, score,
       false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, compaction_varieties,
+      false /* enable_partial_compaction */, compaction_purpose,
       {} /* input_range */, CompactionReason::kUniversalSortedRunNum);
 }
 

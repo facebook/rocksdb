@@ -75,9 +75,9 @@ enum CompressionType : unsigned char {
   kDisableCompressionOption = 0xff,
 };
 
-// Index sst types
-enum SstVarieties {
-  kGeneralSst,
+// Sst purpose, map and link sst both are composite ssts
+enum SstPurpose {
+  kNormalSst,
   kLinkSst,
   kMapSst,
 };
@@ -1217,13 +1217,13 @@ struct CompactionOptions {
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions;
   // Compaction target output sst variety
-  SstVarieties compaction_varieties;
+  SstPurpose compaction_purpose;
 
   CompactionOptions()
       : compression(kSnappyCompression),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
         max_subcompactions(0),
-        compaction_varieties(kGeneralSst) {}
+        compaction_purpose(kNormalSst) {}
 };
 
 // For level based compaction, we can configure if we want to skip/force

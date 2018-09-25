@@ -30,7 +30,8 @@ class CuckooTableReader: public TableReader {
  public:
   CuckooTableReader(const ImmutableCFOptions& ioptions,
                     std::unique_ptr<RandomAccessFileReader>&& file,
-                    uint64_t file_size, const Comparator* user_comparator,
+                    uint64_t file_number_, uint64_t file_size,
+                    const Comparator* user_comparator,
                     uint64_t (*get_slice_hash)(const Slice&, uint32_t,
                                                uint64_t));
   ~CuckooTableReader() {}
@@ -60,6 +61,10 @@ class CuckooTableReader: public TableReader {
   void SetupForCompaction() override {}
   // End of methods not implemented.
 
+  uint64_t FileNumber() const {
+    return file_number_;
+  }
+
  private:
   friend class CuckooTableIterator;
   void LoadAllKeys(std::vector<std::pair<Slice, uint32_t>>* key_to_bucket_id);
@@ -78,6 +83,7 @@ class CuckooTableReader: public TableReader {
   uint32_t bucket_length_;
   uint32_t cuckoo_block_size_;
   uint32_t cuckoo_block_bytes_minus_one_;
+  uint64_t file_number_;
   uint64_t table_size_;
   const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,

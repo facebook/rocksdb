@@ -267,7 +267,7 @@ class TestPlainTableReader : public PlainTableReader {
                        uint32_t column_family_id,
                        const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
-                         encoding_type, file_size, table_properties,
+                         encoding_type, uint64_t(-1), file_size, table_properties,
                          prefix_extractor),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataIfNeeded();

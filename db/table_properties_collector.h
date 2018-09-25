@@ -19,7 +19,7 @@ struct InternalKeyTablePropertiesNames {
   static const std::string kMergeOperands;
 };
 
-struct SSTVarietiesTablePropertiesNames {
+struct CompositeSstTablePropertiesNames {
   static const std::string kSstPurpose;
   static const std::string kSstDepend;
   static const std::string kSstReadAmp;
@@ -90,12 +90,12 @@ class InternalKeyPropertiesCollectorFactory
 
 // Write link or map info
 // Used for repair. E.g missing manifest
-class SstVarietyPropertiesCollector final : public IntTblPropCollector {
+class CompositeSstPropertiesCollector final : public IntTblPropCollector {
  public:
-  SstVarietyPropertiesCollector(uint8_t _sst_variety,
+  CompositeSstPropertiesCollector(uint8_t _sst_purpose,
                                 std::vector<uint64_t>* _sst_depend,
                                 size_t* _sst_read_amp)
-      : sst_variety_(_sst_variety),
+      : sst_purpose_(_sst_purpose),
         sst_depend_(_sst_depend),
         sst_read_amp_(_sst_read_amp) {}
 
@@ -107,13 +107,13 @@ class SstVarietyPropertiesCollector final : public IntTblPropCollector {
   virtual Status Finish(UserCollectedProperties* properties) override;
 
   virtual const char* Name() const override {
-    return "SSTVarietyPropertiesCollector";
+    return "CompositeSstPropertiesCollector";
   }
 
   UserCollectedProperties GetReadableProperties() const override;
 
  private:
-  uint8_t sst_variety_;
+  uint8_t sst_purpose_;
   std::vector<uint64_t>* sst_depend_;
   size_t* sst_read_amp_;
 };
@@ -121,16 +121,16 @@ class SstVarietyPropertiesCollector final : public IntTblPropCollector {
 class SstPurposePropertiesCollectorFactory final
     : public IntTblPropCollectorFactory {
  public:
-  SstPurposePropertiesCollectorFactory(uint8_t _sst_variety,
+  SstPurposePropertiesCollectorFactory(uint8_t _sst_composite,
                                        std::vector<uint64_t>* _sst_depend,
                                        size_t* _sst_read_amp)
-      : sst_variety_(_sst_variety),
+      : sst_purpose_(_sst_composite),
         sst_depend_(_sst_depend),
         sst_read_amp_(_sst_read_amp) {}
 
   virtual IntTblPropCollector* CreateIntTblPropCollector(
       uint32_t /*column_family_id*/) override {
-    return new SstVarietyPropertiesCollector(sst_variety_, sst_depend_,
+    return new CompositeSstPropertiesCollector(sst_purpose_, sst_depend_,
                                              sst_read_amp_);
   }
 
@@ -139,7 +139,7 @@ class SstPurposePropertiesCollectorFactory final
   }
 
  private:
-  uint8_t sst_variety_;
+  uint8_t sst_purpose_;
   std::vector<uint64_t>* sst_depend_;
   size_t* sst_read_amp_;
 };

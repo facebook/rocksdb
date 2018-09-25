@@ -434,7 +434,7 @@ class Repairer {
 
   void ExtractMetaData() {
     DependFileMap depend_files;
-    std::map<uint64_t, TableInfo*> purpose_set;
+    std::map<uint64_t, TableInfo*> composite_sst;
     // make sure tables_ enouth, so we can hold ptr of elements
     tables_.reserve(table_fds_.size());
     for (size_t i = 0; i < table_fds_.size(); i++) {
@@ -454,14 +454,14 @@ class Repairer {
         tables_.push_back(t);
         depend_files.emplace(t.meta.fd.GetNumber(), &tables_.back().meta);
         if (t.meta.sst_purpose != 0) {
-          purpose_set.emplace(t.meta.fd.GetNumber(), &tables_.back());
+          composite_sst.emplace(t.meta.fd.GetNumber(), &tables_.back());
         }
       }
     }
     // recover map/link sst meta data
-    while (!purpose_set.empty()) {
-      size_t variety_set_count = purpose_set.size();
-      for (auto it = purpose_set.begin(); it != purpose_set.end(); ) {
+    while (!composite_sst.empty()) {
+      size_t composite_sst_count = composite_sst.size();
+      for (auto it = composite_sst.begin(); it != composite_sst.end(); ) {
         auto& t = *it->second;
         auto cfd =
             vset_.GetColumnFamilySet()->GetColumnFamily(t.column_family_id);
@@ -476,8 +476,8 @@ class Repairer {
             result = kError;
             break;
           }
-          if (purpose_set.count(sst_id) > 0) {
-            // depend file is variety sst, retry next loop
+          if (composite_sst.count(sst_id) > 0) {
+            // depend file is composite sst, retry next loop
             assert(sst_id != t.meta.fd.GetNumber());
             result = kRetry;
             break;
@@ -511,13 +511,13 @@ class Repairer {
         if (result == kRetry) {
           ++it;
         } else {
-          purpose_set.erase(it++);
+          composite_sst.erase(it++);
         }
       }
-      if (variety_set_count == purpose_set.size()) {
+      if (composite_sst_count == composite_sst.size()) {
         // cyclic depend files ???
         char file_num_buf[kFormatFileNumberBufSize];
-        for (auto& pair : purpose_set) {
+        for (auto& pair : composite_sst) {
           auto& t = *pair.second;
           FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
                            file_num_buf, sizeof(file_num_buf));

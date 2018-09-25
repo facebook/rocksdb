@@ -65,9 +65,9 @@ class IteratorWrapperBase {
   }
   // Methods below require iter() != nullptr
   Status status() const     { assert(iter_); return iter_->status(); }
-  IteratorSource source() const {
+  uint64_t FileNumber() const {
     assert(iter_);
-    return iter_->source();
+    return valid_ ? iter_->FileNumber() : uint64_t(-1);
   }
   void Next()               { assert(iter_); iter_->Next();        Update(); }
   void Prev()               { assert(iter_); iter_->Prev();        Update(); }

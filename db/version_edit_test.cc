@@ -80,9 +80,9 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_EQ(3, new_files[0].second.fd.GetPathId());
   ASSERT_EQ(3, new_files[1].second.fd.GetPathId());
   ASSERT_EQ(0, new_files[2].second.fd.GetPathId());
-  ASSERT_EQ(0, new_files[0].second.sst_variety);
-  ASSERT_EQ(1, new_files[1].second.sst_variety);
-  ASSERT_EQ(2, new_files[2].second.sst_variety);
+  ASSERT_EQ(0, new_files[0].second.sst_purpose);
+  ASSERT_EQ(1, new_files[1].second.sst_purpose);
+  ASSERT_EQ(2, new_files[2].second.sst_purpose);
   ASSERT_EQ(std::vector<uint64_t>(), new_files[0].second.sst_depend);
   ASSERT_EQ(std::vector<uint64_t>({1U}), new_files[1].second.sst_depend);
   ASSERT_EQ(std::vector<uint64_t>({2U, 3U}), new_files[2].second.sst_depend);

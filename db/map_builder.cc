@@ -507,14 +507,14 @@ MapBuilder::MapBuilder(int job_id, const ImmutableDBOptions& db_options,
 Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          const std::vector<Range>& deleted_range,
                          const std::vector<const FileMetaData*>& added_files,
-                         SstVarieties compaction_varieties, int output_level,
+                         SstPurpose compaction_purpose, int output_level,
                          uint32_t output_path_id, VersionStorageInfo* vstorage,
                          ColumnFamilyData* cfd, VersionEdit* edit,
                          FileMetaData* file_meta_ptr,
                          std::unique_ptr<TableProperties>* prop_ptr) {
-  assert(compaction_varieties != kMapSst || deleted_range.empty() ||
+  assert(compaction_purpose != kMapSst || deleted_range.empty() ||
          added_files.empty());
-  assert(compaction_varieties != kLinkSst || !added_files.empty());
+  assert(compaction_purpose != kLinkSst || !added_files.empty());
 
   auto& icomp = cfd->internal_comparator();
   DependFileMap empty_delend_files;
@@ -609,7 +609,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
   }
 
   if (!level_ranges.empty() && !deleted_range.empty() &&
-      compaction_varieties != kLinkSst) {
+      compaction_purpose != kLinkSst) {
     std::vector<RangeWithDepend> ranges;
     ranges.reserve(deleted_range.size());
     for (auto& r : deleted_range) {
@@ -640,10 +640,10 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       return s;
     }
     if (level_ranges.empty()) {
-      assert(compaction_varieties == kGeneralSst);
+      assert(compaction_purpose == kNormalSst);
       level_ranges.emplace_back(std::move(ranges));
     } else {
-      PartitionType type = compaction_varieties == kLinkSst
+      PartitionType type = compaction_purpose == kLinkSst
                                ? PartitionType::kReplace
                                : PartitionType::kMerge;
       level_ranges.front() = PartitionRangeWithDepend(

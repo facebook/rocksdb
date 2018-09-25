@@ -509,9 +509,9 @@ class LevelIterator final : public InternalIterator {
   virtual Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
-  virtual IteratorSource source() const override {
+  virtual uint64_t FileNumber() const override {
     assert(Valid());
-    return file_iter_.iter()->source();
+    return file_iter_.iter()->FileNumber();
   }
   virtual void SetPinnedItersMgr(
       PinnedIteratorsManager* pinned_iters_mgr) override {

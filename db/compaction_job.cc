@@ -97,8 +97,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "Flush";
     case CompactionReason::kExternalSstIngestion:
       return "ExternalSstIngestion";
-    case CompactionReason::kVarietiesAmplification:
-      return "VarietiesAmplification";
+    case CompactionReason::kCompositeAmplification:
+      return "CompositeAmplification";
     case CompactionReason::kTrivialMoveLevel:
       return "TrivialMoveLevel";
     case CompactionReason::kNumOfReasons:
@@ -656,7 +656,7 @@ Status CompactionJob::Run() {
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
   // map compact don't need multithreads
-  assert(compact_->compaction->compaction_varieties() != kMapSst ||
+  assert(compact_->compaction->compaction_purpose() != kMapSst ||
          (compact_->sub_compact_states.size() == 1 &&
           compact_->compaction->input_range().empty()));
   thread_pool.reserve(num_threads - 1);
@@ -866,9 +866,9 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
-  switch (sub_compact->compaction->compaction_varieties()) {
-    case kGeneralSst:
-      ProcessGeneralCompaction(sub_compact);
+  switch (sub_compact->compaction->compaction_purpose()) {
+    case kNormalSst:
+      ProcessNormalCompaction(sub_compact);
       break;
     case kLinkSst:
       ProcessLinkCompaction(sub_compact);
@@ -879,7 +879,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 }
 
-void CompactionJob::ProcessGeneralCompaction(SubcompactionState* sub_compact) {
+void CompactionJob::ProcessNormalCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   std::unique_ptr<RangeDelAggregator> range_del_agg(
@@ -1262,7 +1262,7 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   std::unordered_set<uint64_t> sst_depend_build;
   InternalKey last_key;
   uint64_t key_count = 0;
-  IteratorSource last_source;
+  uint64_t last_file_number;
   std::string buffer;
 
   auto update_key = [&] {
@@ -1276,10 +1276,8 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
   auto put_link_element = [&] {
     LinkSstElement link;
     link.largest_key_ = last_key.Encode();
-    const FileMetaData* source_meta = (const FileMetaData*)last_source.data;
-    assert(source_meta->sst_purpose == 0);
-    link.sst_id_ = source_meta->fd.GetNumber();
-    sst_depend_build.emplace(link.sst_id_);
+    link.file_number_ = last_file_number;
+    sst_depend_build.emplace(link.file_number_);
     link.key_count_ = key_count;
     key_count = 0;
 
@@ -1293,16 +1291,16 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
       (end == nullptr ||
        ucomp->Compare(ExtractUserKey(input->key()), *end) < 0)) {
     update_key();
-    last_source = input->source();
+    last_file_number = input->FileNumber();
+    assert(last_file_number != uint64_t(-1));
     for (input->Next(); input->Valid(); input->Next()) {
-      assert(input->source().type == IteratorSource::kSST);
       if (end != nullptr &&
           ucomp->Compare(ExtractUserKey(input->key()), *end) >= 0) {
         break;
       }
-      if (input->source() != last_source) {
+      if (input->FileNumber() != last_file_number) {
         put_link_element();
-        last_source = input->source();
+        last_file_number = input->FileNumber();
       }
       update_key();
     }
@@ -1603,7 +1601,7 @@ Status CompactionJob::InstallCompactionResults(
 
   if (!compaction->input_range().empty() ||
       compaction->mutable_cf_options()->enable_lazy_compaction ||
-      compaction->compaction_varieties() == kMapSst) {
+      compaction->compaction_purpose() == kMapSst) {
     MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
                            stats_, table_cache_, dbname_);
     auto cfd = compaction->column_family_data();
@@ -1612,7 +1610,7 @@ Status CompactionJob::InstallCompactionResults(
     FileMetaData file_meta;
     std::vector<Range> deleted_range;
     std::vector<const FileMetaData*> added_files;
-    if (compaction->compaction_varieties() != kMapSst) {
+    if (compaction->compaction_purpose() != kMapSst) {
       for (auto& sub_compact : compact_->sub_compact_states) {
         bool include_start = true;
         bool include_end = false;
@@ -1634,7 +1632,7 @@ Status CompactionJob::InstallCompactionResults(
       }
     }
     auto s = map_builder.Build(*compaction->inputs(), deleted_range,
-                               added_files, compaction->compaction_varieties(),
+                               added_files, compaction->compaction_purpose(),
                                compaction->output_level(),
                                compaction->output_path_id(), vstorage, cfd,
                                compact_->compaction->edit(), &file_meta,

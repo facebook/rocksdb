@@ -75,7 +75,10 @@ class InternalIteratorBase : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // Return file number of current key value sst id
+  // Return file number of current key value sst file number
+  // Return uint64_t(-1) if invalid or unknow
+  // If it's TableReader iterator, always return file number no matter invalid
+  // or not
   virtual uint64_t FileNumber() const { return uint64_t(-1); }
 
   // True if the iterator is invalidated because it is out of the iterator
@@ -139,5 +142,10 @@ extern InternalIteratorBase<TValue>* NewEmptyInternalIterator(
 template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena = nullptr);
+
+// Return a wrapped iterator with appointed file_number
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewFileNumberInternalIteratorWrapper(
+    InternalIteratorBase<TValue>* inner, uint64_t file_number, Arena* arena);
 
 }  // namespace rocksdb

@@ -63,17 +63,17 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 #endif  // ROCKSDB_LITE
 
-InternalIterator* TranslateVarietySstIterator(
-    const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
+InternalIterator* TranslateCompositeSstIterator(
+    const FileMetaData& file_meta, InternalIterator* composite_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* create_iter_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   if (file_meta.sst_purpose == 0) {
     assert(false);
-    return variety_sst_iter;
+    return composite_sst_iter;
   }
   InternalIterator* result =
-      NewVarietySstIterator(file_meta, variety_sst_iter, depend_files, icomp,
+      NewCompositeSstIterator(file_meta, composite_sst_iter, depend_files, icomp,
                             create_iter_arg, create_iter, arena);
   result->RegisterCleanup(
       [](void* arg1, void* arg2) {
@@ -85,15 +85,17 @@ InternalIterator* TranslateVarietySstIterator(
           param_iter->~InternalIterator();
         }
       },
-      variety_sst_iter, arena);
+      composite_sst_iter, arena);
   return result;
 }
 
-Status RecursiveGet(const FileMetaData& file_meta, TableReader* table_reader,
-                    const InternalKeyComparator& icomp, const Slice& k,
-                    GetContext* get_context, void* arg,
-                    bool (*get_from_sst)(void* arg, const Slice& find_k,
-                                         uint64_t sst_id, Status& status)) {
+Status GetFromCompositeSst(const FileMetaData& file_meta,
+                           TableReader* table_reader,
+                           const InternalKeyComparator& icomp, const Slice& k,
+                           GetContext* get_context, void* arg,
+                           bool (*get_from_sst)(void* arg, const Slice& find_k,
+                                                uint64_t sst_id,
+                                                Status& status)) {
   Status s;
   switch (file_meta.sst_purpose) {
     case kLinkSst: {
@@ -299,7 +301,7 @@ Status TableCache::GetTableReader(
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
                            internal_comparator, skip_filters, immortal_tables_,
-                           level, fd.largest_seqno),
+                           level, fd.GetNumber(), fd.largest_seqno),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -422,10 +424,11 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
                                          skip_filters, for_compaction);
-      auto source = IteratorSource(IteratorSource::kSST, (uintptr_t)&file_meta);
-      if (result->SetSource(source).IsNotSupported()) {
-        result = NewSourceInternalIterator(result, arena);
-        result->SetSource(source);
+      if (result->FileNumber() != fd.GetNumber()) {
+        assert(result->FileNumber() == uint64_t(-1));
+        result = NewFileNumberInternalIteratorWrapper(result, fd.GetNumber(),
+                                                      arena);
+        assert(result->FileNumber() == fd.GetNumber());
       }
       if (file_meta.sst_purpose != 0 && !depend_files.empty()) {
         // Store params for create depend table iterator in future
@@ -475,7 +478,7 @@ InternalIterator* TableCache::NewIterator(
               }
             },
             create_iter, arena);
-        result = TranslateVarietySstIterator(
+        result = TranslateCompositeSstIterator(
             file_meta, result, depend_files, icomparator, create_iter,
             c_style_callback(*create_iter), arena);
       }
@@ -622,14 +625,14 @@ Status TableCache::Get(const ReadOptions& options,
       if (file_meta.sst_purpose == 0) {
         s = t->Get(options, k, get_context, prefix_extractor, skip_filters);
       } else if (depend_files.empty()) {
-        s = Status::Corruption("Variety sst depend files missing");
+        s = Status::Corruption("Composite sst depend files missing");
       } else {
         // Forward query to target sst
         auto get_from_sst = [&](const Slice& find_k, uint64_t sst_id,
                                 Status& status) {
           auto find = depend_files.find(sst_id);
           if (find == depend_files.end()) {
-            status = Status::Corruption("Variety sst depend files missing");
+            status = Status::Corruption("Composite sst depend files missing");
             return false;
           }
           status = Get(options, internal_comparator, *find->second,
@@ -638,7 +641,7 @@ Status TableCache::Get(const ReadOptions& options,
 
           return status.ok() && !get_context->is_finished();
         };
-        s = RecursiveGet(file_meta, t, internal_comparator, k, get_context,
+        s = GetFromCompositeSst(file_meta, t, internal_comparator, k, get_context,
                          &get_from_sst, c_style_callback(get_from_sst));
       }
       get_context->SetReplayLog(nullptr);

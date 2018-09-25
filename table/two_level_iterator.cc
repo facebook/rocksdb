@@ -60,6 +60,9 @@ class TwoLevelIndexIterator : public InternalIteratorBase<BlockHandle> {
       return status_;
     }
   }
+  virtual uint64_t FileNumber() const override {
+    return second_level_iter_.FileNumber();
+  }
   virtual void SetPinnedItersMgr(
       PinnedIteratorsManager* /*pinned_iters_mgr*/) override {}
   virtual bool IsKeyPinned() const override { return false; }
@@ -360,8 +363,9 @@ class LinkSstIterator final : public InternalIterator {
   virtual Slice key() const override { return second_level_iter_->key(); }
   virtual Slice value() const override { return second_level_iter_->value(); }
   virtual Status status() const override { return status_; }
-  virtual IteratorSource source() const override {
-    return second_level_iter_->source();
+  virtual uint64_t FileNumber() const override {
+    return second_level_iter_ != nullptr ? second_level_iter_->FileNumber()
+                                         : uint64_t(-1);
   }
   virtual void SetPinnedItersMgr(
       PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -701,8 +705,9 @@ class MapSstIterator final : public InternalIterator {
     return min_heap_.top().iter->value();
   }
   virtual Status status() const override { return status_; }
-  virtual IteratorSource source() const override {
-    return min_heap_.top().iter->source();
+  virtual uint64_t FileNumber() const override {
+    return !min_heap_.empty() ? min_heap_.top().iter->FileNumber()
+                              : uint64_t(-1);
   }
   virtual void SetPinnedItersMgr(
       PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -716,19 +721,20 @@ class MapSstIterator final : public InternalIterator {
   }
 };
 
-template<class IteratorType>
-InternalIterator* NewVarietySstIteratorTpl(
-    const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
+template <class IteratorType>
+InternalIterator* NewCompositeSstIteratorTpl(
+    const FileMetaData& file_meta, InternalIterator* composite_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
-    void* create_iter_arg,
-    const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
+    void* callback_arg, const IteratorCache::CreateIterCallback& create_iter,
+    Arena* arena) {
   if (arena == nullptr) {
-    return new IteratorType(file_meta, variety_sst_iter, depend_files, icomp,
-                            create_iter_arg, create_iter);
+    return new IteratorType(file_meta, composite_sst_iter, depend_files, icomp,
+                            callback_arg, create_iter);
   } else {
     void* buffer = arena->AllocateAligned(sizeof(IteratorType));
-    return new (buffer) IteratorType(file_meta, variety_sst_iter, depend_files,
-                                     icomp, create_iter_arg, create_iter);
+    return new (buffer)
+        IteratorType(file_meta, composite_sst_iter, depend_files, icomp,
+                     callback_arg, create_iter);
   }
 }
 
@@ -740,23 +746,23 @@ InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
   return new TwoLevelIndexIterator(state, first_level_iter);
 }
 
-InternalIterator* NewVarietySstIterator(
-    const FileMetaData& file_meta, InternalIterator* variety_sst_iter,
+InternalIterator* NewCompositeSstIterator(
+    const FileMetaData& file_meta, InternalIterator* composite_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
-    void* create_iter_arg,
-    const IteratorCache::CreateIterCallback& create_iter, Arena* arena) {
+    void* callback_arg, const IteratorCache::CreateIterCallback& create_iter,
+    Arena* arena) {
   switch (file_meta.sst_purpose) {
     case kLinkSst:
-      return NewVarietySstIteratorTpl<LinkSstIterator>(
-          file_meta, variety_sst_iter, depend_files, icomp, create_iter_arg,
+      return NewCompositeSstIteratorTpl<LinkSstIterator>(
+          file_meta, composite_sst_iter, depend_files, icomp, callback_arg,
           create_iter, arena);
     case kMapSst:
-      return NewVarietySstIteratorTpl<MapSstIterator>(
-          file_meta, variety_sst_iter, depend_files, icomp, create_iter_arg,
+      return NewCompositeSstIteratorTpl<MapSstIterator>(
+          file_meta, composite_sst_iter, depend_files, icomp, callback_arg,
           create_iter, arena);
     default:
       assert(file_meta.sst_purpose != 0);
-      return variety_sst_iter;
+      return composite_sst_iter;
   }
 }
 

@@ -57,7 +57,7 @@ InternalIterator* IteratorCache::GetIterator(uint64_t sst_id,
   CacheItem item;
   auto find_f = depend_files_.find(sst_id);
   if (find_f == depend_files_.end()) {
-    auto s = Status::Corruption("Variety sst depend files missing");
+    auto s = Status::Corruption("Composite sst depend files missing");
     item.iter = NewErrorInternalIterator<Slice>(s, &arena_);
     item.reader = nullptr;
     item.meta = nullptr;

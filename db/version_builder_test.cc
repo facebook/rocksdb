@@ -57,7 +57,7 @@ class VersionBuilderTest : public testing::Test {
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            uint64_t num_entries = 0, uint64_t num_deletions = 0,
            bool sampled = false, SequenceNumber smallest_seqno = 0,
-           SequenceNumber largest_seqno = 0, uint8_t sst_variety = 0,
+           SequenceNumber largest_seqno = 0, uint8_t sst_purpose = 0,
            const std::vector<uint64_t>& sst_depend = {}) {
     assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData;
@@ -66,7 +66,7 @@ class VersionBuilderTest : public testing::Test {
     f->largest = GetInternalKey(largest, largest_seq);
     f->fd.smallest_seqno = smallest_seqno;
     f->fd.largest_seqno = largest_seqno;
-    f->sst_variety = sst_variety;
+    f->sst_purpose = sst_purpose;
     f->sst_depend = sst_depend;
     f->compensated_file_size = file_size;
     f->refs = 0;

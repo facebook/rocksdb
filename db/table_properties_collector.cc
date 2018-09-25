@@ -57,17 +57,17 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
           {"kMergeOperands", ToString(merge_operands_)}};
 }
 
-Status SstVarietyPropertiesCollector::Finish(
+Status CompositeSstPropertiesCollector::Finish(
     UserCollectedProperties* properties) {
   assert(properties);
-  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstPurpose) ==
+  assert(properties->find(CompositeSstTablePropertiesNames::kSstPurpose) ==
          properties->end());
-  assert(properties->find(SSTVarietiesTablePropertiesNames::kSstDepend) ==
+  assert(properties->find(CompositeSstTablePropertiesNames::kSstDepend) ==
          properties->end());
 
-  auto sst_variety_value = std::string((const char*)&sst_variety_, 1);
+  auto sst_purpose_value = std::string((const char*)&sst_purpose_, 1);
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstPurpose, sst_variety_value});
+      {CompositeSstTablePropertiesNames::kSstPurpose, sst_purpose_value});
 
   std::string sst_depend;
   PutVarint64(&sst_depend, sst_depend_->size());
@@ -75,18 +75,18 @@ Status SstVarietyPropertiesCollector::Finish(
     PutVarint64(&sst_depend, sst_id);
   }
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstDepend, sst_depend});
+      {CompositeSstTablePropertiesNames::kSstDepend, sst_depend});
 
   std::string sst_read_amp;
   PutVarint64(&sst_read_amp, *sst_read_amp_);
 
   properties->insert(
-      {SSTVarietiesTablePropertiesNames::kSstReadAmp, sst_read_amp});
+      {CompositeSstTablePropertiesNames::kSstReadAmp, sst_read_amp});
 
   return Status::OK();
 }
 
-UserCollectedProperties SstVarietyPropertiesCollector::GetReadableProperties()
+UserCollectedProperties CompositeSstPropertiesCollector::GetReadableProperties()
     const {
   std::string sst_depend;
   if (sst_depend_->empty()) {
@@ -99,7 +99,7 @@ UserCollectedProperties SstVarietyPropertiesCollector::GetReadableProperties()
     }
     sst_depend.back() = ']';
   }
-  return {{"kSstPurpose", ToString((int)sst_variety_)},
+  return {{"kSstPurpose", ToString((int)sst_purpose_)},
           {"kSstDepend", sst_depend},
           {"kSstReadAmp", ToString(*sst_read_amp_)}};
 }
@@ -148,11 +148,11 @@ const std::string InternalKeyTablePropertiesNames::kDeletedKeys =
     "rocksdb.deleted.keys";
 const std::string InternalKeyTablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
-const std::string SSTVarietiesTablePropertiesNames::kSstPurpose =
-    "rocksdb.sst.variety";
-const std::string SSTVarietiesTablePropertiesNames::kSstDepend =
+const std::string CompositeSstTablePropertiesNames::kSstPurpose =
+    "rocksdb.sst.purpose";
+const std::string CompositeSstTablePropertiesNames::kSstDepend =
     "rocksdb.sst.depend";
-const std::string SSTVarietiesTablePropertiesNames::kSstReadAmp =
+const std::string CompositeSstTablePropertiesNames::kSstReadAmp =
     "rocksdb.sst.read_amp";
 
 uint64_t GetDeletedKeys(const UserCollectedProperties& props) {
@@ -168,7 +168,7 @@ uint64_t GetMergeOperands(const UserCollectedProperties& props,
 }
 
 uint8_t GetSstPurpose(const UserCollectedProperties& props) {
-  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstPurpose);
+  auto pos = props.find(CompositeSstTablePropertiesNames::kSstPurpose);
   if (pos == props.end()) {
     return 0;
   }
@@ -178,7 +178,7 @@ uint8_t GetSstPurpose(const UserCollectedProperties& props) {
 
 std::vector<uint64_t> GetSstDepend(const UserCollectedProperties& props) {
   std::vector<uint64_t> result;
-  auto pos = props.find(SSTVarietiesTablePropertiesNames::kSstDepend);
+  auto pos = props.find(CompositeSstTablePropertiesNames::kSstDepend);
   if (pos == props.end()) {
     return result;
   }
@@ -201,7 +201,7 @@ std::vector<uint64_t> GetSstDepend(const UserCollectedProperties& props) {
 size_t GetSstReadAmp(const UserCollectedProperties& props) {
   bool ignore;
   return GetUint64Property(
-      props, SSTVarietiesTablePropertiesNames::kSstReadAmp, &ignore);
+      props, CompositeSstTablePropertiesNames::kSstReadAmp, &ignore);
 }
 
 }  // namespace rocksdb

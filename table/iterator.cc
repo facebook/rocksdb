@@ -132,7 +132,7 @@ class EmptyIterator : public Iterator {
 };
 
 template <class TValue = Slice>
-class EmptyInternalIteratorBase : public InternalIteratorWithSourceBase<TValue> {
+class EmptyInternalIteratorBase : public InternalIteratorBase<TValue> {
  public:
   explicit EmptyInternalIteratorBase(const Status& s) : status_(s) {}
   virtual bool Valid() const override { return false; }
@@ -154,6 +154,45 @@ class EmptyInternalIteratorBase : public InternalIteratorWithSourceBase<TValue> 
 
  private:
   Status status_;
+};
+
+template <class TValue = Slice>
+class FileNumberInternalIteratorWrapperBase
+    : public InternalIteratorBase<TValue> {
+ public:
+  FileNumberInternalIteratorWrapperBase(InternalIteratorBase<TValue>* inner,
+                                        uint64_t file_number)
+      : inner_(inner), file_number_(file_number) {}
+  virtual bool Valid() const override { return inner_->Valid(); }
+  virtual void Seek(const Slice& target) override { inner_->Seek(target); }
+  virtual void SeekForPrev(const Slice& target) override {
+    inner_->SeekForPrev(target);
+  }
+  virtual void SeekToFirst() override { inner_->SeekToFirst(); }
+  virtual void SeekToLast() override { inner_->SeekToLast(); }
+  virtual void Next() override { inner_->Next(); }
+  virtual void Prev() override { inner_->Prev(); }
+  Slice key() const override { return inner_->key(); }
+  TValue value() const override { return inner_->value(); }
+  virtual Status status() const override { return inner_->status(); }
+  virtual uint64_t FileNumber() const override { return file_number_; }
+  virtual bool IsOutOfBound() override { return inner_->IsOutOfBound(); }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    inner_->SetPinnedItersMgr(pinned_iters_mgr);
+  }
+  virtual bool IsKeyPinned() const override { return inner_->IsKeyPinned(); }
+  virtual bool IsValuePinned() const override {
+    return inner_->IsValuePinned();
+  }
+  virtual Status GetProperty(std::string prop_name,
+                             std::string* prop) override {
+    return inner_->GetProperty(prop_name, prop);
+  }
+
+ private:
+  InternalIteratorBase<TValue>* inner_;
+  uint64_t file_number_;
 };
 
 }  // namespace
@@ -193,5 +232,22 @@ template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
+
+template <class TValue>
+InternalIteratorBase<TValue>* NewFileNumberInternalIteratorWrapper(
+    InternalIteratorBase<TValue>* inner, uint64_t file_number, Arena* arena) {
+  using Wrapper = FileNumberInternalIteratorWrapperBase<TValue>;
+  if (arena == nullptr) {
+    return new Wrapper(inner, file_number);
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(Wrapper));
+    return new (mem) Wrapper(inner, file_number);
+  }
+}
+template InternalIteratorBase<BlockHandle>*
+NewFileNumberInternalIteratorWrapper(InternalIteratorBase<BlockHandle>* inner,
+                                     uint64_t file_number, Arena* arena);
+template InternalIteratorBase<Slice>* NewFileNumberInternalIteratorWrapper(
+    InternalIteratorBase<Slice>* inner, uint64_t file_number, Arena* arena);
 
 }  // namespace rocksdb
