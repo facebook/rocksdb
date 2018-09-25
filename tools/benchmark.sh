@@ -177,6 +177,7 @@ function run_bulkload {
        $params_bulkload \
        --threads=1 \
        --memtablerep=vector \
+       --allow_concurrent_memtable_write=false \
        --disable_wal=1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/benchmark_bulkload_fillrandom.log"
@@ -229,6 +230,7 @@ function run_manual_compaction_worker {
        --compaction_style=$2 \
        --subcompactions=$3 \
        --memtablerep=vector \
+       --allow_concurrent_memtable_write=false \
        --disable_wal=1 \
        --max_background_jobs=$4 \
        --seed=$( date +%s ) \
@@ -313,6 +315,7 @@ function run_fillseq {
        --min_level_to_compress=0 \
        --threads=1 \
        --memtablerep=vector \
+       --allow_concurrent_memtable_write=false \
        --disable_wal=$1 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
