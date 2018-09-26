@@ -237,5 +237,11 @@ SequenceNumber DBImpl::TEST_GetLastVisibleSequence() const {
   }
 }
 
+size_t DBImpl::TEST_GetWalPreallocateBlockSize(
+    uint64_t write_buffer_size) const {
+  InstrumentedMutexLock l(&mutex_);
+  return GetWalPreallocateBlockSize(write_buffer_size);
+}
+
 }  // namespace rocksdb
 #endif  // NDEBUG
