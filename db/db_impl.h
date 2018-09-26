@@ -948,7 +948,8 @@ class DBImpl : public DB {
       SuperVersionContext* superversion_context,
       std::vector<SequenceNumber>& snapshot_seqs,
       SequenceNumber earliest_write_conflict_snapshot,
-      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
+      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+      Env::Priority thread_pri);
 
   // Argument required by background flush thread.
   struct BGFlushArg {
@@ -975,7 +976,7 @@ class DBImpl : public DB {
   // persistent storage.
   Status FlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-      JobContext* job_context, LogBuffer* log_buffer);
+      JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
 
   Status AtomicFlushMemTablesToOutputFiles(
       const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
@@ -1126,14 +1127,16 @@ class DBImpl : public DB {
   static void BGWorkPurge(void* arg);
   static void UnscheduleCallback(void* arg);
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                Env::Priority bg_thread_pri);
-  void BackgroundCallFlush();
+                                Env::Priority thread_pri);
+  void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
-                              PrepickedCompaction* prepicked_compaction);
+                              PrepickedCompaction* prepicked_compaction,
+                              Env::Priority thread_pri);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
-                         LogBuffer* log_buffer, FlushReason* reason);
+                         LogBuffer* log_buffer, FlushReason* reason,
+                         Env::Priority thread_pri);
 
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,

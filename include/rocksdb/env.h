@@ -319,7 +319,7 @@ class Env {
   virtual Status UnlockFile(FileLock* lock) = 0;
 
   // Priority for scheduling job in thread pool
-  enum Priority { BOTTOM, LOW, HIGH, TOTAL };
+  enum Priority { BOTTOM, LOW, HIGH, USER, TOTAL };
 
   static std::string PriorityToString(Priority priority);
 

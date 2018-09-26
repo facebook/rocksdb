@@ -312,7 +312,8 @@ CompactionJob::CompactionJob(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
-    const std::string& dbname, CompactionJobStats* compaction_job_stats)
+    const std::string& dbname, CompactionJobStats* compaction_job_stats,
+    Env::Priority thread_pri)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -340,7 +341,8 @@ CompactionJob::CompactionJob(
       bottommost_level_(false),
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
-      write_hint_(Env::WLTH_NOT_SET) {
+      write_hint_(Env::WLTH_NOT_SET),
+      thread_pri_(thread_pri) {
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
@@ -717,7 +719,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   Status status = compact_->status;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   cfd->internal_stats()->AddCompactionStats(
-      compact_->compaction->output_level(), compaction_stats_);
+      compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);

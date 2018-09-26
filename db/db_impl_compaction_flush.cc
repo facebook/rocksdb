@@ -135,7 +135,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     SuperVersionContext* superversion_context,
     std::vector<SequenceNumber>& snapshot_seqs,
     SequenceNumber earliest_write_conflict_snapshot,
-    SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
+    SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+    Env::Priority thread_pri) {
   mutex_.AssertHeld();
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
@@ -149,7 +150,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */);
+      true /* sync_output_directory */, true /* write_manifest */,
+      thread_pri);
 
   FileMetaData file_meta;
 
@@ -232,7 +234,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
-    JobContext* job_context, LogBuffer* log_buffer) {
+    JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   if (immutable_db_options_.atomic_flush) {
     return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                              job_context, log_buffer);
@@ -250,7 +252,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
     Status s = FlushMemTableToOutputFile(
         cfd, mutable_cf_options, made_progress, job_context,
         superversion_context, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, log_buffer);
+        snapshot_checker, log_buffer, thread_pri);
     if (!s.ok()) {
       status = s;
       if (!s.IsShutdownInProgress()) {
@@ -948,6 +950,19 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
+  // Here we pass a nullptr for CompactionJobStats because
+  // CompactFiles does not trigger OnCompactionCompleted(),
+  // which is the only place where CompactionJobStats is
+  // returned.  The idea of not triggering OnCompationCompleted()
+  // is that CompactFiles runs in the caller thread, so the user
+  // should always know when it completes.  As a result, it makes
+  // less sense to notify the users something they should already
+  // know.
+  //
+  // In the future, if we would like to add CompactionJobStats
+  // support for CompactFiles, we should have CompactFiles API
+  // pass a pointer of CompactionJobStats as the out-value
+  // instead of using EventListener.
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -957,7 +972,7 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats);
+      &compaction_job_stats, Env::Priority::USER);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1943,7 +1958,7 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
 void DBImpl::BGWorkFlush(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
+  reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -1991,7 +2006,8 @@ void DBImpl::UnscheduleCallback(void* arg) {
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
-                               LogBuffer* log_buffer, FlushReason* reason) {
+                               LogBuffer* log_buffer, FlushReason* reason,
+                               Env::Priority thread_pri) {
   mutex_.AssertHeld();
 
   Status status;
@@ -2052,7 +2068,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
           bg_compaction_scheduled_);
     }
     status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
-                                         job_context, log_buffer);
+                                         job_context, log_buffer, thread_pri);
     // All the CFDs in the FlushReq must have the same flush reason, so just
     // grab the first one
     *reason = bg_flush_args[0].cfd_->GetFlushReason();
@@ -2067,7 +2083,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   return status;
 }
 
-void DBImpl::BackgroundCallFlush() {
+void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
 
@@ -2084,8 +2100,8 @@ void DBImpl::BackgroundCallFlush() {
         CaptureCurrentFileNumberInPendingOutputs();
     FlushReason reason;
 
-    Status s =
-        BackgroundFlush(&made_progress, &job_context, &log_buffer, &reason);
+    Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
+                               &reason, thread_pri);
     if (!s.ok() && !s.IsShutdownInProgress() &&
         reason != FlushReason::kErrorRecovery) {
       // Wait a little bit before retrying background flush in
@@ -2146,7 +2162,7 @@ void DBImpl::BackgroundCallFlush() {
 }
 
 void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                      Env::Priority bg_thread_pri) {
+                                      Env::Priority thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
@@ -2164,11 +2180,11 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
 
-    assert((bg_thread_pri == Env::Priority::BOTTOM &&
+    assert((thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
-           (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
+           (thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
-                                    prepicked_compaction);
+                                    prepicked_compaction, thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -2222,10 +2238,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    if (bg_thread_pri == Env::Priority::LOW) {
+    if (thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
     } else {
-      assert(bg_thread_pri == Env::Priority::BOTTOM);
+      assert(thread_pri == Env::Priority::BOTTOM);
       bg_bottom_compaction_scheduled_--;
     }
 
@@ -2255,7 +2271,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
-                                    PrepickedCompaction* prepicked_compaction) {
+                                    PrepickedCompaction* prepicked_compaction,
+                                    Env::Priority thread_pri) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
@@ -2587,11 +2604,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
-        &mutex_, &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, table_cache_, &event_logger_,
-        c->mutable_cf_options()->paranoid_file_checks,
+        &mutex_, &error_handler_, snapshot_seqs,
+        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
+        &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
-        &compaction_job_stats);
+        &compaction_job_stats, thread_pri);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

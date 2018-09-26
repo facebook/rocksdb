@@ -227,7 +227,8 @@ void ExternalSstFileIngestionJob::UpdateStats() {
       stats.bytes_moved = f.fd.GetFileSize();
     }
     stats.num_output_files = 1;
-    cfd_->internal_stats()->AddCompactionStats(f.picked_level, stats);
+    cfd_->internal_stats()->AddCompactionStats(f.picked_level,
+                                               Env::Priority::USER, stats);
     cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_INGESTED_ADD_FILE,
                                        f.fd.GetFileSize());
     total_keys += f.num_entries;

@@ -124,7 +124,8 @@ TEST_F(FlushJobTest, Empty) {
       env_options_, versions_.get(), &mutex_, &shutting_down_, {},
       kMaxSequenceNumber, snapshot_checker, &job_context, nullptr, nullptr,
       nullptr, kNoCompression, nullptr, &event_logger, false,
-      true /* sync_output_directory */, true /* write_manifest */);
+      true /* sync_output_directory */, true /* write_manifest */,
+      Env::Priority::USER);
   {
     InstrumentedMutexLock l(&mutex_);
     flush_job.PickMemTable();
@@ -171,7 +172,8 @@ TEST_F(FlushJobTest, NonEmpty) {
       env_options_, versions_.get(), &mutex_, &shutting_down_, {},
       kMaxSequenceNumber, snapshot_checker, &job_context, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
-      true, true /* sync_output_directory */, true /* write_manifest */);
+      true, true /* sync_output_directory */, true /* write_manifest */,
+      Env::Priority::USER);
 
   HistogramData hist;
   FileMetaData file_meta;
@@ -419,7 +421,8 @@ TEST_F(FlushJobTest, Snapshots) {
       env_options_, versions_.get(), &mutex_, &shutting_down_, snapshots,
       kMaxSequenceNumber, snapshot_checker, &job_context, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
-      true, true /* sync_output_directory */, true /* write_manifest */);
+      true, true /* sync_output_directory */, true /* write_manifest */,
+      Env::Priority::USER);
   mutex_.Lock();
   flush_job.PickMemTable();
   ASSERT_OK(flush_job.Run());
