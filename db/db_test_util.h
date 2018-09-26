@@ -109,8 +109,6 @@ struct OptionsOverride {
   // These will be used only if filter_policy is set
   bool partition_filters = false;
   uint64_t metadata_block_size = 1024;
-  BlockBasedTableOptions::IndexType index_type =
-      BlockBasedTableOptions::IndexType::kBinarySearch;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
@@ -317,6 +315,9 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
 
      private:
       SpecialEnv* env_;
@@ -369,6 +370,9 @@ class SpecialEnv : public EnvWrapper {
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
+      }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
       }
 
      private:

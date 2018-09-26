@@ -1844,6 +1844,32 @@ jlong Java_org_rocksdb_RocksDB_getLongProperty__JJLjava_lang_String_2I(
   return 0;
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getAggregatedLongProperty
+ * Signature: (JLjava/lang/String;I)J
+ */
+jlong Java_org_rocksdb_RocksDB_getAggregatedLongProperty(
+    JNIEnv* env, jobject, jlong db_handle, jstring jproperty, jint jproperty_len) {
+  const char* property = env->GetStringUTFChars(jproperty, nullptr);
+  if (property == nullptr) {
+    return 0;
+  }
+  rocksdb::Slice property_slice(property, jproperty_len);
+  auto* db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  uint64_t property_value = 0;
+  bool retCode = db->GetAggregatedIntProperty(property_slice, &property_value);
+  env->ReleaseStringUTFChars(jproperty, property);
+
+  if (retCode) {
+    return property_value;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, rocksdb::Status::NotFound());
+  return 0;
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Flush
 

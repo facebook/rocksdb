@@ -109,12 +109,14 @@ def generate_targets(repo_path):
         "rocksdb_test_lib",
         src_mk.get("MOCK_LIB_SOURCES", []) +
         src_mk.get("TEST_LIB_SOURCES", []) +
-        src_mk.get("EXP_LIB_SOURCES", []),
+        src_mk.get("EXP_LIB_SOURCES", []) +
+        src_mk.get("ANALYZER_LIB_SOURCES", []),
         [":rocksdb_lib"])
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
         src_mk.get("BENCH_LIB_SOURCES", []) +
+        src_mk.get("ANALYZER_LIB_SOURCES", []) +
         ["util/testutil.cc"],
         [":rocksdb_lib"])
 

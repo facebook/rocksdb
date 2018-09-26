@@ -464,6 +464,7 @@ class DBImpl : public DB {
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
+  size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
 
 #endif  // NDEBUG
 
@@ -937,6 +938,12 @@ class DBImpl : public DB {
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                      MemTable* mem, VersionEdit* edit);
+
+  // Restore alive_log_files_ and total_log_size_ after recovery.
+  // It needs to run only when there's no flush during recovery
+  // (e.g. avoid_flush_during_recovery=true). May also trigger flush
+  // in case total_log_size > max_total_wal_size.
+  Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers);
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
@@ -1545,6 +1552,9 @@ class DBImpl : public DB {
   // is set a little later during the shutdown after scheduling memtable
   // flushes
   bool shutdown_initiated_;
+  // Flag to indicate whether sst_file_manager object was allocated in
+  // DB::Open() or passed to us
+  bool own_sfm_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()
   // to advance this seqnum. Default value is 0 which means ALL deletes are
