@@ -26,7 +26,7 @@ public class OptimisticTransactionSample {
 
         ////////////////////////////////////////////////////////
         //
-        // Simple OptimisticTransaction Example ("Read Committed")
+        // Simple OptimisticTransaction Example ("Read Committed")wgao
         //
         ////////////////////////////////////////////////////////
         readCommitted(txnDb, writeOptions, readOptions);
