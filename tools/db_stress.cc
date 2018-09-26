@@ -3348,7 +3348,6 @@ class AtomicFlushStressTest : public StressTest {
     uint64_t value_base = batch_id_.fetch_add(1);
     size_t sz = GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
     Slice v(value, sz);
-    fprintf(stderr, "y7jin put key=%s value=%s\n", key.ToString(true).c_str(), v.ToString(true).c_str());
     Status s;
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* cfh = column_families_[cf];
@@ -3474,8 +3473,15 @@ class AtomicFlushStressTest : public StressTest {
   }
 
   virtual void VerifyDb(ThreadState* thread) const {
-    //ReadOptions options(FLAGS_verify_checksum, true);
-    ReadOptions options;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    // We must set total_order_seek to true because we are doing a SeekToFirst
+    // on a column family whose memtables may support (by default) prefix-based
+    // iterator. In this case, NewIterator with options.total_order_seek being
+    // false returns a prefix-based iterator. Calling SeekToFirst using this
+    // iterator causes the iterator to become invalid. That means we cannot
+    // iterate the memtable using this iterator any more, although the memtable
+    // contains the most up-to-date key-values.
+    options.total_order_seek = true;
     assert(thread != nullptr);
     auto shared = thread->shared;
     unique_ptr<Iterator> iter(db_->NewIterator(options, column_families_[0]));
@@ -3483,13 +3489,6 @@ class AtomicFlushStressTest : public StressTest {
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       std::string expected_value = iter->value().ToString();
-      if (key.ToString(true) == "0000000000003070") {
-        fprintf(stderr, "y7jin iterate from first. key=%s expected_value=%s\n", key.ToString(true).c_str(), StringToHex(expected_value).c_str());
-        unique_ptr<Iterator> it(db_->NewIterator(ReadOptions(), column_families_[0]));
-        it->Seek(key);
-        std::string expected_value1 = it->value().ToString();
-        fprintf(stderr, "y7jin iterate direct. key=%s expected_value=%s\n", key.ToString(true).c_str(), StringToHex(expected_value1).c_str());
-      }
       for (size_t cf = 0; cf < column_families_.size(); ++cf) {
         std::string value;
         Status s = db_->Get(ReadOptions(), column_families_[cf], key, &value);
