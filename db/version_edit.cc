@@ -189,10 +189,10 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       if (f.sst_purpose != 0) {
         PutVarint32(dst, CustomTag::kSstPurpose);
         std::string encode_buffer;
-        encode_buffer += (char)f.sst_purpose;
+        encode_buffer.push_back((char)f.sst_purpose);
         PutVarint64(&encode_buffer, f.sst_depend.size());
-        for (auto sst_id : f.sst_depend) {
-          PutVarint64(&encode_buffer, sst_id);
+        for (auto depend : f.sst_depend) {
+          PutVarint64(&encode_buffer, depend);
         }
         PutLengthPrefixedSlice(dst, Slice(encode_buffer));
       }
@@ -315,11 +315,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             }
             f.sst_depend.reserve(size);
             for (size_t i = 0; i < size; ++i) {
-              uint64_t sst_id;
-              if (!GetVarint64(&field, &sst_id)) {
+              uint64_t file_number;
+              if (!GetVarint64(&field, &file_number)) {
                 return error_msg;
               }
-              f.sst_depend.emplace_back(sst_id);
+              f.sst_depend.emplace_back(file_number);
             }
           } while (false);
           break;

@@ -94,7 +94,7 @@ Status GetFromCompositeSst(const FileMetaData& file_meta,
                            const InternalKeyComparator& icomp, const Slice& k,
                            GetContext* get_context, void* arg,
                            bool (*get_from_sst)(void* arg, const Slice& find_k,
-                                                uint64_t sst_id,
+                                                uint64_t file_number,
                                                 Status& status)) {
   Status s;
   switch (file_meta.sst_purpose) {
@@ -104,7 +104,7 @@ Status GetFromCompositeSst(const FileMetaData& file_meta,
                                const Slice& link_value) {
         // Manual inline LinkSstElement::Decode
         Slice link_input = link_value;
-        uint64_t sst_id;
+        uint64_t file_number;
         Slice find_k = k;
 
         if (smallest_key.size() == 0) {
@@ -123,11 +123,11 @@ Status GetFromCompositeSst(const FileMetaData& file_meta,
           find_k = smallest_key.Encode();
         }
 
-        if (!GetFixed64(&link_input, &sst_id)) {
+        if (!GetFixed64(&link_input, &file_number)) {
           s = Status::Corruption("Link sst invalid link_value");
           return false;
         }
-        if (!get_from_sst(arg, find_k, sst_id, s)) {
+        if (!get_from_sst(arg, find_k, file_number, s)) {
           // error or found
           return false;
         }
@@ -221,8 +221,8 @@ Status GetFromCompositeSst(const FileMetaData& file_meta,
 
         for (uint64_t i = 0; i < link_count; ++i) {
           // Manual inline GetFixed64
-          uint64_t sst_id = DecodeFixed64(map_input.data());
-          if (!get_from_sst(arg, find_k, sst_id, s)) {
+          uint64_t file_number = DecodeFixed64(map_input.data());
+          if (!get_from_sst(arg, find_k, file_number, s)) {
             // error or found, recovery min_seq_type_backup is unnecessary
             return false;
           }
@@ -628,9 +628,9 @@ Status TableCache::Get(const ReadOptions& options,
         s = Status::Corruption("Composite sst depend files missing");
       } else {
         // Forward query to target sst
-        auto get_from_sst = [&](const Slice& find_k, uint64_t sst_id,
+        auto get_from_sst = [&](const Slice& find_k, uint64_t file_number,
                                 Status& status) {
-          auto find = depend_files.find(sst_id);
+          auto find = depend_files.find(file_number);
           if (find == depend_files.end()) {
             status = Status::Corruption("Composite sst depend files missing");
             return false;

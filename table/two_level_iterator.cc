@@ -230,16 +230,16 @@ class LinkSstIterator final : public InternalIterator {
 
   bool InitSecondLevelIter() {
     // Manual inline LinkSstElement::Decode
-    uint64_t sst_id;
+    uint64_t file_number;
     Slice value_copy = first_level_iter_->value();
-    if (!GetFixed64(&value_copy, &sst_id)) {
+    if (!GetFixed64(&value_copy, &file_number)) {
       status_ = Status::Corruption("Link sst invalid value");
       second_level_iter_ = nullptr;
       return false;
     }
     assert(std::binary_search(file_meta_.sst_depend.begin(),
-                              file_meta_.sst_depend.end(), sst_id));
-    second_level_iter_ = iterator_cache_.GetIterator(sst_id);
+                              file_meta_.sst_depend.end(), file_number));
+    second_level_iter_ = iterator_cache_.GetIterator(file_number);
     if (!second_level_iter_->status().ok()) {
       status_ = second_level_iter_->status();
       second_level_iter_ = nullptr;
@@ -472,8 +472,8 @@ class MapSstIterator final : public InternalIterator {
   void InitSecondLevelMinHeap(const Slice& target, bool include) {
     assert(min_heap_.empty());
     auto& icomp = min_heap_.comparator().internal_comparator();
-    for (auto sst_id : link_) {
-      auto it = iterator_cache_.GetIterator(sst_id);
+    for (auto file_number : link_) {
+      auto it = iterator_cache_.GetIterator(file_number);
       if (!it->status().ok()) {
         status_ = it->status();
         min_heap_.clear();
@@ -499,8 +499,8 @@ class MapSstIterator final : public InternalIterator {
   void InitSecondLevelMaxHeap(const Slice& target, bool include) {
     assert(max_heap_.empty());
     auto& icomp = min_heap_.comparator().internal_comparator();
-    for (auto sst_id : link_) {
-      auto it = iterator_cache_.GetIterator(sst_id);
+    for (auto file_number : link_) {
+      auto it = iterator_cache_.GetIterator(file_number);
       if (!it->status().ok()) {
         status_ = it->status();
         max_heap_.clear();
@@ -723,17 +723,17 @@ class MapSstIterator final : public InternalIterator {
 
 template <class IteratorType>
 InternalIterator* NewCompositeSstIteratorTpl(
-    const FileMetaData& file_meta, InternalIterator* composite_sst_iter,
+    const FileMetaData& file_meta, InternalIterator* mediate_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* callback_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   if (arena == nullptr) {
-    return new IteratorType(file_meta, composite_sst_iter, depend_files, icomp,
+    return new IteratorType(file_meta, mediate_sst_iter, depend_files, icomp,
                             callback_arg, create_iter);
   } else {
     void* buffer = arena->AllocateAligned(sizeof(IteratorType));
     return new (buffer)
-        IteratorType(file_meta, composite_sst_iter, depend_files, icomp,
+        IteratorType(file_meta, mediate_sst_iter, depend_files, icomp,
                      callback_arg, create_iter);
   }
 }
@@ -747,22 +747,22 @@ InternalIteratorBase<BlockHandle>* NewTwoLevelIterator(
 }
 
 InternalIterator* NewCompositeSstIterator(
-    const FileMetaData& file_meta, InternalIterator* composite_sst_iter,
+    const FileMetaData& file_meta, InternalIterator* mediate_sst_iter,
     const DependFileMap& depend_files, const InternalKeyComparator& icomp,
     void* callback_arg, const IteratorCache::CreateIterCallback& create_iter,
     Arena* arena) {
   switch (file_meta.sst_purpose) {
     case kLinkSst:
       return NewCompositeSstIteratorTpl<LinkSstIterator>(
-          file_meta, composite_sst_iter, depend_files, icomp, callback_arg,
+          file_meta, mediate_sst_iter, depend_files, icomp, callback_arg,
           create_iter, arena);
     case kMapSst:
       return NewCompositeSstIteratorTpl<MapSstIterator>(
-          file_meta, composite_sst_iter, depend_files, icomp, callback_arg,
+          file_meta, mediate_sst_iter, depend_files, icomp, callback_arg,
           create_iter, arena);
     default:
       assert(file_meta.sst_purpose != 0);
-      return composite_sst_iter;
+      return mediate_sst_iter;
   }
 }
 

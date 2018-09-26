@@ -662,7 +662,7 @@ struct MapSstElement {
   bool include_largest_;
   bool no_records_;
   struct LinkTarget {
-    uint64_t sst_id;
+    uint64_t file_number;
     uint64_t size;
   };
   std::vector<LinkTarget> link_;
@@ -693,7 +693,7 @@ struct MapSstElement {
     link_.resize(link_count);
 
     for (uint64_t i = 0; i < link_count; ++i) {
-      GetFixed64(&value, &link_[i].sst_id);
+      GetFixed64(&value, &link_[i].file_number);
     }
     for (uint64_t i = 0; i < link_count; ++i) {
       GetFixed64(&value, &link_[i].size);
@@ -713,7 +713,7 @@ struct MapSstElement {
     PutVarint64(buffer, flags);
     buffer->reserve(buffer->size() + sizeof(LinkTarget) * link_.size());
     for (auto& l : link_) {
-      PutFixed64(buffer, l.sst_id);
+      PutFixed64(buffer, l.file_number);
     }
     for (auto& l : link_) {
       PutFixed64(buffer, l.size);

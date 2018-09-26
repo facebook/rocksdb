@@ -75,11 +75,11 @@ enum CompressionType : unsigned char {
   kDisableCompressionOption = 0xff,
 };
 
-// Sst purpose, map and link sst both are composite ssts
+// Sst purpose
 enum SstPurpose {
-  kNormalSst,
-  kLinkSst,
-  kMapSst,
+  kEssenceSst,  // Essence sst is actual data storage sst
+  kLinkSst,     // Link sst is composite sst
+  kMapSst,      // Map sst is composite sst
 };
 
 struct Options;
@@ -1223,7 +1223,7 @@ struct CompactionOptions {
       : compression(kSnappyCompression),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
         max_subcompactions(0),
-        compaction_purpose(kNormalSst) {}
+        compaction_purpose(kEssenceSst) {}
 };
 
 // For level based compaction, we can configure if we want to skip/force

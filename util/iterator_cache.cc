@@ -10,10 +10,10 @@
 namespace rocksdb {
 
 IteratorCache::IteratorCache(const DependFileMap& depend_files,
-                             void* create_iter_arg,
+                             void* callback_arg,
                              const CreateIterCallback& create_iter)
     : depend_files_(depend_files),
-      create_iter_arg_(create_iter_arg),
+      callback_arg_(callback_arg),
       create_iter_(create_iter),
       pinned_iters_mgr_(nullptr) {}
 
@@ -34,7 +34,7 @@ InternalIterator* IteratorCache::GetIterator(const FileMetaData* f,
   }
   CacheItem item;
   item.iter =
-      create_iter_(create_iter_arg_, f, depend_files_, &arena_, &item.reader);
+      create_iter_(callback_arg_, f, depend_files_, &arena_, &item.reader);
   item.meta = f;
   assert(item.iter != nullptr);
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -45,9 +45,9 @@ InternalIterator* IteratorCache::GetIterator(const FileMetaData* f,
   return item.iter;
 }
 
-InternalIterator* IteratorCache::GetIterator(uint64_t sst_id,
+InternalIterator* IteratorCache::GetIterator(uint64_t file_number,
                                              TableReader** reader_ptr) {
-  auto find = iterator_map_.find(sst_id);
+  auto find = iterator_map_.find(file_number);
   if (find != iterator_map_.end()) {
     if (reader_ptr != nullptr) {
       *reader_ptr = find->second.reader;
@@ -55,7 +55,7 @@ InternalIterator* IteratorCache::GetIterator(uint64_t sst_id,
     return find->second.iter;
   }
   CacheItem item;
-  auto find_f = depend_files_.find(sst_id);
+  auto find_f = depend_files_.find(file_number);
   if (find_f == depend_files_.end()) {
     auto s = Status::Corruption("Composite sst depend files missing");
     item.iter = NewErrorInternalIterator<Slice>(s, &arena_);
@@ -64,24 +64,24 @@ InternalIterator* IteratorCache::GetIterator(uint64_t sst_id,
   } else {
     auto f = find_f->second;
     item.iter =
-        create_iter_(create_iter_arg_, f, depend_files_, &arena_, &item.reader);
+        create_iter_(callback_arg_, f, depend_files_, &arena_, &item.reader);
     item.meta = f;
     assert(item.iter != nullptr);
   }
   item.iter->SetPinnedItersMgr(pinned_iters_mgr_);
-  iterator_map_.emplace(sst_id, item);
+  iterator_map_.emplace(file_number, item);
   if (reader_ptr != nullptr) {
     *reader_ptr = item.reader;
   }
   return item.iter;
 }
 
-const FileMetaData* IteratorCache::GetFileMetaData(uint64_t sst_id) {
-  auto find = iterator_map_.find(sst_id);
+const FileMetaData* IteratorCache::GetFileMetaData(uint64_t file_number) {
+  auto find = iterator_map_.find(file_number);
   if (find != iterator_map_.end()) {
     return find->second.meta;
   }
-  auto find_depend = depend_files_.find(sst_id);
+  auto find_depend = depend_files_.find(file_number);
   if (find_depend != depend_files_.end()) {
     return find_depend->second;
   }

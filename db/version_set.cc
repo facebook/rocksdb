@@ -1450,8 +1450,8 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
                                      kDeletionWeightOnCompaction;
           }
         } else {
-          for (auto sst_id : f->sst_depend) {
-            auto find = depend_files_.find(sst_id);
+          for (auto depend : f->sst_depend) {
+            auto find = depend_files_.find(depend);
             if (find == depend_files_.end()) {
               // TODO log error
               continue;
@@ -4207,8 +4207,8 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
       }
     } else {
       auto& depend_files = v->storage_info()->depend_files();
-      for (auto sst_id : file_meta->sst_depend) {
-        auto find = depend_files.find(sst_id);
+      for (auto depend : file_meta->sst_depend) {
+        auto find = depend_files.find(depend);
         if (find == depend_files.end()) {
           // TODO log error
           continue;

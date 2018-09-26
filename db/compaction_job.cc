@@ -555,8 +555,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
           if (flevel->files[i].file_metadata->sst_purpose == kMapSst) {
             auto& depend_files =
                 c->input_version()->storage_info()->depend_files();
-            for (auto sst_id : flevel->files[i].file_metadata->sst_depend) {
-              auto find = depend_files.find(sst_id);
+            for (auto depend : flevel->files[i].file_metadata->sst_depend) {
+              auto find = depend_files.find(depend);
               if (find == depend_files.end()) {
                 assert(false);
                 continue;
@@ -867,8 +867,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   switch (sub_compact->compaction->compaction_purpose()) {
-    case kNormalSst:
-      ProcessNormalCompaction(sub_compact);
+    case kEssenceSst:
+      ProcessEssenceCompaction(sub_compact);
       break;
     case kLinkSst:
       ProcessLinkCompaction(sub_compact);
@@ -879,7 +879,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 }
 
-void CompactionJob::ProcessNormalCompaction(SubcompactionState* sub_compact) {
+void CompactionJob::ProcessEssenceCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   std::unique_ptr<RangeDelAggregator> range_del_agg(

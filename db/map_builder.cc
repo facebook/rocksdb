@@ -105,7 +105,7 @@ struct RangeWithDepend {
     include[1] = map_element.include_largest_;
     depend.resize(map_element.link_.size());
     for (size_t i = 0; i < depend.size(); ++i) {
-      depend[i] = map_element.link_[i].sst_id;
+      depend[i] = map_element.link_[i].file_number;
     }
   }
   RangeWithDepend(const Range& range) {
@@ -202,8 +202,9 @@ class MapSstElementIterator {
     bool& include_end = map_elements_.include_largest_ = where_->include[1];
     bool no_records = true;
     map_elements_.link_.clear();
-    for (auto sst_id : where_->depend) {
-      map_elements_.link_.emplace_back(MapSstElement::LinkTarget{sst_id, 0});
+    for (auto file_number : where_->depend) {
+      map_elements_.link_.emplace_back(
+          MapSstElement::LinkTarget{file_number, 0});
     }
 
     auto merge_depend = [](MapSstElement& e, const std::vector<uint64_t>& d) {
@@ -211,7 +212,7 @@ class MapSstElementIterator {
       for (auto rit = d.rbegin(); rit != d.rend(); ++rit) {
         size_t new_pos;
         for (new_pos = 0; new_pos < insert_pos; ++new_pos) {
-          if (e.link_[new_pos].sst_id == *rit) {
+          if (e.link_[new_pos].file_number == *rit) {
             break;
           }
         }
@@ -244,9 +245,9 @@ class MapSstElementIterator {
     }
 
     for (auto& link : map_elements_.link_) {
-      sst_depend_build_.emplace(link.sst_id);
+      sst_depend_build_.emplace(link.file_number);
       TableReader* reader;
-      auto iter = iterator_cache_.GetIterator(link.sst_id, &reader);
+      auto iter = iterator_cache_.GetIterator(link.file_number, &reader);
       if (!iter->status().ok()) {
         buffer_.clear();
         status_ = iter->status();
@@ -640,7 +641,7 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
       return s;
     }
     if (level_ranges.empty()) {
-      assert(compaction_purpose == kNormalSst);
+      assert(compaction_purpose == kEssenceSst);
       level_ranges.emplace_back(std::move(ranges));
     } else {
       PartitionType type = compaction_purpose == kLinkSst

@@ -71,8 +71,8 @@ Status CompositeSstPropertiesCollector::Finish(
 
   std::string sst_depend;
   PutVarint64(&sst_depend, sst_depend_->size());
-  for (auto sst_id : *sst_depend_) {
-    PutVarint64(&sst_depend, sst_id);
+  for (auto depend : *sst_depend_) {
+    PutVarint64(&sst_depend, depend);
   }
   properties->insert(
       {CompositeSstTablePropertiesNames::kSstDepend, sst_depend});
@@ -93,8 +93,8 @@ UserCollectedProperties CompositeSstPropertiesCollector::GetReadableProperties()
     sst_depend += "[]";
   } else {
     sst_depend += '[';
-    for (auto sst_id : *sst_depend_) {
-      sst_depend += ToString(sst_id);
+    for (auto depend : *sst_depend_) {
+      sst_depend += ToString(depend);
       sst_depend += ',';
     }
     sst_depend.back() = ']';
@@ -189,11 +189,11 @@ std::vector<uint64_t> GetSstDepend(const UserCollectedProperties& props) {
   }
   result.reserve(size);
   for (size_t i = 0; i < size; ++i) {
-    uint64_t sst_id;
-    if (!GetVarint64(&raw, &sst_id)) {
+    uint64_t file_number;
+    if (!GetVarint64(&raw, &file_number)) {
       return result;
     }
-    result.emplace_back(sst_id);
+    result.emplace_back(file_number);
   }
   return result;
 }

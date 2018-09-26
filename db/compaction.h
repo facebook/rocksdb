@@ -46,7 +46,7 @@ class Compaction {
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false, bool single_output = false,
              bool enable_partial_compaction = false,
-             SstPurpose compaction_purpose = kNormalSst,
+             SstPurpose compaction_purpose = kEssenceSst,
              const std::vector<RangeStorage>& input_range = {},
              CompactionReason compaction_reason = CompactionReason::kUnknown);
 

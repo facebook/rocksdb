@@ -32,10 +32,10 @@ class IteratorCache {
   InternalIterator* GetIterator(const FileMetaData* f,
                                 TableReader** reader_ptr = nullptr);
 
-  InternalIterator* GetIterator(uint64_t sst_id,
+  InternalIterator* GetIterator(uint64_t file_number,
                                 TableReader** reader_ptr = nullptr);
 
-  const FileMetaData* GetFileMetaData(uint64_t sst_id);
+  const FileMetaData* GetFileMetaData(uint64_t file_number);
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr);
 
@@ -43,7 +43,7 @@ class IteratorCache {
 
  private:
   const std::unordered_map<uint64_t, const FileMetaData*>& depend_files_;
-  void* create_iter_arg_;
+  void* callback_arg_;
   CreateIterCallback create_iter_;
   Arena arena_;
   PinnedIteratorsManager* pinned_iters_mgr_;

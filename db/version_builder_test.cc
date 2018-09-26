@@ -106,8 +106,8 @@ bool VerifyDependFiles(VersionStorageInfo* new_vstorage,
   if (vstorage_depend_files.size() != depend_files.size()) {
     return false;
   }
-  for (auto sst_id : depend_files) {
-    if (vstorage_depend_files.count(sst_id) == 0) {
+  for (auto depend : depend_files) {
+    if (vstorage_depend_files.count(depend) == 0) {
       return false;
     }
   }

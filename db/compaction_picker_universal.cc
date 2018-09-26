@@ -224,8 +224,8 @@ UniversalCompactionPicker::CalculateSortedRuns(
     if (f->sst_purpose == 0) {
       file_size = f->fd.GetFileSize();
     } else {
-      for (auto sst_id : f->sst_depend) {
-        auto find = vstorage.depend_files().find(sst_id);
+      for (auto depend : f->sst_depend) {
+        auto find = vstorage.depend_files().find(depend);
         if (find == vstorage.depend_files().end()) {
           // TODO log error
           continue;
@@ -752,7 +752,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRunsOld(
                             enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kNormalSst, {} /* input_range */,
+      false /* enable_partial_compaction */, kEssenceSst, {} /* input_range */,
       compaction_reason);
 }
 
@@ -894,7 +894,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
       GetCompressionOptions(ioptions_, vstorage, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score, false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kNormalSst, {} /* input_range */,
+      false /* enable_partial_compaction */, kEssenceSst, {} /* input_range */,
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -1005,7 +1005,7 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
   }
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
-  SstPurpose compaction_purpose = kNormalSst;
+  SstPurpose compaction_purpose = kEssenceSst;
   uint32_t max_subcompactions = 0;
   if (mutable_cf_options.enable_lazy_compaction && output_level != 0) {
     compaction_purpose = kMapSst;
@@ -1114,7 +1114,7 @@ Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
       LLONG_MAX, path_id, kNoCompression, ioptions_.compression_opts, 0,
       /* grandparents */ {}, /* is manual */ false, 0,
       false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kNormalSst, {},
+      false /* enable_partial_compaction */, kEssenceSst, {},
       CompactionReason::kTrivialMoveLevel);
   return c;
 }
@@ -1156,7 +1156,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     return nullptr;
   }
   inputs.files = vstorage->LevelFiles(inputs.level);
-  SstPurpose compaction_purpose = kNormalSst;
+  SstPurpose compaction_purpose = kEssenceSst;
   bool single_output = false;
   uint32_t max_subcompactions = ioptions_.max_subcompactions;
   std::vector<RangeStorage> input_range;
@@ -1302,7 +1302,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
       return false;
     }
     auto& depend_files = vstorage->depend_files();
-    auto find = depend_files.find(e.link_.front().sst_id);
+    auto find = depend_files.find(e.link_.front().file_number);
     if (find == depend_files.end()) {
       // TODO log error
       return false;
@@ -1376,7 +1376,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
               [=](const RangeStorage& a, const RangeStorage& b) {
                 return uc->Compare(a.limit, b.limit) < 0;
               });
-    compaction_purpose = kNormalSst;
+    compaction_purpose = kEssenceSst;
     single_output = false;
     return new_compaction();
   }
@@ -1415,7 +1415,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     input_range.emplace_back(std::move(range));
   }
   if (!input_range.empty()) {
-    compaction_purpose = kNormalSst;
+    compaction_purpose = kEssenceSst;
     single_output = false;
     return new_compaction();
   }
@@ -1657,7 +1657,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
                      file_num_buf);
   }
 
-  SstPurpose compaction_purpose = kNormalSst;
+  SstPurpose compaction_purpose = kEssenceSst;
   uint32_t max_subcompactions = 0;
   if (output_level != 0) {
     compaction_purpose = kMapSst;

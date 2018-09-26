@@ -58,8 +58,8 @@ bool BySmallestKey(FileMetaData* a, FileMetaData* b,
 
 void LoadSstDepend(FileMetaData* f,
                    std::unordered_map<uint64_t, size_t>& depend_map) {
-  for (auto sst_id : f->sst_depend) {
-    auto ib = depend_map.emplace(sst_id, 1);
+  for (auto depend : f->sst_depend) {
+    auto ib = depend_map.emplace(depend, 1);
     if (!ib.second) {
       ++ib.first->second;
     }
@@ -68,8 +68,8 @@ void LoadSstDepend(FileMetaData* f,
 
 void UnloadSstDepend(FileMetaData* f,
                      std::unordered_map<uint64_t, size_t>& depend_map) {
-  for (auto sst_id : f->sst_depend) {
-    auto find = depend_map.find(sst_id);
+  for (auto depend : f->sst_depend) {
+    auto find = depend_map.find(depend);
     assert(find != depend_map.end());
     if (--find->second == 0) {
       depend_map.erase(find);
