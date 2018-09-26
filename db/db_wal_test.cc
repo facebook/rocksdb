@@ -18,6 +18,15 @@ namespace rocksdb {
 class DBWALTest : public DBTestBase {
  public:
   DBWALTest() : DBTestBase("/db_wal_test") {}
+
+#if defined(ROCKSDB_PLATFORM_POSIX)
+  uint64_t GetAllocatedFileSize(std::string file_name) {
+    struct stat sbuf;
+    int err = stat(file_name.c_str(), &sbuf);
+    assert(err == 0);
+    return sbuf.st_blocks * 512;
+  }
+#endif
 };
 
 // A SpecialEnv enriched to give more insight about deleted files
@@ -1389,6 +1398,36 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
   // Flushed two column families.
   ASSERT_EQ(2, test_listener->count.load());
 }
+
+#if defined(ROCKSDB_PLATFORM_POSIX)
+// Tests that we will truncate the preallocated space of the last log from
+// previous.
+TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
+  constexpr size_t kKB = 1024;
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  DestroyAndReopen(options);
+  size_t preallocated_size =
+      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
+  ASSERT_OK(Put("foo", "v1"));
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  auto& file_before = log_files_before[0];
+  ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
+  // The log file has preallocated space.
+  ASSERT_GE(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+            preallocated_size);
+  Reopen(options);
+  VectorLogPtr log_files_after;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after));
+  ASSERT_EQ(1, log_files_after.size());
+  ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
+  // The preallocated space should be truncated.
+  ASSERT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+            preallocated_size);
+}
+#endif
 
 #endif  // ROCKSDB_LITE
 
