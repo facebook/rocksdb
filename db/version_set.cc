@@ -3474,14 +3474,21 @@ Status VersionSet::Recover(
       if (edit.is_in_atomic_group_) {
         if (replay_buffer.empty()) {
           replay_buffer.resize(edit.remaining_entries_ + 1);
+          TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:FirstInAtomicGroup",
+                                   &edit);
         }
         ++num_entries_decoded;
         if (num_entries_decoded + edit.remaining_entries_ !=
             static_cast<uint32_t>(replay_buffer.size())) {
-          return Status::Corruption("corrupted atomic group");
+          TEST_SYNC_POINT_CALLBACK(
+              "VersionSet::Recover:IncorrectAtomicGroupSize", &edit);
+          s = Status::Corruption("corrupted atomic group");
+          break;
         }
         replay_buffer[num_entries_decoded - 1] = std::move(edit);
         if (num_entries_decoded == replay_buffer.size()) {
+          TEST_SYNC_POINT_CALLBACK("VersionSet::Recover:LastInAtomicGroup",
+                                   &edit);
           for (auto& e : replay_buffer) {
             s = ApplyOneVersionEdit(
                 e, cf_name_to_options, column_families_not_found, builders,
@@ -3496,9 +3503,13 @@ Status VersionSet::Recover(
           replay_buffer.clear();
           num_entries_decoded = 0;
         }
+        TEST_SYNC_POINT("VersionSet::Recover:AtomicGroup");
       } else {
         if (!replay_buffer.empty()) {
-          return Status::Corruption("corrupted atomic group");
+          TEST_SYNC_POINT_CALLBACK(
+              "VersionSet::Recover:AtomicGroupMixedWithNormalEdits", &edit);
+          s = Status::Corruption("corrupted atomic group");
+          break;
         }
         s = ApplyOneVersionEdit(
             edit, cf_name_to_options, column_families_not_found, builders,
