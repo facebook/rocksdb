@@ -1400,6 +1400,7 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
 }
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
+#if defined(ROCKSDB_FALLOCATE_PRESENT)
 // Tests that we will truncate the preallocated space of the last log from
 // previous.
 TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
@@ -1427,7 +1428,8 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   ASSERT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
             preallocated_size);
 }
-#endif
+#endif  // ROCKSDB_FALLOCATE_PRESENT
+#endif  // ROCKSDB_PLATFORM_POSIX
 
 #endif  // ROCKSDB_LITE
 
