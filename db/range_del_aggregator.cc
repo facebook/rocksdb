@@ -297,13 +297,13 @@ class CollapsedRangeDelMap : public RangeDelMap {
     // irrelevant. Truncated end keys not pointed at by the caret are marked by a *;
     // those pointed at by the caret are marked by a !.
 
-    if (t.seq_ > prev_point_seq() || t.seq_ > prev_range_seq()) {
+    if (t.seq_ > prev_range_seq()) {
       // The new tombstone's start point covers the existing tombstone:
       //
       //     3:                3: A--C           3:                3:
       //     2:    c---   OR   2:    c---   OR   2:    c---   OR   2: c------
       //     1: A--C           1:                1: A------        1: C------
-      //                ^                 ^                 ^                  ^
+      //           *    ^            *    ^                 ^                  ^
       end_seq = prev_range_seq();
       Rep::iterator pit;
       if (it != rep_.begin() && (pit = std::prev(it)) != rep_.begin() &&
@@ -321,10 +321,14 @@ class CollapsedRangeDelMap : public RangeDelMap {
       } else {
         // Insert a new transition at the new tombstone's start point, or raise
         // the existing transition at that point to the new tombstone's seqno.
-        end_seq = prev_range_seq();
-        CollapsedMapBoundary boundary(std::max(t.seq_, prev_point_seq()),
-            std::max(t.seq_, prev_range_seq()));
-        rep_[t.start_key_] = boundary;  // operator[] will overwrite existing entry
+        SequenceNumber new_point_seq = t.seq_;
+        if (it != rep_.begin() &&
+            ucmp_->Compare(std::prev(it)->first, t.start_key_) == 0 &&
+            prev_point_seq() > new_point_seq) {
+          new_point_seq = prev_point_seq();
+        }
+        rep_[t.start_key_] = CollapsedMapBoundary(
+            new_point_seq, t.seq_);  // operator[] will overwrite existing entry
       }
     } else {
       // The new tombstone's start point is covered by an existing tombstone:
@@ -367,10 +371,11 @@ class CollapsedRangeDelMap : public RangeDelMap {
           // seqno.
           it->second = CollapsedMapBoundary(t.seq_);
         }
-      } else if (t.seq_ > it->second.range_seqnum) {
+      } else if (t.seq_ >= it->second.range_seqnum) {
         // A truncated tombstone with a higher seqno ended here, but the new
         // tombstone covers the tombstone that currently starts here. Raise the
         // range seqno only.
+        end_seq = it->second.range_seqnum;
         SequenceNumber old_point_seqno = it->second.point_seqnum;
         it->second = CollapsedMapBoundary(old_point_seqno, t.seq_);
       } else {
@@ -407,8 +412,7 @@ class CollapsedRangeDelMap : public RangeDelMap {
         if (it != rep_.end() && ucmp_->Compare(it->first, t.end_key_) == 0) {
           CollapsedMapBoundary old_boundary = it->second;
           it->second = CollapsedMapBoundary(
-              std::max(t.seq_, old_boundary.point_seqnum),
-              std::max(end_seq, old_boundary.point_seqnum));
+              std::max(t.seq_, old_boundary.point_seqnum), old_boundary.range_seqnum);
         } else {
           rep_[t.end_key_] = CollapsedMapBoundary(t.seq_, end_seq);
         }
