@@ -269,22 +269,36 @@ class CollapsedRangeDelMap : public RangeDelMap {
       //     2:    c---   OR   2:    c---   OR   2:    c---   OR   2: c------
       //     1: A--C           1:                1: A------        1: C------
       //                ^                 ^                 ^                  ^
-      // Insert a new transition at the new tombstone's start point, or raise
-      // the existing transition at that point to the new tombstone's seqno.
       end_seq = prev_seq();
-      rep_[t.start_key_] = t.seq_;  // operator[] will overwrite existing entry
+      Rep::iterator pit;
+      if (it != rep_.begin() && (pit = std::prev(it)) != rep_.begin() &&
+          ucmp_->Compare(pit->first, t.start_key_) == 0 && std::prev(pit)->second == t.seq_) {
+        // The new tombstone starts at the end of an existing tombstone with an
+        // identical seqno:
+        //
+        //     3:
+        //     2: A--C---
+        //     1:
+        //                ^
+        // Merge the tombstones by removing the existing tombstone's end key.
+        it = rep_.erase(std::prev(it));
+      } else {
+        // Insert a new transition at the new tombstone's start point, or raise
+        // the existing transition at that point to the new tombstone's seqno.
+        rep_[t.start_key_] = t.seq_;  // operator[] will overwrite existing entry
+      }
     } else {
       // The new tombstone's start point is covered by an existing tombstone:
       //
-      //      3: A-----   OR    3: C------
-      //      2:   c---         2: c------
-      //                ^                  ^
+      //      3: A-----   OR    3: C------   OR
+      //      2:   c---         2: c------         2: C------
+      //                ^                  ^                  ^
       // Do nothing.
     }
 
     // Look at all the existing transitions that overlap the new tombstone.
     while (it != rep_.end() && ucmp_->Compare(it->first, t.end_key_) < 0) {
-      if (t.seq_ > it->second) {
+      if (t.seq_ >= it->second) {
         // The transition is to an existing tombstone that the new tombstone
         // covers. Save the covered tombstone's seqno. We'll need to return to
         // it if the new tombstone ends before the existing tombstone.
@@ -328,15 +342,29 @@ class CollapsedRangeDelMap : public RangeDelMap {
     }
 
     if (t.seq_ == prev_seq()) {
-      // The new tombstone is unterminated in the map:
-      //
-      //     3:             OR   3: --G       OR   3: --G   K--
-      //     2: C-------k        2:   G---k        2:   G---k
-      //                  ^                 ^               ^
-      // End it now, returning to the last seqno we covered. Because end keys
-      // are exclusive, if there's an existing transition at t.end_key_, it
-      // takes precedence over the transition that we install here.
-      rep_.emplace(t.end_key_, end_seq);  // emplace is a noop if existing entry
+      // The new tombstone is unterminated in the map.
+      if (it != rep_.end() && t.seq_ == it->second && ucmp_->Compare(it->first, t.end_key_) == 0) {
+        // The new tombstone ends at the start of another tombstone with an
+        // identical seqno. Merge the tombstones by removing the existing
+        // tombstone's start key.
+        rep_.erase(it);
+      } else if (end_seq == prev_seq() || (it != rep_.end() && end_seq == it->second)) {
+        // The new tombstone is implicitly ended because its end point is
+        // contained within an existing tombstone with the same seqno:
+        //
+        //     2: ---k--N
+        //              ^
+      } else {
+        // The new tombstone needs an explicit end point.
+        //
+        //     3:             OR   3: --G       OR   3: --G   K--
+        //     2: C-------k        2:   G---k        2:   G---k
+        //                  ^                 ^               ^
+        // Install one that returns to the last seqno we covered. Because end
+        // keys are exclusive, if there's an existing transition at t.end_key_,
+        // it takes precedence over the transition that we install here.
+        rep_.emplace(t.end_key_, end_seq);  // emplace is a noop if existing entry
+      }
     } else {
       // The new tombstone is implicitly ended because its end point is covered
       // by an existing tombstone with a higher seqno.
