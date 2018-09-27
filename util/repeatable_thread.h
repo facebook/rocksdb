@@ -52,6 +52,8 @@ class RepeatableThread {
   // then wait for one run of RepeatableThread. Tests can use provide a
   // custom env object to mock time, and use the callback here to bump current
   // time and trigger RepeatableThread. See repeatable_thread_test for example.
+  //
+  // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
     MutexLock l(&mutex_);
     while (!waiting_) {

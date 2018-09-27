@@ -20,7 +20,7 @@ class RepeatableThreadTest : public testing::Test {
 };
 
 TEST_F(RepeatableThreadTest, TimedTest) {
-  constexpr uint64_t kSecond = 1000000;  // in microseconds
+  constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
   rocksdb::Env* env = rocksdb::Env::Default();
   rocksdb::port::Mutex mutex;
@@ -52,7 +52,7 @@ TEST_F(RepeatableThreadTest, TimedTest) {
 }
 
 TEST_F(RepeatableThreadTest, MockEnvTest) {
-  constexpr uint64_t kSecond = 1000000;  // in microseconds
+  constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
   mock_env_->set_current_time(0);  // in seconds
   std::atomic<int> count{0};
