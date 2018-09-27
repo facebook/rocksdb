@@ -28,7 +28,7 @@ class RepeatableThread {
         running_(true),
 #ifndef NDEBUG
         waiting_(false),
-        executed_(false),
+        run_count_(0),
 #endif
         thread_([this] { thread(); }) {
   }
@@ -59,12 +59,12 @@ class RepeatableThread {
     while (!waiting_) {
       cond_var_.Wait();
     }
+    uint64_t prev_count = run_count_;
     if (callback != nullptr) {
       callback();
     }
-    executed_ = false;
     cond_var_.SignalAll();
-    while (!executed_) {
+    while (!(run_count_ > prev_count)) {
       cond_var_.Wait();
     }
   }
@@ -110,8 +110,11 @@ class RepeatableThread {
     do {
       function_();
 #ifndef NDEBUG
-      executed_ = true;
-      cond_var_.SignalAll();
+      {
+        MutexLock l(&mutex_);
+        run_count_++;
+        cond_var_.SignalAll();
+      }
 #endif
     } while (wait(delay_us_));
   }
@@ -122,14 +125,16 @@ class RepeatableThread {
   const uint64_t delay_us_;
   const uint64_t initial_delay_us_;
 
+  // Mutex lock should be held when accessing running_, waiting_
+  // and run_count_.
   port::Mutex mutex_;
   port::CondVar cond_var_;
   bool running_;
 #ifndef NDEBUG
   // RepeatableThread waiting for timeout.
   bool waiting_;
-  // Function ran after caller of TEST_WaitForRun start waiting.
-  bool executed_;
+  // Times function_ had run.
+  uint64_t run_count_;
 #endif
   port::Thread thread_;
 };
