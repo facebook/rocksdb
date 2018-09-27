@@ -557,6 +557,33 @@ TEST_F(DBOptionsTest, SetStatsPersistPeriodSec) {
   }
 }
 
+// 1. create 1 column family, write some keys to it
+// 2. reopen and get keys
+// 3. list all column column_families
+// 4. reopen
+// 5. wait for stats persisting happens
+// 6. iterate through all keys and check stats are persisted
+TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  options.env = env_;
+  CreateColumnFamilies({"_persistent_stats", "pikachu"}, options);
+  ReopenWithColumnFamilies({"default", "_persistent_stats", "pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ReopenWithColumnFamilies({"default", "_persistent_stats", "pikachu"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
+  env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
+  auto iter = db_->NewIterator(ReadOptions(), handles_[1]);
+  int count = 0;
+  for(iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    fprintf(stdout, "key = %s, value = %s\n", iter->key().ToString().c_str(), iter->value().ToString().c_str());
+    count++;
+  }
+  delete iter;
+}
+
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();
   JobContext job_context(0);

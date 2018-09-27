@@ -3289,6 +3289,7 @@ Status VersionSet::ApplyOneVersionEdit(
 
   if (edit.is_column_family_add_) {
     if (cf_in_builders || cf_in_not_found) {
+      // TODO(Zhongyi): figure out a way to skip _persistent_stats in manifest
       fprintf(stdout, "skipping versionedit: %s\n", edit.DebugString().c_str());
       return Status::OK();
       // return Status::Corruption(
