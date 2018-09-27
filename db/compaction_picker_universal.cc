@@ -741,19 +741,22 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRunsOld(
   } else {
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
-  return new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options, output_level,
-                          kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
+  CompactionParams params(vstorage, ioptions_, mutable_cf_options);
+  params.inputs = std::move(inputs);
+  params.output_level = output_level;
+  params.target_file_size = MaxFileSizeForLevel(
+      mutable_cf_options, output_level, kCompactionStyleUniversal);
+  params.max_compaction_bytes = LLONG_MAX;
+  params.output_path_id = path_id;
+  params.compression =
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
-                         1, enable_compression),
-      GetCompressionOptions(ioptions_, vstorage, output_level,
-                            enable_compression),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kEssenceSst, {} /* input_range */,
-      compaction_reason);
+                         1, enable_compression);
+  params.compression_opts = GetCompressionOptions(
+      ioptions_, vstorage, output_level, enable_compression);
+  params.score = score;
+  params.compaction_reason = compaction_reason;
+
+  return new Compaction(std::move(params));
 }
 
 // Look at overall size amplification. If size amplification
@@ -884,18 +887,21 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     output_level--;
   }
 
-  return new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options, output_level,
-                          kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
-                         1),
-      GetCompressionOptions(ioptions_, vstorage, output_level),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score, false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kEssenceSst, {} /* input_range */,
-      CompactionReason::kUniversalSizeAmplification);
+  CompactionParams params(vstorage, ioptions_, mutable_cf_options);
+  params.inputs = std::move(inputs);
+  params.output_level = output_level;
+  params.target_file_size = MaxFileSizeForLevel(
+      mutable_cf_options, output_level, kCompactionStyleUniversal);
+  params.max_compaction_bytes = LLONG_MAX;
+  params.output_path_id = path_id;
+  params.compression = GetCompressionType(ioptions_, vstorage,
+                                          mutable_cf_options, output_level, 1);
+  params.compression_opts =
+      GetCompressionOptions(ioptions_, vstorage, output_level);
+  params.score = score;
+  params.compaction_reason = CompactionReason::kUniversalSizeAmplification;
+
+  return new Compaction(std::move(params));
 }
 
 // Pick files marked for compaction. Typically, files are marked by
@@ -1011,18 +1017,24 @@ Compaction* UniversalCompactionPicker::PickDeleteTriggeredCompaction(
     compaction_purpose = kMapSst;
     max_subcompactions = 1;
   }
-  return new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options, output_level,
-                          kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
-                         1),
-      GetCompressionOptions(ioptions_, vstorage, output_level),
-      max_subcompactions, /* grandparents */ {}, /* is manual */ true, score,
-      false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, compaction_purpose,
-      {} /* input_range */, CompactionReason::kFilesMarkedForCompaction);
+  CompactionParams params(vstorage, ioptions_, mutable_cf_options);
+  params.inputs = std::move(inputs);
+  params.output_level = output_level;
+  params.target_file_size = MaxFileSizeForLevel(
+      mutable_cf_options, output_level, kCompactionStyleUniversal);
+  params.max_compaction_bytes = LLONG_MAX;
+  params.output_path_id = path_id;
+  params.compression = GetCompressionType(ioptions_, vstorage,
+                                          mutable_cf_options, output_level, 1);
+  params.compression_opts =
+      GetCompressionOptions(ioptions_, vstorage, output_level);
+  params.max_subcompactions = max_subcompactions;
+  params.manual_compaction = true;
+  params.score = score;
+  params.compaction_purpose = compaction_purpose;
+  params.compaction_reason = CompactionReason::kFilesMarkedForCompaction;
+
+  return new Compaction(std::move(params));
 }
 
 Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
@@ -1106,17 +1118,14 @@ Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
     path_id = inputs.files.front()->fd.GetPathId();
   }
   assert(!AreFilesInCompaction(inputs.files));
-  auto c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, {std::move(inputs)},
-      output_level,
-      MaxFileSizeForLevel(mutable_cf_options, output_level,
-                          kCompactionStyleUniversal),
-      LLONG_MAX, path_id, kNoCompression, ioptions_.compression_opts, 0,
-      /* grandparents */ {}, /* is manual */ false, 0,
-      false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, kEssenceSst, {},
-      CompactionReason::kTrivialMoveLevel);
-  return c;
+  CompactionParams params(vstorage, ioptions_, mutable_cf_options);
+  params.inputs = {std::move(inputs)};
+  params.output_level = output_level;
+  params.output_path_id = path_id;
+  params.compression_opts = ioptions_.compression_opts;
+  params.compaction_reason = CompactionReason::kTrivialMoveLevel;
+
+  return new Compaction(std::move(params));
 }
 
 Compaction* UniversalCompactionPicker::PickCompositeCompaction(
@@ -1179,18 +1188,27 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     }
     uint32_t path_id =
         GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
-    return new Compaction(
-        vstorage, ioptions_, mutable_cf_options, {inputs}, inputs.level,
-        MaxFileSizeForLevel(mutable_cf_options, inputs.level,
-                            kCompactionStyleUniversal),
-        LLONG_MAX, path_id,
-        GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                           inputs.level, 1, true),
-        GetCompressionOptions(ioptions_, vstorage, inputs.level, true),
-        max_subcompactions, /* grandparents */ {}, /* is manual */ false, 0,
-        false /* deletion_compaction */, single_output,
-        true /* enable_partial_compaction */, compaction_purpose,
-        input_range, CompactionReason::kCompositeAmplification);
+
+    CompactionParams params(vstorage, ioptions_, mutable_cf_options);
+    params.inputs = {inputs};
+    params.output_level = inputs.level;
+    params.target_file_size = MaxFileSizeForLevel(
+        mutable_cf_options, inputs.level, kCompactionStyleUniversal);
+    params.max_compaction_bytes = LLONG_MAX;
+    params.output_path_id = path_id;
+    params.compression = GetCompressionType(
+        ioptions_, vstorage, mutable_cf_options, inputs.level, 1, true);
+    params.compression_opts =
+        GetCompressionOptions(ioptions_, vstorage, inputs.level, true);
+    params.max_subcompactions = max_subcompactions;
+    params.score = 0;
+    params.single_output = single_output;
+    params.partial_compaction = true;
+    params.compaction_purpose = compaction_purpose;
+    params.input_range = std::move(input_range);
+    params.compaction_reason = CompactionReason::kCompositeAmplification;
+
+    return new Compaction(std::move(params));
   };
 
   if (inputs.files.size() > 1) {
@@ -1663,19 +1681,25 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     compaction_purpose = kMapSst;
     max_subcompactions = 1;
   }
-  return new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options, output_level,
-                          kCompactionStyleUniversal),
-      LLONG_MAX, path_id,
+
+  CompactionParams params(vstorage, ioptions_, mutable_cf_options);
+  params.inputs = std::move(inputs);
+  params.output_level = output_level;
+  params.target_file_size = MaxFileSizeForLevel(
+      mutable_cf_options, output_level, kCompactionStyleUniversal);
+  params.max_compaction_bytes = LLONG_MAX;
+  params.output_path_id = path_id;
+  params.compression =
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, start_level,
-                         1, enable_compression),
-      GetCompressionOptions(ioptions_, vstorage, start_level,
-                            enable_compression),
-      max_subcompactions, /* grandparents */ {}, /* is manual */ false, score,
-      false /* deletion_compaction */, false /* single_output */,
-      false /* enable_partial_compaction */, compaction_purpose,
-      {} /* input_range */, CompactionReason::kUniversalSortedRunNum);
+                         1, enable_compression);
+  params.compression_opts = GetCompressionOptions(
+      ioptions_, vstorage, start_level, enable_compression);
+  params.max_subcompactions = max_subcompactions;
+  params.score = score;
+  params.compaction_purpose = compaction_purpose;
+  params.compaction_reason = CompactionReason::kUniversalSortedRunNum;
+
+  return new Compaction(std::move(params));
 }
 
 }  // namespace rocksdb

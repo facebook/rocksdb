@@ -127,49 +127,35 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-Compaction::Compaction(VersionStorageInfo* vstorage,
-                       const ImmutableCFOptions& _immutable_cf_options,
-                       const MutableCFOptions& _mutable_cf_options,
-                       std::vector<CompactionInputFiles> _inputs,
-                       int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_compaction_bytes,
-                       uint32_t _output_path_id, CompressionType _compression,
-                       CompressionOptions _compression_opts,
-                       uint32_t _max_subcompactions,
-                       std::vector<FileMetaData*> _grandparents,
-                       bool _manual_compaction, double _score,
-                       bool _deletion_compaction, bool _single_output,
-                       bool _enable_partial_compaction,
-                       SstPurpose _compaction_purpose,
-                       const std::vector<RangeStorage>& _input_range,
-                       CompactionReason _compaction_reason)
-    : input_vstorage_(vstorage),
-      start_level_(_inputs[0].level),
-      output_level_(_output_level),
-      max_output_file_size_(_target_file_size),
-      max_compaction_bytes_(_max_compaction_bytes),
-      max_subcompactions_(_max_subcompactions),
-      immutable_cf_options_(_immutable_cf_options),
-      mutable_cf_options_(_mutable_cf_options),
+Compaction::Compaction(CompactionParams&& params)
+    : input_vstorage_(params.input_version),
+      start_level_(params.inputs[0].level),
+      output_level_(params.output_level),
+      max_output_file_size_(params.target_file_size),
+      max_compaction_bytes_(params.max_compaction_bytes),
+      max_subcompactions_(params.max_subcompactions),
+      immutable_cf_options_(params.immutable_cf_options),
+      mutable_cf_options_(params.mutable_cf_options),
       input_version_(nullptr),
-      number_levels_(vstorage->num_levels()),
+      number_levels_(params.input_version->num_levels()),
       cfd_(nullptr),
-      output_path_id_(_output_path_id),
-      output_compression_(_compression),
-      output_compression_opts_(_compression_opts),
-      deletion_compaction_(_deletion_compaction),
-      single_output_(_single_output),
-      enable_partial_compaction_(_enable_partial_compaction),
-      compaction_purpose_(_compaction_purpose),
-      input_range_(_input_range),
-      inputs_(std::move(_inputs)),
-      grandparents_(std::move(_grandparents)),
-      score_(_score),
-      bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
-      is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
-      is_manual_compaction_(_manual_compaction),
+      output_path_id_(params.output_path_id),
+      output_compression_(params.compression),
+      output_compression_opts_(params.compression_opts),
+      deletion_compaction_(params.deletion_compaction),
+      single_output_(params.single_output),
+      partial_compaction_(params.partial_compaction),
+      compaction_purpose_(params.compaction_purpose),
+      input_range_(std::move(params.input_range)),
+      inputs_(std::move(params.inputs)),
+      grandparents_(std::move(params.grandparents)),
+      score_(params.score),
+      bottommost_level_(
+          IsBottommostLevel(output_level_, params.input_version, inputs_)),
+      is_full_compaction_(IsFullCompaction(params.input_version, inputs_)),
+      is_manual_compaction_(params.manual_compaction),
       is_trivial_move_(false),
-      compaction_reason_(_compaction_reason) {
+      compaction_reason_(params.compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -193,7 +179,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     }
   }
 
-  GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
+  GetBoundaryKeys(params.input_version, inputs_, &smallest_user_key_,
+                  &largest_user_key_);
 }
 
 Compaction::~Compaction() {

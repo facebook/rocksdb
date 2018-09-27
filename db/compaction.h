@@ -32,23 +32,40 @@ class LevelFileContainer;
 class Version;
 class VersionStorageInfo;
 
+struct CompactionParams {
+  VersionStorageInfo* input_version;
+  const ImmutableCFOptions& immutable_cf_options;
+  const MutableCFOptions& mutable_cf_options;
+  std::vector<CompactionInputFiles> inputs;
+  int output_level = 0;
+  uint64_t target_file_size = 0;
+  uint64_t max_compaction_bytes = 0;
+  uint32_t output_path_id = 0;
+  CompressionType compression = kNoCompression;
+  CompressionOptions compression_opts;
+  uint32_t max_subcompactions = 0;
+  std::vector<FileMetaData*> grandparents;
+  bool manual_compaction = false;
+  double score = -1;
+  bool deletion_compaction = false;
+  bool single_output = false;
+  bool partial_compaction = false;
+  SstPurpose compaction_purpose = kEssenceSst;
+  std::vector<RangeStorage> input_range = {};
+  CompactionReason compaction_reason = CompactionReason::kUnknown;
+
+  CompactionParams(VersionStorageInfo* _input_version,
+      const ImmutableCFOptions& _immutable_cf_options,
+                   const MutableCFOptions& _mutable_cf_options)
+      : input_version(_input_version),
+        immutable_cf_options(_immutable_cf_options),
+        mutable_cf_options(_mutable_cf_options) {}
+};
+
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:
-  Compaction(VersionStorageInfo* input_version,
-             const ImmutableCFOptions& immutable_cf_options,
-             const MutableCFOptions& mutable_cf_options,
-             std::vector<CompactionInputFiles> inputs, int output_level,
-             uint64_t target_file_size, uint64_t max_compaction_bytes,
-             uint32_t output_path_id, CompressionType compression,
-             CompressionOptions compression_opts, uint32_t max_subcompactions,
-             std::vector<FileMetaData*> grandparents,
-             bool manual_compaction = false, double score = -1,
-             bool deletion_compaction = false, bool single_output = false,
-             bool enable_partial_compaction = false,
-             SstPurpose compaction_purpose = kEssenceSst,
-             const std::vector<RangeStorage>& input_range = {},
-             CompactionReason compaction_reason = CompactionReason::kUnknown);
+  Compaction(CompactionParams&& params);
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -142,7 +159,7 @@ class Compaction {
   bool single_output() const { return single_output_; }
 
   // If true, then enable partial compaction
-  bool enable_partial_compaction() const { return enable_partial_compaction_; }
+  bool partial_compaction() const { return partial_compaction_; }
 
   // Compaction purpose
   SstPurpose compaction_purpose() const { return compaction_purpose_; }
@@ -313,7 +330,7 @@ class Compaction {
   const bool single_output_;
 
   // If true, then enable partial compaction
-  const bool enable_partial_compaction_;
+  const bool partial_compaction_;
 
   // Compaction purpose
   const SstPurpose compaction_purpose_;
