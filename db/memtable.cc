@@ -168,7 +168,7 @@ bool MemTable::ShouldFlushNow() const {
   }
 
   // In this code path, Arena has already allocated its "last block", which
-  // means the total allocatedmemory size is either:
+  // means the total allocated memory size is either:
   //  (1) "moderately" over allocated the memory (no more than `0.6 * arena
   // block size`. Or,
   //  (2) the allocated memory is less than write buffer size, but we'll stop
