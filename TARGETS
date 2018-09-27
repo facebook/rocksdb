@@ -936,6 +936,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "repeatable_thread_test",
+        "util/repeatable_thread_test.cc",
+        "serial",
+    ],
+    [
         "sim_cache_test",
         "utilities/simulator_cache/sim_cache_test.cc",
         "serial",
