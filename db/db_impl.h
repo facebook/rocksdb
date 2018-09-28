@@ -53,9 +53,9 @@
 #include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
+#include "util/repeatable_thread.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
-#include "util/timer_queue.h"
 #include "util/trace_replay.h"
 
 namespace rocksdb {
@@ -1063,13 +1063,13 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
-  // Add background tasks to the timer queue
+  // Schedule background tasks
   void StartTimedTasks();
 
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
-  std::pair<bool, int64_t> MaybeDumpStats(bool aborted);
+  void MaybeDumpStats();
 
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
@@ -1472,6 +1472,8 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
+  std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -1519,9 +1521,6 @@ class DBImpl : public DB {
   Env::WriteLifeTimeHint CalculateWALWriteHint() {
     return Env::WLTH_SHORT;
   }
-
-  // timer based queue to execute tasks
-  TimerQueue timer_queue_;
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.

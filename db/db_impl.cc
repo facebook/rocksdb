@@ -379,6 +379,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
+  if (thread_dump_stats_) {
+    thread_dump_stats_->cancel();
+  }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
   if (!wait) {
@@ -579,14 +582,14 @@ void DBImpl::PrintStatistics() {
 
 void DBImpl::StartTimedTasks() {
   if (mutable_db_options_.stats_dump_period_sec > 0) {
-    timer_queue_.add(
-        static_cast<int64_t>(mutable_db_options_.stats_dump_period_sec) * 1000,
-        std::bind(&DBImpl::MaybeDumpStats, this, std::placeholders::_1));
+    // TODO(Zhongyi): need to pass mutex to RepeatableThread
+    thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+        [this]() { DBImpl::MaybeDumpStats(); }, "dump_st", env_,
+        mutable_db_options_.stats_dump_period_sec * 1000000));
   }
 }
 
-std::pair<bool, int64_t> DBImpl::MaybeDumpStats(bool aborted) {
-  if (aborted) return std::make_pair(false, -1);
+void DBImpl::MaybeDumpStats() {
 
 #ifndef ROCKSDB_LITE
   const DBPropertyInfo* cf_property_info =
@@ -630,7 +633,6 @@ std::pair<bool, int64_t> DBImpl::MaybeDumpStats(bool aborted) {
 
   PrintStatistics();
 
-  return std::make_pair(true, -1);
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
