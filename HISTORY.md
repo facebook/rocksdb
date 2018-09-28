@@ -7,6 +7,7 @@
 
 ### New Features
 * TransactionOptions::skip_concurrency_control allows pessimistic transactions to skip the overhead of concurrency control. Could be used for optimizing certain transactions or during recovery.
+* Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
 
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
