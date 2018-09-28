@@ -1518,6 +1518,31 @@ public class RocksDB extends RocksObject {
         property, property.length());
   }
 
+ /**
+   * <p> Return sum of the getLongProperty of all the column families</p>
+   *
+   * <p><strong>Note</strong>: As the returned property is of type
+   * {@code uint64_t} on C++ side the returning value can be negative
+   * because Java supports in Java 7 only signed long values.</p>
+   *
+   * <p><strong>Java 7</strong>: To mitigate the problem of the non
+   * existent unsigned long tpye, values should be encapsulated using
+   * {@link java.math.BigInteger} to reflect the correct value. The correct
+   * behavior is guaranteed if {@code 2^64} is added to negative values.</p>
+   *
+   * <p><strong>Java 8</strong>: In Java 8 the value should be treated as
+   * unsigned long using provided methods of type {@link Long}.</p>
+   *
+   * @param property to be fetched.
+   *
+   * @return numerical property value
+   *
+   * @throws RocksDBException if an error happens in the underlying native code.
+   */
+  public long getAggregatedLongProperty(final String property) throws RocksDBException {
+    return getAggregatedLongProperty(nativeHandle_, property, property.length());
+  }
+
   /**
    * <p>Return a heap-allocated iterator over the contents of the
    * database. The result of newIterator() is initially invalid
@@ -2383,6 +2408,8 @@ public class RocksDB extends RocksObject {
       int propertyLength) throws RocksDBException;
   protected native long getLongProperty(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
+  protected native long getAggregatedLongProperty(long nativeHandle, String property,
+      int propertyLength) throws RocksDBException;
   protected native long iterator(long handle);
   protected native long iterator(long handle, long readOptHandle);
   protected native long iteratorCF(long handle, long cfHandle);

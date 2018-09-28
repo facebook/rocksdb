@@ -52,6 +52,9 @@ DEFINE_int32(seed, 0, "random number generator seed");
 
 DEFINE_int32(should_deletes_per_run, 1, "number of ShouldDelete calls per run");
 
+DEFINE_int32(add_tombstones_per_run, 1,
+             "number of AddTombstones calls per run");
+
 namespace {
 
 struct Stats {
@@ -65,8 +68,9 @@ std::ostream& operator<<(std::ostream& os, const Stats& s) {
   fmt_holder.copyfmt(os);
 
   os << std::left;
-  os << std::setw(25)
-     << "AddTombstones: " << s.time_add_tombstones / (FLAGS_num_runs * 1.0e3)
+  os << std::setw(25) << "AddTombstones: "
+     << s.time_add_tombstones /
+            (FLAGS_add_tombstones_per_run * FLAGS_num_runs * 1.0e3)
      << " us\n";
   os << std::setw(25) << "ShouldDelete (first): "
      << s.time_first_should_delete / (FLAGS_num_runs * 1.0e3) << " us\n";
@@ -133,17 +137,16 @@ struct TombstoneStartKeyComparator {
   const Comparator* cmp;
 };
 
-void AddTombstones(RangeDelAggregator* range_del_agg,
-                   const std::vector<PersistentRangeTombstone>& range_dels) {
+std::unique_ptr<InternalIterator> MakeRangeDelIterator(
+    const std::vector<PersistentRangeTombstone>& range_dels) {
   std::vector<std::string> keys, values;
   for (const auto& range_del : range_dels) {
     auto key_and_value = range_del.tombstone.Serialize();
     keys.push_back(key_and_value.first.Encode().ToString());
     values.push_back(key_and_value.second.ToString());
   }
-  std::unique_ptr<test::VectorIterator> range_del_iter(
+  return std::unique_ptr<test::VectorIterator>(
       new test::VectorIterator(keys, values));
-  range_del_agg->AddTombstones(std::move(range_del_iter));
 }
 
 // convert long to a big-endian slice key
@@ -171,32 +174,40 @@ int main(int argc, char** argv) {
   std::default_random_engine random_gen(FLAGS_seed);
   std::normal_distribution<double> normal_dist(FLAGS_tombstone_width_mean,
                                                FLAGS_tombstone_width_stddev);
-  std::vector<rocksdb::PersistentRangeTombstone> persistent_range_tombstones(
-      FLAGS_num_range_tombstones);
-  auto mode =
-      FLAGS_use_collapsed
-          ? rocksdb::RangeDelPositioningMode::kForwardTraversal
-          : rocksdb::RangeDelPositioningMode::kFullScan;
+  std::vector<std::vector<rocksdb::PersistentRangeTombstone> >
+      all_persistent_range_tombstones(FLAGS_add_tombstones_per_run);
+  for (int i = 0; i < FLAGS_add_tombstones_per_run; i++) {
+    all_persistent_range_tombstones[i] =
+        std::vector<rocksdb::PersistentRangeTombstone>(
+            FLAGS_num_range_tombstones);
+  }
+  auto mode = FLAGS_use_collapsed
+                  ? rocksdb::RangeDelPositioningMode::kForwardTraversal
+                  : rocksdb::RangeDelPositioningMode::kFullScan;
 
   for (int i = 0; i < FLAGS_num_runs; i++) {
     auto icmp = rocksdb::InternalKeyComparator(rocksdb::BytewiseComparator());
     rocksdb::RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
                                               FLAGS_use_collapsed);
 
-    // TODO(abhimadan): consider whether creating the range tombstones right
-    // before AddTombstones is artificially warming the cache compared to
-    // real workloads.
-    for (int j = 0; j < FLAGS_num_range_tombstones; j++) {
-      uint64_t start = rnd.Uniform(FLAGS_tombstone_start_upper_bound);
-      uint64_t end = start + std::max(1.0, normal_dist(random_gen));
-      persistent_range_tombstones[j] = rocksdb::PersistentRangeTombstone(
-          rocksdb::Key(start), rocksdb::Key(end), j);
-    }
+    for (auto& persistent_range_tombstones : all_persistent_range_tombstones) {
+      // TODO(abhimadan): consider whether creating the range tombstones right
+      // before AddTombstones is artificially warming the cache compared to
+      // real workloads.
+      for (int j = 0; j < FLAGS_num_range_tombstones; j++) {
+        uint64_t start = rnd.Uniform(FLAGS_tombstone_start_upper_bound);
+        uint64_t end = start + std::max(1.0, normal_dist(random_gen));
+        persistent_range_tombstones[j] = rocksdb::PersistentRangeTombstone(
+            rocksdb::Key(start), rocksdb::Key(end), j);
+      }
 
-    rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
-                                                     true /* auto_start */);
-    rocksdb::AddTombstones(&range_del_agg, persistent_range_tombstones);
-    stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
+      auto range_del_iter =
+          rocksdb::MakeRangeDelIterator(persistent_range_tombstones);
+      rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
+                                                       true /* auto_start */);
+      range_del_agg.AddTombstones(std::move(range_del_iter));
+      stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
+    }
 
     rocksdb::ParsedInternalKey parsed_key;
     parsed_key.sequence = FLAGS_num_range_tombstones / 2;

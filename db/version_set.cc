@@ -62,20 +62,12 @@ int FindFileInRange(const InternalKeyComparator& icmp,
     const Slice& key,
     uint32_t left,
     uint32_t right) {
-  while (left < right) {
-    uint32_t mid = (left + right) / 2;
-    const FdWithKeyRange& f = file_level.files[mid];
-    if (icmp.InternalKeyComparator::Compare(f.largest_key, key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
+  auto cmp = [&](const FdWithKeyRange& f, const Slice& k) -> bool {
+    return icmp.InternalKeyComparator::Compare(f.largest_key, k) < 0;
+  };
+  const auto &b = file_level.files;
+  return static_cast<int>(std::lower_bound(b + left,
+                                           b + right, key, cmp) - b);
 }
 
 Status OverlapWithIterator(const Comparator* ucmp,
