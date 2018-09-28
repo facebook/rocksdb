@@ -435,7 +435,7 @@ Status MemTableList::InstallMemtableFlushResults(
 
       uint32_t remaining = num_entries;
       for (auto& edit_list : edit_lists) {
-        assert(static_cast<int>(edit_list.size()) == 1);
+        assert(edit_list.size() == 1);
         edit_list[0]->MarkAtomicGroup(--remaining);
       }
       assert(remaining == 0);
