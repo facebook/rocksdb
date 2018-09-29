@@ -30,21 +30,20 @@ class VersionSet;
 
 class MapBuilder {
  public:
-  // All params are reference
+  // All params are references or pointers
   MapBuilder(int job_id, const ImmutableDBOptions& db_options,
              const EnvOptions& env_options, VersionSet* versions,
-             Statistics* stats, std::shared_ptr<Cache> table_cache,
-             const std::string& dbname);
+             Statistics* stats, const std::string& dbname);
 
   // no copy/move
   MapBuilder(MapBuilder&& job) = delete;
   MapBuilder(const MapBuilder& job) = delete;
   MapBuilder& operator=(const MapBuilder& job) = delete;
 
-  // All params are reference
-  // deleted_range use user_key
+  // All params are references or pointers
+  // deleted_range use internal keys
   // added_files is sorted
-  // file_meta::fd::file_size == 0 If don't need create map files
+  // file_meta::fd::file_size == 0 if don't need create map files
   // file_meta & porp nullptr if ignore
   Status Build(const std::vector<CompactionInputFiles>& inputs,
                const std::vector<Range>& deleted_range,
@@ -74,7 +73,6 @@ class MapBuilder {
   EnvOptions env_options_for_read_;
   VersionSet* versions_;
   Statistics* stats_;
-  std::shared_ptr<Cache> table_cache_;
 };
 
 extern bool IsPrefaceRange(const Range& range, const FileMetaData* f,

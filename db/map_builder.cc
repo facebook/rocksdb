@@ -58,7 +58,7 @@ struct FileMetaDataBoundBuilder {
 bool IsPrefaceRange(const Range& range, const FileMetaData* f,
                     const InternalKeyComparator& icomp) {
   assert(f->sst_purpose != kMapSst);
-  if (!range.include_start ||
+  if (f->sst_purpose != kEssenceSst || !range.include_start ||
       icomp.Compare(f->smallest.Encode(), range.start) != 0) {
     return false;
   }
@@ -492,8 +492,7 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
 
 MapBuilder::MapBuilder(int job_id, const ImmutableDBOptions& db_options,
                        const EnvOptions& env_options, VersionSet* versions,
-                       Statistics* stats, std::shared_ptr<Cache> table_cache,
-                       const std::string& dbname)
+                       Statistics* stats, const std::string& dbname)
     : job_id_(job_id),
       dbname_(dbname),
       db_options_(db_options),
@@ -502,8 +501,7 @@ MapBuilder::MapBuilder(int job_id, const ImmutableDBOptions& db_options,
       env_options_for_read_(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
-      stats_(stats),
-      table_cache_(std::move(table_cache)) {}
+      stats_(stats) {}
 
 Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
                          const std::vector<Range>& deleted_range,

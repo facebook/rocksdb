@@ -63,7 +63,9 @@ class CompactionPicker {
       VersionStorageInfo* vstorage, int input_level, int output_level,
       uint32_t output_path_id, uint32_t max_subcompactions,
       const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end, bool* manual_conflict);
+      InternalKey** compaction_end, bool* manual_conflict,
+      std::unordered_set<uint64_t>* files_being_compact,
+      bool enable_lazy_compaction);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -257,7 +259,9 @@ class FIFOCompactionPicker : public CompactionPicker {
       VersionStorageInfo* vstorage, int input_level, int output_level,
       uint32_t output_path_id, uint32_t max_subcompactions,
       const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end, bool* manual_conflict) override;
+      InternalKey** compaction_end, bool* manual_conflict,
+      std::unordered_set<uint64_t>* files_being_compact,
+      bool enable_lazy_compaction) override;
 
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override { return 0; }
@@ -294,16 +298,16 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always return "nullptr"
-  Compaction* CompactRange(const std::string& /*cf_name*/,
-                           const MutableCFOptions& /*mutable_cf_options*/,
-                           VersionStorageInfo* /*vstorage*/,
-                           int /*input_level*/, int /*output_level*/,
-                           uint32_t /*output_path_id*/,
-                           uint32_t /*max_subcompactions*/,
-                           const InternalKey* /*begin*/,
-                           const InternalKey* /*end*/,
-                           InternalKey** /*compaction_end*/,
-                           bool* /*manual_conflict*/) override {
+  Compaction* CompactRange(
+      const std::string& /*cf_name*/,
+      const MutableCFOptions& /*mutable_cf_options*/,
+      VersionStorageInfo* /*vstorage*/, int /*input_level*/,
+      int /*output_level*/, uint32_t /*output_path_id*/,
+      uint32_t /*max_subcompactions*/, const InternalKey* /*begin*/,
+      const InternalKey* /*end*/, InternalKey** /*compaction_end*/,
+      bool* /*manual_conflict*/,
+      std::unordered_set<uint64_t>* /*files_being_compact*/,
+      bool /*enable_lazy_compaction*/) override {
     return nullptr;
   }
 

@@ -25,6 +25,15 @@ class UniversalCompactionPicker : public CompactionPicker {
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer) override;
 
+  virtual Compaction* CompactRange(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      VersionStorageInfo* vstorage, int input_level, int output_level,
+      uint32_t output_path_id, uint32_t max_subcompactions,
+      const InternalKey* begin, const InternalKey* end,
+      InternalKey** compaction_end, bool* manual_conflict,
+      std::unordered_set<uint64_t>* files_being_compact,
+      bool enable_lazy_compaction) override;
+
   virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
 
   virtual bool NeedsCompaction(
@@ -88,6 +97,15 @@ class UniversalCompactionPicker : public CompactionPicker {
   Compaction* PickCompositeCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, LogBuffer* log_buffer);
+
+  // Pick compaction which pointed range files
+  // range use internal keys
+  Compaction* PickRangeCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      VersionStorageInfo* vstorage, int level, const InternalKey* begin,
+      const InternalKey* end, bool include_begin, bool include_end,
+      const std::unordered_set<uint64_t>& files_being_compact,
+      bool* manual_conflict, LogBuffer* log_buffer);
 
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionToReduceSortedRuns(

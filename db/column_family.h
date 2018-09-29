@@ -9,10 +9,11 @@
 
 #pragma once
 
-#include <unordered_map>
-#include <string>
-#include <vector>
 #include <atomic>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "db/memtable_list.h"
 #include "db/table_cache.h"
@@ -298,7 +299,9 @@ class ColumnFamilyData {
                            int input_level, int output_level,
                            uint32_t output_path_id, uint32_t max_subcompactions,
                            const InternalKey* begin, const InternalKey* end,
-                           InternalKey** compaction_end, bool* manual_conflict);
+                           InternalKey** compaction_end, bool* manual_conflict,
+                           std::unordered_set<uint64_t>* files_being_compact,
+                           bool enable_lazy_compaction);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
   // thread-safe

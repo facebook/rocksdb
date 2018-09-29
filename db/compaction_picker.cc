@@ -537,84 +537,11 @@ Compaction* CompactionPicker::CompactRange(
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t output_path_id, uint32_t max_subcompactions,
     const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end, bool* manual_conflict) {
+    InternalKey** compaction_end, bool* manual_conflict,
+    std::unordered_set<uint64_t>* files_being_compact,
+    bool enable_lazy_compaction) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
-
-  if (input_level == ColumnFamilyData::kCompactAllLevels) {
-    assert(ioptions_.compaction_style == kCompactionStyleUniversal);
-
-    // Universal compaction with more than one level always compacts all the
-    // files together to the last level.
-    assert(vstorage->num_levels() > 1);
-    // DBImpl::CompactRange() set output level to be the last level
-    if (ioptions_.allow_ingest_behind) {
-      assert(output_level == vstorage->num_levels() - 2);
-    } else {
-      assert(output_level == vstorage->num_levels() - 1);
-    }
-    // DBImpl::RunManualCompaction will make full range for universal compaction
-    assert(begin == nullptr);
-    assert(end == nullptr);
-    *compaction_end = nullptr;
-
-    int start_level = 0;
-    for (; start_level < vstorage->num_levels() &&
-           vstorage->NumLevelFiles(start_level) == 0;
-         start_level++) {
-    }
-    if (start_level == vstorage->num_levels()) {
-      return nullptr;
-    }
-
-    if ((start_level == 0) && (!level0_compactions_in_progress_.empty())) {
-      *manual_conflict = true;
-      // Only one level 0 compaction allowed
-      return nullptr;
-    }
-
-    std::vector<CompactionInputFiles> inputs(vstorage->num_levels() -
-                                             start_level);
-    for (int level = start_level; level < vstorage->num_levels(); level++) {
-      inputs[level - start_level].level = level;
-      auto& files = inputs[level - start_level].files;
-      for (FileMetaData* f : vstorage->LevelFiles(level)) {
-        files.push_back(f);
-      }
-      if (AreFilesInCompaction(files)) {
-        *manual_conflict = true;
-        return nullptr;
-      }
-    }
-
-    // 2 non-exclusive manual compactions could run at the same time producing
-    // overlaping outputs in the same level.
-    if (FilesRangeOverlapWithCompaction(inputs, output_level)) {
-      // This compaction output could potentially conflict with the output
-      // of a currently running compaction, we cannot run it.
-      *manual_conflict = true;
-      return nullptr;
-    }
-
-    CompactionParams params(vstorage, ioptions_, mutable_cf_options);
-    params.inputs = std::move(inputs);
-    params.output_level = output_level;
-    params.target_file_size = MaxFileSizeForLevel(
-        mutable_cf_options, output_level, ioptions_.compaction_style);
-    params.max_compaction_bytes = LLONG_MAX;
-    params.output_path_id = output_path_id;
-    params.compression = GetCompressionType(
-        ioptions_, vstorage, mutable_cf_options, output_level, 1);
-    params.compression_opts =
-        GetCompressionOptions(ioptions_, vstorage, output_level);
-    params.max_subcompactions = max_subcompactions;
-    params.manual_compaction = true;
-
-    Compaction* c = new Compaction(std::move(params));
-    RegisterCompaction(c);
-    return c;
-  }
-
   CompactionInputFiles inputs;
   inputs.level = input_level;
   bool covering_the_whole_range = true;
@@ -1755,7 +1682,9 @@ Compaction* FIFOCompactionPicker::CompactRange(
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t /*output_path_id*/, uint32_t /*max_subcompactions*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
-    InternalKey** compaction_end, bool* /*manual_conflict*/) {
+    InternalKey** compaction_end, bool* /*manual_conflict*/,
+    std::unordered_set<uint64_t>* /*files_being_compact*/,
+    bool /*enable_lazy_compaction*/) {
 #ifdef NDEBUG
   (void)input_level;
   (void)output_level;

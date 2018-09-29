@@ -1603,7 +1603,7 @@ Status CompactionJob::InstallCompactionResults(
       compaction->mutable_cf_options()->enable_lazy_compaction ||
       compaction->compaction_purpose() == kMapSst) {
     MapBuilder map_builder(job_id_, db_options_, env_options_, versions_,
-                           stats_, table_cache_, dbname_);
+                           stats_, dbname_);
     auto cfd = compaction->column_family_data();
     auto vstorage = compaction->input_version()->storage_info();
     std::unique_ptr<TableProperties> prop;

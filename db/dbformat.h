@@ -688,8 +688,8 @@ struct MapSstElement {
       return false;
     }
     include_smallest_ = (flags >> kIncludeSmallest) & 1;
-    include_largest_ = (flags >> kIncludeLargest) & 1;
-    no_records_ = (flags >> kNoRecords) & 1;
+    include_largest_  = (flags >> kIncludeLargest ) & 1;
+    no_records_       = (flags >> kNoRecords      ) & 1;
     link_.resize(link_count);
 
     for (uint64_t i = 0; i < link_count; ++i) {

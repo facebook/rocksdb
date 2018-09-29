@@ -16,6 +16,7 @@
 #include "db/builder.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/map_builder.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -374,8 +375,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   }
 
   int final_output_level = 0;
+  bool enable_lazy_compaction =
+      cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
-      cfd->NumberLevels() > 1) {
+      cfd->NumberLevels() > 1 && !enable_lazy_compaction) {
     // Always compact all files together.
     final_output_level = cfd->NumberLevels() - 1;
     // if bottom most level is reserved
@@ -418,7 +421,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         }
       }
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
-                              options.max_subcompactions, begin, end, exclusive);
+                              options.max_subcompactions, begin, end, exclusive,
+                              false, enable_lazy_compaction);
       if (!s.ok()) {
         break;
       }
@@ -985,7 +989,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    uint32_t max_subcompactions,
                                    const Slice* begin, const Slice* end,
-                                   bool exclusive, bool disallow_trivial_move) {
+                                   bool exclusive, bool disallow_trivial_move,
+                                   bool enable_lazy_compaction) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1007,7 +1012,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
-      cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
+      (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
+       !enable_lazy_compaction) ||
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.begin = nullptr;
   } else {
@@ -1015,7 +1021,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     manual.begin = &begin_storage;
   }
   if (end == nullptr ||
-      cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
+      (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
+       !enable_lazy_compaction) ||
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.end = nullptr;
   } else {
@@ -1072,8 +1079,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
          ((compaction = manual.cfd->CompactRange(
                *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
                manual.output_level, manual.output_path_id, max_subcompactions,
-               manual.begin, manual.end, &manual.manual_end,
-               &manual_conflict)) == nullptr &&
+               manual.begin, manual.end, &manual.manual_end, &manual_conflict,
+               &manual.files_being_compact, enable_lazy_compaction)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
@@ -1938,19 +1945,73 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else if (c->deletion_compaction()) {
     // TODO(icanadi) Do we want to honor snapshots here? i.e. not delete old
     // file if there is alive snapshot pointing to it
-    assert(c->num_input_files(1) == 0);
-    assert(c->level() == 0);
-    assert(c->column_family_data()->ioptions()->compaction_style ==
-           kCompactionStyleFIFO);
-
     compaction_job_stats.num_input_files = c->num_input_files(0);
 
-    for (const auto& f : *c->inputs(0)) {
-      c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+    if (c->input_range().empty()) {
+      assert(c->num_input_files(1) == 0);
+      assert(c->level() == 0);
+      assert(c->column_family_data()->ioptions()->compaction_style ==
+             kCompactionStyleFIFO);
+
+      for (const auto& f : *c->inputs(0)) {
+        c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+      }
+    } else {
+      assert(c->mutable_cf_options()->enable_lazy_compaction);
+
+      MapBuilder map_builder(job_context->job_id, immutable_db_options_,
+                             env_options_, versions_.get(), stats_, dbname_);
+      auto cfd = c->column_family_data();
+      auto vstorage = c->input_version()->storage_info();
+      std::vector<InternalKey> deleted_range_storage;
+      std::vector<Range> deleted_range;
+      deleted_range_storage.resize(c->input_range().size() * 2);
+      size_t storage_pos = 0;
+      for (auto& range : c->input_range()) {
+        InternalKey* start = &deleted_range_storage[storage_pos++];
+        InternalKey* limit = &deleted_range_storage[storage_pos++];
+        if (range.include_start) {
+          start->SetMinPossibleForUserKey(range.start);
+        } else {
+          start->SetMaxPossibleForUserKey(range.start);
+        }
+        if (range.include_limit) {
+          limit->SetMaxPossibleForUserKey(range.limit);
+        } else {
+          limit->SetMinPossibleForUserKey(range.limit);
+        }
+        deleted_range.emplace_back(start->Encode(), limit->Encode(),
+                                   range.include_start, range.include_limit);
+      }
+      for (auto& level_files : *c->inputs()) {
+        if (level_files.files.empty()) {
+          continue;
+        }
+        if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal) {
+          status = map_builder.Build(
+              {level_files}, deleted_range, {}, kMapSst, level_files.level,
+              level_files.files[0]->fd.GetPathId(), vstorage, cfd, c->edit());
+          if (!status.ok()) {
+            break;
+          }
+        } else {
+          for (auto f : level_files.files) {
+            status = map_builder.Build(
+                {CompactionInputFiles{level_files.level, {f}}}, deleted_range,
+                {}, kMapSst, level_files.level, f->fd.GetPathId(), vstorage,
+                cfd, c->edit());
+            if (!status.ok()) {
+              break;
+            }
+          }
+        }
+      }
     }
-    status = versions_->LogAndApply(c->column_family_data(),
-                                    *c->mutable_cf_options(), c->edit(),
-                                    &mutex_, directories_.GetDbDir());
+    if (status.ok()) {
+      status = versions_->LogAndApply(c->column_family_data(),
+                                      *c->mutable_cf_options(), c->edit(),
+                                      &mutex_, directories_.GetDbDir());
+    }
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_contexts[0],
         *c->mutable_cf_options(), FlushReason::kAutoCompaction);

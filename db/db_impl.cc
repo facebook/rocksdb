@@ -2449,8 +2449,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
       }
       deleted_range.resize(c + 1);
       MapBuilder map_builder(job_context.job_id, immutable_db_options_,
-                             env_options_, versions_.get(), stats_,
-                             table_cache_, dbname_);
+                             env_options_, versions_.get(), stats_, dbname_);
       auto level_being_compacted = [vstorage](int level) {
         for (auto f : vstorage->LevelFiles(level)) {
           if (f->being_compacted) {
@@ -2465,22 +2464,20 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
         }
         if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
             !level_being_compacted(i)) {
-          auto s = map_builder.Build(
+          status = map_builder.Build(
               {CompactionInputFiles{i, vstorage->LevelFiles(i)}}, deleted_range,
               {}, kMapSst, i, vstorage->LevelFiles(i)[0]->fd.GetPathId(),
               vstorage, cfd, &edit);
-          if (!s.ok()) {
-            return s;
+          if (!status.ok()) {
+            return status;
           }
         } else {
           for (auto f : vstorage->LevelFiles(i)) {
-            std::unique_ptr<TableProperties> prop;
-            FileMetaData file_meta;
-            auto s = map_builder.Build({CompactionInputFiles{i, {f}}},
+            status = map_builder.Build({CompactionInputFiles{i, {f}}},
                                        deleted_range, {}, kMapSst, i,
                                        f->fd.GetPathId(), vstorage, cfd, &edit);
-            if (!s.ok()) {
-              return s;
+            if (!status.ok()) {
+              return status;
             }
           }
         }
