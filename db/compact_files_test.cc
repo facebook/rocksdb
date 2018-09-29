@@ -311,9 +311,10 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
 TEST_F(CompactFilesTest, SentinelCompressionType) {
   // Check that passing `CompressionType::kDisableCompressionOption` to
   // `CompactFiles` causes it to use the column family compression options.
-  for (rocksdb::CompactionStyle compaction_style :
-       {rocksdb::CompactionStyle::kCompactionStyleLevel,
-        rocksdb::CompactionStyle::kCompactionStyleUniversal}) {
+  for (auto compaction_style :
+       {CompactionStyle::kCompactionStyleLevel,
+        CompactionStyle::kCompactionStyleUniversal,
+        CompactionStyle::kCompactionStyleNone}) {
     DestroyDB(db_name_, Options());
     Options options;
     options.compaction_style = compaction_style;

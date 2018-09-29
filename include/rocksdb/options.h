@@ -1201,7 +1201,8 @@ struct CompactionOptions {
   // Compaction output compression type
   // Default: snappy
   // If set to `kDisableCompressionOption`, RocksDB will choose compression type
-  // according to the `ColumnFamilyOptions`.
+  // according to the `ColumnFamilyOptions`, taking into account the output
+  // level if `compression_per_level` is specified.
   CompressionType compression;
   // Compaction will create files of size `output_file_size_limit`.
   // Default: MAX, which means that compaction will create a single file
