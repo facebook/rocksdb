@@ -320,7 +320,7 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     options.compaction_style = compaction_style;
     // L0: Snappy, L1: ZSTD, L2: Snappy
     options.compression_per_level = {CompressionType::kSnappyCompression,
-                                     CompressionType::kZSTD,
+                                     CompressionType::kZlibCompression,
                                      CompressionType::kSnappyCompression};
     options.create_if_missing = true;
     FlushedFileCollector* collector = new FlushedFileCollector();
@@ -342,7 +342,7 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     rocksdb::TablePropertiesCollection all_tables_props;
     ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
     for (const auto& name_and_table_props : all_tables_props) {
-      ASSERT_EQ(CompressionTypeToString(CompressionType::kZSTD),
+      ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
                 name_and_table_props.second->compression_name);
     }
     delete db;
