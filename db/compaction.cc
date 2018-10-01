@@ -81,6 +81,55 @@ void Compaction::GetBoundaryKeys(
   }
 }
 
+std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
+    VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs) {
+  const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
+  for (size_t i = 0; i < inputs.size(); i++) {
+    if (inputs[i].level == 0 || inputs[i].files.empty()) {
+      continue;
+    }
+    inputs[i].atomic_compaction_unit_boundaries.reserve(inputs[i].files.size());
+    AtomicCompactionUnitBoundary cur_boundary;
+    uint64_t cur_end_key_footer = 0;
+    size_t first_atomic_idx = 0;
+    auto add_unit_boundary = [&](size_t to) {
+      if (first_atomic_idx == to) return;
+      for (size_t k = first_atomic_idx; k < to; k++) {
+        inputs[i].atomic_compaction_unit_boundaries.push_back(cur_boundary);
+      }
+      first_atomic_idx = to;
+    };
+    for (size_t j = 0; j < inputs[i].files.size(); j++) {
+      const auto* f = inputs[i].files[j];
+      const Slice& start_user_key = f->smallest.user_key();
+      const Slice& end_user_key = f->largest.user_key();
+      if (first_atomic_idx == j) {
+        // First file in an atomic compaction unit.
+        cur_boundary.smallest = start_user_key;
+        cur_boundary.largest = end_user_key;
+      } else if (ucmp->Compare(cur_boundary.largest, start_user_key) == 0 &&
+                 cur_end_key_footer !=
+                     PackSequenceAndType(kMaxSequenceNumber,
+                                         kTypeRangeDeletion)) {
+        // SSTs overlap but the end key of the previous file was not
+        // artificially extended by a range tombstone. Extend the current
+        // boundary.
+        cur_boundary.largest = end_user_key;
+      } else {
+        // Atomic compaction unit has ended.
+        add_unit_boundary(j);
+        cur_boundary.smallest = start_user_key;
+        cur_boundary.largest = end_user_key;
+      }
+      cur_end_key_footer = ExtractInternalKeyFooter(f->largest.Encode());
+    }
+    add_unit_boundary(inputs[i].files.size());
+    assert(inputs[i].files.size() ==
+           inputs[i].atomic_compaction_unit_boundaries.size());
+  }
+  return std::move(inputs);
+}
+
 // helper function to determine if compaction is creating files at the
 // bottommost level
 bool Compaction::IsBottommostLevel(
@@ -155,7 +204,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
       deletion_compaction_(_deletion_compaction),
-      inputs_(std::move(_inputs)),
+      inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
       score_(_score),
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),

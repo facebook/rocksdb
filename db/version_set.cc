@@ -458,6 +458,7 @@ bool SomeFileOverlapsRange(
 }
 
 namespace {
+
 class LevelIterator final : public InternalIterator {
  public:
   LevelIterator(TableCache* table_cache, const ReadOptions& read_options,
@@ -466,7 +467,9 @@ class LevelIterator final : public InternalIterator {
                 const LevelFilesBrief* flevel,
                 const SliceTransform* prefix_extractor, bool should_sample,
                 HistogramImpl* file_read_hist, bool for_compaction,
-                bool skip_filters, int level, RangeDelAggregator* range_del_agg)
+                bool skip_filters, int level, RangeDelAggregator* range_del_agg,
+                const std::vector<AtomicCompactionUnitBoundary>*
+                    compaction_boundaries = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
@@ -480,7 +483,8 @@ class LevelIterator final : public InternalIterator {
         file_index_(flevel_->num_files),
         level_(level),
         range_del_agg_(range_del_agg),
-        pinned_iters_mgr_(nullptr) {
+        pinned_iters_mgr_(nullptr),
+        compaction_boundaries_(compaction_boundaries) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
   }
@@ -547,12 +551,18 @@ class LevelIterator final : public InternalIterator {
       sample_file_read_inc(file_meta.file_metadata);
     }
 
+    const Slice* smallest_compaction_key = nullptr;
+    const Slice* largest_compaction_key = nullptr;
+    if (compaction_boundaries_ != nullptr) {
+      smallest_compaction_key = &(*compaction_boundaries_)[file_index_].smallest;
+      largest_compaction_key = &(*compaction_boundaries_)[file_index_].largest;
+    }
     return table_cache_->NewIterator(
         read_options_, env_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */,
         file_read_hist_, for_compaction_, nullptr /* arena */, skip_filters_,
-        level_);
+        level_, smallest_compaction_key, largest_compaction_key);
   }
 
   TableCache* table_cache_;
@@ -572,6 +582,10 @@ class LevelIterator final : public InternalIterator {
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
+
+  // To be propagated to RangeDelAggregator in order to safely truncate range
+  // tombstones.
+  const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries_;
 };
 
 void LevelIterator::Seek(const Slice& target) {
@@ -4236,7 +4250,8 @@ InternalIterator* VersionSet::MakeInputIterator(
             false /* should_sample */,
             nullptr /* no per level latency histogram */,
             true /* for_compaction */, false /* skip_filters */,
-            static_cast<int>(which) /* level */, range_del_agg);
+            static_cast<int>(which) /* level */, range_del_agg,
+            c->boundaries(which));
       }
     }
   }

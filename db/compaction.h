@@ -15,11 +15,23 @@
 
 namespace rocksdb {
 
+// An AtomicCompactionUnitBoundary represents a range of keys [smallest,
+// largest] that exactly spans one ore more neighbouring SSTs on the same
+// level. Every pair of  SSTs in this range "overlap" (i.e., the largest
+// user key of one file is the smallest user key of the next file). These
+// boundaries are propagated down to RangeDelAggregator during compaction
+// to provide safe truncation boundaries for range tombstones.
+struct AtomicCompactionUnitBoundary {
+  Slice smallest;
+  Slice largest;
+};
+
 // The structure that manages compaction input files associated
 // with the same physical level.
 struct CompactionInputFiles {
   int level;
   std::vector<FileMetaData*> files;
+  std::vector<AtomicCompactionUnitBoundary> atomic_compaction_unit_boundaries;
   inline bool empty() const { return files.empty(); }
   inline size_t size() const { return files.size(); }
   inline void clear() { files.clear(); }
@@ -94,6 +106,12 @@ class Compaction {
   FileMetaData* input(size_t compaction_input_level, size_t i) const {
     assert(compaction_input_level < inputs_.size());
     return inputs_[compaction_input_level][i];
+  }
+
+  const std::vector<AtomicCompactionUnitBoundary>* boundaries(
+      size_t compaction_input_level) const {
+    assert(compaction_input_level < inputs_.size());
+    return &inputs_[compaction_input_level].atomic_compaction_unit_boundaries;
   }
 
   // Returns the list of file meta data of the specified compaction
@@ -261,6 +279,13 @@ class Compaction {
   static void GetBoundaryKeys(VersionStorageInfo* vstorage,
                               const std::vector<CompactionInputFiles>& inputs,
                               Slice* smallest_key, Slice* largest_key);
+
+  // Get the atomic file boundaries for all files in the compaction. Necessary
+  // in order to avoid the scenario described in
+  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and plumb
+  // down appropriate key boundaries to RangeDelAggregator during compaction.
+  static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(
+      VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs);
 
   // helper function to determine if compaction with inputs and storage is
   // bottommost

@@ -183,7 +183,9 @@ InternalIterator* TableCache::NewIterator(
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
     RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters, int level) {
+    bool for_compaction, Arena* arena, bool skip_filters, int level,
+    const Slice* smallest_compaction_key,
+    const Slice* largest_compaction_key) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -266,10 +268,17 @@ InternalIterator* TableCache::NewIterator(
         s = range_del_iter->status();
       }
       if (s.ok()) {
-        s = range_del_agg->AddTombstones(
-            std::move(range_del_iter),
-            &file_meta.smallest,
-            &file_meta.largest);
+        const InternalKey* smallest = &file_meta.smallest;
+        const InternalKey* largest = &file_meta.largest;
+        InternalKey smallest_compaction_ikey, largest_compaction_ikey;
+        if (smallest_compaction_key != nullptr) {
+          smallest_compaction_ikey.Set(*smallest_compaction_key, kMaxSequenceNumber, kTypeRangeDeletion);
+        }
+        if (largest_compaction_key != nullptr) {
+          largest_compaction_ikey.Set(*largest_compaction_key, kMaxSequenceNumber, kTypeRangeDeletion);
+        }
+        s = range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
+                                         largest);
       }
     }
   }
