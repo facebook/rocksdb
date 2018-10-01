@@ -54,6 +54,13 @@ struct TruncatedRangeTombstone {
       : start_key_(sk), end_key_(ek), seq_(s) {}
 
   RangeTombstone Tombstone() const {
+    // The RangeTombstone returned here can cover less than the
+    // TruncatedRangeTombstone when its end key has a seqnum that is not
+    // kMaxSequenceNumber. Since this method is only used by RangeDelIterators
+    // (which in turn are only used during flush/compaction), we avoid this
+    // problem by using truncation boundaries spanning multiple SSTs, which
+    // are selected in a way that guarantee a clean break at the end key.
+    assert(end_key_.sequence == kMaxSequenceNumber);
     return RangeTombstone(start_key_.user_key, end_key_.user_key, seq_);
   }
 

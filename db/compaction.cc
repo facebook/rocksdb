@@ -127,7 +127,7 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     assert(inputs[i].files.size() ==
            inputs[i].atomic_compaction_unit_boundaries.size());
   }
-  return std::move(inputs);
+  return inputs;
 }
 
 // helper function to determine if compaction is creating files at the
