@@ -315,6 +315,9 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
 
      private:
       SpecialEnv* env_;
@@ -367,6 +370,9 @@ class SpecialEnv : public EnvWrapper {
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
+      }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
       }
 
      private:

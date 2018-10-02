@@ -304,13 +304,17 @@ void BlobDBImpl::CloseRandomAccessLocked(
   open_file_count_--;
 }
 
-std::shared_ptr<RandomAccessFileReader> BlobDBImpl::GetOrOpenRandomAccessReader(
-    const std::shared_ptr<BlobFile>& bfile, Env* env,
-    const EnvOptions& env_options) {
+Status BlobDBImpl::GetBlobFileReader(
+    const std::shared_ptr<BlobFile>& blob_file,
+    std::shared_ptr<RandomAccessFileReader>* reader) {
+  assert(reader != nullptr);
   bool fresh_open = false;
-  auto rar = bfile->GetOrOpenRandomAccessReader(env, env_options, &fresh_open);
-  if (fresh_open) open_file_count_++;
-  return rar;
+  Status s = blob_file->GetReader(env_, env_options_, reader, &fresh_open);
+  if (s.ok() && fresh_open) {
+    assert(*reader != nullptr);
+    open_file_count_++;
+  }
+  return s;
 }
 
 std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(const std::string& reason) {
@@ -998,8 +1002,11 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
 
   // takes locks when called
-  std::shared_ptr<RandomAccessFileReader> reader =
-      GetOrOpenRandomAccessReader(bfile, env_, env_options_);
+  std::shared_ptr<RandomAccessFileReader> reader;
+  s = GetBlobFileReader(bfile, &reader);
+  if (!s.ok()) {
+    return s;
+  }
 
   assert(blob_index.offset() > key.size() + sizeof(uint32_t));
   uint64_t record_offset = blob_index.offset() - key.size() - sizeof(uint32_t);

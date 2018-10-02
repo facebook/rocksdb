@@ -232,6 +232,11 @@ DEFINE_int32(
     static_cast<int32_t>(rocksdb::BlockBasedTableOptions().format_version),
     "Format version of SST files.");
 
+DEFINE_int32(index_block_restart_interval,
+             rocksdb::BlockBasedTableOptions().index_block_restart_interval,
+             "Number of keys between restart points "
+             "for delta encoding of keys in index block.");
+
 DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
              "The maximum number of concurrent background compactions "
@@ -2296,6 +2301,8 @@ class StressTest {
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.format_version =
           static_cast<uint32_t>(FLAGS_format_version);
+      block_based_options.index_block_restart_interval =
+          static_cast<int32_t>(FLAGS_index_block_restart_interval);
       block_based_options.filter_policy = filter_policy_;
       options_.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));

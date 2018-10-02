@@ -12,6 +12,7 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 6. LogDevice -- a distributed data store for logs [2]
 
 [1] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
 ## LinkedIn
