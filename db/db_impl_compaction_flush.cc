@@ -749,7 +749,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd,
                                      const CompactionJobStats& job_stats,
                                      int job_id) {
 #ifndef ROCKSDB_LITE
-  if (immutable_db_options_.listeners.size() == 0U) {
+  if (immutable_db_options_.listeners.empty()) {
     return;
   }
   mutex_.AssertHeld();

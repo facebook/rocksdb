@@ -1228,7 +1228,14 @@ TEST_F(DBTest2, CompressionOptions) {
 
 class CompactionStallTestListener : public EventListener {
  public:
-  CompactionStallTestListener() : compacted_files_cnt_(0) {}
+  CompactionStallTestListener() : compacting_files_cnt_(0), compacted_files_cnt_(0) {}
+
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);
+    compacting_files_cnt_ += ci.input_files.size();
+  }
 
   void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.cf_name, "default");
@@ -1236,6 +1243,8 @@ class CompactionStallTestListener : public EventListener {
     ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);
     compacted_files_cnt_ += ci.input_files.size();
   }
+
+  std::atomic<size_t> compacting_files_cnt_;
   std::atomic<size_t> compacted_files_cnt_;
 };
 
@@ -1244,6 +1253,8 @@ TEST_F(DBTest2, CompactionStall) {
       {{"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:0"},
        {"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:1"},
        {"DBTest2::CompactionStall:2",
+        "DBImpl::NotifyOnCompactionBegin::UnlockMutex"},
+       {"DBTest2::CompactionStall:3",
         "DBImpl::NotifyOnCompactionCompleted::UnlockMutex"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1285,14 +1296,18 @@ TEST_F(DBTest2, CompactionStall) {
   // Wait for another compaction to be triggered
   TEST_SYNC_POINT("DBTest2::CompactionStall:1");
 
-  // Hold NotifyOnCompactionCompleted in the unlock mutex section
+  // Hold NotifyOnCompactionBegin in the unlock mutex section
   TEST_SYNC_POINT("DBTest2::CompactionStall:2");
+
+  // Hold NotifyOnCompactionCompleted in the unlock mutex section
+  TEST_SYNC_POINT("DBTest2::CompactionStall:3");
 
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0),
             options.level0_file_num_compaction_trigger);
   ASSERT_GT(listener->compacted_files_cnt_.load(),
             10 - options.level0_file_num_compaction_trigger);
+  ASSERT_EQ(listener->compacting_files_cnt_.load(), listener->compacted_files_cnt_.load());
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
