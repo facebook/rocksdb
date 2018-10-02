@@ -2251,7 +2251,7 @@ class ByteJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getByteValueMethod(JNIEnv* env) {
     jclass clazz = getJClass(env);
@@ -2264,6 +2264,39 @@ class ByteJni : public JavaClass {
     assert(mid != nullptr);
     return mid;
   }
+
+  /**
+   * Calls the Java Method: Byte#valueOf, returning a constructed Byte jobject
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return A constructing Byte object or nullptr if the class or method id could not
+   *     be retrieved, or an exception occurred
+   */
+  static jobject valueOf(JNIEnv* env, jbyte jprimitive_byte) {
+    jclass clazz = getJClass(env);
+    if (clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid =
+        env->GetStaticMethodID(clazz, "valueOf", "(B)Ljava/lang/Byte;");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    const jobject jbyte_obj =
+        env->CallStaticObjectMethod(clazz, mid, jprimitive_byte);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+
+    return jbyte_obj;
+  }
+
 };
 
 // The portal class for java.lang.StringBuilder

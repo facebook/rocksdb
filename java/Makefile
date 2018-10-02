@@ -30,6 +30,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
+	org.rocksdb.MemoryUsageType\
+	org.rocksdb.MemoryUtil\
 	org.rocksdb.MergeOperator\
 	org.rocksdb.NativeComparatorWrapper\
 	org.rocksdb.OptimisticTransactionDB\
