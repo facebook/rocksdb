@@ -145,6 +145,22 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void iterateLowerBound() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      Slice lowerBound = buildRandomSlice();
+      opt.setIterateLowerBound(lowerBound);
+      assertThat(Arrays.equals(lowerBound.data(), opt.iterateLowerBound().data())).isTrue();
+    }
+  }
+
+  @Test
+  public void iterateLowerBoundNull() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.iterateLowerBound()).isNull();
+    }
+  }
+
+  @Test
   public void copyConstructor() {
     try (final ReadOptions opt = new ReadOptions()) {
       opt.setVerifyChecksums(false);
