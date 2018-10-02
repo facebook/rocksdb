@@ -309,6 +309,14 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
 }
 
 TEST_F(CompactFilesTest, SentinelCompressionType) {
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "zlib compression not supported, skip this test\n");
+    return;
+  }
+  if (!Snappy_Supported()) {
+    fprintf(stderr, "snappy compression not supported, skip this test\n");
+    return;
+  }
   // Check that passing `CompressionType::kDisableCompressionOption` to
   // `CompactFiles` causes it to use the column family compression options.
   for (auto compaction_style :
