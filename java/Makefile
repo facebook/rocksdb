@@ -113,6 +113,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.KeyMayExistTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
+	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\

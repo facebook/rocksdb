@@ -26,6 +26,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
@@ -3824,6 +3825,47 @@ class RateLimiterModeJni {
       default:
         // undefined/default
         return rocksdb::RateLimiter::Mode::kWritesOnly;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.MemoryUsageType
+class MemoryUsageTypeJni {
+public:
+  // Returns the equivalent org.rocksdb.MemoryUsageType for the provided
+  // C++ rocksdb::MemoryUtil::UsageType enum
+  static jbyte toJavaMemoryUsageType(
+      const rocksdb::MemoryUtil::UsageType& usage_type) {
+    switch(usage_type) {
+      case rocksdb::MemoryUtil::UsageType::kMemTableTotal:
+        return 0x0;
+      case rocksdb::MemoryUtil::UsageType::kMemTableUnFlushed:
+        return 0x1;
+      case rocksdb::MemoryUtil::UsageType::kTableReadersTotal:
+        return 0x2;
+      case rocksdb::MemoryUtil::UsageType::kCacheTotal:
+        return 0x3;
+      default:
+        return 0xFF;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::MemoryUtil::UsageType enum for the
+  // provided Java org.rocksdb.MemoryUsageType
+  static rocksdb::MemoryUtil::UsageType toCppMemoryUsageType(
+      jbyte usage_type) {
+    switch(usage_type) {
+      case 0x0:
+        return rocksdb::MemoryUtil::UsageType::kMemTableTotal;
+      case 0x1:
+        return rocksdb::MemoryUtil::UsageType::kMemTableUnFlushed;
+      case 0x2:
+        return rocksdb::MemoryUtil::UsageType::kTableReadersTotal;
+      case 0x3:
+        return rocksdb::MemoryUtil::UsageType::kCacheTotal;
+      default:
+        // undefined/default
+        return rocksdb::MemoryUtil::UsageType::kNumUsageTypes;
     }
   }
 };

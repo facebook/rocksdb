@@ -63,7 +63,7 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
       [env](const std::pair<rocksdb::MemoryUtil::UsageType, uint64_t>& pair) {
         // Construct key
         const jobject jusage_type =
-            rocksdb::ByteJni::valueOf(env, (jbyte)(0xff & (int)pair.first));
+            rocksdb::ByteJni::valueOf(env, rocksdb::MemoryUsageTypeJni::toJavaMemoryUsageType(pair.first));
         if (jusage_type == nullptr) {
           // an error occurred
           return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
