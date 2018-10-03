@@ -132,6 +132,9 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.TtlDB
         org.rocksdb.VectorMemTableConfig
         org.rocksdb.WBWIRocksIterator
+        org.rocksdb.Snapshot
+        org.rocksdb.StringAppendOperator
+        org.rocksdb.UInt64AddOperator
         org.rocksdb.WriteBatch
         org.rocksdb.WriteBatch.Handler
         org.rocksdb.WriteBatchInterface
