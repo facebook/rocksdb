@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <memory>
 #include <string>
+#include "rocksdb/cache_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -58,13 +59,20 @@ struct LRUCacheOptions {
   // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
   double high_pri_pool_ratio = 0.0;
 
+  // If non-nullptr will use this allocator instead of system allocator when
+  // allocating memory for cache blocks. Call this method before you start using
+  // the cache!
+  std::shared_ptr<CacheAllocator> cache_allocator;
+
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
-                  bool _strict_capacity_limit, double _high_pri_pool_ratio)
+                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
+                  std::shared_ptr<CacheAllocator> _cache_allocator = nullptr)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
-        high_pri_pool_ratio(_high_pri_pool_ratio) {}
+        high_pri_pool_ratio(_high_pri_pool_ratio),
+        cache_allocator(std::move(_cache_allocator)) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -75,10 +83,10 @@ struct LRUCacheOptions {
 // high_pri_pool_pct.
 // num_shard_bits = -1 means it is automatically determined: every shard
 // will be at least 512KB and number of shard bits will not exceed 6.
-extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
-                                          int num_shard_bits = -1,
-                                          bool strict_capacity_limit = false,
-                                          double high_pri_pool_ratio = 0.0);
+extern std::shared_ptr<Cache> NewLRUCache(
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
+    std::shared_ptr<CacheAllocator> cache_allocator = nullptr);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -91,13 +99,15 @@ extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
                                             int num_shard_bits = -1,
                                             bool strict_capacity_limit = false);
 
+
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache() {}
+  Cache(std::shared_ptr<CacheAllocator> allocator = nullptr)
+      : cache_allocator_(std::move(allocator)) {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -228,10 +238,14 @@ class Cache {
   virtual void TEST_mark_as_data_block(const Slice& /*key*/,
                                        size_t /*charge*/) {}
 
+  CacheAllocator* cache_allocator() const { return cache_allocator_.get(); }
+
  private:
   // No copying allowed
   Cache(const Cache&);
   Cache& operator=(const Cache&);
+
+  std::shared_ptr<CacheAllocator> cache_allocator_;
 };
 
 }  // namespace rocksdb
