@@ -21,6 +21,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <list>
 #include "db/compaction.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -2034,13 +2035,6 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
 
   inputs->clear();
-  Slice user_begin, user_end;
-  if (begin != nullptr) {
-    user_begin = begin->user_key();
-  }
-  if (end != nullptr) {
-    user_end = end->user_key();
-  }
   if (file_index) {
     *file_index = -1;
   }
@@ -2051,32 +2045,58 @@ void VersionStorageInfo::GetOverlappingInputs(
     return;
   }
 
-  for (size_t i = 0; i < level_files_brief_[level].num_files; ) {
-    FdWithKeyRange* f = &(level_files_brief_[level].files[i++]);
-    const Slice file_start = ExtractUserKey(f->smallest_key);
-    const Slice file_limit = ExtractUserKey(f->largest_key);
-    if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
-      // "f" is completely before specified range; skip it
-    } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
-      // "f" is completely after specified range; skip it
-    } else {
-      inputs->push_back(files_[level][i-1]);
-      if (level == 0 && expand_range) {
-        // Level-0 files may overlap each other.  So check if the newly
-        // added file has expanded the range.  If so, restart search.
-        if (begin != nullptr && user_cmp->Compare(file_start, user_begin) < 0) {
-          user_begin = file_start;
-          inputs->clear();
-          i = 0;
-        } else if (end != nullptr
-            && user_cmp->Compare(file_limit, user_end) > 0) {
-          user_end = file_limit;
-          inputs->clear();
-          i = 0;
+  Slice user_begin, user_end;
+  if (begin != nullptr) {
+    user_begin = begin->user_key();
+  }
+  if (end != nullptr) {
+    user_end = end->user_key();
+  }
+
+  // index stores the file index need to check.
+  std::list<size_t> index;
+  for (size_t i = 0; i < level_files_brief_[level].num_files; i++) {
+    index.emplace_back(i);
+  }
+
+  while (!index.empty()) {
+    bool found_overlapping_file = false;
+    auto iter = index.begin();
+    while (iter != index.end()) {
+      FdWithKeyRange* f = &(level_files_brief_[level].files[*iter]);
+      const Slice file_start = ExtractUserKey(f->smallest_key);
+      const Slice file_limit = ExtractUserKey(f->largest_key);
+      if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
+        // "f" is completely before specified range; skip it
+        iter++;
+      } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
+        // "f" is completely after specified range; skip it
+        iter++;
+      } else {
+        // if overlap
+        inputs->emplace_back(files_[level][*iter]);
+        found_overlapping_file = true;
+        // record the first file index.
+        if (file_index && *file_index == -1) {
+          *file_index = static_cast<int>(*iter);
         }
-      } else if (file_index) {
-        *file_index = static_cast<int>(i) - 1;
+        // the related file is overlap, erase to avoid checking again.
+        iter = index.erase(iter);
+        if (expand_range) {
+          if (begin != nullptr &&
+              user_cmp->Compare(file_start, user_begin) < 0) {
+            user_begin = file_start;
+          }
+          if (end != nullptr &&
+              user_cmp->Compare(file_limit, user_end) > 0) {
+            user_end = file_limit;
+          }
+        }
       }
+    }
+    // if all the files left are not overlap, break
+    if (!found_overlapping_file) {
+      break;
     }
   }
 }
