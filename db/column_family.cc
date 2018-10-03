@@ -95,9 +95,9 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
 }
 
 ManagedColumnFamilyHandle::ManagedColumnFamilyHandle(DBImpl* db_impl,
-                                                     ColumnFamilyData* cfd)
+                                                     ColumnFamilyData* _cfd)
     : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
-      db_impl_(db_impl), internal_cfd_(cfd) {}
+      db_impl_(db_impl), internal_cfd_(_cfd) {}
 
 ManagedColumnFamilyHandle::~ManagedColumnFamilyHandle() {
   db_impl_->UnrefColumnFamilyDataUnlocked(internal_cfd_);

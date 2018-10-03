@@ -92,7 +92,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 // Destructing will un-refer to the ColumnFamilyData.
 class ManagedColumnFamilyHandle : public ColumnFamilyHandleImpl {
  public:
-  ManagedColumnFamilyHandle(DBImpl* db_impl, ColumnFamilyData* cfd);
+  ManagedColumnFamilyHandle(DBImpl* db_impl, ColumnFamilyData* _cfd);
   ~ManagedColumnFamilyHandle();
 
   virtual ColumnFamilyData* cfd() const override;
