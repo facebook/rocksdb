@@ -545,7 +545,7 @@ class DBImpl : public DB {
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
   // Same as above, should called without mutex held and not on write thread.
-  std::shared_ptr<ColumnFamilyHandle> GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
+  std::unique_ptr<ColumnFamilyHandle> GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
 
   // Unref ColumnFamilyData safely.
   // REQUIRED: mutex_ is not held
