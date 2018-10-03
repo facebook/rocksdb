@@ -49,7 +49,6 @@ public class MemoryUtilTest {
       caches.add(cache);
       Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
 
-      assertThat(usage.entrySet().size()).isEqualTo(MemoryUsageType.values().length);
       assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isEqualTo(
               db.getAggregatedLongProperty(MEMTABLE_SIZE));
       assertThat(usage.get(MemoryUsageType.kMemTableUnFlushed)).isEqualTo(
@@ -63,7 +62,6 @@ public class MemoryUtilTest {
       db.get(key);
 
       usage = MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
-      assertThat(usage.entrySet().size()).isEqualTo(MemoryUsageType.values().length);
       assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isGreaterThan(0);
       assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isEqualTo(
               db.getAggregatedLongProperty(MEMTABLE_SIZE));
