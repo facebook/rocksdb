@@ -361,6 +361,11 @@ void DBImpl::WaitForBackgroundWork() {
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
 
+  if (thread_dump_stats_ != nullptr) {
+    thread_dump_stats_->cancel();
+    thread_dump_stats_ = nullptr;
+  }
+
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
@@ -379,9 +384,6 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
-  if (thread_dump_stats_) {
-    thread_dump_stats_->cancel();
-  }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
   if (!wait) {
@@ -581,11 +583,17 @@ void DBImpl::PrintStatistics() {
 }
 
 void DBImpl::StartTimedTasks() {
-  if (mutable_db_options_.stats_dump_period_sec > 0) {
-    // TODO(Zhongyi): need to pass mutex to RepeatableThread
-    thread_dump_stats_.reset(new rocksdb::RepeatableThread(
-        [this]() { DBImpl::MaybeDumpStats(); }, "dump_st", env_,
-        mutable_db_options_.stats_dump_period_sec * 1000000));
+  unsigned int stats_dump_period_sec = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
+  }
+  if (stats_dump_period_sec > 0) {
+    if (!thread_dump_stats_) {
+      thread_dump_stats_ = new rocksdb::RepeatableThread(
+          [this]() { DBImpl::MaybeDumpStats(); }, "dump_st", env_,
+          stats_dump_period_sec * 1000000);
+    }
   }
 }
 
@@ -600,6 +608,9 @@ void DBImpl::MaybeDumpStats() {
   assert(db_property_info != nullptr);
 
   std::string stats;
+  if (shutdown_initiated_) {
+    return;
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     default_cf_internal_stats_->GetStringProperty(
@@ -632,7 +643,6 @@ void DBImpl::MaybeDumpStats() {
 #endif  // !ROCKSDB_LITE
 
   PrintStatistics();
-
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
@@ -757,6 +767,15 @@ Status DBImpl::SetDBOptions(
         env_->IncBackgroundThreadsIfNeeded(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
+      }
+      if (new_options.stats_dump_period_sec !=
+          mutable_db_options_.stats_dump_period_sec) {
+        if (thread_dump_stats_) {
+          thread_dump_stats_->cancel();
+        }
+        thread_dump_stats_ = new rocksdb::RepeatableThread(
+            [this]() { DBImpl::MaybeDumpStats(); }, "dump_st", env_,
+            new_options.stats_dump_period_sec * 1000000);
       }
 
       write_controller_.set_max_delayed_write_rate(

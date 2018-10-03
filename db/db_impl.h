@@ -1472,7 +1472,7 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
-  std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+  rocksdb::RepeatableThread* thread_dump_stats_ = nullptr;
 
   // No copying allowed
   DBImpl(const DBImpl&);
