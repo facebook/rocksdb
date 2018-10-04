@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -24,6 +24,8 @@ static inline uint64_t CuckooHash(
   if (get_slice_hash != nullptr) {
     return get_slice_hash(user_key, hash_cnt, table_size_);
   }
+#else
+  (void)get_slice_hash;
 #endif
 
   uint64_t value = 0;
@@ -47,6 +49,7 @@ static inline uint64_t CuckooHash(
 // - Key length and Value length are fixed.
 // - Does not support Snapshot.
 // - Does not support Merge operations.
+// - Does not support prefix bloom filters.
 class CuckooTableFactory : public TableFactory {
  public:
   explicit CuckooTableFactory(const CuckooTableOptions& table_options)
@@ -66,14 +69,20 @@ class CuckooTableFactory : public TableFactory {
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeOptions(const DBOptions& db_opts,
-                         const ColumnFamilyOptions& cf_opts) const override {
+  Status SanitizeOptions(
+      const DBOptions& /*db_opts*/,
+      const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::OK();
   }
 
   std::string GetPrintableTableOptions() const override;
 
   void* GetOptions() override { return &table_options_; }
+
+  Status GetOptionString(std::string* /*opt_string*/,
+                         const std::string& /*delimiter*/) const override {
+    return Status::OK();
+  }
 
  private:
   CuckooTableOptions table_options_;

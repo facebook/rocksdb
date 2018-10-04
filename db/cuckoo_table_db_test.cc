@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -27,7 +25,7 @@ class CuckooTableDBTest : public testing::Test {
 
  public:
   CuckooTableDBTest() : env_(Env::Default()) {
-    dbname_ = test::TmpDir() + "/cuckoo_table_db_test";
+    dbname_ = test::PerThreadDBPath("cuckoo_table_db_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
@@ -243,7 +241,7 @@ TEST_F(CuckooTableDBTest, CompactionIntoMultipleFiles) {
 
   // Write 28 values, each 10016 B ~ 10KB
   for (int idx = 0; idx < 28; ++idx) {
-    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
+    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + char(idx))));
   }
   dbfull()->TEST_WaitForFlushMemTable();
   ASSERT_EQ("1", FilesPerLevel());
@@ -252,7 +250,7 @@ TEST_F(CuckooTableDBTest, CompactionIntoMultipleFiles) {
                               true /* disallow trivial move */);
   ASSERT_EQ("0,2", FilesPerLevel());
   for (int idx = 0; idx < 28; ++idx) {
-    ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
+    ASSERT_EQ(std::string(10000, 'a' + char(idx)), Get(Key(idx)));
   }
 }
 
@@ -273,14 +271,14 @@ TEST_F(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
 
   // Generate one more file in level-0, and should trigger level-0 compaction
   for (int idx = 0; idx < 11; ++idx) {
-    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
+    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + char(idx))));
   }
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_CompactRange(0, nullptr, nullptr);
 
   ASSERT_EQ("0,1", FilesPerLevel());
   for (int idx = 0; idx < 11; ++idx) {
-    ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
+    ASSERT_EQ(std::string(10000, 'a' + char(idx)), Get(Key(idx)));
   }
 }
 
@@ -335,7 +333,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
   return 0;
 }

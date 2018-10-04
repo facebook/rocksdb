@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -17,9 +15,12 @@
 #include <vector>
 
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "util/compression.h"
 
 namespace rocksdb {
 
@@ -39,7 +40,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   // @param compression_dict Data for presetting the compression library's
   //    dictionary, or nullptr.
   BlockBasedTableBuilder(
-      const ImmutableCFOptions& ioptions,
+      const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -48,10 +49,15 @@ class BlockBasedTableBuilder : public TableBuilder {
       const CompressionType compression_type,
       const CompressionOptions& compression_opts,
       const std::string* compression_dict, const bool skip_filters,
-      const std::string& column_family_name);
+      const std::string& column_family_name, const uint64_t creation_time = 0,
+      const uint64_t oldest_key_time = 0);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
+
+  // No copying allowed
+  BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
+  BlockBasedTableBuilder& operator=(const BlockBasedTableBuilder&) = delete;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -96,10 +102,19 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   bool is_data_block);
   // Directly write data to the file.
-  void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
+  void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
+                     bool is_data_block = false);
   Status InsertBlockInCache(const Slice& block_contents,
                             const CompressionType type,
                             const BlockHandle* handle);
+
+  void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,
+                       BlockHandle* index_block_handle);
+  void WritePropertiesBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteCompressionDictBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteRangeDelBlock(MetaIndexBuilder* meta_index_builder);
+
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
@@ -114,16 +129,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
-
-  // No copying allowed
-  BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
-  void operator=(const BlockBasedTableBuilder&) = delete;
 };
 
-Slice CompressBlock(const Slice& raw,
-                    const CompressionOptions& compression_options,
+Slice CompressBlock(const Slice& raw, const CompressionContext& compression_ctx,
                     CompressionType* type, uint32_t format_version,
-                    const Slice& compression_dict,
                     std::string* compressed_output);
 
 }  // namespace rocksdb

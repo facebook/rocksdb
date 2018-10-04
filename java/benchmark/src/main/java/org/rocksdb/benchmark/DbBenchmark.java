@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 /**
  * Copyright (C) 2011 the original author or authors.
  * See the notice.md file distributed with this work for additional
@@ -543,6 +543,7 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_compactions));
     options.setMaxBackgroundFlushes(
         (Integer)flags_.get(Flag.max_background_flushes));
+    options.setMaxBackgroundJobs((Integer) flags_.get(Flag.max_background_jobs));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
     options.setUseFsync(
@@ -1113,6 +1114,14 @@ public class DbBenchmark {
         "The maximum number of concurrent background flushes\n" +
         "\tthat can occur in parallel.") {
       @Override public Object parseValue(String value) {
+        return Integer.parseInt(value);
+      }
+    },
+    max_background_jobs(defaultOptions_.maxBackgroundJobs(),
+        "The maximum number of concurrent background jobs\n"
+            + "\tthat can occur in parallel.") {
+      @Override
+      public Object parseValue(String value) {
         return Integer.parseInt(value);
       }
     },

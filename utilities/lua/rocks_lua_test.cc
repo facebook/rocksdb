@@ -1,9 +1,7 @@
 //  Copyright (c) 2016, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <stdio.h>
 
@@ -28,7 +26,7 @@ class StopOnErrorLogger : public Logger {
   virtual void Logv(const char* format, va_list ap) override {
     vfprintf(stderr, format, ap);
     fprintf(stderr, "\n");
-    ASSERT_TRUE(false);
+    FAIL();
   }
 };
 
@@ -103,7 +101,7 @@ TEST_F(RocksLuaTest, Default) {
   // If nothing is set in the LuaCompactionFilterOptions, then
   // RocksDB will keep all the key / value pairs, but it will also
   // print our error log indicating failure.
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
 
@@ -118,7 +116,7 @@ TEST_F(RocksLuaTest, Default) {
 }
 
 TEST_F(RocksLuaTest, KeepsAll) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -147,7 +145,7 @@ TEST_F(RocksLuaTest, KeepsAll) {
 }
 
 TEST_F(RocksLuaTest, GetName) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -173,7 +171,7 @@ TEST_F(RocksLuaTest, GetName) {
 }
 
 TEST_F(RocksLuaTest, RemovesAll) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -204,7 +202,7 @@ TEST_F(RocksLuaTest, RemovesAll) {
 }
 
 TEST_F(RocksLuaTest, FilterByKey) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -242,7 +240,7 @@ TEST_F(RocksLuaTest, FilterByKey) {
 }
 
 TEST_F(RocksLuaTest, FilterByValue) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -281,7 +279,7 @@ TEST_F(RocksLuaTest, FilterByValue) {
 }
 
 TEST_F(RocksLuaTest, ChangeValue) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -314,7 +312,7 @@ TEST_F(RocksLuaTest, ChangeValue) {
 }
 
 TEST_F(RocksLuaTest, ConditionallyChangeAndFilterValue) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -359,7 +357,7 @@ TEST_F(RocksLuaTest, ConditionallyChangeAndFilterValue) {
 }
 
 TEST_F(RocksLuaTest, DynamicChangeScript) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   lua_opt.error_log = std::make_shared<StopOnErrorLogger>();
@@ -435,7 +433,7 @@ TEST_F(RocksLuaTest, DynamicChangeScript) {
 }
 
 TEST_F(RocksLuaTest, LuaConditionalTypeError) {
-  std::string db_path = temp_dir_ + "/rocks_lua_test";
+  std::string db_path = test::PerThreadDBPath(temp_dir_, "rocks_lua_test");
 
   lua::RocksLuaCompactionFilterOptions lua_opt;
   // Filter() error when input key's initial >= 'r'
@@ -485,7 +483,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("LUA_PATH is not set.  Ignoring the test.\n");
 }
 
@@ -493,7 +491,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Lua is not supported in RocksDBLite.  Ignoring the test.\n");
 }
 

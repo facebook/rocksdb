@@ -1485,4 +1485,5 @@ EnvLibrados* EnvLibrados::Default() {
                                  default_pool_name);
   return &default_env;
 }
+// @lint-ignore TXT4 T25377293 Grandfathered in
 }

@@ -1,9 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #if !defined(OS_WIN) && !defined(ROCKSDB_LITE)
@@ -12,16 +10,19 @@
 #include <cstdio>
 int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #else
-#include <gflags/gflags.h>
 
 #include <atomic>
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <unistd.h>
+#include <sys/time.h>
 
 #include "port/port_posix.h"
 #include "rocksdb/env.h"
+#include "util/gflags_compat.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 #include "utilities/persistent_cache/hash_table.h"
 
 using std::string;
@@ -274,9 +275,9 @@ class GranularLockImpl : public HashTableImpl<size_t, string> {
 // main
 //
 int main(int argc, char** argv) {
-  GFLAGS::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, false);
+  GFLAGS_NAMESPACE::SetUsageMessage(std::string("\nUSAGE:\n") +
+                                    std::string(argv[0]) + " [OPTIONS]...");
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, false);
 
   //
   // Micro benchmark unordered_map

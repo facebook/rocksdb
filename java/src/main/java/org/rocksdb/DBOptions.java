@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -30,6 +30,22 @@ public class DBOptions
   public DBOptions() {
     super(newDBOptions());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
+  }
+
+  /**
+   * Copy constructor for DBOptions.
+   *
+   * NOTE: This does a shallow copy, which means env, rate_limiter, sst_file_manager,
+   * info_log and other pointers will be cloned!
+   *
+   * @param other The DBOptions to copy.
+   */
+  public DBOptions(DBOptions other) {
+    super(copyDBOptions(other.nativeHandle_));
+    this.env_ = other.env_;
+    this.numShardBits_ = other.numShardBits_;
+    this.rateLimiter_ = other.rateLimiter_;
+    this.rowCache_ = other.rowCache_;
   }
 
   /**
@@ -163,6 +179,13 @@ public class DBOptions
   }
 
   @Override
+  public DBOptions setSstFileManager(final SstFileManager sstFileManager) {
+    assert(isOwningHandle());
+    setSstFileManager(nativeHandle_, sstFileManager.nativeHandle_);
+    return this;
+  }
+
+  @Override
   public DBOptions setLogger(final Logger logger) {
     assert(isOwningHandle());
     setLogger(nativeHandle_, logger.nativeHandle_);
@@ -226,23 +249,21 @@ public class DBOptions
   }
 
   @Override
-  public DBOptions createStatistics() {
+  public DBOptions setStatistics(final Statistics statistics) {
     assert(isOwningHandle());
-    createStatistics(nativeHandle_);
+    setStatistics(nativeHandle_, statistics.nativeHandle_);
     return this;
   }
 
   @Override
-  public Statistics statisticsPtr() {
+  public Statistics statistics() {
     assert(isOwningHandle());
-
-    long statsPtr = statisticsPtr(nativeHandle_);
-    if(statsPtr == 0) {
-      createStatistics();
-      statsPtr = statisticsPtr(nativeHandle_);
+    final long statisticsNativeHandle = statistics(nativeHandle_);
+    if(statisticsNativeHandle == 0) {
+      return null;
+    } else {
+      return new Statistics(statisticsNativeHandle);
     }
-
-    return new Statistics(statsPtr);
   }
 
   @Override
@@ -392,8 +413,20 @@ public class DBOptions
   }
 
   @Override
-  public DBOptions setMaxLogFileSize(
-      final long maxLogFileSize) {
+  public DBOptions setMaxBackgroundJobs(final int maxBackgroundJobs) {
+    assert(isOwningHandle());
+    setMaxBackgroundJobs(nativeHandle_, maxBackgroundJobs);
+    return this;
+  }
+
+  @Override
+  public int maxBackgroundJobs() {
+    assert(isOwningHandle());
+    return maxBackgroundJobs(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setMaxLogFileSize(final long maxLogFileSize) {
     assert(isOwningHandle());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
@@ -944,6 +977,7 @@ public class DBOptions
       String optString);
 
   private native static long newDBOptions();
+  private native static long copyDBOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);
@@ -961,6 +995,8 @@ public class DBOptions
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setSstFileManager(final long handle,
+      final long sstFileManagerHandle);
   private native void setLogger(long handle,
       long loggerHandle);
   private native void setInfoLogLevel(long handle, byte logLevel);
@@ -973,8 +1009,8 @@ public class DBOptions
   private native void setMaxTotalWalSize(long handle,
       long maxTotalWalSize);
   private native long maxTotalWalSize(long handle);
-  private native void createStatistics(long optHandle);
-  private native long statisticsPtr(long optHandle);
+  private native void setStatistics(final long handle, final long statisticsHandle);
+  private native long statistics(final long handle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
   private native void setDbPaths(final long handle, final String[] paths,
@@ -1000,6 +1036,8 @@ public class DBOptions
   private native void setMaxBackgroundFlushes(
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
+  private native void setMaxBackgroundJobs(long handle, int maxBackgroundJobs);
+  private native int maxBackgroundJobs(long handle);
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
       throws IllegalArgumentException;
   private native long maxLogFileSize(long handle);
@@ -1115,6 +1153,7 @@ public class DBOptions
   private native boolean avoidFlushDuringShutdown(final long handle);
 
   // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
   private Env env_;
   private int numShardBits_;
   private RateLimiter rateLimiter_;

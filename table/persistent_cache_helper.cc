@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/persistent_cache_helper.h"
 #include "table/block_based_table_reader.h"
@@ -51,6 +49,9 @@ void PersistentCacheHelper::InsertUncompressedPage(
 Status PersistentCacheHelper::LookupRawPage(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
     std::unique_ptr<char[]>* raw_data, const size_t raw_data_size) {
+#ifdef NDEBUG
+  (void)raw_data_size;
+#endif
   assert(cache_options.persistent_cache);
   assert(cache_options.persistent_cache->IsCompressed());
 

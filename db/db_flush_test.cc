@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -37,6 +35,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
+  no_wait.allow_write_stall=true;
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
@@ -57,6 +56,9 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 #endif  // ROCKSDB_LITE
 }
 
+#ifndef TRAVIS
+// Disable this test temporarily on Travis as it fails intermittently.
+// Github issue: #4151
 TEST_F(DBFlushTest, SyncFail) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
       new FaultInjectionTestEnv(env_));
@@ -74,21 +76,98 @@ TEST_F(DBFlushTest, SyncFail) {
   auto* cfd =
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd();
-  int refs_before = cfd->current()->TEST_refs();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
+  // Flush installs a new super-version. Get the ref count after that.
+  auto current_before = cfd->current();
+  int refs_before = cfd->current()->TEST_refs();
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
   fault_injection_env->SetFilesystemActive(true);
+  // Now the background job will do the flush; wait for it.
   dbfull()->TEST_WaitForFlushMemTable();
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Flush job should release ref count to current version.
+  // Backgroun flush job should release ref count to current version.
+  ASSERT_EQ(current_before, cfd->current());
   ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
+}
+#endif  // TRAVIS
+
+TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
+  // Verify setting an empty high-pri (flush) thread pool causes flushes to be
+  // scheduled in the low-pri (compaction) thread pool.
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 4;
+  options.memtable_factory.reset(new SpecialSkipListFactory(1));
+  Reopen(options);
+  env_->SetBackgroundThreads(0, Env::HIGH);
+
+  std::thread::id tid;
+  int num_flushes = 0, num_compactions = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkFlush", [&](void* /*arg*/) {
+        if (tid == std::thread::id()) {
+          tid = std::this_thread::get_id();
+        } else {
+          ASSERT_EQ(tid, std::this_thread::get_id());
+        }
+        ++num_flushes;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkCompaction", [&](void* /*arg*/) {
+        ASSERT_EQ(tid, std::this_thread::get_id());
+        ++num_compactions;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key", "val"));
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put("key", "val"));
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(4, num_flushes);
+  ASSERT_EQ(1, num_compactions);
+}
+
+TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush",
+        "DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:1"},
+       {"DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:2",
+        "FlushJob::WriteLevel0Table"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key1", "value1"));
+
+  port::Thread t([&]() {
+    // The call wait for flush to finish, i.e. with flush_options.wait = true.
+    ASSERT_OK(Flush());
+  });
+
+  // Wait for flush start.
+  TEST_SYNC_POINT("DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:1");
+  // Insert a second memtable before the manual flush finish.
+  // At the end of the manual flush job, it will check if further flush
+  // is needed, but it will not trigger flush of the second memtable because
+  // min_write_buffer_number_to_merge is not reached.
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  TEST_SYNC_POINT("DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:2");
+
+  // Manual flush should return, without waiting for flush indefinitely.
+  t.join();
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
@@ -113,6 +192,26 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   ASSERT_OK(dbfull()->Flush(flush_options));
   Destroy(options);
   delete options.env;
+}
+
+TEST_F(DBFlushTest, FlushError) {
+  Options options;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_injection_env.get();
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  fault_injection_env->SetFilesystemActive(false);
+  Status s = dbfull()->TEST_SwitchMemtable();
+  fault_injection_env->SetFilesystemActive(true);
+  Destroy(options);
+  ASSERT_NE(s, Status::OK());
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,

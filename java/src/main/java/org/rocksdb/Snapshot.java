@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -11,6 +11,10 @@ package org.rocksdb;
 public class Snapshot extends RocksObject {
   Snapshot(final long nativeHandle) {
     super(nativeHandle);
+
+    // The pointer to the snapshot is always released
+    // by the database instance.
+    disOwnNativeHandle();
   }
 
   /**
@@ -20,17 +24,17 @@ public class Snapshot extends RocksObject {
    *     this snapshot.
    */
   public long getSequenceNumber() {
-    assert(isOwningHandle());
     return getSequenceNumber(nativeHandle_);
   }
 
-  /**
-   * Dont release C++ Snapshot pointer. The pointer
-   * to the snapshot is released by the database
-   * instance.
-   */
   @Override
   protected final void disposeInternal(final long handle) {
+    /**
+     * Nothing to release, we never own the pointer for a
+     * Snapshot. The pointer
+     * to the snapshot is released by the database
+     * instance.
+     */
   }
 
   private native long getSequenceNumber(long handle);

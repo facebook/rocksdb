@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -110,19 +108,20 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 
 // Private structure, exposed only by pointer
 struct DIR {
-  intptr_t handle_;
-  bool firstread_;
-  struct __finddata64_t data_;
+  HANDLE      handle_;
+  bool        firstread_;
+  WIN32_FIND_DATA data_;
   dirent entry_;
 
-  DIR() : handle_(-1), firstread_(true) {}
+  DIR() : handle_(INVALID_HANDLE_VALUE),
+    firstread_(true) {}
 
   DIR(const DIR&) = delete;
   DIR& operator=(const DIR&) = delete;
 
   ~DIR() {
-    if (-1 != handle_) {
-      _findclose(handle_);
+    if (INVALID_HANDLE_VALUE != handle_) {
+      ::FindClose(handle_);
     }
   }
 };
@@ -138,19 +137,25 @@ DIR* opendir(const char* name) {
 
   std::unique_ptr<DIR> dir(new DIR);
 
-  dir->handle_ = _findfirst64(pattern.c_str(), &dir->data_);
+  dir->handle_ = ::FindFirstFileExA(pattern.c_str(), 
+    FindExInfoBasic, // Do not want alternative name
+    &dir->data_,
+    FindExSearchNameMatch,
+    NULL, // lpSearchFilter
+    0);
 
-  if (dir->handle_ == -1) {
+  if (dir->handle_ == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
-  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), dir->data_.name);
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), 
+    dir->data_.cFileName);
 
   return dir.release();
 }
 
 struct dirent* readdir(DIR* dirp) {
-  if (!dirp || dirp->handle_ == -1) {
+  if (!dirp || dirp->handle_ == INVALID_HANDLE_VALUE) {
     errno = EBADF;
     return nullptr;
   }
@@ -160,13 +165,14 @@ struct dirent* readdir(DIR* dirp) {
     return &dirp->entry_;
   }
 
-  auto ret = _findnext64(dirp->handle_, &dirp->data_);
+  auto ret = ::FindNextFileA(dirp->handle_, &dirp->data_);
 
-  if (ret != 0) {
+  if (ret == 0) {
     return nullptr;
   }
 
-  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), dirp->data_.name);
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), 
+    dirp->data_.cFileName);
 
   return &dirp->entry_;
 }
@@ -230,80 +236,3 @@ int GetMaxOpenFiles() { return -1; }
 
 }  // namespace port
 }  // namespace rocksdb
-
-#ifdef JEMALLOC
-
-#include "jemalloc/jemalloc.h"
-
-#ifndef JEMALLOC_NON_INIT
-
-namespace rocksdb {
-
-namespace port {
-
-__declspec(noinline) void WINAPI InitializeJemalloc() {
-  je_init();
-  atexit(je_uninit);
-}
-
-}  // port
-}  // rocksdb
-
-extern "C" {
-
-#ifdef _WIN64
-
-#pragma comment(linker, "/INCLUDE:p_rocksdb_init_jemalloc")
-
-typedef void(WINAPI* CRT_Startup_Routine)(void);
-
-// .CRT section is merged with .rdata on x64 so it must be constant data.
-// must be of external linkage
-// We put this into XCT since we want to run this earlier than C++ static
-// constructors
-// which are placed into XCU
-#pragma const_seg(".CRT$XCT")
-extern const CRT_Startup_Routine p_rocksdb_init_jemalloc;
-const CRT_Startup_Routine p_rocksdb_init_jemalloc =
-    rocksdb::port::InitializeJemalloc;
-#pragma const_seg()
-
-#else  // _WIN64
-
-// x86 untested
-
-#pragma comment(linker, "/INCLUDE:_p_rocksdb_init_jemalloc")
-
-#pragma section(".CRT$XCT", read)
-JEMALLOC_SECTION(".CRT$XCT") JEMALLOC_ATTR(used) static const void(
-    WINAPI* p_rocksdb_init_jemalloc)(void) = rocksdb::port::InitializeJemalloc;
-
-#endif  // _WIN64
-
-}  // extern "C"
-
-#endif // JEMALLOC_NON_INIT
-
-// Global operators to be replaced by a linker
-
-void* operator new(size_t size) {
-  void* p = je_malloc(size);
-  if (!p) {
-    throw std::bad_alloc();
-  }
-  return p;
-}
-
-void* operator new[](size_t size) {
-  void* p = je_malloc(size);
-  if (!p) {
-    throw std::bad_alloc();
-  }
-  return p;
-}
-
-void operator delete(void* p) { je_free(p); }
-
-void operator delete[](void* p) { je_free(p); }
-
-#endif  // JEMALLOC

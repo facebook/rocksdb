@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -75,6 +73,11 @@ class UniversalCompactionPicker : public CompactionPicker {
       VersionStorageInfo* vstorage, double score,
       const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
 
+  Compaction* PickDeleteTriggeredCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      VersionStorageInfo* vstorage, double score,
+      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
+
   // Used in universal compaction when the enabled_trivial_move
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
@@ -82,11 +85,13 @@ class UniversalCompactionPicker : public CompactionPicker {
   bool IsInputFilesNonOverlapping(Compaction* c);
 
   static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions);
+      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,
+      const MutableCFOptions& mutable_cf_options);
 
   // Pick a path ID to place a newly generated file, with its estimated file
   // size.
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
+                            const MutableCFOptions& mutable_cf_options,
                             uint64_t file_size);
 };
 }  // namespace rocksdb

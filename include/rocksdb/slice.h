@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -16,14 +16,17 @@
 // non-const method, all threads accessing the same Slice must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_SLICE_H_
-#define STORAGE_ROCKSDB_INCLUDE_SLICE_H_
+#pragma once
 
 #include <assert.h>
 #include <cstdio>
 #include <stddef.h>
 #include <string.h>
 #include <string>
+
+#ifdef __cpp_lib_string_view
+#include <string_view>
+#endif
 
 #include "rocksdb/cleanable.h"
 
@@ -41,9 +44,17 @@ class Slice {
   /* implicit */
   Slice(const std::string& s) : data_(s.data()), size_(s.size()) { }
 
+#ifdef __cpp_lib_string_view
+  // Create a slice that refers to the same contents as "sv"
+  /* implicit */
+  Slice(std::string_view sv) : data_(sv.data()), size_(sv.size()) {}
+#endif
+
   // Create a slice that refers to s[0,strlen(s)-1]
   /* implicit */
-  Slice(const char* s) : data_(s), size_(strlen(s)) { }
+  Slice(const char* s) : data_(s) {
+    size_ = (s == nullptr) ? 0 : strlen(s);
+  }
 
   // Create a single slice from SliceParts using buf as storage.
   // buf must exist as long as the returned Slice exists.
@@ -84,6 +95,13 @@ class Slice {
   // when hex is true, returns a string of twice the length hex encoded (0-9A-F)
   std::string ToString(bool hex = false) const;
 
+#ifdef __cpp_lib_string_view
+  // Return a string_view that references the same data as this slice.
+  std::string_view ToStringView() const {
+    return std::string_view(data_, size_);
+  }
+#endif
+
   // Decodes the current slice interpreted as an hexadecimal string into result,
   // if successful returns true, if this isn't a valid hex string
   // (e.g not coming from Slice::ToString(true)) DecodeHex returns false.
@@ -121,13 +139,17 @@ class Slice {
 /**
  * A Slice that can be pinned with some cleanup tasks, which will be run upon
  * ::Reset() or object destruction, whichever is invoked first. This can be used
- * to avoid memcpy by having the PinnsableSlice object referring to the data
- * that is locked in the memory and release them after the data is consuned.
+ * to avoid memcpy by having the PinnableSlice object referring to the data
+ * that is locked in the memory and release them after the data is consumed.
  */
 class PinnableSlice : public Slice, public Cleanable {
  public:
   PinnableSlice() { buf_ = &self_space_; }
   explicit PinnableSlice(std::string* buf) { buf_ = buf; }
+
+  // No copy constructor and copy assignment allowed.
+  PinnableSlice(PinnableSlice&) = delete;
+  PinnableSlice& operator=(PinnableSlice&) = delete;
 
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
@@ -173,7 +195,7 @@ class PinnableSlice : public Slice, public Cleanable {
     }
   }
 
-  void remove_prefix(size_t n) {
+  void remove_prefix(size_t /*n*/) {
     assert(0);  // Not implemented
   }
 
@@ -214,6 +236,7 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 }
 
 inline int Slice::compare(const Slice& b) const {
+  assert(data_ != nullptr && b.data_ != nullptr);
   const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
   int r = memcmp(data_, b.data_, min_len);
   if (r == 0) {
@@ -233,5 +256,3 @@ inline size_t Slice::difference_offset(const Slice& b) const {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_H_

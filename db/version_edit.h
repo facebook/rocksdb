@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -29,7 +27,7 @@ const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
 // A copyable structure contains information needed to read data from an SST
-// file. It can contains a pointer to a table reader opened for the file, or
+// file. It can contain a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
@@ -38,18 +36,28 @@ struct FileDescriptor {
   TableReader* table_reader;
   uint64_t packed_number_and_path_id;
   uint64_t file_size;  // File size in bytes
+  SequenceNumber smallest_seqno;  // The smallest seqno in this file
+  SequenceNumber largest_seqno;   // The largest seqno in this file
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
+      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
+
+  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
+                 SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
       : table_reader(nullptr),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
-        file_size(_file_size) {}
+        file_size(_file_size),
+        smallest_seqno(_smallest_seqno),
+        largest_seqno(_largest_seqno) {}
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
     file_size = fd.file_size;
+    smallest_seqno = fd.smallest_seqno;
+    largest_seqno = fd.largest_seqno;
     return *this;
   }
 
@@ -63,17 +71,27 @@ struct FileDescriptor {
   uint64_t GetFileSize() const { return file_size; }
 };
 
+struct FileSampledStats {
+  FileSampledStats() : num_reads_sampled(0) {}
+  FileSampledStats(const FileSampledStats& other) { *this = other; }
+  FileSampledStats& operator=(const FileSampledStats& other) {
+    num_reads_sampled = other.num_reads_sampled.load();
+    return *this;
+  }
+
+  // number of user reads to this file.
+  mutable std::atomic<uint64_t> num_reads_sampled;
+};
+
 struct FileMetaData {
-  int refs;
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
   InternalKey largest;             // Largest internal key served by table
-  bool being_compacted;            // Is this file undergoing compaction?
-  SequenceNumber smallest_seqno;   // The smallest seqno in this file
-  SequenceNumber largest_seqno;    // The largest seqno in this file
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
+
+  FileSampledStats stats;
 
   // Stats for compensating deletion entries during compaction
 
@@ -87,6 +105,10 @@ struct FileMetaData {
   uint64_t num_deletions;          // the number of deletion entries.
   uint64_t raw_key_size;           // total uncompressed key size.
   uint64_t raw_value_size;         // total uncompressed value size.
+
+  int refs;  // Reference count
+
+  bool being_compacted;        // Is this file undergoing compaction?
   bool init_stats_from_file;   // true if the data-entry stats of this file
                                // has initialized from file.
 
@@ -94,16 +116,14 @@ struct FileMetaData {
                                // file.
 
   FileMetaData()
-      : refs(0),
-        being_compacted(false),
-        smallest_seqno(kMaxSequenceNumber),
-        largest_seqno(0),
-        table_reader_handle(nullptr),
+      : table_reader_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
         raw_key_size(0),
         raw_value_size(0),
+        refs(0),
+        being_compacted(false),
         init_stats_from_file(false),
         marked_for_compaction(false) {}
 
@@ -114,26 +134,48 @@ struct FileMetaData {
       smallest.DecodeFrom(key);
     }
     largest.DecodeFrom(key);
-    smallest_seqno = std::min(smallest_seqno, seqno);
-    largest_seqno = std::max(largest_seqno, seqno);
+    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+  }
+
+  // Unlike UpdateBoundaries, ranges do not need to be presented in any
+  // particular order.
+  void UpdateBoundariesForRange(const InternalKey& start,
+                                const InternalKey& end, SequenceNumber seqno,
+                                const InternalKeyComparator& icmp) {
+    if (smallest.size() == 0 || icmp.Compare(start, smallest) < 0) {
+      smallest = start;
+    }
+    if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
+      largest = end;
+    }
+    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
 };
 
-// A compressed copy of file meta data that just contain
-// smallest and largest key's slice
+// A compressed copy of file meta data that just contain minimum data needed
+// to server read operations, while still keeping the pointer to full metadata
+// of the file in case it is needed.
 struct FdWithKeyRange {
   FileDescriptor fd;
+  FileMetaData* file_metadata;  // Point to all metadata
   Slice smallest_key;    // slice that contain smallest key
   Slice largest_key;     // slice that contain largest key
 
   FdWithKeyRange()
       : fd(),
+        file_metadata(nullptr),
         smallest_key(),
         largest_key() {
   }
 
-  FdWithKeyRange(FileDescriptor _fd, Slice _smallest_key, Slice _largest_key)
-      : fd(_fd), smallest_key(_smallest_key), largest_key(_largest_key) {}
+  FdWithKeyRange(FileDescriptor _fd, Slice _smallest_key, Slice _largest_key,
+                 FileMetaData* _file_metadata)
+      : fd(_fd),
+        file_metadata(_file_metadata),
+        smallest_key(_smallest_key),
+        largest_key(_largest_key) {}
 };
 
 // Data structure to store an array of FdWithKeyRange in one level
@@ -178,6 +220,14 @@ class VersionEdit {
     has_max_column_family_ = true;
     max_column_family_ = max_column_family;
   }
+  void SetMinLogNumberToKeep(uint64_t num) {
+    has_min_log_number_to_keep_ = true;
+    min_log_number_to_keep_ = num;
+  }
+
+  bool has_log_number() { return has_log_number_; }
+
+  uint64_t log_number() { return log_number_; }
 
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
@@ -189,17 +239,18 @@ class VersionEdit {
                bool marked_for_compaction) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
-    f.fd = FileDescriptor(file, file_path_id, file_size);
+    f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
+                          largest_seqno);
     f.smallest = smallest;
     f.largest = largest;
-    f.smallest_seqno = smallest_seqno;
-    f.largest_seqno = largest_seqno;
+    f.fd.smallest_seqno = smallest_seqno;
+    f.fd.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
     new_files_.emplace_back(level, std::move(f));
   }
 
   void AddFile(int level, const FileMetaData& f) {
-    assert(f.smallest_seqno <= f.largest_seqno);
+    assert(f.fd.smallest_seqno <= f.fd.largest_seqno);
     new_files_.emplace_back(level, f);
   }
 
@@ -249,6 +300,11 @@ class VersionEdit {
     return new_files_;
   }
 
+  void MarkAtomicGroup(uint32_t remaining_entries) {
+    is_in_atomic_group_ = true;
+    remaining_entries_ = remaining_entries;
+  }
+
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
@@ -264,6 +320,8 @@ class VersionEdit {
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
   uint32_t max_column_family_;
+  // The most recent WAL log number that is deleted
+  uint64_t min_log_number_to_keep_;
   SequenceNumber last_sequence_;
   bool has_comparator_;
   bool has_log_number_;
@@ -271,11 +329,12 @@ class VersionEdit {
   bool has_next_file_number_;
   bool has_last_sequence_;
   bool has_max_column_family_;
+  bool has_min_log_number_to_keep_;
 
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;
 
-  // Each version edit record should have column_family_id set
+  // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
   uint32_t column_family_;
   // a version edit can be either column_family add or
@@ -284,6 +343,9 @@ class VersionEdit {
   bool is_column_family_drop_;
   bool is_column_family_add_;
   std::string column_family_name_;
+
+  bool is_in_atomic_group_;
+  uint32_t remaining_entries_;
 };
 
 }  // namespace rocksdb

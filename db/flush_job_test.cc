@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <algorithm>
 #include <map>
@@ -29,7 +27,7 @@ class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
-        dbname_(test::TmpDir() + "/flush_job_test"),
+        dbname_(test::PerThreadDBPath("flush_job_test")),
         options_(),
         db_options_(options_),
         table_cache_(NewLRUCache(50000, 16)),
@@ -42,6 +40,7 @@ class FlushJobTest : public testing::Test {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
+    db_options_.statistics = rocksdb::CreateDBStatistics();
     // TODO(icanadi) Remove this once we mock out VersionSet
     NewDB();
     std::vector<ColumnFamilyDescriptor> column_families;
@@ -63,7 +62,7 @@ class FlushJobTest : public testing::Test {
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), EnvOptions()));
+        new WritableFileWriter(std::move(file), manifest, EnvOptions()));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -94,11 +93,12 @@ TEST_F(FlushJobTest, Empty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   EventLogger event_logger(db_options_.info_log.get());
-  FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
-                     db_options_, *cfd->GetLatestMutableCFOptions(),
-                     env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     {}, kMaxSequenceNumber, &job_context, nullptr, nullptr,
-                     nullptr, kNoCompression, nullptr, &event_logger, false);
+  SnapshotChecker* snapshot_checker = nullptr;  // not relavant
+  FlushJob flush_job(
+      dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
+      *cfd->GetLatestMutableCFOptions(), env_options_, versions_.get(), &mutex_,
+      &shutting_down_, {}, kMaxSequenceNumber, snapshot_checker, &job_context,
+      nullptr, nullptr, nullptr, kNoCompression, nullptr, &event_logger, false);
   {
     InstrumentedMutexLock l(&mutex_);
     flush_job.PickMemTable();
@@ -138,21 +138,29 @@ TEST_F(FlushJobTest, NonEmpty) {
   }
 
   EventLogger event_logger(db_options_.info_log.get());
+  SnapshotChecker* snapshot_checker = nullptr;  // not relavant
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     {}, kMaxSequenceNumber, &job_context, nullptr, nullptr,
-                     nullptr, kNoCompression, nullptr, &event_logger, true);
-  FileMetaData fd;
+                     {}, kMaxSequenceNumber, snapshot_checker, &job_context,
+                     nullptr, nullptr, nullptr, kNoCompression,
+                     db_options_.statistics.get(), &event_logger, true);
+
+  HistogramData hist;
+  FileMetaData file_meta;
   mutex_.Lock();
   flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(&fd));
+  ASSERT_OK(flush_job.Run(nullptr, &file_meta));
   mutex_.Unlock();
-  ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
-  ASSERT_EQ("9999a",
-            fd.largest.user_key().ToString());  // range tombstone end key
-  ASSERT_EQ(1, fd.smallest_seqno);
-  ASSERT_EQ(10000, fd.largest_seqno);  // range tombstone seqnum 10000
+  db_options_.statistics->histogramData(FLUSH_TIME, &hist);
+  ASSERT_GT(hist.average, 0.0);
+
+  ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
+  ASSERT_EQ(
+      "9999a",
+      file_meta.largest.user_key().ToString());  // range tombstone end key
+  ASSERT_EQ(1, file_meta.fd.smallest_seqno);
+  ASSERT_EQ(10000, file_meta.fd.largest_seqno);  // range tombstone seqnum 10000
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }
@@ -204,16 +212,21 @@ TEST_F(FlushJobTest, Snapshots) {
   }
 
   EventLogger event_logger(db_options_.info_log.get());
-  FlushJob flush_job(
-      dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
-      *cfd->GetLatestMutableCFOptions(), env_options_, versions_.get(), &mutex_,
-      &shutting_down_, snapshots, kMaxSequenceNumber, &job_context, nullptr,
-      nullptr, nullptr, kNoCompression, nullptr, &event_logger, true);
+  SnapshotChecker* snapshot_checker = nullptr;  // not relavant
+  FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
+                     db_options_, *cfd->GetLatestMutableCFOptions(),
+                     env_options_, versions_.get(), &mutex_, &shutting_down_,
+                     snapshots, kMaxSequenceNumber, snapshot_checker,
+                     &job_context, nullptr, nullptr, nullptr, kNoCompression,
+                     db_options_.statistics.get(), &event_logger, true);
   mutex_.Lock();
   flush_job.PickMemTable();
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();
   mock_table_factory_->AssertSingleFile(inserted_keys);
+  HistogramData hist;
+  db_options_.statistics->histogramData(FLUSH_TIME, &hist);
+  ASSERT_GT(hist.average, 0.0);
   job_context.Clean();
 }
 

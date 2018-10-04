@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 Facebook.
 // Use of this source code is governed by a BSD-style license that can be
@@ -39,9 +37,31 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   return Status::OK();
 }
 
-Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir,
-                                    uint64_t log_size_for_flush) {
+Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
+                                    uint64_t /*log_size_for_flush*/) {
   return Status::NotSupported("");
+}
+
+void CheckpointImpl::CleanStagingDirectory(
+    const std::string& full_private_path, Logger* info_log) {
+    std::vector<std::string> subchildren;
+  Status s = db_->GetEnv()->FileExists(full_private_path);
+  if (s.IsNotFound()) {
+    return;
+  }
+  ROCKS_LOG_INFO(info_log, "File exists %s -- %s",
+                 full_private_path.c_str(), s.ToString().c_str());
+  db_->GetEnv()->GetChildren(full_private_path, &subchildren);
+  for (auto& subchild : subchildren) {
+    std::string subchild_path = full_private_path + "/" + subchild;
+    s = db_->GetEnv()->DeleteFile(subchild_path);
+    ROCKS_LOG_INFO(info_log, "Delete file %s -- %s",
+                   subchild_path.c_str(), s.ToString().c_str());
+  }
+  // finally delete the private dir
+  s = db_->GetEnv()->DeleteDir(full_private_path);
+  ROCKS_LOG_INFO(info_log, "Delete dir %s -- %s",
+                 full_private_path.c_str(), s.ToString().c_str());
 }
 
 // Builds an openable snapshot of RocksDB
@@ -61,7 +81,23 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
       db_options.info_log,
       "Started the snapshot process -- creating snapshot in directory %s",
       checkpoint_dir.c_str());
-  std::string full_private_path = checkpoint_dir + ".tmp";
+
+  size_t final_nonslash_idx = checkpoint_dir.find_last_not_of('/');
+  if (final_nonslash_idx == std::string::npos) {
+    // npos means it's only slashes or empty. Non-empty means it's the root
+    // directory, but it shouldn't be because we verified above the directory
+    // doesn't exist.
+    assert(checkpoint_dir.empty());
+    return Status::InvalidArgument("invalid checkpoint directory name");
+  }
+
+  std::string full_private_path =
+      checkpoint_dir.substr(0, final_nonslash_idx + 1) + ".tmp";
+  ROCKS_LOG_INFO(
+      db_options.info_log,
+      "Snapshot process -- using temporary directory %s",
+      full_private_path.c_str());
+  CleanStagingDirectory(full_private_path, db_options.info_log.get());
   // create snapshot directory
   s = db_->GetEnv()->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
@@ -84,7 +120,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-          return CreateFile(db_->GetEnv(), full_private_path + fname, contents);
+          return CreateFile(db_->GetEnv(), full_private_path + fname, contents,
+                            db_options.use_fsync);
         } /* create_file_cb */,
         &sequence_number, log_size_for_flush);
     // we copied all the files, enable file deletions
@@ -112,19 +149,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     // clean all the files we might have created
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot failed -- %s",
                    s.ToString().c_str());
-    // we have to delete the dir and all its children
-    std::vector<std::string> subchildren;
-    db_->GetEnv()->GetChildren(full_private_path, &subchildren);
-    for (auto& subchild : subchildren) {
-      std::string subchild_path = full_private_path + "/" + subchild;
-      Status s1 = db_->GetEnv()->DeleteFile(subchild_path);
-      ROCKS_LOG_INFO(db_options.info_log, "Delete file %s -- %s",
-                     subchild_path.c_str(), s1.ToString().c_str());
-    }
-    // finally delete the private dir
-    Status s1 = db_->GetEnv()->DeleteDir(full_private_path);
-    ROCKS_LOG_INFO(db_options.info_log, "Delete dir %s -- %s",
-                   full_private_path.c_str(), s1.ToString().c_str());
+    CleanStagingDirectory(full_private_path, db_options.info_log.get());
   }
   return s;
 }
@@ -209,6 +234,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
     TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
     TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
+    db_->FlushWAL(false /* sync */);
   }
   // if we have more than one column family, we need to also get WAL files
   if (s.ok()) {

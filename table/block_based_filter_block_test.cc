@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -61,12 +59,13 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
                                      std::move(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 0));
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 100000));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr, uint64_t{0}));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr, 100000));
 }
 
 TEST_F(FilterBlockTest, SingleChunk) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
+  ASSERT_EQ(0, builder.NumAdded());
   builder.StartBlock(100);
   builder.Add("foo");
   builder.Add("bar");
@@ -75,16 +74,17 @@ TEST_F(FilterBlockTest, SingleChunk) {
   builder.Add("box");
   builder.StartBlock(300);
   builder.Add("hello");
+  ASSERT_EQ(5, builder.NumAdded());
   BlockContents block(builder.Finish(), false, kNoCompression);
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
                                      std::move(block), nullptr);
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 100));
-  ASSERT_TRUE(reader.KeyMayMatch("bar", 100));
-  ASSERT_TRUE(reader.KeyMayMatch("box", 100));
-  ASSERT_TRUE(reader.KeyMayMatch("hello", 100));
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 100));
-  ASSERT_TRUE(!reader.KeyMayMatch("missing", 100));
-  ASSERT_TRUE(!reader.KeyMayMatch("other", 100));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr, 100));
+  ASSERT_TRUE(reader.KeyMayMatch("bar", nullptr, 100));
+  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr, 100));
+  ASSERT_TRUE(reader.KeyMayMatch("hello", nullptr, 100));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr, 100));
+  ASSERT_TRUE(!reader.KeyMayMatch("missing", nullptr, 100));
+  ASSERT_TRUE(!reader.KeyMayMatch("other", nullptr, 100));
 }
 
 TEST_F(FilterBlockTest, MultiChunk) {
@@ -112,28 +112,28 @@ TEST_F(FilterBlockTest, MultiChunk) {
                                      std::move(block), nullptr);
 
   // Check first filter
-  ASSERT_TRUE(reader.KeyMayMatch("foo", 0));
-  ASSERT_TRUE(reader.KeyMayMatch("bar", 2000));
-  ASSERT_TRUE(!reader.KeyMayMatch("box", 0));
-  ASSERT_TRUE(!reader.KeyMayMatch("hello", 0));
+  ASSERT_TRUE(reader.KeyMayMatch("foo", nullptr, uint64_t{0}));
+  ASSERT_TRUE(reader.KeyMayMatch("bar", nullptr, 2000));
+  ASSERT_TRUE(!reader.KeyMayMatch("box", nullptr, uint64_t{0}));
+  ASSERT_TRUE(!reader.KeyMayMatch("hello", nullptr, uint64_t{0}));
 
   // Check second filter
-  ASSERT_TRUE(reader.KeyMayMatch("box", 3100));
-  ASSERT_TRUE(!reader.KeyMayMatch("foo", 3100));
-  ASSERT_TRUE(!reader.KeyMayMatch("bar", 3100));
-  ASSERT_TRUE(!reader.KeyMayMatch("hello", 3100));
+  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr, 3100));
+  ASSERT_TRUE(!reader.KeyMayMatch("foo", nullptr, 3100));
+  ASSERT_TRUE(!reader.KeyMayMatch("bar", nullptr, 3100));
+  ASSERT_TRUE(!reader.KeyMayMatch("hello", nullptr, 3100));
 
   // Check third filter (empty)
-  ASSERT_TRUE(!reader.KeyMayMatch("foo", 4100));
-  ASSERT_TRUE(!reader.KeyMayMatch("bar", 4100));
-  ASSERT_TRUE(!reader.KeyMayMatch("box", 4100));
-  ASSERT_TRUE(!reader.KeyMayMatch("hello", 4100));
+  ASSERT_TRUE(!reader.KeyMayMatch("foo", nullptr, 4100));
+  ASSERT_TRUE(!reader.KeyMayMatch("bar", nullptr, 4100));
+  ASSERT_TRUE(!reader.KeyMayMatch("box", nullptr, 4100));
+  ASSERT_TRUE(!reader.KeyMayMatch("hello", nullptr, 4100));
 
   // Check last filter
-  ASSERT_TRUE(reader.KeyMayMatch("box", 9000));
-  ASSERT_TRUE(reader.KeyMayMatch("hello", 9000));
-  ASSERT_TRUE(!reader.KeyMayMatch("foo", 9000));
-  ASSERT_TRUE(!reader.KeyMayMatch("bar", 9000));
+  ASSERT_TRUE(reader.KeyMayMatch("box", nullptr, 9000));
+  ASSERT_TRUE(reader.KeyMayMatch("hello", nullptr, 9000));
+  ASSERT_TRUE(!reader.KeyMayMatch("foo", nullptr, 9000));
+  ASSERT_TRUE(!reader.KeyMayMatch("bar", nullptr, 9000));
 }
 
 // Test for block based filter block
@@ -156,8 +156,8 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
       nullptr, table_options_, true, std::move(block), nullptr);
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 0));
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 100000));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", nullptr, uint64_t{0}));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", nullptr, 100000));
 
   delete builder;
   delete reader;
@@ -177,13 +177,13 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
   BlockContents block(builder->Finish(), false, kNoCompression);
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
       nullptr, table_options_, true, std::move(block), nullptr);
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 100));
-  ASSERT_TRUE(reader->KeyMayMatch("bar", 100));
-  ASSERT_TRUE(reader->KeyMayMatch("box", 100));
-  ASSERT_TRUE(reader->KeyMayMatch("hello", 100));
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 100));
-  ASSERT_TRUE(!reader->KeyMayMatch("missing", 100));
-  ASSERT_TRUE(!reader->KeyMayMatch("other", 100));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", nullptr, 100));
+  ASSERT_TRUE(reader->KeyMayMatch("bar", nullptr, 100));
+  ASSERT_TRUE(reader->KeyMayMatch("box", nullptr, 100));
+  ASSERT_TRUE(reader->KeyMayMatch("hello", nullptr, 100));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", nullptr, 100));
+  ASSERT_TRUE(!reader->KeyMayMatch("missing", nullptr, 100));
+  ASSERT_TRUE(!reader->KeyMayMatch("other", nullptr, 100));
 
   delete builder;
   delete reader;
@@ -215,28 +215,28 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
       nullptr, table_options_, true, std::move(block), nullptr);
 
   // Check first filter
-  ASSERT_TRUE(reader->KeyMayMatch("foo", 0));
-  ASSERT_TRUE(reader->KeyMayMatch("bar", 2000));
-  ASSERT_TRUE(!reader->KeyMayMatch("box", 0));
-  ASSERT_TRUE(!reader->KeyMayMatch("hello", 0));
+  ASSERT_TRUE(reader->KeyMayMatch("foo", nullptr, uint64_t{0}));
+  ASSERT_TRUE(reader->KeyMayMatch("bar", nullptr, 2000));
+  ASSERT_TRUE(!reader->KeyMayMatch("box", nullptr, uint64_t{0}));
+  ASSERT_TRUE(!reader->KeyMayMatch("hello", nullptr, uint64_t{0}));
 
   // Check second filter
-  ASSERT_TRUE(reader->KeyMayMatch("box", 3100));
-  ASSERT_TRUE(!reader->KeyMayMatch("foo", 3100));
-  ASSERT_TRUE(!reader->KeyMayMatch("bar", 3100));
-  ASSERT_TRUE(!reader->KeyMayMatch("hello", 3100));
+  ASSERT_TRUE(reader->KeyMayMatch("box", nullptr, 3100));
+  ASSERT_TRUE(!reader->KeyMayMatch("foo", nullptr, 3100));
+  ASSERT_TRUE(!reader->KeyMayMatch("bar", nullptr, 3100));
+  ASSERT_TRUE(!reader->KeyMayMatch("hello", nullptr, 3100));
 
   // Check third filter (empty)
-  ASSERT_TRUE(!reader->KeyMayMatch("foo", 4100));
-  ASSERT_TRUE(!reader->KeyMayMatch("bar", 4100));
-  ASSERT_TRUE(!reader->KeyMayMatch("box", 4100));
-  ASSERT_TRUE(!reader->KeyMayMatch("hello", 4100));
+  ASSERT_TRUE(!reader->KeyMayMatch("foo", nullptr, 4100));
+  ASSERT_TRUE(!reader->KeyMayMatch("bar", nullptr, 4100));
+  ASSERT_TRUE(!reader->KeyMayMatch("box", nullptr, 4100));
+  ASSERT_TRUE(!reader->KeyMayMatch("hello", nullptr, 4100));
 
   // Check last filter
-  ASSERT_TRUE(reader->KeyMayMatch("box", 9000));
-  ASSERT_TRUE(reader->KeyMayMatch("hello", 9000));
-  ASSERT_TRUE(!reader->KeyMayMatch("foo", 9000));
-  ASSERT_TRUE(!reader->KeyMayMatch("bar", 9000));
+  ASSERT_TRUE(reader->KeyMayMatch("box", nullptr, 9000));
+  ASSERT_TRUE(reader->KeyMayMatch("hello", nullptr, 9000));
+  ASSERT_TRUE(!reader->KeyMayMatch("foo", nullptr, 9000));
+  ASSERT_TRUE(!reader->KeyMayMatch("bar", nullptr, 9000));
 
   delete builder;
   delete reader;

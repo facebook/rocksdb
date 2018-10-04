@@ -673,7 +673,7 @@ GTEST_API_ bool ShouldShard(const char* total_shards_str,
 
 // Parses the environment variable var as an Int32. If it is unset,
 // returns default_val. If it is not an Int32, prints an error and
-// and aborts.
+// aborts.
 GTEST_API_ Int32 Int32FromEnvOrDie(const char* env_var, Int32 default_val);
 
 // Given the total number of shards, the shard index, and the test id,
@@ -3207,7 +3207,7 @@ std::string CodePointToUtf8(UInt32 code_point) {
   return str;
 }
 
-// The following two functions only make sense if the the system
+// The following two functions only make sense if the system
 // uses UTF-16 for wide string encoding. All supported systems
 // with 16 bit wchar_t (Windows, Cygwin, Symbian OS) do use UTF-16.
 
@@ -8229,7 +8229,7 @@ FilePath FilePath::RemoveExtension(const char* extension) const {
   return *this;
 }
 
-// Returns a pointer to the last occurence of a valid path separator in
+// Returns a pointer to the last occurrence of a valid path separator in
 // the FilePath. On Windows, for example, both '/' and '\' are valid path
 // separators. Returns NULL if no path separator was found.
 const char* FilePath::FindLastPathSeparator() const {

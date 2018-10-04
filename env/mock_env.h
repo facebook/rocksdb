@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -62,6 +60,8 @@ class MockEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& fname) override;
 
+  virtual Status Truncate(const std::string& fname, size_t size) override;
+
   virtual Status CreateDir(const std::string& dirname) override;
 
   virtual Status CreateDirIfMissing(const std::string& dirname) override;
@@ -93,9 +93,6 @@ class MockEnv : public EnvWrapper {
   virtual Status GetCurrentTime(int64_t* unix_time) override;
   virtual uint64_t NowMicros() override;
   virtual uint64_t NowNanos() override;
-
-  // Non-virtual functions, specific to MockEnv
-  Status Truncate(const std::string& fname, size_t size);
 
   Status CorruptBuffer(const std::string& fname);
 

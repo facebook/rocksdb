@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -23,7 +21,7 @@ namespace spatial {
 class SpatialDBTest : public testing::Test {
  public:
   SpatialDBTest() {
-    dbname_ = test::TmpDir() + "/spatial_db_test";
+    dbname_ = test::PerThreadDBPath("spatial_db_test");
     DestroyDB(dbname_, Options());
   }
 
@@ -115,8 +113,10 @@ TEST_F(SpatialDBTest, TestNextID) {
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(10, 10, 15, 15),
                         "two", FeatureSet(), {"simple"}));
   delete db_;
+  db_ = nullptr;
 
   ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
+  assert(db_ != nullptr);
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(55, 55, 65, 65),
                         "three", FeatureSet(), {"simple"}));
   delete db_;
@@ -177,6 +177,7 @@ TEST_F(SpatialDBTest, SimpleTest) {
         {SpatialIndexOptions("index", BoundingBox<double>(0, 0, 128, 128),
                              3)}));
     ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
+    assert(db_ != nullptr);
 
     ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(33, 17, 63, 79),
                           "one", FeatureSet(), {"index"}));
@@ -193,6 +194,7 @@ TEST_F(SpatialDBTest, SimpleTest) {
 
     if (iter == 1) {
       delete db_;
+      db_ = nullptr;
       ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_, true));
     }
 
@@ -214,6 +216,7 @@ TEST_F(SpatialDBTest, SimpleTest) {
                         {"three", "five"});
 
     delete db_;
+    db_ = nullptr;
   }
 }
 
@@ -221,7 +224,7 @@ namespace {
 std::string RandomStr(Random* rnd) {
   std::string r;
   for (int k = 0; k < 10; ++k) {
-    r.push_back(rnd->Uniform(26) + 'a');
+    r.push_back(static_cast<char>(rnd->Uniform(26)) + 'a');
   }
   return r;
 }
@@ -296,7 +299,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as SpatialDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }

@@ -1,9 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #ifndef ROCKSDB_LITE
@@ -12,6 +10,7 @@
 #include <unistd.h>
 #endif // ! OS_WIN
 
+#include <atomic>
 #include <list>
 #include <memory>
 #include <set>
@@ -45,9 +44,9 @@ class BlockCacheTier : public PersistentCacheTier {
  public:
   explicit BlockCacheTier(const PersistentCacheConfig& opt)
       : opt_(opt),
-        insert_ops_(opt_.max_write_pipeline_backlog_size),
+        insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
-        writer_(this, opt_.writer_qdepth, opt_.writer_dispatch_size) {
+        writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
     Info(opt_.log, "Initializing allocator. size=%d B count=%d",
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
@@ -93,7 +92,7 @@ class BlockCacheTier : public PersistentCacheTier {
     ~InsertOp() {}
 
     InsertOp() = delete;
-    InsertOp(InsertOp&& rhs) = default;
+    InsertOp(InsertOp&& /*rhs*/) = default;
     InsertOp& operator=(InsertOp&& rhs) = default;
 
     // used for estimating size by bounded queue
@@ -123,10 +122,10 @@ class BlockCacheTier : public PersistentCacheTier {
     HistogramImpl read_hit_latency_;
     HistogramImpl read_miss_latency_;
     HistogramImpl write_latency_;
-    uint64_t cache_hits_ = 0;
-    uint64_t cache_misses_ = 0;
-    uint64_t cache_errors_ = 0;
-    uint64_t insert_dropped_ = 0;
+    std::atomic<uint64_t> cache_hits_{0};
+    std::atomic<uint64_t> cache_misses_{0};
+    std::atomic<uint64_t> cache_errors_{0};
+    std::atomic<uint64_t> insert_dropped_{0};
 
     double CacheHitPct() const {
       const auto lookups = cache_hits_ + cache_misses_;

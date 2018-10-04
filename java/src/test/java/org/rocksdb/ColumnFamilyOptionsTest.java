@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -23,6 +23,18 @@ public class ColumnFamilyOptionsTest {
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
+
+  @Test
+  public void copyConstructor() {
+    ColumnFamilyOptions origOpts = new ColumnFamilyOptions();
+    origOpts.setNumLevels(rand.nextInt(8));
+    origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
+    origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
+    ColumnFamilyOptions copyOpts = new ColumnFamilyOptions(origOpts);
+    assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
+    assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
+    assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
+  }
 
   @Test
   public void getColumnFamilyOptionsFromProps() {

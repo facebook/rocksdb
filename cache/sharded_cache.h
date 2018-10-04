@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -49,7 +47,8 @@ class CacheShard {
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
  public:
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit);
+  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+               std::shared_ptr<CacheAllocator> cache_allocator = nullptr);
   virtual ~ShardedCache() = default;
   virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;

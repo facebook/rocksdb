@@ -1,9 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -134,7 +132,7 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
 }
 
 PersistentCacheTierTest::PersistentCacheTierTest()
-    : path_(test::TmpDir(Env::Default()) + "/cache_test") {
+    : path_(test::PerThreadDBPath("cache_test")) {
 #ifdef OS_LINUX
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   rocksdb::SyncPoint::GetInstance()->SetCallBack("NewRandomAccessFile:O_DIRECT",
@@ -159,7 +157,7 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifdef TRAVIS
+#if defined(TRAVIS) || defined(ROCKSDB_VALGRIND_RUN)
 // Travis is unable to handle the normal version of the tests running out of
 // fds, out of space and timeouts. This is an easier version of the test
 // specifically written for Travis
@@ -374,7 +372,7 @@ void PersistentCacheDBTest::RunTest(
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
 
     std::vector<std::string> values;
@@ -427,7 +425,7 @@ void PersistentCacheDBTest::RunTest(
         ASSERT_EQ(compressed_block_miss, 0);
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
 
     options.create_if_missing = true;
@@ -437,7 +435,7 @@ void PersistentCacheDBTest::RunTest(
   }
 }
 
-#ifdef TRAVIS
+#if defined(TRAVIS) || defined(ROCKSDB_VALGRIND_RUN)
 // Travis is unable to handle the normal version of the tests running out of
 // fds, out of space and timeouts. This is an easier version of the test
 // specifically written for Travis

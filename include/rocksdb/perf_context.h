@@ -1,15 +1,13 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
-#define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
+#pragma once
 
 #include <stdint.h>
 #include <string>
 
-#include "port/port.h"
 #include "rocksdb/perf_level.h"
 
 namespace rocksdb {
@@ -31,6 +29,11 @@ struct PerfContext {
   uint64_t block_read_time;           // total nanos spent on block reads
   uint64_t block_checksum_time;       // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
+
+  uint64_t get_read_bytes;       // bytes for vals returned by Get
+  uint64_t multiget_read_bytes;  // bytes for vals returned by MultiGet
+  uint64_t iter_read_bytes;      // bytes for keys/vals decoded by iterator
+
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
   // 1. when calling Next(), the iterator is in the position of the previous
@@ -91,16 +94,27 @@ struct PerfContext {
   // total nanos spent on iterating internal entries to find the next user entry
   uint64_t find_next_user_entry_time;
 
+  // This group of stats provide a breakdown of time spent by Write().
+  // May be inaccurate when 2PC, two_write_queues or enable_pipelined_write
+  // are enabled.
+  //
   // total nanos spent on writing to WAL
   uint64_t write_wal_time;
   // total nanos spent on writing to mem tables
   uint64_t write_memtable_time;
-  // total nanos spent on delaying write
+  // total nanos spent on delaying or throttling write
   uint64_t write_delay_time;
-  // total nanos spent on writing a record, excluding the above three times
+  // total nanos spent on switching memtable/wal and scheduling
+  // flushes/compactions.
+  uint64_t write_scheduling_flushes_compactions_time;
+  // total nanos spent on writing a record, excluding the above four things
   uint64_t write_pre_and_post_process_time;
 
-  uint64_t db_mutex_lock_nanos;      // time spent on acquiring DB mutex.
+  // time spent waiting for other threads of the batch group
+  uint64_t write_thread_wait_nanos;
+
+  // time spent on acquiring DB mutex.
+  uint64_t db_mutex_lock_nanos;
   // Time spent on waiting with a condition variable created with DB mutex.
   uint64_t db_condition_wait_nanos;
   // Time spent on merge operator.
@@ -127,6 +141,11 @@ struct PerfContext {
   // total number of SST table bloom misses
   uint64_t bloom_sst_miss_count;
 
+  // Time spent waiting on key locks in transaction lock manager.
+  uint64_t key_lock_wait_time;
+  // number of times acquiring a lock was blocked by another transaction.
+  uint64_t key_lock_wait_count;
+
   // Total time spent in Env filesystem operations. These are only populated
   // when TimedEnv is used.
   uint64_t env_new_sequential_file_nanos;
@@ -151,17 +170,8 @@ struct PerfContext {
   uint64_t env_new_logger_nanos;
 };
 
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-extern PerfContext perf_context;
-#else
-  #if defined(OS_SOLARIS)
-    PerfContext *getPerfContext();
-    #define perf_context (*getPerfContext())
-  #else
-    extern __thread PerfContext perf_context;
-  #endif
-#endif
+// Get Thread-local PerfContext object pointer
+// if defined(NPERF_CONTEXT), then the pointer is not thread-local
+PerfContext* get_perf_context();
 
 }
-
-#endif

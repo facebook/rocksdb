@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 #include <string>
@@ -17,7 +15,7 @@
 namespace rocksdb {
 class OptionsFileTest : public testing::Test {
  public:
-  OptionsFileTest() : dbname_(test::TmpDir() + "/options_file_test") {}
+  OptionsFileTest() : dbname_(test::PerThreadDBPath("options_file_test")) {}
 
   std::string dbname_;
 };
@@ -114,7 +112,7 @@ int main(int argc, char** argv) {
 
 #include <cstdio>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Skipped as Options file is not supported in RocksDBLite.\n");
   return 0;
 }

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
 #include "monitoring/perf_level_imp.h"
@@ -14,19 +12,25 @@ namespace rocksdb {
 
 class PerfStepTimer {
  public:
-  explicit PerfStepTimer(uint64_t* metric, bool for_mutex = false)
-      : enabled_(perf_level >= PerfLevel::kEnableTime ||
-                 (!for_mutex && perf_level >= kEnableTimeExceptForMutex)),
-        env_(enabled_ ? Env::Default() : nullptr),
+  explicit PerfStepTimer(uint64_t* metric, bool for_mutex = false,
+                         Statistics* statistics = nullptr,
+                         uint32_t ticker_type = 0)
+      : perf_counter_enabled_(
+            perf_level >= PerfLevel::kEnableTime ||
+            (!for_mutex && perf_level >= kEnableTimeExceptForMutex)),
+        env_((perf_counter_enabled_ || statistics != nullptr) ? Env::Default()
+                                                              : nullptr),
         start_(0),
-        metric_(metric) {}
+        metric_(metric),
+        statistics_(statistics),
+        ticker_type_(ticker_type) {}
 
   ~PerfStepTimer() {
     Stop();
   }
 
   void Start() {
-    if (enabled_) {
+    if (perf_counter_enabled_ || statistics_ != nullptr) {
       start_ = env_->NowNanos();
     }
   }
@@ -41,16 +45,25 @@ class PerfStepTimer {
 
   void Stop() {
     if (start_) {
-      *metric_ += env_->NowNanos() - start_;
+      uint64_t duration = env_->NowNanos() - start_;
+      if (perf_counter_enabled_) {
+        *metric_ += duration;
+      }
+
+      if (statistics_ != nullptr) {
+        RecordTick(statistics_, ticker_type_, duration);
+      }
       start_ = 0;
     }
   }
 
  private:
-  const bool enabled_;
+  const bool perf_counter_enabled_;
   Env* const env_;
   uint64_t start_;
   uint64_t* metric_;
+  Statistics* statistics_;
+  uint32_t ticker_type_;
 };
 
 }  // namespace rocksdb

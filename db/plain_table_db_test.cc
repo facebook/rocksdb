@@ -1,11 +1,7 @@
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -119,7 +115,7 @@ class PlainTableDBTest : public testing::Test,
 
   void SetUp() override {
     mmap_mode_ = GetParam();
-    dbname_ = test::TmpDir() + "/plain_table_db_test";
+    dbname_ = test::PerThreadDBPath("plain_table_db_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
@@ -266,11 +262,13 @@ class TestPlainTableReader : public PlainTableReader {
                        const TableProperties* table_properties,
                        unique_ptr<RandomAccessFileReader>&& file,
                        const ImmutableCFOptions& ioptions,
+                       const SliceTransform* prefix_extractor,
                        bool* expect_bloom_not_match, bool store_index_in_file,
                        uint32_t column_family_id,
                        const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
-                         encoding_type, file_size, table_properties),
+                         encoding_type, file_size, table_properties,
+                         prefix_extractor),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataIfNeeded();
     EXPECT_TRUE(s.ok());
@@ -331,25 +329,27 @@ class TestPlainTableFactory : public PlainTableFactory {
       const TableReaderOptions& table_reader_options,
       unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table,
-      bool prefetch_index_and_filter_in_cache) const override {
+      bool /*prefetch_index_and_filter_in_cache*/) const override {
     TableProperties* props = nullptr;
     auto s =
         ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                            table_reader_options.ioptions, &props);
+                            table_reader_options.ioptions, &props,
+                            true /* compression_type_missing */);
     EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
                         table_reader_options.ioptions,
-                        BloomBlockBuilder::kBloomBlock, &bloom_block_handle);
+                        BloomBlockBuilder::kBloomBlock, &bloom_block_handle,
+                        /* compression_type_missing */ true);
       EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
                         table_reader_options.ioptions,
                         PlainTableIndexBuilder::kPlainTableIndexBlock,
-                        &index_block_handle);
+                        &index_block_handle, /* compression_type_missing */ true);
       EXPECT_TRUE(s.ok());
     }
 
@@ -364,7 +364,8 @@ class TestPlainTableFactory : public PlainTableFactory {
         table_reader_options.env_options,
         table_reader_options.internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
-        std::move(file), table_reader_options.ioptions, expect_bloom_not_match_,
+        std::move(file), table_reader_options.ioptions,
+        table_reader_options.prefix_extractor, expect_bloom_not_match_,
         store_index_in_file_, column_family_id_, column_family_name_));
 
     *table = std::move(new_reader);
@@ -1174,7 +1175,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as plain table is not supported in ROCKSDB_LITE\n");
   return 0;
 }

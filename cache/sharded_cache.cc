@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -22,8 +20,10 @@
 namespace rocksdb {
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
-                           bool strict_capacity_limit)
-    : num_shard_bits_(num_shard_bits),
+                           bool strict_capacity_limit,
+                           std::shared_ptr<CacheAllocator> allocator)
+    : Cache(std::move(allocator)),
+      num_shard_bits_(num_shard_bits),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       last_id_(1) {}
@@ -55,7 +55,7 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
       ->Insert(key, hash, value, charge, deleter, handle, priority);
 }
 
-Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* stats) {
+Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* /*stats*/) {
   uint32_t hash = HashSlice(key);
   return GetShard(Shard(hash))->Lookup(key, hash);
 }
@@ -144,6 +144,9 @@ std::string ShardedCache::GetPrintableOptions() const {
              strict_capacity_limit_);
     ret.append(buffer);
   }
+  snprintf(buffer, kBufferSize, "    cache_allocator : %s\n",
+           cache_allocator() ? cache_allocator()->Name() : "None");
+  ret.append(buffer);
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
 }

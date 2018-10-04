@@ -45,7 +45,7 @@ We plan to use this port for our business purposes here at Bing and this provide
 * All posix specific headers were replaced to port/port.h which worked well
 * Replaced `dirent.h` for `port/dirent.h` (very few places) with the implementation of the relevant interfaces within `rocksdb::port` namespace
 * Replaced `sys/time.h` to `port/sys_time.h` (few places) implemented equivalents within `rocksdb::port`
-* `printf %z` specification is not supported on Windows. To imitate existing standards we came up with a string macro `ROCKSDB_PRIszt` which expands to `%z` on posix systems and to Iu on windows.
+* `printf %z` specification is not supported on Windows. To imitate existing standards we came up with a string macro `ROCKSDB_PRIszt` which expands to `zu` on posix systems and to `Iu` on windows.
 * in class member initialization were moved to a __ctors in some cases
 * `constexpr` is not supported. We had to replace `std::numeric_limits<>::max/min()` to its C macros for constants. Sometimes we had to make class members `static const` and place a definition within a .cc file.
 * `constexpr` for functions was replaced to a template specialization (1 place)

@@ -1,9 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -24,8 +22,8 @@ public:
                          uint64_t micros_per_window,
                          uint64_t min_num_per_window);
 
-  HistogramWindowingImpl(const HistogramImpl&) = delete;
-  HistogramWindowingImpl& operator=(const HistogramImpl&) = delete;
+  HistogramWindowingImpl(const HistogramWindowingImpl&) = delete;
+  HistogramWindowingImpl& operator=(const HistogramWindowingImpl&) = delete;
 
   ~HistogramWindowingImpl();
 

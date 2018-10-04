@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -441,7 +441,7 @@ public interface AdvancedColumnFamilyOptionsInterface
   boolean optimizeFiltersForHits();
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM everytime the LSM
+   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
    * change (Flush, Compaction, AddFile). These checks are disabled in release
    * mode, use this option to enable them in release mode as well.
    *
@@ -455,7 +455,7 @@ public interface AdvancedColumnFamilyOptionsInterface
       boolean forceConsistencyChecks);
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM everytime the LSM
+   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
    * change (Flush, Compaction, AddFile). These checks are disabled in release
    * mode.
    *

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -19,7 +17,6 @@ int main() {
 #include <iostream>
 #include <vector>
 
-#include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/comparator.h"
@@ -29,14 +26,15 @@ int main() {
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "util/coding.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"
-#include "util/coding.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
@@ -55,7 +53,7 @@ DEFINE_int32(value_size, 40, "");
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 // Path to the database on file system
-const std::string kDbName = rocksdb::test::TmpDir() + "/prefix_test";
+const std::string kDbName = rocksdb::test::PerThreadDBPath("prefix_test");
 
 namespace rocksdb {
 
@@ -128,10 +126,10 @@ class TestKeyComparator : public Comparator {
     return "TestKeyComparator";
   }
 
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override {}
+  virtual void FindShortestSeparator(std::string* /*start*/,
+                                     const Slice& /*limit*/) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const override {}
+  virtual void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 namespace {
@@ -213,6 +211,10 @@ class SamePrefixTransform : public SliceTransform {
 
   virtual bool InRange(const Slice& dst) const override {
     return dst == prefix_;
+  }
+
+  virtual bool FullLengthEnabled(size_t* /*len*/) const override {
+    return false;
   }
 };
 
@@ -605,11 +607,11 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
         Slice key = TestKeyToSlice(s, test_key);
         std::string value(FLAGS_value_size, 0);
 
-        perf_context.Reset();
+        get_perf_context()->Reset();
         StopWatchNano timer(Env::Default(), true);
         ASSERT_OK(db->Put(write_options, key, value));
         hist_put_time.Add(timer.ElapsedNanos());
-        hist_put_comparison.Add(perf_context.user_key_comparison_count);
+        hist_put_comparison.Add(get_perf_context()->user_key_comparison_count);
       }
     }
 
@@ -628,7 +630,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       Slice key = TestKeyToSlice(s, test_key);
       std::string value = "v" + ToString(0);
 
-      perf_context.Reset();
+      get_perf_context()->Reset();
       StopWatchNano timer(Env::Default(), true);
       auto key_prefix = options.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
@@ -642,7 +644,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
         total_keys++;
       }
       hist_seek_time.Add(timer.ElapsedNanos());
-      hist_seek_comparison.Add(perf_context.user_key_comparison_count);
+      hist_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
       ASSERT_EQ(total_keys, FLAGS_items_per_prefix - FLAGS_items_per_prefix/2);
     }
 
@@ -662,11 +664,11 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       std::string s;
       Slice key = TestKeyToSlice(s, test_key);
 
-      perf_context.Reset();
+      get_perf_context()->Reset();
       StopWatchNano timer(Env::Default(), true);
       iter->Seek(key);
       hist_no_seek_time.Add(timer.ElapsedNanos());
-      hist_no_seek_comparison.Add(perf_context.user_key_comparison_count);
+      hist_no_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
       ASSERT_TRUE(!iter->Valid());
     }
 
@@ -881,8 +883,6 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
-  std::cout << kDbName << "\n";
-
   return RUN_ALL_TESTS();
 }
 
@@ -891,7 +891,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as HashSkipList and HashLinkList are not supported in "
           "ROCKSDB_LITE\n");

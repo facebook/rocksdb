@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #ifndef ROCKSDB_LITE
@@ -64,7 +62,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const std::string& dir, const ImmutableDBOptions* options,
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
-      std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions);
+      std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
+      const bool seq_per_batch);
 
   virtual bool Valid() override;
 
@@ -105,7 +104,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   // Used only to get latest seq. num
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
-
+  const bool seq_per_batch_;
   // Reads from transaction log only if the writebatch record has been written
   bool RestrictedRead(Slice* record, std::string* scratch);
   // Seeks to startingSequenceNumber reading from startFileIndex in files_.

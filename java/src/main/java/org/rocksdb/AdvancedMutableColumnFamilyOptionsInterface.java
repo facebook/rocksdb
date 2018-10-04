@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -111,7 +111,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface
    * If &le; 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
    *
-   * There are two additional restriction of the The specified size:
+   * There are two additional restriction of the specified size:
    * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
    * (2) be the multiple of the CPU word (which helps with the memory
    * alignment).
@@ -132,7 +132,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface
    * If &le; 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
    *
-   * There are two additional restriction of the The specified size:
+   * There are two additional restriction of the specified size:
    * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
    * (2) be the multiple of the CPU word (which helps with the memory
    * alignment).

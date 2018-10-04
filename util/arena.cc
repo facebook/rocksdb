@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -24,6 +22,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "util/logging.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -34,7 +33,7 @@ const size_t Arena::kInlineSize;
 
 const size_t Arena::kMinBlockSize = 4096;
 const size_t Arena::kMaxBlockSize = 2u << 30;
-static const int kAlignUnit = sizeof(void*);
+static const int kAlignUnit = alignof(max_align_t);
 
 size_t OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
@@ -49,10 +48,11 @@ size_t OptimizeBlockSize(size_t block_size) {
   return block_size;
 }
 
-Arena::Arena(size_t block_size, size_t huge_page_size)
-    : kBlockSize(OptimizeBlockSize(block_size)) {
+Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
+    : kBlockSize(OptimizeBlockSize(block_size)), tracker_(tracker) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);
+  TEST_SYNC_POINT_CALLBACK("Arena::Arena:0", const_cast<size_t*>(&kBlockSize));
   alloc_bytes_remaining_ = sizeof(inline_block_);
   blocks_memory_ += alloc_bytes_remaining_;
   aligned_alloc_ptr_ = inline_block_;
@@ -62,16 +62,28 @@ Arena::Arena(size_t block_size, size_t huge_page_size)
   if (hugetlb_size_ && kBlockSize > hugetlb_size_) {
     hugetlb_size_ = ((kBlockSize - 1U) / hugetlb_size_ + 1U) * hugetlb_size_;
   }
+#else
+  (void)huge_page_size;
 #endif
+  if (tracker_ != nullptr) {
+    tracker_->Allocate(kInlineSize);
+  }
 }
 
 Arena::~Arena() {
+  if (tracker_ != nullptr) {
+    assert(tracker_->is_freed());
+    tracker_->FreeMem();
+  }
   for (const auto& block : blocks_) {
     delete[] block;
   }
 
 #ifdef MAP_HUGETLB
   for (const auto& mmap_info : huge_blocks_) {
+    if (mmap_info.addr_ == nullptr) {
+      continue;
+    }
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
     if (ret != 0) {
       // TODO(sdong): Better handling
@@ -119,11 +131,15 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   if (hugetlb_size_ == 0) {
     return nullptr;
   }
-  // already reserve space in huge_blocks_ before calling mmap().
-  // this way the insertion into the vector below will not throw and we
-  // won't leak the mapping in that case. if reserve() throws, we
-  // won't leak either
-  huge_blocks_.reserve(huge_blocks_.size() + 1);
+  // Reserve space in `huge_blocks_` before calling `mmap`.
+  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
+  // own memory and do fewer reallocations.
+  //
+  // - If `emplace_back` throws, no memory leaks because we haven't called
+  //   `mmap` yet.
+  // - If `mmap` throws, no memory leaks because the vector will be cleaned up
+  //   via RAII.
+  huge_blocks_.emplace_back(nullptr /* addr */, 0 /* length */);
 
   void* addr = mmap(nullptr, bytes, (PROT_READ | PROT_WRITE),
                     (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), -1, 0);
@@ -131,11 +147,14 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   if (addr == MAP_FAILED) {
     return nullptr;
   }
-  // the following shouldn't throw because of the above reserve()
-  huge_blocks_.emplace_back(MmapInfo(addr, bytes));
+  huge_blocks_.back() = MmapInfo(addr, bytes);
   blocks_memory_ += bytes;
+  if (tracker_ != nullptr) {
+    tracker_->Allocate(bytes);
+  }
   return reinterpret_cast<char*>(addr);
 #else
+  (void)bytes;
   return nullptr;
 #endif
 }
@@ -163,6 +182,9 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
       return addr;
     }
   }
+#else
+  (void)huge_page_size;
+  (void)logger;
 #endif
 
   size_t current_mod =
@@ -183,21 +205,34 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
-  // already reserve space in blocks_ before allocating memory via new.
-  // this way the insertion into the vector below will not throw and we
-  // won't leak the allocated memory in that case. if reserve() throws,
-  // we won't leak either
-  blocks_.reserve(blocks_.size() + 1);
+  // Reserve space in `blocks_` before allocating memory via new.
+  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
+  // own memory and do fewer reallocations.
+  //
+  // - If `emplace_back` throws, no memory leaks because we haven't called `new`
+  //   yet.
+  // - If `new` throws, no memory leaks because the vector will be cleaned up
+  //   via RAII.
+  blocks_.emplace_back(nullptr);
 
   char* block = new char[block_bytes];
-
+  size_t allocated_size;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  blocks_memory_ += malloc_usable_size(block);
+  allocated_size = malloc_usable_size(block);
+#ifndef NDEBUG
+  // It's hard to predict what malloc_usable_size() returns.
+  // A callback can allow users to change the costed size.
+  std::pair<size_t*, size_t*> pair(&allocated_size, &block_bytes);
+  TEST_SYNC_POINT_CALLBACK("Arena::AllocateNewBlock:0", &pair);
+#endif  // NDEBUG
 #else
-  blocks_memory_ += block_bytes;
+  allocated_size = block_bytes;
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
-  // the following shouldn't throw because of the above reserve()
-  blocks_.push_back(block);
+  blocks_memory_ += allocated_size;
+  if (tracker_ != nullptr) {
+    tracker_->Allocate(allocated_size);
+  }
+  blocks_.back() = block;
   return block;
 }
 

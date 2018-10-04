@@ -1,9 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
 
@@ -253,20 +251,20 @@ class PersistentCacheTier : public PersistentCache {
   // Print stats to string recursively
   virtual std::string PrintStats();
 
-  virtual PersistentCache::StatsType Stats();
+  virtual PersistentCache::StatsType Stats() override;
 
   // Insert to page cache
   virtual Status Insert(const Slice& page_key, const char* data,
-                        const size_t size) = 0;
+                        const size_t size) override = 0;
 
   // Lookup page cache by page identifier
   virtual Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,
-                        size_t* size) = 0;
+                        size_t* size) override = 0;
 
   // Does it store compressed data ?
-  virtual bool IsCompressed() = 0;
+  virtual bool IsCompressed() override = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  virtual std::string GetPrintableOptions() const override = 0;
 
   // Return a reference to next tier
   virtual Tier& next_tier() { return next_tier_; }

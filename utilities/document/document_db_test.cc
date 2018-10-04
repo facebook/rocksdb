@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -20,7 +18,7 @@ namespace rocksdb {
 class DocumentDBTest : public testing::Test {
  public:
   DocumentDBTest() {
-    dbname_ = test::TmpDir() + "/document_db_test";
+    dbname_ = test::PerThreadDBPath("document_db_test");
     DestroyDB(dbname_, Options());
   }
   ~DocumentDBTest() {
@@ -77,8 +75,10 @@ TEST_F(DocumentDBTest, SimpleQueryTest) {
   ASSERT_OK(DocumentDB::Open(options, dbname_, {}, &db_));
   CreateIndexes({index});
   delete db_;
+  db_ = nullptr;
   // now there is index present
   ASSERT_OK(DocumentDB::Open(options, dbname_, {index}, &db_));
+  assert(db_ != nullptr);
   delete index.description;
 
   std::vector<std::string> json_objects = {
@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as DocumentDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -21,6 +21,19 @@ public class DBOptionsTest {
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
+
+  @Test
+  public void copyConstructor() {
+    DBOptions origOpts = new DBOptions();
+    origOpts.setCreateIfMissing(rand.nextBoolean());
+    origOpts.setAllow2pc(rand.nextBoolean());
+    origOpts.setBaseBackgroundCompactions(rand.nextInt(10));
+    DBOptions copyOpts = new DBOptions(origOpts);
+    assertThat(origOpts.createIfMissing()).isEqualTo(copyOpts.createIfMissing());
+    assertThat(origOpts.allow2pc()).isEqualTo(copyOpts.allow2pc());
+    assertThat(origOpts.baseBackgroundCompactions()).isEqualTo(
+            copyOpts.baseBackgroundCompactions());
+  }
 
   @Test
   public void getDBOptionsFromProps() {
@@ -237,6 +250,15 @@ public class DBOptionsTest {
       final int intValue = rand.nextInt();
       opt.setMaxBackgroundFlushes(intValue);
       assertThat(opt.maxBackgroundFlushes()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void maxBackgroundJobs() {
+    try (final DBOptions opt = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxBackgroundJobs(intValue);
+      assertThat(opt.maxBackgroundJobs()).isEqualTo(intValue);
     }
   }
 
@@ -622,16 +644,25 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void sstFileManager() throws RocksDBException {
+    try (final DBOptions options = new DBOptions();
+         final SstFileManager sstFileManager =
+             new SstFileManager(Env.getDefault())) {
+      options.setSstFileManager(sstFileManager);
+    }
+  }
+
+  @Test
   public void statistics() {
     try(final DBOptions options = new DBOptions()) {
-      Statistics statistics = options.createStatistics().
-          statisticsPtr();
-      assertThat(statistics).isNotNull();
+      final Statistics statistics = options.statistics();
+      assertThat(statistics).isNull();
+    }
 
-      try(final DBOptions anotherOptions = new DBOptions()) {
-        statistics = anotherOptions.statisticsPtr();
-        assertThat(statistics).isNotNull();
-      }
+    try(final Statistics statistics = new Statistics();
+        final DBOptions options = new DBOptions().setStatistics(statistics);
+        final Statistics stats = options.statistics()) {
+      assertThat(stats).isNotNull();
     }
   }
 }

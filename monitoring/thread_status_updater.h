@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // The implementation of ThreadStatus.
 //
@@ -218,8 +218,7 @@ class ThreadStatusUpdater {
   // globally instead of inside DB is to avoid the situation where DB is
   // closing while GetThreadList function already get the pointer to its
   // CopnstantColumnFamilyInfo.
-  std::unordered_map<
-      const void*, std::unique_ptr<ConstantColumnFamilyInfo>> cf_info_map_;
+  std::unordered_map<const void*, ConstantColumnFamilyInfo> cf_info_map_;
 
   // A db_key to cf_key map that allows erasing elements in cf_info_map
   // associated to the same db_key faster.

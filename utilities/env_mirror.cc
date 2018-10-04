@@ -1,7 +1,7 @@
 // Copyright (c) 2015, Red Hat, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-// An implementaiton of Env that mirrors all work over two backend
+// An implementation of Env that mirrors all work over two backend
 // Env's.  This is useful for debugging purposes.
 class SequentialFileMirror : public SequentialFile {
  public:
@@ -20,7 +20,7 @@ class SequentialFileMirror : public SequentialFile {
   std::string fname;
   explicit SequentialFileMirror(std::string f) : fname(f) {}
 
-  Status Read(size_t n, Slice* result, char* scratch) {
+  Status Read(size_t n, Slice* result, char* scratch) override {
     Slice aslice;
     Status as = a_->Read(n, &aslice, scratch);
     if (as == Status::OK()) {
@@ -44,13 +44,13 @@ class SequentialFileMirror : public SequentialFile {
     return as;
   }
 
-  Status Skip(uint64_t n) {
+  Status Skip(uint64_t n) override {
     Status as = a_->Skip(n);
     Status bs = b_->Skip(n);
     assert(as == bs);
     return as;
   }
-  Status InvalidateCache(size_t offset, size_t length) {
+  Status InvalidateCache(size_t offset, size_t length) override {
     Status as = a_->InvalidateCache(offset, length);
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);
@@ -64,7 +64,8 @@ class RandomAccessFileMirror : public RandomAccessFile {
   std::string fname;
   explicit RandomAccessFileMirror(std::string f) : fname(f) {}
 
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override {
     Status as = a_->Read(offset, n, result, scratch);
     if (as == Status::OK()) {
       char* bscratch = new char[n];
@@ -86,7 +87,7 @@ class RandomAccessFileMirror : public RandomAccessFile {
     return as;
   }
 
-  size_t GetUniqueId(char* id, size_t max_size) const {
+  size_t GetUniqueId(char* id, size_t max_size) const override {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);
   }

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -26,15 +24,26 @@
 #endif
 
 namespace rocksdb {
+static std::string IOErrorMsg(const std::string& context,
+                              const std::string& file_name) {
+  if (file_name.empty()) {
+    return context;
+  }
+  return context + ": " + file_name;
+}
 
-static Status IOError(const std::string& context, int err_number) {
+// file_name can be left empty if it is not unkown.
+static Status IOError(const std::string& context, const std::string& file_name,
+                      int err_number) {
   switch (err_number) {
   case ENOSPC:
-    return Status::NoSpace(context, strerror(err_number));
+    return Status::NoSpace(IOErrorMsg(context, file_name),
+                           strerror(err_number));
   case ESTALE:
     return Status::IOError(Status::kStaleFile);
   default:
-    return Status::IOError(context, strerror(err_number));
+    return Status::IOError(IOErrorMsg(context, file_name),
+                           strerror(err_number));
   }
 }
 
@@ -123,6 +132,7 @@ class PosixWritableFile : public WritableFile {
   virtual Status Fsync() override;
   virtual bool IsSyncThreadSafe() const override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
+  virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override;
   virtual uint64_t GetFileSize() override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
   virtual size_t GetRequiredBufferAlignment() const override {
@@ -192,7 +202,7 @@ class PosixMmapFile : public WritableFile {
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
-  virtual Status Truncate(uint64_t size) override { return Status::OK(); }
+  virtual Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
   virtual Status Close() override;
   virtual Status Append(const Slice& data) override;
   virtual Status Flush() override;
@@ -224,6 +234,12 @@ class PosixRandomRWFile : public RandomRWFile {
  private:
   const std::string filename_;
   int fd_;
+};
+
+struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
+  PosixMemoryMappedFileBuffer(void* _base, size_t _length)
+      : MemoryMappedFileBuffer(_base, _length) {}
+  virtual ~PosixMemoryMappedFileBuffer();
 };
 
 class PosixDirectory : public Directory {

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <memory>
 #include <string>
+#include "rocksdb/cache_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -32,6 +33,47 @@
 namespace rocksdb {
 
 class Cache;
+
+struct LRUCacheOptions {
+  // Capacity of the cache.
+  size_t capacity = 0;
+
+  // Cache is sharded into 2^num_shard_bits shards,
+  // by hash of key. Refer to NewLRUCache for further
+  // information.
+  int num_shard_bits = -1;
+
+  // If strict_capacity_limit is set,
+  // insert to the cache will fail when cache is full.
+  bool strict_capacity_limit = false;
+
+  // Percentage of cache reserved for high priority entries.
+  // If greater than zero, the LRU list will be split into a high-pri
+  // list and a low-pri list. High-pri entries will be insert to the
+  // tail of high-pri list, while low-pri entries will be first inserted to
+  // the low-pri list (the midpoint). This is refered to as
+  // midpoint insertion strategy to make entries never get hit in cache
+  // age out faster.
+  //
+  // See also
+  // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
+  double high_pri_pool_ratio = 0.0;
+
+  // If non-nullptr will use this allocator instead of system allocator when
+  // allocating memory for cache blocks. Call this method before you start using
+  // the cache!
+  std::shared_ptr<CacheAllocator> cache_allocator;
+
+  LRUCacheOptions() {}
+  LRUCacheOptions(size_t _capacity, int _num_shard_bits,
+                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
+                  std::shared_ptr<CacheAllocator> _cache_allocator = nullptr)
+      : capacity(_capacity),
+        num_shard_bits(_num_shard_bits),
+        strict_capacity_limit(_strict_capacity_limit),
+        high_pri_pool_ratio(_high_pri_pool_ratio),
+        cache_allocator(std::move(_cache_allocator)) {}
+};
 
 // Create a new cache with a fixed size capacity. The cache is sharded
 // to 2^num_shard_bits shards, by hash of the key. The total capacity
@@ -41,10 +83,12 @@ class Cache;
 // high_pri_pool_pct.
 // num_shard_bits = -1 means it is automatically determined: every shard
 // will be at least 512KB and number of shard bits will not exceed 6.
-extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
-                                          int num_shard_bits = -1,
-                                          bool strict_capacity_limit = false,
-                                          double high_pri_pool_ratio = 0.0);
+extern std::shared_ptr<Cache> NewLRUCache(
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
+    std::shared_ptr<CacheAllocator> cache_allocator = nullptr);
+
+extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
@@ -61,7 +105,8 @@ class Cache {
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache() {}
+  Cache(std::shared_ptr<CacheAllocator> allocator = nullptr)
+      : cache_allocator_(std::move(allocator)) {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -182,19 +227,24 @@ class Cache {
                                       bool thread_safe) = 0;
 
   // Remove all entries.
-  // Prerequisit: no entry is referenced.
+  // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
 
   virtual std::string GetPrintableOptions() const { return ""; }
 
   // Mark the last inserted object as being a raw data block. This will be used
   // in tests. The default implementation does nothing.
-  virtual void TEST_mark_as_data_block(const Slice& key, size_t charge) {}
+  virtual void TEST_mark_as_data_block(const Slice& /*key*/,
+                                       size_t /*charge*/) {}
+
+  CacheAllocator* cache_allocator() const { return cache_allocator_.get(); }
 
  private:
   // No copying allowed
   Cache(const Cache&);
   Cache& operator=(const Cache&);
+
+  std::shared_ptr<CacheAllocator> cache_allocator_;
 };
 
 }  // namespace rocksdb

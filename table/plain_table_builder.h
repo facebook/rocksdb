@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -34,7 +32,7 @@ class PlainTableBuilder: public TableBuilder {
   // will be part of level specified by 'level'.  A value of -1 means
   // that the caller does not know which level the output file will reside.
   PlainTableBuilder(
-      const ImmutableCFOptions& ioptions,
+      const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
@@ -81,6 +79,7 @@ class PlainTableBuilder: public TableBuilder {
  private:
   Arena arena_;
   const ImmutableCFOptions& ioptions_;
+  const MutableCFOptions& moptions_;
   std::vector<std::unique_ptr<IntTblPropCollector>>
       table_properties_collectors_;
 

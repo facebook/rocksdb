@@ -288,7 +288,7 @@ class RedisListIterator {
   /// Will throw an exception based on the passed-in message.
   /// This function is guaranteed to STOP THE CONTROL-FLOW.
   /// (i.e.: you do not have to call "return" after calling ThrowError)
-  void ThrowError(const char* const msg = NULL) {
+  void ThrowError(const char* const /*msg*/ = nullptr) {
     // TODO: For now we ignore the msg parameter. This can be expanded later.
     throw RedisListException();
   }

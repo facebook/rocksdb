@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -49,10 +49,7 @@
 #include "util/mutexlock.h"
 
 #include "util/string_util.h"
-// SyncPoint is not supported in Released Windows Mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/sync_point.h"
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
@@ -112,8 +109,6 @@ struct OptionsOverride {
   // These will be used only if filter_policy is set
   bool partition_filters = false;
   uint64_t metadata_block_size = 1024;
-  BlockBasedTableOptions::IndexType index_type =
-      BlockBasedTableOptions::IndexType::kBinarySearch;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
@@ -126,8 +121,8 @@ enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 // A hacky skip list mem table that triggers flush after number of entries.
 class SpecialMemTableRep : public MemTableRep {
  public:
-  explicit SpecialMemTableRep(MemTableAllocator* allocator,
-                              MemTableRep* memtable, int num_entries_flush)
+  explicit SpecialMemTableRep(Allocator* allocator, MemTableRep* memtable,
+                              int num_entries_flush)
       : MemTableRep(allocator),
         memtable_(memtable),
         num_entries_flush_(num_entries_flush),
@@ -140,8 +135,8 @@ class SpecialMemTableRep : public MemTableRep {
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
   virtual void Insert(KeyHandle handle) override {
-    memtable_->Insert(handle);
     num_entries_++;
+    memtable_->Insert(handle);
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
@@ -187,9 +182,10 @@ class SpecialSkipListFactory : public MemTableRepFactory {
   explicit SpecialSkipListFactory(int num_entries_flush)
       : num_entries_flush_(num_entries_flush) {}
 
+  using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
-      const SliceTransform* transform, Logger* logger) override {
+      const MemTableRep::KeyComparator& compare, Allocator* allocator,
+      const SliceTransform* transform, Logger* /*logger*/) override {
     return new SpecialMemTableRep(
         allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
         num_entries_flush_);
@@ -249,6 +245,13 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      Status RangeSync(uint64_t offset, uint64_t nbytes) override {
+        Status s = base_->RangeSync(offset, nbytes);
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::RangeSync", &s);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+        return s;
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -258,7 +261,11 @@ class SpecialEnv : public EnvWrapper {
         TEST_SYNC_POINT_CALLBACK("DBTestWritableFile.GetPreallocationStatus",
                                  &preallocation_size);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
-        return base_->Close();
+        Status s = base_->Close();
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Close", &s);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+        return s;
       }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
@@ -266,7 +273,11 @@ class SpecialEnv : public EnvWrapper {
         while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
-        return base_->Sync();
+        Status s = base_->Sync();
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Sync", &s);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+        return s;
       }
       void SetIOPriority(Env::IOPriority pri) override {
         base_->SetIOPriority(pri);
@@ -304,6 +315,9 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
 
      private:
       SpecialEnv* env_;
@@ -356,6 +370,9 @@ class SpecialEnv : public EnvWrapper {
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
+      }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
       }
 
      private:
@@ -432,11 +449,15 @@ class SpecialEnv : public EnvWrapper {
       r->reset(new CountingFile(std::move(*r), &random_read_counter_,
                                 &random_read_bytes_counter_));
     }
+    if (s.ok() && soptions.compaction_readahead_size > 0) {
+      compaction_readahead_size_ = soptions.compaction_readahead_size;
+    }
     return s;
   }
 
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
-                           const EnvOptions& soptions) override {
+  virtual Status NewSequentialFile(const std::string& f,
+                                   unique_ptr<SequentialFile>* r,
+                                   const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
       CountingFile(unique_ptr<SequentialFile>&& target,
@@ -557,6 +578,39 @@ class SpecialEnv : public EnvWrapper {
   bool no_slowdown_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
+
+  std::atomic<size_t> compaction_readahead_size_{};
+};
+
+class MockTimeEnv : public EnvWrapper {
+ public:
+  explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
+
+  virtual Status GetCurrentTime(int64_t* time) override {
+    assert(time != nullptr);
+    assert(current_time_ <=
+           static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
+    *time = static_cast<int64_t>(current_time_);
+    return Status::OK();
+  }
+
+  virtual uint64_t NowMicros() override {
+    assert(current_time_ <= std::numeric_limits<uint64_t>::max() / 1000000);
+    return current_time_ * 1000000;
+  }
+
+  virtual uint64_t NowNanos() override {
+    assert(current_time_ <= std::numeric_limits<uint64_t>::max() / 1000000000);
+    return current_time_ * 1000000000;
+  }
+
+  void set_current_time(uint64_t time) {
+    assert(time >= current_time_);
+    current_time_ = time;
+  }
+
+ private:
+  std::atomic<uint64_t> current_time_{0};
 };
 
 #ifndef ROCKSDB_LITE
@@ -586,10 +640,32 @@ class OnFileDeletionListener : public EventListener {
 };
 #endif
 
+// A test merge operator mimics put but also fails if one of merge operands is
+// "corrupted".
+class TestPutOperator : public MergeOperator {
+ public:
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    if (merge_in.existing_value != nullptr &&
+        *(merge_in.existing_value) == "corrupted") {
+      return false;
+    }
+    for (auto value : merge_in.operand_list) {
+      if (value == "corrupted") {
+        return false;
+      }
+    }
+    merge_out->existing_operand = merge_in.operand_list.back();
+    return true;
+  }
+
+  virtual const char* Name() const override { return "TestPutOperator"; }
+};
+
 class DBTestBase : public testing::Test {
- protected:
+ public:
   // Sequence of option configurations to try
-  enum OptionConfig {
+  enum OptionConfig : int {
     kDefault = 0,
     kBlockBasedTableWithPrefixHashIndex = 1,
     kBlockBasedTableWithWholeKeyHashIndex = 2,
@@ -620,24 +696,30 @@ class DBTestBase : public testing::Test {
     kRowCache = 27,
     kRecycleLogFiles = 28,
     kConcurrentSkipList = 29,
-    kEnd = 30,
-    kLevelSubcompactions = 31,
-    kUniversalSubcompactions = 32,
-    kBlockBasedTableWithIndexRestartInterval = 33,
-    kBlockBasedTableWithPartitionedIndex = 34,
-    kPartitionedFilterWithNewTableReaderForCompactions = 35,
+    kPipelinedWrite = 30,
+    kConcurrentWALWrites = 31,
+    kDirectIO,
+    kLevelSubcompactions,
+    kBlockBasedTableWithIndexRestartInterval,
+    kBlockBasedTableWithPartitionedIndex,
+    kBlockBasedTableWithPartitionedIndexFormat4,
+    kPartitionedFilterWithNewTableReaderForCompactions,
+    kUniversalSubcompactions,
+    // This must be the last line
+    kEnd,
   };
-  int option_config_;
 
  public:
   std::string dbname_;
   std::string alternative_wal_dir_;
   std::string alternative_db_log_dir_;
   MockEnv* mem_env_;
+  Env* encrypted_env_;
   SpecialEnv* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
 
+  int option_config_;
   Options last_options_;
 
   // Skip some options, as they may not be applicable to a specific test.
@@ -654,6 +736,13 @@ class DBTestBase : public testing::Test {
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
   };
+
+  const int kRangeDelSkipConfigs =
+      // Plain tables do not support range deletions.
+      kSkipPlainTable |
+      // MmapReads disables the iterator pinning that RangeDelAggregator
+      // requires.
+      kSkipMmapReads;
 
   explicit DBTestBase(const std::string path);
 
@@ -688,12 +777,19 @@ class DBTestBase : public testing::Test {
   bool ChangeFilterOptions();
 
   // Return the current option configuration.
-  Options CurrentOptions(
-      const anon::OptionsOverride& options_override = anon::OptionsOverride());
+  Options CurrentOptions(const anon::OptionsOverride& options_override =
+                             anon::OptionsOverride()) const;
 
-  Options CurrentOptions(
-      const Options& defaultOptions,
-      const anon::OptionsOverride& options_override = anon::OptionsOverride());
+  Options CurrentOptions(const Options& default_options,
+                         const anon::OptionsOverride& options_override =
+                             anon::OptionsOverride()) const;
+
+  static Options GetDefaultOptions();
+
+  Options GetOptions(int option_config,
+                     const Options& default_options = GetDefaultOptions(),
+                     const anon::OptionsOverride& options_override =
+                         anon::OptionsOverride()) const;
 
   DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
 
@@ -721,13 +817,15 @@ class DBTestBase : public testing::Test {
 
   void DestroyAndReopen(const Options& options);
 
-  void Destroy(const Options& options);
+  void Destroy(const Options& options, bool delete_cf_paths = false);
 
   Status ReadOnlyReopen(const Options& options);
 
   Status TryReopen(const Options& options);
 
   bool IsDirectIOSupported();
+
+  bool IsMemoryMappedAccessSupported() const;
 
   Status Flush(int cf = 0);
 
@@ -750,10 +848,14 @@ class DBTestBase : public testing::Test {
 
   Status SingleDelete(int cf, const std::string& k);
 
+  bool SetPreserveDeletesSequenceNumber(SequenceNumber sn);
+
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 
   std::string Get(int cf, const std::string& k,
                   const Snapshot* snapshot = nullptr);
+
+  Status Get(const std::string& k, PinnableSlice* v);
 
   uint64_t GetNumSnapshots();
 
@@ -775,13 +877,13 @@ class DBTestBase : public testing::Test {
   size_t TotalLiveFiles(int cf = 0);
 
   size_t CountLiveFiles();
-#endif  // ROCKSDB_LITE
 
   int NumTableFilesAtLevel(int level, int cf = 0);
 
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
+#endif  // ROCKSDB_LITE
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
@@ -809,11 +911,14 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
+#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
+#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 
-  void GetSstFiles(std::string path, std::vector<std::string>* files);
+  static void GetSstFiles(Env* env, std::string path,
+                          std::vector<std::string>* files);
 
   int GetSstFileCount(std::string path);
 

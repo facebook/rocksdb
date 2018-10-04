@@ -1,3 +1,4 @@
+# shellcheck disable=SC2148
 export USE_HDFS=1
 export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/amd64/server:$JAVA_HOME/jre/lib/amd64:/usr/lib/hadoop/lib/native
 

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
 #include "rocksdb/slice.h"
@@ -24,11 +22,10 @@ namespace { // anonymous namespace
 // From the client-perspective, semantics are the same.
 class PutOperator : public MergeOperator {
  public:
-  virtual bool FullMerge(const Slice& key,
-                         const Slice* existing_value,
+  virtual bool FullMerge(const Slice& /*key*/, const Slice* /*existing_value*/,
                          const std::deque<std::string>& operand_sequence,
                          std::string* new_value,
-                         Logger* logger) const override {
+                         Logger* /*logger*/) const override {
     // Put basically only looks at the current/latest value
     assert(!operand_sequence.empty());
     assert(new_value != nullptr);
@@ -36,20 +33,18 @@ class PutOperator : public MergeOperator {
     return true;
   }
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override {
+  virtual bool PartialMerge(const Slice& /*key*/, const Slice& /*left_operand*/,
+                            const Slice& right_operand, std::string* new_value,
+                            Logger* /*logger*/) const override {
     new_value->assign(right_operand.data(), right_operand.size());
     return true;
   }
 
   using MergeOperator::PartialMergeMulti;
-  virtual bool PartialMergeMulti(const Slice& key,
+  virtual bool PartialMergeMulti(const Slice& /*key*/,
                                  const std::deque<Slice>& operand_list,
-                                 std::string* new_value, Logger* logger) const
-      override {
+                                 std::string* new_value,
+                                 Logger* /*logger*/) const override {
     new_value->assign(operand_list.back().data(), operand_list.back().size());
     return true;
   }
@@ -60,10 +55,10 @@ class PutOperator : public MergeOperator {
 };
 
 class PutOperatorV2 : public PutOperator {
-  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
-                         const std::deque<std::string>& operand_sequence,
-                         std::string* new_value,
-                         Logger* logger) const override {
+  virtual bool FullMerge(const Slice& /*key*/, const Slice* /*existing_value*/,
+                         const std::deque<std::string>& /*operand_sequence*/,
+                         std::string* /*new_value*/,
+                         Logger* /*logger*/) const override {
     assert(false);
     return false;
   }

@@ -4,8 +4,8 @@
 #pragma once
 
 #include <stdint.h>
-#include <string>
 #include <map>
+#include <string>
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -15,7 +15,7 @@ namespace rocksdb {
 // Other than basic table properties, each table may also have the user
 // collected properties.
 // The value of the user-collected properties are encoded as raw bytes --
-// users have to interprete these values by themselves.
+// users have to interpret these values by themselves.
 // Note: To do prefix seek/scan in `UserCollectedProperties`, you can do
 // something similar to:
 //
@@ -31,11 +31,16 @@ typedef std::map<std::string, std::string> UserCollectedProperties;
 struct TablePropertiesNames {
   static const std::string kDataSize;
   static const std::string kIndexSize;
+  static const std::string kIndexPartitions;
+  static const std::string kTopLevelIndexSize;
+  static const std::string kIndexKeyIsUserKey;
+  static const std::string kIndexValueIsDeltaEncoded;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
   static const std::string kNumEntries;
+  static const std::string kNumRangeDeletions;
   static const std::string kFormatVersion;
   static const std::string kFixedKeyLen;
   static const std::string kFilterPolicy;
@@ -46,24 +51,18 @@ struct TablePropertiesNames {
   static const std::string kPrefixExtractorName;
   static const std::string kPropertyCollectors;
   static const std::string kCompression;
+  static const std::string kCreationTime;
+  static const std::string kOldestKeyTime;
 };
 
 extern const std::string kPropertiesBlock;
 extern const std::string kCompressionDictBlock;
 extern const std::string kRangeDelBlock;
 
-enum EntryType {
-  kEntryPut,
-  kEntryDelete,
-  kEntrySingleDelete,
-  kEntryMerge,
-  kEntryOther,
-};
-
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
 // a collection of callback functions that will be invoked during table
-// building. It is construced with TablePropertiesCollectorFactory. The methods
+// building. It is constructed with TablePropertiesCollectorFactory. The methods
 // don't need to be thread-safe, as we will create exactly one
 // TablePropertiesCollector object per table and then call it sequentially
 class TablePropertiesCollector {
@@ -134,6 +133,15 @@ struct TableProperties {
   uint64_t data_size = 0;
   // the size of index block.
   uint64_t index_size = 0;
+  // Total number of index partitions if kTwoLevelIndexSearch is used
+  uint64_t index_partitions = 0;
+  // Size of the top-level index if kTwoLevelIndexSearch is used
+  uint64_t top_level_index_size = 0;
+  // Whether the index key is user key. Otherwise it includes 8 byte of sequence
+  // number added by internal key format.
+  uint64_t index_key_is_user_key = 0;
+  // Whether delta encoding is used to encode the index values.
+  uint64_t index_value_is_delta_encoded = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw key size
@@ -144,6 +152,8 @@ struct TableProperties {
   uint64_t num_data_blocks = 0;
   // the number of entries in this table
   uint64_t num_entries = 0;
+  // the number of range deletions in this table
+  uint64_t num_range_deletions = 0;
   // format version, reserved for backward compatibility
   uint64_t format_version = 0;
   // If 0, key is variable length. Otherwise number of bytes for each key.
@@ -152,6 +162,11 @@ struct TableProperties {
   // by column_family_name.
   uint64_t column_family_id =
       rocksdb::TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  // The time when the SST file was created.
+  // Since SST files are immutable, this is equivalent to last modified time.
+  uint64_t creation_time = 0;
+  // Timestamp of the earliest key. 0 means unknown.
+  uint64_t oldest_key_time = 0;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.

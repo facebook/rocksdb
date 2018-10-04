@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -87,6 +85,7 @@ namespace rocksdb {
 namespace port {
 
 // For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
 const int kMaxInt32 = std::numeric_limits<int32_t>::max();
 const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
 const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
@@ -186,8 +185,21 @@ typedef pthread_once_t OnceType;
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
-#define CACHE_LINE_SIZE 64U
+  #if defined(__s390__)
+    #define CACHE_LINE_SIZE 256U
+  #elif defined(__powerpc__) || defined(__aarch64__)
+    #define CACHE_LINE_SIZE 128U
+  #else
+    #define CACHE_LINE_SIZE 64U
+  #endif
 #endif
+
+
+extern void *cacheline_aligned_alloc(size_t size);
+
+extern void cacheline_aligned_free(void *memblock);
+
+#define ALIGN_AS(n) alignas(n)
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 

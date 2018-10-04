@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "dynamic_bloom.h"
 
@@ -44,7 +44,8 @@ DynamicBloom::DynamicBloom(uint32_t num_probes,
     : kTotalBits(0),
       kNumBlocks(0),
       kNumProbes(num_probes),
-      hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {}
+      hash_func_(hash_func == nullptr ? &BloomHash : hash_func),
+      data_(nullptr) {}
 
 void DynamicBloom::SetRawData(unsigned char* raw_data, uint32_t total_bits,
                               uint32_t num_blocks) {

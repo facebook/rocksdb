@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -36,27 +36,38 @@ class TransactionBaseImpl : public Transaction {
 
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
-  // untracked will be true if called from PutUntracked, DeleteUntracked, or
+  // skip_validate will be true if called from PutUntracked, DeleteUntracked, or
   // MergeUntracked.
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                          bool read_only, bool exclusive,
-                         bool untracked = false) = 0;
+                         bool skip_validate = false) = 0;
 
   void SetSavePoint() override;
 
   Status RollbackToSavePoint() override;
+  
+  Status PopSavePoint() override;
 
+  using Transaction::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, std::string* value) override;
+
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value) override;
 
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 
+  using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       std::string* value, bool exclusive) override;
+
+  Status GetForUpdate(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      PinnableSlice* pinnable_val, bool exclusive) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
                       std::string* value, bool exclusive) override {
@@ -161,18 +172,24 @@ class TransactionBaseImpl : public Transaction {
     return DeleteUntracked(nullptr, key);
   }
 
+  Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                               const Slice& key) override;
+  Status SingleDeleteUntracked(const Slice& key) override {
+    return SingleDeleteUntracked(nullptr, key);
+  }
+
   void PutLogData(const Slice& blob) override;
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  virtual void SetLockTimeout(int64_t timeout) override { /* Do nothing */
+  virtual void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
   }
 
   const Snapshot* GetSnapshot() const override {
     return snapshot_ ? snapshot_.get() : nullptr;
   }
 
-  void SetSnapshot() override;
+  virtual void SetSnapshot() override;
   void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) override;
 
@@ -217,7 +234,7 @@ class TransactionBaseImpl : public Transaction {
 
   // iterates over the given batch and makes the appropriate inserts.
   // used for rebuilding prepared transactions after recovery.
-  Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 
@@ -288,7 +305,9 @@ class TransactionBaseImpl : public Transaction {
   WriteBatchWithIndex write_batch_;
 
  private:
-  // batch to be written at commit time
+  friend class WritePreparedTxn;
+  // Extra data to be persisted with the commit. Note this is only used when
+  // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
 
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
@@ -297,8 +316,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Map from column_family_id to map of keys that are involved in this
   // transaction.
-  // Pessimistic Transactions will do conflict checking before adding a key
-  // by calling TrackKey().
+  // For Pessimistic Transactions this is the list of locked keys.
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
@@ -317,10 +335,9 @@ class TransactionBaseImpl : public Transaction {
   std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
 
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
-                 bool read_only, bool exclusive, bool untracked = false);
+                 bool read_only, bool exclusive, bool skip_validate = false);
 
   WriteBatchBase* GetBatchForWrite();
-
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 

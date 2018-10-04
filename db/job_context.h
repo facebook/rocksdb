@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -15,27 +13,119 @@
 #include <vector>
 
 #include "db/log_writer.h"
+#include "db/column_family.h"
 
 namespace rocksdb {
 
 class MemTable;
+struct SuperVersion;
+
+struct SuperVersionContext {
+  struct WriteStallNotification {
+    WriteStallInfo write_stall_info;
+    const ImmutableCFOptions* immutable_cf_options;
+  };
+
+  autovector<SuperVersion*> superversions_to_free;
+#ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
+  autovector<WriteStallNotification> write_stall_notifications;
+#endif
+  unique_ptr<SuperVersion> new_superversion;  // if nullptr no new superversion
+
+  explicit SuperVersionContext(bool create_superversion = false)
+    : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
+
+  explicit SuperVersionContext(SuperVersionContext&& other)
+      : superversions_to_free(std::move(other.superversions_to_free)),
+#ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
+        write_stall_notifications(std::move(other.write_stall_notifications)),
+#endif
+        new_superversion(std::move(other.new_superversion)) {
+  }
+
+  void NewSuperVersion() {
+    new_superversion = unique_ptr<SuperVersion>(new SuperVersion());
+  }
+
+  inline bool HaveSomethingToDelete() const {
+#ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
+    return !superversions_to_free.empty() ||
+           !write_stall_notifications.empty();
+#else
+    return !superversions_to_free.empty();
+#endif
+  }
+
+  void PushWriteStallNotification(
+      WriteStallCondition old_cond, WriteStallCondition new_cond,
+      const std::string& name, const ImmutableCFOptions* ioptions) {
+#if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+    WriteStallNotification notif;
+    notif.write_stall_info.cf_name = name;
+    notif.write_stall_info.condition.prev = old_cond;
+    notif.write_stall_info.condition.cur = new_cond;
+    notif.immutable_cf_options = ioptions;
+    write_stall_notifications.push_back(notif);
+#else
+    (void)old_cond;
+    (void)new_cond;
+    (void)name;
+    (void)ioptions;
+#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+  }
+
+  void Clean() {
+#if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+    // notify listeners on changed write stall conditions
+    for (auto& notif : write_stall_notifications) {
+      for (auto& listener : notif.immutable_cf_options->listeners) {
+        listener->OnStallConditionsChanged(notif.write_stall_info);
+      }
+    }
+    write_stall_notifications.clear();
+#endif  // !ROCKSDB_LITE
+    // free superversions
+    for (auto s : superversions_to_free) {
+      delete s;
+    }
+    superversions_to_free.clear();
+  }
+
+  ~SuperVersionContext() {
+#ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
+    assert(write_stall_notifications.empty());
+#endif
+    assert(superversions_to_free.empty());
+  }
+};
 
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
     return full_scan_candidate_files.size() || sst_delete_files.size() ||
-           log_delete_files.size() || manifest_delete_files.size() ||
-           new_superversion != nullptr || superversions_to_free.size() > 0 ||
-           memtables_to_free.size() > 0 || logs_to_free.size() > 0;
+           log_delete_files.size() || manifest_delete_files.size();
+  }
+
+  inline bool HaveSomethingToClean() const {
+    bool sv_have_sth = false;
+    for (const auto& sv_ctx : superversion_contexts) {
+      if (sv_ctx.HaveSomethingToDelete()) {
+        sv_have_sth = true;
+        break;
+      }
+    }
+    return memtables_to_free.size() > 0 || logs_to_free.size() > 0 ||
+           sv_have_sth;
   }
 
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
     std::string file_name;
-    uint32_t path_id;
-    CandidateFileInfo(std::string name, uint32_t path)
-        : file_name(std::move(name)), path_id(path) {}
+    std::string file_path;
+    CandidateFileInfo(std::string name, std::string path)
+        : file_name(std::move(name)), file_path(std::move(path)) {}
     bool operator==(const CandidateFileInfo& other) const {
-      return file_name == other.file_name && path_id == other.path_id;
+      return file_name == other.file_name &&
+             file_path == other.file_path;
     }
   };
 
@@ -52,7 +142,7 @@ struct JobContext {
   std::vector<FileDescriptor> sst_live;
 
   // a list of sst files that we need to delete
-  std::vector<FileMetaData*> sst_delete_files;
+  std::vector<ObsoleteFileInfo> sst_delete_files;
 
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;
@@ -67,11 +157,10 @@ struct JobContext {
   // a list of memtables to be free
   autovector<MemTable*> memtables_to_free;
 
-  autovector<SuperVersion*> superversions_to_free;
+  // contexts for installing superversions for multiple column families
+  std::vector<SuperVersionContext> superversion_contexts;
 
   autovector<log::Writer*> logs_to_free;
-
-  SuperVersion* new_superversion;  // if nullptr no new superversion
 
   // the current manifest_file_number, log_number and prev_log_number
   // that corresponds to the set of files in 'live'.
@@ -91,7 +180,8 @@ struct JobContext {
     pending_manifest_file_number = 0;
     log_number = 0;
     prev_log_number = 0;
-    new_superversion = create_superversion ? new SuperVersion() : nullptr;
+    superversion_contexts.emplace_back(
+        SuperVersionContext(create_superversion));
   }
 
   // For non-empty JobContext Clean() has to be called at least once before
@@ -99,31 +189,24 @@ struct JobContext {
   // unlocked DB mutex. Destructor doesn't call Clean() to avoid accidentally
   // doing potentially slow Clean() with locked DB mutex.
   void Clean() {
+    // free superversions
+    for (auto& sv_context : superversion_contexts) {
+      sv_context.Clean();
+    }
     // free pending memtables
     for (auto m : memtables_to_free) {
       delete m;
     }
-    // free superversions
-    for (auto s : superversions_to_free) {
-      delete s;
-    }
     for (auto l : logs_to_free) {
       delete l;
     }
-    // if new_superversion was not used, it will be non-nullptr and needs
-    // to be freed here
-    delete new_superversion;
 
     memtables_to_free.clear();
-    superversions_to_free.clear();
     logs_to_free.clear();
-    new_superversion = nullptr;
   }
 
   ~JobContext() {
     assert(memtables_to_free.size() == 0);
-    assert(superversions_to_free.size() == 0);
-    assert(new_superversion == nullptr);
     assert(logs_to_free.size() == 0);
   }
 };

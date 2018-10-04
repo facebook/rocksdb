@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -26,6 +24,7 @@
 #endif
 
 #include <atomic>
+#include "env/io_posix.h"
 #include "monitoring/iostats_context_imp.h"
 #include "rocksdb/env.h"
 #include "util/sync_point.h"
@@ -34,6 +33,15 @@ namespace rocksdb {
 
 class PosixLogger : public Logger {
  private:
+  Status PosixCloseHelper() {
+    int ret;
+
+    ret = fclose(file_);
+    if (ret) {
+      return IOError("Unable to close log file", "", ret);
+    }
+    return Status::OK();
+  }
   FILE* file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
   std::atomic_size_t log_size_;
@@ -42,6 +50,10 @@ class PosixLogger : public Logger {
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
   std::atomic<bool> flush_pending_;
+
+ protected:
+  virtual Status CloseImpl() override { return PosixCloseHelper(); }
+
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env,
               const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
@@ -54,7 +66,10 @@ class PosixLogger : public Logger {
         env_(env),
         flush_pending_(false) {}
   virtual ~PosixLogger() {
-    fclose(file_);
+    if (!closed_) {
+      closed_ = true;
+      PosixCloseHelper();
+    }
   }
   virtual void Flush() override {
     TEST_SYNC_POINT("PosixLogger::Flush:Begin1");
@@ -150,7 +165,6 @@ class PosixLogger : public Logger {
 
       size_t sz = fwrite(base, 1, write_size, file_);
       flush_pending_ = true;
-      assert(sz == write_size);
       if (sz > 0) {
         log_size_ += write_size;
       }

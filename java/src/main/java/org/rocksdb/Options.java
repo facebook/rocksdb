@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -49,6 +49,27 @@ public class Options extends RocksObject
     super(newOptions(dbOptions.nativeHandle_,
         columnFamilyOptions.nativeHandle_));
     env_ = Env.getDefault();
+  }
+
+  /**
+   * Copy constructor for ColumnFamilyOptions.
+   *
+   * NOTE: This does a shallow copy, which means comparator, merge_operator
+   * and other pointers will be cloned!
+   *
+   * @param other The Options to copy.
+   */
+  public Options(Options other) {
+    super(copyOptions(other.nativeHandle_));
+    this.env_ = other.env_;
+    this.memTableConfig_ = other.memTableConfig_;
+    this.tableFormatConfig_ = other.tableFormatConfig_;
+    this.rateLimiter_ = other.rateLimiter_;
+    this.comparator_ = other.comparator_;
+    this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
+    this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
+    this.compressionOptions_ = other.compressionOptions_;
+    this.rowCache_ = other.rowCache_;
   }
 
   @Override
@@ -169,7 +190,8 @@ public class Options extends RocksObject
   public Options setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert(isOwningHandle());
-    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
+    setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
+            comparator.getComparatorType().getValue());
     comparator_ = comparator;
     return this;
   }
@@ -379,23 +401,21 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options createStatistics() {
+  public Options setStatistics(final Statistics statistics) {
     assert(isOwningHandle());
-    createStatistics(nativeHandle_);
+    setStatistics(nativeHandle_, statistics.nativeHandle_);
     return this;
   }
 
   @Override
-  public Statistics statisticsPtr() {
+  public Statistics statistics() {
     assert(isOwningHandle());
-
-    long statsPtr = statisticsPtr(nativeHandle_);
-    if(statsPtr == 0) {
-      createStatistics();
-      statsPtr = statisticsPtr(nativeHandle_);
+    final long statisticsNativeHandle = statistics(nativeHandle_);
+    if(statisticsNativeHandle == 0) {
+      return null;
+    } else {
+      return new Statistics(statisticsNativeHandle);
     }
-
-    return new Statistics(statsPtr);
   }
 
   @Override
@@ -442,6 +462,19 @@ public class Options extends RocksObject
       final int maxBackgroundFlushes) {
     assert(isOwningHandle());
     setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
+    return this;
+  }
+
+  @Override
+  public int maxBackgroundJobs() {
+    assert(isOwningHandle());
+    return maxBackgroundJobs(nativeHandle_);
+  }
+
+  @Override
+  public Options setMaxBackgroundJobs(final int maxBackgroundJobs) {
+    assert(isOwningHandle());
+    setMaxBackgroundJobs(nativeHandle_, maxBackgroundJobs);
     return this;
   }
 
@@ -1000,6 +1033,13 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setSstFileManager(final SstFileManager sstFileManager) {
+    assert(isOwningHandle());
+    setSstFileManager(nativeHandle_, sstFileManager.nativeHandle_);
+    return this;
+  }
+
+  @Override
   public Options setLogger(final Logger logger) {
     assert(isOwningHandle());
     setLogger(nativeHandle_, logger.nativeHandle_);
@@ -1536,6 +1576,7 @@ public class Options extends RocksObject
   private native static long newOptions();
   private native static long newOptions(long dbOptHandle,
       long cfOptHandle);
+  private native static long copyOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
   private native void setEnv(long optHandle, long envHandle);
   private native void prepareForBulkLoad(long handle);
@@ -1554,6 +1595,8 @@ public class Options extends RocksObject
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setSstFileManager(final long handle,
+      final long sstFileManagerHandle);
   private native void setLogger(long handle,
       long loggerHandle);
   private native void setInfoLogLevel(long handle, byte logLevel);
@@ -1566,8 +1609,8 @@ public class Options extends RocksObject
       final int maxFileOpeningThreads);
   private native int maxFileOpeningThreads(final long handle);
   private native long maxTotalWalSize(long handle);
-  private native void createStatistics(long optHandle);
-  private native long statisticsPtr(long optHandle);
+  private native void setStatistics(final long handle, final long statisticsHandle);
+  private native long statistics(final long handle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
   private native void setDbPaths(final long handle, final String[] paths,
@@ -1593,6 +1636,8 @@ public class Options extends RocksObject
   private native void setMaxBackgroundFlushes(
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
+  private native void setMaxBackgroundJobs(long handle, int maxMaxBackgroundJobs);
+  private native int maxBackgroundJobs(long handle);
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
       throws IllegalArgumentException;
   private native long maxLogFileSize(long handle);
@@ -1720,7 +1765,7 @@ public class Options extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle);
+      long comparatorHandle, byte comparatorType);
   private native void setMergeOperatorName(
       long handle, String name);
   private native void setMergeOperator(
@@ -1854,6 +1899,7 @@ public class Options extends RocksObject
   private native boolean forceConsistencyChecks(final long handle);
 
   // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
   private Env env_;
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;

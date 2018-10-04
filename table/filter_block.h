@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -53,6 +51,7 @@ class FilterBlockBuilder {
   virtual bool IsBlockBased() = 0;                    // If is blockbased filter
   virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
   virtual void Add(const Slice& key) = 0;      // Add a key to current filter
+  virtual size_t NumAdded() const = 0;         // Number of keys added
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
@@ -94,29 +93,45 @@ class FilterBlockReader {
    * built upon InternalKey and must be provided via const_ikey_ptr when running
    * queries.
    */
-  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
+  virtual bool KeyMayMatch(const Slice& key,
+                           const SliceTransform* prefix_extractor,
+                           uint64_t block_offset = kNotValid,
                            const bool no_io = false,
                            const Slice* const const_ikey_ptr = nullptr) = 0;
+
   /**
    * no_io and const_ikey_ptr here means the same as in KeyMayMatch
    */
   virtual bool PrefixMayMatch(const Slice& prefix,
+                              const SliceTransform* prefix_extractor,
                               uint64_t block_offset = kNotValid,
                               const bool no_io = false,
                               const Slice* const const_ikey_ptr = nullptr) = 0;
+
   virtual size_t ApproximateMemoryUsage() const = 0;
   virtual size_t size() const { return size_; }
   virtual Statistics* statistics() const { return statistics_; }
 
   bool whole_key_filtering() const { return whole_key_filtering_; }
 
-  int GetLevel() const { return level_; }
-  void SetLevel(int level) { level_ = level; }
-
   // convert this object to a human readable form
   virtual std::string ToString() const {
     std::string error_msg("Unsupported filter \n");
     return error_msg;
+  }
+
+  virtual void CacheDependencies(bool /*pin*/,
+                                 const SliceTransform* /*prefix_extractor*/) {}
+
+  virtual bool RangeMayExist(
+      const Slice* /*iterate_upper_bound*/, const Slice& user_key,
+      const SliceTransform* prefix_extractor,
+      const Comparator* /*comparator*/, const Slice* const const_ikey_ptr,
+      bool* filter_checked, bool /*need_upper_bound_check*/) {
+    *filter_checked = true;
+    Slice prefix = prefix_extractor->Transform(user_key);
+    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
+                          const_ikey_ptr);
   }
 
  protected:

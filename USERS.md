@@ -5,12 +5,15 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 1. MyRocks -- https://github.com/MySQLOnRocksDB/mysql-5.6
 2. MongoRocks -- https://github.com/mongodb-partners/mongo-rocks
-3. ZippyDB --  Facebook's distributed key-value store with Paxos-style replication, built on top of RocksDB.[*] https://www.youtube.com/watch?v=DfiN7pG0D0khtt
-4. Laser -- Laser is a high query throughput, low (millisecond) latency, key-value storage service built on top of RocksDB.[*]
+3. ZippyDB --  Facebook's distributed key-value store with Paxos-style replication, built on top of RocksDB.[1] https://www.youtube.com/watch?v=DfiN7pG0D0khtt
+4. Laser -- Laser is a high query throughput, low (millisecond) latency, key-value storage service built on top of RocksDB.[1]
 4. Dragon -- a distributed graph query engine. https://code.facebook.com/posts/1737605303120405/dragon-a-distributed-graph-query-engine/
-5. Stylus -- a low-level stream processing framework writtenin C++.[*]
+5. Stylus -- a low-level stream processing framework writtenin C++.[1]
+6. LogDevice -- a distributed data store for logs [2]
 
-[*] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+[1] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+
+[2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
 ## LinkedIn
 Two different use cases at Linkedin are using RocksDB as a storage engine:
@@ -24,7 +27,7 @@ Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasu
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
 
 ## CockroachDB
-CockroachDB is an open-source geo-replicated transactional database (still in development). They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
+CockroachDB is an open-source geo-replicated transactional database. They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
 
 ## DNANexus
 DNANexus is using RocksDB to speed up processing of genomics data.
@@ -76,7 +79,16 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 [Dgraph](https://github.com/dgraph-io/dgraph) is an open-source, scalable, distributed, low latency, high throughput Graph database .They use RocksDB to store state locally on a machine.
 
 ## Uber
-[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and and scalable task queue.
+[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and scalable task queue.
 
 ## 360 Pika
 [360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been widely used in many company
+
+## LzLabs
+LzLabs is using RocksDB as a storage engine in their multi-database distributed framework to store application configuration and user data.
+
+## ProfaneDB
+[ProfaneDB](https://profanedb.gitlab.io/) is a database for Protocol Buffers, and uses RocksDB for storage. It is accessible via gRPC, and the schema is defined using directly `.proto` files.
+
+## IOTA Foundation
+ [IOTA Foundation](https://www.iota.org/) is using RocksDB in the [IOTA Reference Implementation (IRI)](https://github.com/iotaledger/iri) to store the local state of the Tangle. The Tangle is the first open-source distributed ledger powering the future of the Internet of Things.

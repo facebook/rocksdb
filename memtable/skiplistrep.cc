@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #include "memtable/inlineskiplist.h"
 #include "db/memtable.h"
@@ -20,16 +18,18 @@ class SkipListRep : public MemTableRep {
 
   friend class LookaheadIterator;
 public:
-  explicit SkipListRep(const MemTableRep::KeyComparator& compare,
-                       MemTableAllocator* allocator,
-                       const SliceTransform* transform, const size_t lookahead)
-    : MemTableRep(allocator), skip_list_(compare, allocator), cmp_(compare),
-      transform_(transform), lookahead_(lookahead) {
-  }
+ explicit SkipListRep(const MemTableRep::KeyComparator& compare,
+                      Allocator* allocator, const SliceTransform* transform,
+                      const size_t lookahead)
+     : MemTableRep(allocator),
+       skip_list_(compare, allocator),
+       cmp_(compare),
+       transform_(transform),
+       lookahead_(lookahead) {}
 
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
-    *buf = skip_list_.AllocateKey(len);
-    return static_cast<KeyHandle>(*buf);
+ virtual KeyHandle Allocate(const size_t len, char** buf) override {
+   *buf = skip_list_.AllocateKey(len);
+   return static_cast<KeyHandle>(*buf);
   }
 
   // Insert key into the list.
@@ -38,12 +38,24 @@ public:
     skip_list_.Insert(static_cast<char*>(handle));
   }
 
+  virtual bool InsertKey(KeyHandle handle) override {
+    return skip_list_.Insert(static_cast<char*>(handle));
+  }
+
   virtual void InsertWithHint(KeyHandle handle, void** hint) override {
     skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
+  virtual bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
+    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+  }
+
   virtual void InsertConcurrently(KeyHandle handle) override {
     skip_list_.InsertConcurrently(static_cast<char*>(handle));
+  }
+
+  virtual bool InsertKeyConcurrently(KeyHandle handle) override {
+    return skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
@@ -269,8 +281,8 @@ public:
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
+    const SliceTransform* transform, Logger* /*logger*/) {
   return new SkipListRep(compare, allocator, transform, lookahead_);
 }
 

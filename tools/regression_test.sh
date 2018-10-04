@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # The RocksDB regression test script.
 # REQUIREMENT: must be able to run make db_bench in the current directory
 #
@@ -85,6 +85,10 @@
 #       db_bench.  Default: 4.
 #   MAX_BACKGROUND_COMPACTIONS:  The maximum number of concurrent compactions
 #       in db_bench.  Default: 16.
+#   NUM_HIGH_PRI_THREADS:  The number of high-pri threads available for
+#       concurrent flushes in db_bench.  Default: 4.
+#   NUM_LOW_PRI_THREADS:  The number of low-pri threads available for
+#       concurrent compactions in db_bench.  Default: 16.
 #   SEEK_NEXTS:  Controls how many Next() will be called after seek.
 #       Default: 10.
 #   SEED:  random seed that controls the randomness of the benchmark.
@@ -113,27 +117,20 @@ PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
 #==============================================================================
 
 function main {
-  commit=${1:-"origin/master"}
-  test_root_dir=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
-  init_arguments $test_root_dir
+  TEST_ROOT_DIR=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
+  init_arguments $TEST_ROOT_DIR
 
-  if [ $DEBUG -eq 0 ]; then
-      checkout_rocksdb $commit
-      build_db_bench_and_ldb
-  elif [[ ! -f db_bench ]] || [[ ! -f ldb ]]; then
-      build_db_bench_and_ldb
-  fi
+  build_db_bench_and_ldb
 
   setup_test_directory
   if [ $TEST_MODE -le 1 ]; then
       tmp=$DB_PATH
       DB_PATH=$ORIGIN_PATH
       test_remote "test -d $DB_PATH"
-      if [[ $? -ne 0 ]] || [[ $(run_remote 'date +%u') -eq 7 &&
-      $(run_remote 'echo $(( $(date +"%s") - $(stat -c "%Y" '"$DB_PATH"') ))') -gt "86400" ]]; then
-          run_remote "rm -rf $DB_PATH"
+      if [[ $? -ne 0 ]]; then
           echo "Building DB..."
-          run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
+          # compactall alone will not print ops or threads, which will fail update_report
+          run_db_bench "fillseq,compactall" $NUM_KEYS 1 0 0
       fi
       DB_PATH=$tmp
   fi
@@ -146,7 +143,7 @@ function main {
       run_db_bench "seekrandomwhilewriting"
   fi
 
-  cleanup_test_directory $test_root_dir
+  cleanup_test_directory $TEST_ROOT_DIR
   echo ""
   echo "Benchmark completed!  Results are available in $RESULT_PATH"
 }
@@ -189,6 +186,8 @@ function init_arguments {
   STATS_INTERVAL_SECONDS=${STATS_INTERVAL_SECONDS:-600}
   MAX_BACKGROUND_FLUSHES=${MAX_BACKGROUND_FLUSHES:-4}
   MAX_BACKGROUND_COMPACTIONS=${MAX_BACKGROUND_COMPACTIONS:-16}
+  NUM_HIGH_PRI_THREADS=${NUM_HIGH_PRI_THREADS:-4}
+  NUM_LOW_PRI_THREADS=${NUM_LOW_PRI_THREADS:-16}
   DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
   SEED=${SEED:-$( date +%s )}
@@ -198,13 +197,15 @@ function init_arguments {
 # $2 --- number of operations.  Default: $NUM_KEYS
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
+# $5 --- update_report. Default: 1
 function run_db_bench {
   # this will terminate all currently-running db_bench
   find_db_bench_cmd="ps aux | grep db_bench | grep -v grep | grep -v aux | awk '{print \$2}'"
 
-  USE_EXISTING_DB=${4:-1}
   ops=${2:-$NUM_OPS}
   threads=${3:-$NUM_THREADS}
+  USE_EXISTING_DB=${4:-1}
+  UPDATE_REPORT=${5:-1}
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -236,6 +237,8 @@ function run_db_bench {
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
       --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
+      --num_high_pri_threads=$NUM_HIGH_PRI_THREADS \
+      --num_low_pri_threads=$NUM_LOW_PRI_THREADS \
       --seed=$SEED) 2>&1"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
@@ -257,6 +260,8 @@ function run_db_bench {
   if [ "$grep_output" != "" ]; then
     echo "Stopped regression_test.sh as there're still db_bench processes running:"
     echo $grep_output
+    echo "Clean up test directory"
+    cleanup_test_directory $TEST_ROOT_DIR
     exit 2
   fi
 
@@ -266,8 +271,9 @@ function run_db_bench {
   echo $cmd
   eval $cmd
   exit_on_error $db_bench_error
-
-  update_report "$1" "$RESULT_PATH/$1" $ops $threads
+  if [ $UPDATE_REPORT -ne 0 ]; then
+    update_report "$1" "$RESULT_PATH/$1" $ops $threads
+  fi
 }
 
 function build_checkpoint {
@@ -275,13 +281,21 @@ function build_checkpoint {
     if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
         cmd_prefix="$SSH $REMOTE_USER_AT_HOST "
     fi
-    dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
-    for dir in $dirs; do
-        db_index=$(basename $dir)
-        echo "Building checkpoint: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
-        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
-                      --db=$ORIGIN_PATH/$db_index 2>&1
-    done
+    if [ $NUM_MULTI_DB -gt 1 ]; then
+        dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
+        for dir in $dirs; do
+            db_index=$(basename $dir)
+            echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
+            $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
+                        --db=$ORIGIN_PATH/$db_index 2>&1
+        done
+    else
+        # checkpoint cannot build in directory already exists
+        $cmd_prefix rm -rf $DB_PATH
+        echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
+        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
+                    --db=$ORIGIN_PATH 2>&1
+    fi
 }
 
 function multiply {
@@ -362,7 +376,7 @@ function build_db_bench_and_ldb {
   make clean
   exit_on_error $?
 
-  DEBUG_LEVEL=0 make db_bench ldb -j32
+  DEBUG_LEVEL=0 PORTABLE=1 make db_bench ldb -j32
   exit_on_error $?
 }
 
@@ -451,4 +465,5 @@ function cleanup_test_directory {
 
 ############################################################################
 
+# shellcheck disable=SC2068
 main $@

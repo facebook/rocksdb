@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -27,7 +25,6 @@ namespace rocksdb {
 
 class Arena;
 class TableReader;
-class InternalIterator;
 
 class CuckooTableReader: public TableReader {
  public:
@@ -44,20 +41,22 @@ class CuckooTableReader: public TableReader {
 
   Status status() const { return status_; }
 
-  Status Get(const ReadOptions& read_options, const Slice& key,
-             GetContext* get_context, bool skip_filters = false) override;
+  Status Get(const ReadOptions& readOptions, const Slice& key,
+             GetContext* get_context, const SliceTransform* prefix_extractor,
+             bool skip_filters = false) override;
 
-  InternalIterator* NewIterator(
-      const ReadOptions&, Arena* arena = nullptr,
-      const InternalKeyComparator* icomparator = nullptr,
-      bool skip_filters = false) override;
+  InternalIterator* NewIterator(const ReadOptions&,
+                                const SliceTransform* prefix_extractor,
+                                Arena* arena = nullptr,
+                                bool skip_filters = false,
+                                bool for_compaction = false) override;
   void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const override;
 
   // Following methods are not implemented for Cuckoo Table Reader
-  uint64_t ApproximateOffsetOf(const Slice& key) override { return 0; }
+  uint64_t ApproximateOffsetOf(const Slice& /*key*/) override { return 0; }
   void SetupForCompaction() override {}
   // End of methods not implemented.
 

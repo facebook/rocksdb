@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -45,14 +43,16 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   ~FullFilterBlockBuilder() {}
 
   virtual bool IsBlockBased() override { return false; }
-  virtual void StartBlock(uint64_t block_offset) override {}
+  virtual void StartBlock(uint64_t /*block_offset*/) override {}
   virtual void Add(const Slice& key) override;
+  virtual size_t NumAdded() const override { return num_added_; }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
   using FilterBlockBuilder::Finish;
 
  protected:
   virtual void AddKey(const Slice& key);
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
+  virtual void Reset();
 
  private:
   // important: all of these might point to invalid addresses
@@ -60,6 +60,10 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // should NOT dereference them.
   const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
+  bool last_whole_key_recorded_;
+  std::string last_whole_key_str_;
+  bool last_prefix_recorded_;
+  std::string last_prefix_str_;
 
   uint32_t num_added_;
   std::unique_ptr<const char[]> filter_data_;
@@ -93,27 +97,37 @@ class FullFilterBlockReader : public FilterBlockReader {
   ~FullFilterBlockReader() {}
 
   virtual bool IsBlockBased() override { return false; }
+
   virtual bool KeyMayMatch(
-      const Slice& key, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& key, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
+
   virtual bool PrefixMayMatch(
-      const Slice& prefix, uint64_t block_offset = kNotValid,
-      const bool no_io = false,
+      const Slice& prefix, const SliceTransform* prefix_extractor,
+      uint64_t block_offset = kNotValid, const bool no_io = false,
       const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
-
+  virtual bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
+                             const SliceTransform* prefix_extractor,
+                             const Comparator* comparator,
+                             const Slice* const const_ikey_ptr, bool* filter_checked,
+                             bool need_upper_bound_check) override;
  private:
   const SliceTransform* prefix_extractor_;
   Slice contents_;
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   BlockContents block_contents_;
-  std::unique_ptr<const char[]> filter_data_;
+  bool full_length_enabled_;
+  size_t prefix_extractor_full_length_;
 
   // No copying allowed
   FullFilterBlockReader(const FullFilterBlockReader&);
   bool MayMatch(const Slice& entry);
   void operator=(const FullFilterBlockReader&);
+  bool IsFilterCompatible(const Slice* iterate_upper_bound,
+                          const Slice& prefix, const Comparator* comparator);
+
 };
 
 }  // namespace rocksdb

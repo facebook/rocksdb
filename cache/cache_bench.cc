@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -19,16 +17,16 @@ int main() {
 #include <inttypes.h>
 #include <sys/types.h>
 #include <stdio.h>
-#include <gflags/gflags.h>
 
-#include "rocksdb/db.h"
-#include "rocksdb/cache.h"
-#include "rocksdb/env.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 static const uint32_t KB = 1024;
 
@@ -54,7 +52,7 @@ namespace rocksdb {
 
 class CacheBench;
 namespace {
-void deleter(const Slice& key, void* value) {
+void deleter(const Slice& /*key*/, void* value) {
     delete reinterpret_cast<char *>(value);
 }
 

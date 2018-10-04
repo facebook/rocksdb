@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Copyright (c) 2016, Facebook. All rights reserved.
 #
@@ -13,10 +13,12 @@ error=0
 
 function log {
   DATE=`date +%Y-%m-%d:%H:%M:%S`
+  # shellcheck disable=SC2068
   echo $DATE $@
 }
 
 function log_err {
+  # shellcheck disable=SC2145
   log "ERROR: $@ Error code: $error."
 }
 
@@ -67,7 +69,7 @@ function update_repo_status {
 #
 
 # Path to the determinator from the root of the RocksDB repo.
-CONTRUN_DETERMINATOR=./arcanist_util/config/RocksDBCommonHelper.php
+CONTRUN_DETERMINATOR=./build_tools/RocksDBCommonHelper.php
 
 # Value of the previous commit.
 PREV_COMMIT=

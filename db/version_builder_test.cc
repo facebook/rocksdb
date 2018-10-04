@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <string>
 #include "db/version_edit.h"
@@ -65,8 +63,8 @@ class VersionBuilderTest : public testing::Test {
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = GetInternalKey(smallest, smallest_seq);
     f->largest = GetInternalKey(largest, largest_seq);
-    f->smallest_seqno = smallest_seqno;
-    f->largest_seqno = largest_seqno;
+    f->fd.smallest_seqno = smallest_seqno;
+    f->fd.largest_seqno = largest_seqno;
     f->compensated_file_size = file_size;
     f->refs = 0;
     f->num_entries = num_entries;

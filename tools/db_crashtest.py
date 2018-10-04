@@ -1,10 +1,8 @@
 #! /usr/bin/env python
 import os
-import re
 import sys
 import time
 import random
-import logging
 import tempfile
 import subprocess
 import shutil
@@ -12,52 +10,77 @@ import argparse
 
 # params overwrite priority:
 #   for default:
-#       default_params < blackbox|whitebox_default_params < args
+#       default_params < {blackbox,whitebox}_default_params < args
 #   for simple:
-#       simple_default_params < blackbox|whitebox_simple_default_params < args
+#       default_params < {blackbox,whitebox}_default_params <
+#       simple_default_params <
+#       {blackbox,whitebox}_simple_default_params < args
+
+expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
+    "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
-    "use_clock_cache": "false",
+    "checkpoint_one_in": 1000000,
+    "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
+    "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
+    "clear_column_family_one_in": 0,
+    "compact_files_one_in": 1000000,
+    "compact_range_one_in": 1000000,
     "delpercent": 5,
     "destroy_db_initially": 0,
-    "disable_wal": 0,
-    "allow_concurrent_memtable_write": 0,
-    "iterpercent": 10,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
+    "expected_values_path": expected_values_file.name,
+    "flush_one_in": 1000000,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
     "max_write_buffer_number": 3,
-    "memtablerep": "prefix_hash",
     "mmap_read": lambda: random.randint(0, 1),
+    "nooverwritepercent": 1,
     "open_files": 500000,
-    "prefix_size": 7,
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
     "reopen": 20,
-    "sync": 0,
+    "snapshot_hold_ops": 100000,
+    "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
-    "threads": 32,
+    "use_direct_reads": lambda: random.randint(0, 1),
+    "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
+    "use_full_merge_v1": lambda: random.randint(0, 1),
+    "use_merge": lambda: random.randint(0, 1),
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
-    "subcompactions": lambda: random.randint(1, 4),
-    "use_merge": lambda: random.randint(0, 1),
-    "use_full_merge_v1": lambda: random.randint(0, 1),
+    "format_version": lambda: random.randint(2, 4),
+    "index_block_restart_interval": lambda: random.choice(range(1, 16)),
 }
+
+_TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
 
 
 def get_dbname(test_name):
-    test_tmpdir = os.environ.get("TEST_TMPDIR")
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
         dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_' + test_name)
     else:
         dbname = test_tmpdir + "/rocksdb_crashtest_" + test_name
         shutil.rmtree(dbname, True)
+        os.mkdir(dbname)
     return dbname
+
+
+def is_direct_io_supported(dbname):
+    with tempfile.NamedTemporaryFile(dir=dbname) as f:
+        try:
+            os.open(f.name, os.O_DIRECT)
+        except:
+            return False
+        return True
+
 
 blackbox_default_params = {
     # total time for this script to test db_stress
@@ -73,77 +96,56 @@ blackbox_default_params = {
 whitebox_default_params = {
     "duration": 10000,
     "log2_keys_per_lock": 10,
-    "nooverwritepercent": 1,
     "ops_per_thread": 200000,
-    "test_batches_snapshots": lambda: random.randint(0, 1),
-    "write_buffer_size": 4 * 1024 * 1024,
-    "subcompactions": lambda: random.randint(1, 4),
     "random_kill_odd": 888887,
+    "test_batches_snapshots": lambda: random.randint(0, 1),
 }
 
 simple_default_params = {
-    "block_size": 16384,
-    "cache_size": 1048576,
-    "use_clock_cache": "false",
-    "column_families": 1,
-    "delpercent": 5,
-    "destroy_db_initially": 0,
-    "disable_wal": 0,
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
-    "iterpercent": 10,
+    "column_families": 1,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
-    "max_key": 100000000,
-    "max_write_buffer_number": 3,
     "memtablerep": "skip_list",
-    "mmap_read": lambda: random.randint(0, 1),
-    "prefix_size": 0,
-    "prefixpercent": 0,
-    "progress_reports": 0,
-    "readpercent": 50,
-    "reopen": 20,
-    "sync": 0,
+    "prefixpercent": 25,
+    "readpercent": 25,
     "target_file_size_base": 16777216,
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
-    "threads": 32,
-    "verify_checksum": 1,
     "write_buffer_size": 32 * 1024 * 1024,
-    "writepercent": 35,
-    "subcompactions": lambda: random.randint(1, 4),
 }
 
 blackbox_simple_default_params = {
-    "duration": 6000,
-    "interval": 120,
     "open_files": -1,
-    "ops_per_thread": 100000000,
     "set_options_one_in": 0,
-    "test_batches_snapshots": 0,
 }
 
-whitebox_simple_default_params = {
-    "duration": 10000,
-    "log2_keys_per_lock": 10,
-    "nooverwritepercent": 1,
-    "open_files": 500000,
-    "ops_per_thread": 200000,
-    "write_buffer_size": 32 * 1024 * 1024,
-    "subcompactions": lambda: random.randint(1, 4),
-}
+whitebox_simple_default_params = {}
 
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
+    if dest_params.get("compression_type") != "zstd" or \
+            dest_params.get("compression_max_dict_bytes") == 0:
+        dest_params["compression_zstd_max_train_bytes"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
+    if dest_params["mmap_read"] == 1 or not is_direct_io_supported(
+            dest_params["db"]):
+        dest_params["use_direct_io_for_flush_and_compaction"] = 0
+        dest_params["use_direct_reads"] = 0
     return dest_params
 
 
 def gen_cmd_params(args):
     params = {}
 
+    params.update(default_params)
+    if args.test_type == 'blackbox':
+        params.update(blackbox_default_params)
+    if args.test_type == 'whitebox':
+        params.update(whitebox_default_params)
     if args.simple:
         params.update(simple_default_params)
         if args.test_type == 'blackbox':
@@ -151,54 +153,44 @@ def gen_cmd_params(args):
         if args.test_type == 'whitebox':
             params.update(whitebox_simple_default_params)
 
-    if not args.simple:
-        params.update(default_params)
-        if args.test_type == 'blackbox':
-            params.update(blackbox_default_params)
-        if args.test_type == 'whitebox':
-            params.update(whitebox_default_params)
-
     for k, v in vars(args).items():
         if v is not None:
             params[k] = v
     return params
 
 
-def gen_cmd(params):
-    cmd = './db_stress ' + ' '.join(
+def gen_cmd(params, unknown_params):
+    cmd = ['./db_stress'] + [
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd'])
-        and v is not None)
+        and v is not None] + unknown_params
     return cmd
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
-def blackbox_crash_main(args):
+def blackbox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
     dbname = get_dbname('blackbox')
     exit_time = time.time() + cmd_params['duration']
 
     print("Running blackbox-crash-test with \n"
           + "interval_between_crash=" + str(cmd_params['interval']) + "\n"
-          + "total-duration=" + str(cmd_params['duration']) + "\n"
-          + "threads=" + str(cmd_params['threads']) + "\n"
-          + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
-          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
+          + "total-duration=" + str(cmd_params['duration']) + "\n")
 
     while time.time() < exit_time:
         run_had_errors = False
         killtime = time.time() + cmd_params['interval']
 
-        cmd = gen_cmd(dict(cmd_params.items() + {'db': dbname}.items()))
+        cmd = gen_cmd(dict(
+            cmd_params.items() +
+            {'db': dbname}.items()), unknown_args)
 
-        child = subprocess.Popen([cmd],
-                                 stderr=subprocess.PIPE, shell=True)
+        child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
-              % (child.pid, cmd))
+              % (child.pid, ' '.join(cmd)))
 
         stop_early = False
         while time.time() < killtime:
@@ -220,12 +212,12 @@ def blackbox_crash_main(args):
 
         while True:
             line = child.stderr.readline().strip()
-            if line != '' and not line.startswith('WARNING'):
+            if line == '':
+                break
+            elif not line.startswith('WARNING'):
                 run_had_errors = True
                 print('stderr has error message:')
                 print('***' + line + '***')
-            else:
-                break
 
         if run_had_errors:
             sys.exit(2)
@@ -238,7 +230,7 @@ def blackbox_crash_main(args):
 
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
-def whitebox_crash_main(args):
+def whitebox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
     dbname = get_dbname('whitebox')
 
@@ -247,11 +239,7 @@ def whitebox_crash_main(args):
     half_time = cur_time + cmd_params['duration'] / 2
 
     print("Running whitebox-crash-test with \n"
-          + "total-duration=" + str(cmd_params['duration']) + "\n"
-          + "threads=" + str(cmd_params['threads']) + "\n"
-          + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
-          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
+          + "total-duration=" + str(cmd_params['duration']) + "\n")
 
     total_check_mode = 4
     check_mode = 0
@@ -307,19 +295,18 @@ def whitebox_crash_main(args):
             }
         else:
             # normal run
-            additional_opts = additional_opts = {
+            additional_opts = {
                 "kill_random_test": None,
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }
 
         cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
-                           + {'db': dbname}.items()))
+                           + {'db': dbname}.items()), unknown_args)
 
-        print "Running:" + cmd + "\n"
+        print "Running:" + ' '.join(cmd) + "\n"  # noqa: E999 T25377293 Grandfathered in
 
-        popen = subprocess.Popen([cmd], stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT,
-                                 shell=True)
+        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
         stdoutdata, stderrdata = popen.communicate()
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
@@ -357,6 +344,8 @@ def whitebox_crash_main(args):
             # we need to clean up after ourselves -- only do this on test
             # success
             shutil.rmtree(dbname, True)
+            os.mkdir(dbname)
+            cmd_params.pop('expected_values_path', None)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
@@ -377,12 +366,19 @@ def main():
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
-    args = parser.parse_args()
+    # unknown_args are passed directly to db_stress
+    args, unknown_args = parser.parse_known_args()
+
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is not None and not os.path.isdir(test_tmpdir):
+        print('%s env var is set to a non-existent directory: %s' %
+                (_TEST_DIR_ENV_VAR, test_tmpdir))
+        sys.exit(1)
 
     if args.test_type == 'blackbox':
-        blackbox_crash_main(args)
+        blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
-        whitebox_crash_main(args)
+        whitebox_crash_main(args, unknown_args)
 
 if __name__ == '__main__':
     main()

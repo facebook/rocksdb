@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,49 +11,32 @@
 
 #include "rocksdb/slice.h"
 #include "table/block_based_filter_block.h"
+#include "table/full_filter_bits_builder.h"
 #include "table/full_filter_block.h"
-#include "util/hash.h"
 #include "util/coding.h"
+#include "util/hash.h"
 
 namespace rocksdb {
 
 class BlockBasedFilterBlockBuilder;
 class FullFilterBlockBuilder;
 
-namespace {
-class FullFilterBitsBuilder : public FilterBitsBuilder {
- public:
-  explicit FullFilterBitsBuilder(const size_t bits_per_key,
-                                 const size_t num_probes)
-      : bits_per_key_(bits_per_key),
-        num_probes_(num_probes) {
-    assert(bits_per_key_);
+FullFilterBitsBuilder::FullFilterBitsBuilder(const size_t bits_per_key,
+                                             const size_t num_probes)
+    : bits_per_key_(bits_per_key), num_probes_(num_probes) {
+  assert(bits_per_key_);
   }
 
-  ~FullFilterBitsBuilder() {}
+  FullFilterBitsBuilder::~FullFilterBitsBuilder() {}
 
-  virtual void AddKey(const Slice& key) override {
+  void FullFilterBitsBuilder::AddKey(const Slice& key) {
     uint32_t hash = BloomHash(key);
     if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
       hash_entries_.push_back(hash);
     }
   }
 
-  // Create a filter that for hashes [0, n-1], the filter is allocated here
-  // When creating filter, it is ensured that
-  // total_bits = num_lines * CACHE_LINE_SIZE * 8
-  // dst len is >= 5, 1 for num_probes, 4 for num_lines
-  // Then total_bits = (len - 5) * 8, and cache_line_size could be calculated
-  // +----------------------------------------------------------------+
-  // |              filter data with length total_bits/8              |
-  // +----------------------------------------------------------------+
-  // |                                                                |
-  // | ...                                                            |
-  // |                                                                |
-  // +----------------------------------------------------------------+
-  // | ...                | num_probes : 1 byte | num_lines : 4 bytes |
-  // +----------------------------------------------------------------+
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+  Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
     uint32_t total_bits, num_lines;
     char* data = ReserveSpace(static_cast<int>(hash_entries_.size()),
                               &total_bits, &num_lines);
@@ -76,27 +57,6 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
     return Slice(data, total_bits / 8 + 5);
   }
 
- private:
-  size_t bits_per_key_;
-  size_t num_probes_;
-  std::vector<uint32_t> hash_entries_;
-
-  // Get totalbits that optimized for cpu cache line
-  uint32_t GetTotalBitsForLocality(uint32_t total_bits);
-
-  // Reserve space for new filter
-  char* ReserveSpace(const int num_entry, uint32_t* total_bits,
-      uint32_t* num_lines);
-
-  // Assuming single threaded access to this function.
-  void AddHash(uint32_t h, char* data, uint32_t num_lines,
-      uint32_t total_bits);
-
-  // No Copy allowed
-  FullFilterBitsBuilder(const FullFilterBitsBuilder&);
-  void operator=(const FullFilterBitsBuilder&);
-};
-
 uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
   uint32_t num_lines =
       (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
@@ -109,10 +69,10 @@ uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
   return num_lines * (CACHE_LINE_SIZE * 8);
 }
 
-char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
-    uint32_t* total_bits, uint32_t* num_lines) {
+uint32_t FullFilterBitsBuilder::CalculateSpace(const int num_entry,
+                                               uint32_t* total_bits,
+                                               uint32_t* num_lines) {
   assert(bits_per_key_);
-  char* data = nullptr;
   if (num_entry != 0) {
     uint32_t total_bits_tmp = num_entry * static_cast<uint32_t>(bits_per_key_);
 
@@ -128,14 +88,40 @@ char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
   // Reserve space for Filter
   uint32_t sz = *total_bits / 8;
   sz += 5;  // 4 bytes for num_lines, 1 byte for num_probes
+  return sz;
+}
 
-  data = new char[sz];
+char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
+                                          uint32_t* total_bits,
+                                          uint32_t* num_lines) {
+  uint32_t sz = CalculateSpace(num_entry, total_bits, num_lines);
+  char* data = new char[sz];
   memset(data, 0, sz);
   return data;
 }
 
+int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
+  assert(bits_per_key_);
+  assert(space > 0);
+  uint32_t dont_care1, dont_care2;
+  int high = (int) (space * 8 / bits_per_key_ + 1);
+  int low = 1;
+  int n = high;
+  for (; n >= low; n--) {
+    uint32_t sz = CalculateSpace(n, &dont_care1, &dont_care2);
+    if (sz <= space) {
+      break;
+    }
+  }
+  assert(n < high);  // High should be an overestimation
+  return n;
+}
+
 inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
     uint32_t num_lines, uint32_t total_bits) {
+#ifdef NDEBUG
+  (void)total_bits;
+#endif
   assert(num_lines > 0 && total_bits > 0);
 
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
@@ -151,19 +137,38 @@ inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
   }
 }
 
+namespace {
 class FullFilterBitsReader : public FilterBitsReader {
  public:
   explicit FullFilterBitsReader(const Slice& contents)
       : data_(const_cast<char*>(contents.data())),
         data_len_(static_cast<uint32_t>(contents.size())),
         num_probes_(0),
-        num_lines_(0) {
+        num_lines_(0),
+        log2_cache_line_size_(0) {
     assert(data_);
     GetFilterMeta(contents, &num_probes_, &num_lines_);
     // Sanitize broken parameter
     if (num_lines_ != 0 && (data_len_-5) % num_lines_ != 0) {
       num_lines_ = 0;
       num_probes_ = 0;
+    } else if (num_lines_ != 0) {
+      while (true) {
+        uint32_t num_lines_at_curr_cache_size =
+            (data_len_ - 5) >> log2_cache_line_size_;
+        if (num_lines_at_curr_cache_size == 0) {
+          // The cache line size seems not a power of two. It's not supported
+          // and indicates a corruption so disable using this filter.
+          assert(false);
+          num_lines_ = 0;
+          num_probes_ = 0;
+          break;
+        }
+        if (num_lines_at_curr_cache_size == num_lines_) {
+          break;
+        }
+        ++log2_cache_line_size_;
+      }
     }
   }
 
@@ -186,6 +191,7 @@ class FullFilterBitsReader : public FilterBitsReader {
   uint32_t data_len_;
   size_t num_probes_;
   uint32_t num_lines_;
+  uint32_t log2_cache_line_size_;
 
   // Get num_probes, and num_lines from filter
   // If filter format broken, set both to 0.
@@ -193,10 +199,10 @@ class FullFilterBitsReader : public FilterBitsReader {
                              uint32_t* num_lines);
 
   // "filter" contains the data appended by a preceding call to
-  // CreateFilterFromHash() on this class.  This method must return true if
-  // the key was in the list of keys passed to CreateFilter().
-  // This method may return true or false if the key was not on the
-  // list, but it should aim to return false with a high probability.
+  // FilterBitsBuilder::Finish. This method must return true if the key was
+  // passed to FilterBitsBuilder::AddKey. This method may return true or false
+  // if the key was not on the list, but it should aim to return false with a
+  // high probability.
   //
   // hash: target to be checked
   // filter: the whole filter, including meta data bytes
@@ -235,17 +241,20 @@ bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
   // It is ensured the params are valid before calling it
   assert(num_probes != 0);
   assert(num_lines != 0 && (len - 5) % num_lines == 0);
-  uint32_t cache_line_size = (len - 5) / num_lines;
   const char* data = filter.data();
 
   uint32_t h = hash;
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  uint32_t b = (h % num_lines) * (cache_line_size * 8);
+  // Left shift by an extra 3 to convert bytes to bits
+  uint32_t b = (h % num_lines) << (log2_cache_line_size_ + 3);
+  PREFETCH(&data[b / 8], 0 /* rw */, 1 /* locality */);
+  PREFETCH(&data[b / 8 + (1 << log2_cache_line_size_) - 1], 0 /* rw */,
+           1 /* locality */);
 
   for (uint32_t i = 0; i < num_probes; ++i) {
     // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
     //  to a simple and operation by compiler.
-    const uint32_t bitpos = b + (h % (cache_line_size * 8));
+    const uint32_t bitpos = b + (h & ((1 << (log2_cache_line_size_ + 3)) - 1));
     if (((data[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
       return false;
     }

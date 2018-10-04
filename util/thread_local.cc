@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -40,7 +38,11 @@ class StaticMeta;
 //     | thread 3 |    void*   |    void*   |    void*   | <- ThreadData
 //     ---------------------------------------------------
 struct ThreadData {
-  explicit ThreadData(ThreadLocalPtr::StaticMeta* _inst) : entries(), inst(_inst) {}
+  explicit ThreadData(ThreadLocalPtr::StaticMeta* _inst)
+    : entries(),
+      next(nullptr),
+      prev(nullptr),
+      inst(_inst) {}
   std::vector<Entry> entries;
   ThreadData* next;
   ThreadData* prev;
@@ -176,14 +178,15 @@ namespace wintlscleanup {
 
 // This is set to OnThreadExit in StaticMeta singleton constructor
 UnrefHandler thread_local_inclass_routine = nullptr;
-pthread_key_t thread_local_key = -1;
+pthread_key_t thread_local_key = pthread_key_t (-1);
 
 // Static callback function to call with each thread termination.
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
   // We decided to punt on PROCESS_EXIT
   if (DLL_THREAD_DETACH == reason) {
-    if (thread_local_key != pthread_key_t(-1) && thread_local_inclass_routine != nullptr) {
-      void* tls = pthread_getspecific(thread_local_key);
+    if (thread_local_key != pthread_key_t(-1) &&
+        thread_local_inclass_routine != nullptr) {
+      void* tls = TlsGetValue(thread_local_key);
       if (tls != nullptr) {
         thread_local_inclass_routine(tls);
       }
@@ -302,7 +305,10 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   delete tls;
 }
 
-ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
+ThreadLocalPtr::StaticMeta::StaticMeta()
+  : next_instance_id_(0),
+    head_(this),
+    pthread_key_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }

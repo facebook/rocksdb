@@ -1,9 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #ifndef ROCKSDB_LITE
@@ -105,13 +103,15 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
   virtual ~BlockCacheFile() {}
 
   // append key/value to file and return LBA locator to user
-  virtual bool Append(const Slice& key, const Slice& val, LBA* const lba) {
+  virtual bool Append(const Slice& /*key*/, const Slice& /*val*/,
+                      LBA* const /*lba*/) {
     assert(!"not implemented");
     return false;
   }
 
   // read from the record locator (LBA) and return key, value and status
-  virtual bool Read(const LBA& lba, Slice* key, Slice* block, char* scratch) {
+  virtual bool Read(const LBA& /*lba*/, Slice* /*key*/, Slice* /*block*/,
+                    char* /*scratch*/) {
     assert(!"not implemented");
     return false;
   }

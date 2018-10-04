@@ -37,14 +37,14 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
  private:
-  int64_t current_time_;
+  int64_t current_time_ = 0;
 };
 
 class DateTieredTest : public testing::Test {
  public:
   DateTieredTest() {
     env_.reset(new SpecialTimeEnv(Env::Default()));
-    dbname_ = test::TmpDir() + "/date_tiered";
+    dbname_ = test::PerThreadDBPath("date_tiered");
     options_.create_if_missing = true;
     options_.env = env_.get();
     date_tiered_db_.reset(nullptr);
@@ -460,7 +460,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as DateTieredDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }

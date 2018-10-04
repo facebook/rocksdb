@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -13,6 +11,7 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/utilities/stackable_db.h"
 
 namespace rocksdb {
 
@@ -32,7 +31,7 @@ struct OptimisticTransactionOptions {
   const Comparator* cmp = BytewiseComparator();
 };
 
-class OptimisticTransactionDB {
+class OptimisticTransactionDB : public StackableDB {
  public:
   // Open an OptimisticTransactionDB similar to DB::Open().
   static Status Open(const Options& options, const std::string& dbname,
@@ -59,18 +58,12 @@ class OptimisticTransactionDB {
           OptimisticTransactionOptions(),
       Transaction* old_txn = nullptr) = 0;
 
-  // Return the underlying Database that was opened
-  virtual DB* GetBaseDB() = 0;
+  OptimisticTransactionDB(const OptimisticTransactionDB&) = delete;
+  void operator=(const OptimisticTransactionDB&) = delete;
 
  protected:
   // To Create an OptimisticTransactionDB, call Open()
-  explicit OptimisticTransactionDB(DB* db) {}
-  OptimisticTransactionDB() {}
-
- private:
-  // No copying allowed
-  OptimisticTransactionDB(const OptimisticTransactionDB&);
-  void operator=(const OptimisticTransactionDB&);
+  explicit OptimisticTransactionDB(DB* db) : StackableDB(db) {}
 };
 
 }  // namespace rocksdb

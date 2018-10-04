@@ -1,13 +1,8 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
-// Copyright (c) 2012 Facebook.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
 
 #ifndef ROCKSDB_LITE
 
@@ -62,6 +57,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
       should_purge_files = true;
       FindObsoleteFiles(&job_context, true);
+      bg_cv_.SignalAll();
     } else {
       ROCKS_LOG_WARN(
           immutable_db_options_.info_log,
@@ -78,7 +74,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
 }
 
 int DBImpl::IsFileDeletionsEnabled() const {
-  return disable_delete_obsolete_files_;
+  return !disable_delete_obsolete_files_;
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
@@ -97,7 +93,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
       }
       cfd->Ref();
       mutex_.Unlock();
-      status = FlushMemTable(cfd, FlushOptions());
+      status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
       mutex_.Lock();
@@ -146,6 +142,18 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  {
+    // If caller disabled deletions, this function should return files that are
+    // guaranteed not to be deleted until deletions are re-enabled. We need to
+    // wait for pending purges to finish since WalManager doesn't know which
+    // files are going to be purged. Additional purges won't be scheduled as
+    // long as deletions are disabled (so the below loop must terminate).
+    InstrumentedMutexLock l(&mutex_);
+    while (disable_delete_obsolete_files_ > 0 &&
+           pending_purge_obsolete_files_ > 0) {
+      bg_cv_.Wait();
+    }
+  }
   return wal_manager_.GetSortedWalFiles(files);
 }
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # REQUIRE: benchmark_leveldb.sh exists in the current directory
 # After execution of this script, log files are generated in $output_dir.
 # report.txt provides a high level statistics

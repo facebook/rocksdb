@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -22,7 +20,7 @@
 #include "util/random.h"
 #include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   const int kWindowSizes[] =
       {1000, 10000, 10000, 127, 128, 129, 255, 256, 257, 2, 10000};
   const int kDeletionTriggers[] =
@@ -42,7 +40,7 @@ int main(int argc, char** argv) {
   // randomize tests
   rocksdb::Random rnd(301);
   const int kMaxTestSize = 100000l;
-  for (int random_test = 0; random_test < 100; random_test++) {
+  for (int random_test = 0; random_test < 50; random_test++) {
     int window_size = rnd.Uniform(kMaxTestSize) + 1;
     int deletion_trigger = rnd.Uniform(window_size);
     window_sizes.emplace_back(window_size);
@@ -60,12 +58,12 @@ int main(int argc, char** argv) {
     const int kBias = (kNumDeletionTrigger + kBucketSize - 1) / kBucketSize;
     // Simple test
     {
-      std::unique_ptr<rocksdb::TablePropertiesCollector> collector;
       auto factory = rocksdb::NewCompactOnDeletionCollectorFactory(
           kWindowSize, kNumDeletionTrigger);
-      collector.reset(factory->CreateTablePropertiesCollector(context));
       const int kSample = 10;
       for (int delete_rate = 0; delete_rate <= kSample; ++delete_rate) {
+        std::unique_ptr<rocksdb::TablePropertiesCollector> collector(
+            factory->CreateTablePropertiesCollector(context));
         int deletions = 0;
         for (int i = 0; i < kPaddedWindowSize; ++i) {
           if (i % kSample < delete_rate) {
@@ -92,12 +90,12 @@ int main(int argc, char** argv) {
 
     // Only one section of a file satisfies the compaction trigger
     {
-      std::unique_ptr<rocksdb::TablePropertiesCollector> collector;
       auto factory = rocksdb::NewCompactOnDeletionCollectorFactory(
           kWindowSize, kNumDeletionTrigger);
-      collector.reset(factory->CreateTablePropertiesCollector(context));
       const int kSample = 10;
       for (int delete_rate = 0; delete_rate <= kSample; ++delete_rate) {
+        std::unique_ptr<rocksdb::TablePropertiesCollector> collector(
+            factory->CreateTablePropertiesCollector(context));
         int deletions = 0;
         for (int section = 0; section < 5; ++section) {
           int initial_entries = rnd.Uniform(kWindowSize) + kWindowSize;
@@ -173,7 +171,7 @@ int main(int argc, char** argv) {
   fprintf(stderr, "PASSED\n");
 }
 #else
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
   return 0;
 }

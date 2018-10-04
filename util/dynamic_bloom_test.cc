@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -17,7 +15,6 @@ int main() {
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <algorithm>
 #include <atomic>
@@ -29,12 +26,13 @@ int main() {
 #include "dynamic_bloom.h"
 #include "port/port.h"
 #include "util/arena.h"
+#include "util/gflags_compat.h"
 #include "util/logging.h"
+#include "util/stop_watch.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/stop_watch.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_int32(bits_per_key, 10, "");
 DEFINE_int32(num_probes, 6, "");
@@ -260,12 +258,12 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
       timer.Start();
 
-      std::function<void(size_t)> adder = [&](size_t t) {
+      std::function<void(size_t)> adder([&](size_t t) {
         for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
           std_bloom.AddConcurrently(
               Slice(reinterpret_cast<const char*>(&i), 8));
         }
-      };
+      });
       for (size_t t = 0; t < num_threads; ++t) {
         threads.emplace_back(adder, t);
       }
@@ -281,13 +279,13 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
       timer.Start();
 
-      std::function<void(size_t)> hitter = [&](size_t t) {
+      std::function<void(size_t)> hitter([&](size_t t) {
         for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
           bool f =
               std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
           ASSERT_TRUE(f);
         }
-      };
+      });
       for (size_t t = 0; t < num_threads; ++t) {
         threads.emplace_back(hitter, t);
       }
@@ -304,7 +302,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       timer.Start();
 
       std::atomic<uint32_t> false_positives(0);
-      std::function<void(size_t)> misser = [&](size_t t) {
+      std::function<void(size_t)> misser([&](size_t t) {
         for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys;
              i += num_threads) {
           bool f =
@@ -313,7 +311,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
             ++false_positives;
           }
         }
-      };
+      });
       for (size_t t = 0; t < num_threads; ++t) {
         threads.emplace_back(misser, t);
       }

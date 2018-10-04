@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -111,8 +109,14 @@ struct BackupableDBOptions {
   uint64_t callback_trigger_interval_size;
 
   // When Open() is called, it will open at most this many of the latest
-  // non-corrupted backups. If 0, it will open all available backups.
-  // Default: 0
+  // non-corrupted backups.
+  //
+  // Note setting this to a non-default value prevents old files from being
+  // deleted in the shared directory, as we can't do proper ref-counting. If
+  // using this option, make sure to occasionally disable it (by resetting to
+  // INT_MAX) and run GarbageCollect to clean accumulated stale files.
+  //
+  // Default: INT_MAX
   int max_valid_backups_to_open;
 
   void Dump(Logger* logger) const;
@@ -124,7 +128,7 @@ struct BackupableDBOptions {
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
-      int _max_valid_backups_to_open = 0)
+      int _max_valid_backups_to_open = INT_MAX)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),

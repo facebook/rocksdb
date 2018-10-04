@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -27,6 +27,7 @@ namespace rocksdb {
 class ColumnFamilyHandle;
 class Comparator;
 class DB;
+class ReadCallback;
 struct ReadOptions;
 struct DBOptions;
 
@@ -97,7 +98,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
       size_t reserved_bytes = 0, bool overwrite_key = false,
       size_t max_bytes = 0);
 
-  virtual ~WriteBatchWithIndex();
+  ~WriteBatchWithIndex() override;
 
   using WriteBatchBase::Put;
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
@@ -154,6 +155,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // The returned iterator should be deleted by the caller.
   // The base_iterator is now 'owned' by the returned iterator. Deleting the
   // returned iterator will also delete the base_iterator.
+  //
+  // Updating write batch with the current key of the iterator is not safe.
+  // We strongly recommand users not to do it. It will invalidate the current
+  // key() and value() of the iterator. This invalidation happens even before
+  // the write batch update finishes. The state may recover after Next() is
+  // called.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator);
   // default column family
@@ -186,9 +193,19 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // regardless).
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, std::string* value);
+
+  // An overload of the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           const Slice& key, PinnableSlice* value);
+
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
+
+  // An overload of the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value);
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
@@ -214,8 +231,21 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status PopSavePoint() override;
 
   void SetMaxBytes(size_t max_bytes) override;
+  size_t GetDataSize() const;
 
  private:
+  friend class PessimisticTransactionDB;
+  friend class WritePreparedTxn;
+  friend class WriteUnpreparedTxn;
+  friend class WriteBatchWithIndex_SubBatchCnt_Test;
+  // Returns the number of sub-batches inside the write batch. A sub-batch
+  // starts right before inserting a key that is a duplicate of a key in the
+  // last sub-batch.
+  size_t SubBatchCnt();
+
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value, ReadCallback* callback);
   struct Rep;
   std::unique_ptr<Rep> rep;
 };

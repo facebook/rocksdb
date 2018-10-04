@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -19,7 +17,6 @@ int main() {
 // Block forward_iterator_bench under MAC and Windows
 int main() { return 0; }
 #else
-#include <gflags/gflags.h>
 #include <semaphore.h>
 #include <atomic>
 #include <bitset>
@@ -32,11 +29,12 @@ int main() { return 0; }
 #include <random>
 #include <thread>
 
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "port/port.h"
+#include "util/gflags_compat.h"
 #include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
@@ -321,11 +319,11 @@ struct StatsThread {
 };
 
 int main(int argc, char** argv) {
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
 
   std::mt19937 rng{std::random_device()()};
   rocksdb::Status status;
-  std::string path = rocksdb::test::TmpDir() + "/forward_iterator_test";
+  std::string path = rocksdb::test::PerThreadDBPath("forward_iterator_test");
   fprintf(stderr, "db path is %s\n", path.c_str());
   rocksdb::Options options;
   options.create_if_missing = true;

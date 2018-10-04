@@ -11,7 +11,7 @@ The RocksDB library provides a persistent key value store. Keys and values are a
 
 The library is maintained by the Facebook Database Engineering Team, and is based on [LevelDB](https://github.com/google/leveldb), by Sanjay Ghemawat and Jeff Dean at Google.
 
-This overview gives some simple examples of how RocksDB is used. For the story of why RocksDB was created in the first place, see [Dhruba Borthakur’s introductory talk](https://github.com/facebook/rocksdb/blob/gh-pages/intro.pdf?raw=true) from the Data @ Scale 2013 conference.
+This overview gives some simple examples of how RocksDB is used. For the story of why RocksDB was created in the first place, see [Dhruba Borthakur’s introductory talk](https://github.com/facebook/rocksdb/blob/gh-pages-old/intro.pdf?raw=true) from the Data @ Scale 2013 conference.
 
 ## Opening A Database
 

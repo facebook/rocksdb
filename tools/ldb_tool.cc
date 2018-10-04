@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
@@ -15,7 +13,7 @@ namespace rocksdb {
 LDBOptions::LDBOptions() {}
 
 void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
-                                 const char* exec_name) {
+                                 const char* /*exec_name*/) {
   std::string ret;
 
   ret.append(ldb_options.print_help_header);
@@ -46,6 +44,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " : DB supports ttl and value is internally timestamp-suffixed\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
              " : Try to load option file from DB.\n");
+  ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +
+             " : Ignore unknown options when loading option file.\n");
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_FIX_PREFIX_LEN + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
@@ -88,6 +88,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   BackupCommand::Help(ret);
   RestoreCommand::Help(ret);
   CheckPointCommand::Help(ret);
+  WriteExternalSstFilesCommand::Help(ret);
+  IngestExternalSstFilesCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }

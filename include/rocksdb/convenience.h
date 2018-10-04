@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -34,7 +34,7 @@ namespace rocksdb {
 //   - "optimize_filters_for_hits=true" in GetColumnFamilyOptionsFromString.
 //
 // * Integers:
-//   Integers are converted directly from string, in addtion to the following
+//   Integers are converted directly from string, in addition to the following
 //   units that we support:
 //   - 'k' or 'K' => 2^10
 //   - 'm' or 'M' => 2^20
@@ -161,12 +161,15 @@ namespace rocksdb {
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped = false);
+    ColumnFamilyOptions* new_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
 
 // Take a default DBOptions "base_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -189,12 +192,15 @@ Status GetColumnFamilyOptionsFromMap(
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped = false);
+    DBOptions* new_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
 
 // Take a default BlockBasedTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -229,6 +235,8 @@ Status GetDBOptionsFromMap(
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_table_options" will be set to
 //     "table_options".
@@ -236,7 +244,7 @@ Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     BlockBasedTableOptions* new_table_options,
-    bool input_strings_escaped = false);
+    bool input_strings_escaped = false, bool ignore_unknown_options = false);
 
 // Take a default PlainTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -250,14 +258,16 @@ Status GetBlockBasedTableOptionsFromMap(
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_table_options" will be set to
 //     "table_options".
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options,
-    bool input_strings_escaped = false);
+    PlainTableOptions* new_table_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
 
 // Take a string representation of option names and  values, apply them into the
 // base_options, and return the new options as a result. The string has the
@@ -315,10 +325,24 @@ void CancelAllBackgroundWork(DB* db, bool wait = false);
 
 // Delete files which are entirely in the given range
 // Could leave some keys in the range which are in files which are not
-// entirely in the range.
+// entirely in the range. Also leaves L0 files regardless of whether they're
+// in the range.
 // Snapshots before the delete might not see the data in the given range.
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
-                          const Slice* begin, const Slice* end);
+                          const Slice* begin, const Slice* end,
+                          bool include_end = true);
+
+// Delete files in multiple ranges at once
+// Delete files in a lot of ranges one at a time can be slow, use this API for
+// better performance in that case.
+Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
+                           const RangePtr* ranges, size_t n,
+                           bool include_end = true);
+
+// Verify the checksum of file
+Status VerifySstFileChecksum(const Options& options,
+                             const EnvOptions& env_options,
+                             const std::string& file_path);
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -1,12 +1,7 @@
-/*
- *  Copyright (c) 2011-present, Facebook, Inc.
- *  All rights reserved.
- *
- *  This source code is licensed under the BSD-style license found in the
- *  LICENSE file in the root directory of this source tree. An additional grant
- *  of patent rights can be found in the PATENTS file in the same directory.
- *
- */
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 /*
  * This file defines FbsonWriterT (template) and FbsonWriter.
@@ -30,12 +25,18 @@
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONWRITER_H
-#define FBSON_FBSONWRITER_H
+#pragma once
 
 #include <stack>
 #include "FbsonDocument.h"
 #include "FbsonStream.h"
+
+// conversion' conversion from 'type1' to 'type2', possible loss of data
+// Can not restore at the header end as the warnings are emitted at the point of
+// template instantiation
+#if defined(_MSC_VER)
+#pragma warning(disable : 4244)
+#endif
 
 namespace fbson {
 
@@ -431,5 +432,3 @@ class FbsonWriterT {
 typedef FbsonWriterT<FbsonOutStream> FbsonWriter;
 
 } // namespace fbson
-
-#endif // FBSON_FBSONWRITER_H

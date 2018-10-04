@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
 
@@ -27,6 +25,8 @@ class MaxOperator : public MergeOperator {
     if (merge_in.existing_value) {
       max = Slice(merge_in.existing_value->data(),
                   merge_in.existing_value->size());
+    } else if (max.data() == nullptr) {
+      max = Slice();
     }
 
     for (const auto& op : merge_in.operand_list) {
@@ -38,9 +38,9 @@ class MaxOperator : public MergeOperator {
     return true;
   }
 
-  virtual bool PartialMerge(const Slice& key, const Slice& left_operand,
+  virtual bool PartialMerge(const Slice& /*key*/, const Slice& left_operand,
                             const Slice& right_operand, std::string* new_value,
-                            Logger* logger) const override {
+                            Logger* /*logger*/) const override {
     if (left_operand.compare(right_operand) >= 0) {
       new_value->assign(left_operand.data(), left_operand.size());
     } else {
@@ -49,10 +49,10 @@ class MaxOperator : public MergeOperator {
     return true;
   }
 
-  virtual bool PartialMergeMulti(const Slice& key,
+  virtual bool PartialMergeMulti(const Slice& /*key*/,
                                  const std::deque<Slice>& operand_list,
                                  std::string* new_value,
-                                 Logger* logger) const override {
+                                 Logger* /*logger*/) const override {
     Slice max;
     for (const auto& operand : operand_list) {
       if (max.compare(operand) < 0) {

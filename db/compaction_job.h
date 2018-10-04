@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -32,6 +30,7 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "options/db_options.h"
+#include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/compaction_job_stats.h"
@@ -47,24 +46,29 @@
 
 namespace rocksdb {
 
+class Arena;
+class ErrorHandler;
 class MemTable;
+class SnapshotChecker;
 class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
-class Arena;
 
 class CompactionJob {
  public:
   CompactionJob(int job_id, Compaction* compaction,
                 const ImmutableDBOptions& db_options,
-                const EnvOptions& env_options, VersionSet* versions,
-                const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+                const EnvOptions env_options, VersionSet* versions,
+                const std::atomic<bool>* shutting_down,
+                const SequenceNumber preserve_deletes_seqnum,
+                LogBuffer* log_buffer,
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats, InstrumentedMutex* db_mutex,
-                Status* db_bg_error,
+                ErrorHandler* db_error_handler,
                 std::vector<SequenceNumber> existing_snapshots,
                 SequenceNumber earliest_write_conflict_snapshot,
+                const SnapshotChecker* snapshot_checker,
                 std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
                 bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
@@ -129,17 +133,20 @@ class CompactionJob {
   // DBImpl state
   const std::string& dbname_;
   const ImmutableDBOptions& db_options_;
-  const EnvOptions& env_options_;
+  const EnvOptions env_options_;
 
   Env* env_;
+  // env_option optimized for compaction table reads
+  EnvOptions env_optiosn_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
+  const SequenceNumber preserve_deletes_seqnum_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;
   Directory* output_directory_;
   Statistics* stats_;
   InstrumentedMutex* db_mutex_;
-  Status* db_bg_error_;
+  ErrorHandler* db_error_handler_;
   // If there were two snapshots with seq numbers s1 and
   // s2 and s1 < s2, and if we find two instances of a key k1 then lies
   // entirely within s1 and s2, then the earlier version of k1 can be safely
@@ -150,6 +157,8 @@ class CompactionJob {
   // checking by a transaction.  For any user-key newer than this snapshot, we
   // should make sure not to remove evidence that a write occurred.
   SequenceNumber earliest_write_conflict_snapshot_;
+
+  const SnapshotChecker* const snapshot_checker_;
 
   std::shared_ptr<Cache> table_cache_;
 
@@ -162,6 +171,7 @@ class CompactionJob {
   std::vector<Slice> boundaries_;
   // Stores the approx size of keys covered in the range of each subcompaction
   std::vector<uint64_t> sizes_;
+  Env::WriteLifeTimeHint write_hint_;
 };
 
 }  // namespace rocksdb

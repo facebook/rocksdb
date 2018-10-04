@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -47,9 +45,9 @@ class HistogramBucketMapper {
   }
 
  private:
-  const std::vector<uint64_t> bucketValues_;
-  const uint64_t maxBucketValue_;
-  const uint64_t minBucketValue_;
+  std::vector<uint64_t> bucketValues_;
+  uint64_t maxBucketValue_;
+  uint64_t minBucketValue_;
   std::map<uint64_t, uint64_t> valueIndexMap_;
 };
 
@@ -91,7 +89,7 @@ struct HistogramStat {
   std::atomic_uint_fast64_t num_;
   std::atomic_uint_fast64_t sum_;
   std::atomic_uint_fast64_t sum_squares_;
-  std::atomic_uint_fast64_t buckets_[138]; // 138==BucketMapper::BucketCount()
+  std::atomic_uint_fast64_t buckets_[109]; // 109==BucketMapper::BucketCount()
   const uint64_t num_buckets_;
 };
 

@@ -1,11 +1,7 @@
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/mock_table.h"
 
@@ -30,15 +26,16 @@ stl_wrappers::KVMap MakeMockFile(
   return stl_wrappers::KVMap(l, stl_wrappers::LessOfComparator(&icmp_));
 }
 
-InternalIterator* MockTableReader::NewIterator(const ReadOptions&,
-                                               Arena* arena,
-                                               const InternalKeyComparator*,
-                                               bool skip_filters) {
+InternalIterator* MockTableReader::NewIterator(
+    const ReadOptions&, const SliceTransform* /* prefix_extractor */,
+    Arena* /*arena*/, bool /*skip_filters*/, bool /*for_compaction*/) {
   return new MockTableIterator(table_);
 }
 
 Status MockTableReader::Get(const ReadOptions&, const Slice& key,
-                            GetContext* get_context, bool skip_filters) {
+                            GetContext* get_context,
+                            const SliceTransform* /*prefix_extractor*/,
+                            bool /*skip_filters*/) {
   std::unique_ptr<MockTableIterator> iter(new MockTableIterator(table_));
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;
@@ -46,7 +43,8 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
       return Status::Corruption(Slice());
     }
 
-    if (!get_context->SaveValue(parsed_key, iter->value())) {
+    bool dont_care __attribute__((__unused__));
+    if (!get_context->SaveValue(parsed_key, iter->value(), &dont_care)) {
       break;
     }
   }
@@ -61,10 +59,10 @@ std::shared_ptr<const TableProperties> MockTableReader::GetTableProperties()
 MockTableFactory::MockTableFactory() : next_id_(1) {}
 
 Status MockTableFactory::NewTableReader(
-    const TableReaderOptions& table_reader_options,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    const TableReaderOptions& /*table_reader_options*/,
+    unique_ptr<RandomAccessFileReader>&& file, uint64_t /*file_size*/,
     unique_ptr<TableReader>* table_reader,
-    bool prefetch_index_and_filter_in_cache) const {
+    bool /*prefetch_index_and_filter_in_cache*/) const {
   uint32_t id = GetIDFromFile(file.get());
 
   MutexLock lock_guard(&file_system_.mutex);
@@ -80,8 +78,8 @@ Status MockTableFactory::NewTableReader(
 }
 
 TableBuilder* MockTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
-    WritableFileWriter* file) const {
+    const TableBuilderOptions& /*table_builder_options*/,
+    uint32_t /*column_family_id*/, WritableFileWriter* file) const {
   uint32_t id = GetAndWriteNextID(file);
 
   return new MockTableBuilder(id, &file_system_);
@@ -95,7 +93,7 @@ Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
     return s;
   }
 
-  WritableFileWriter file_writer(std::move(file), EnvOptions());
+  WritableFileWriter file_writer(std::move(file), fname, EnvOptions());
 
   uint32_t id = GetAndWriteNextID(&file_writer);
   file_system_.files.insert({id, std::move(file_contents)});
@@ -139,7 +137,7 @@ void MockTableFactory::AssertLatestFile(
       ParseInternalKey(Slice(key), &ikey);
       std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
     }
-    ASSERT_TRUE(false);
+    FAIL();
   }
 }
 

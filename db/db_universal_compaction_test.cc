@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #if !defined(ROCKSDB_LITE)
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -42,6 +41,12 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
       DBTestUniversalCompactionBase("/db_universal_compaction_test") {}
 };
 
+class DBTestUniversalDeleteTrigCompaction : public DBTestBase {
+ public:
+  DBTestUniversalDeleteTrigCompaction()
+      : DBTestBase("/db_universal_compaction_test") {}
+};
+
 namespace {
 void VerifyCompactionResult(
     const ColumnFamilyMetaData& cf_meta,
@@ -58,9 +63,9 @@ void VerifyCompactionResult(
 
 class KeepFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int level, const Slice& key, const Slice& value,
-                      std::string* new_value, bool* value_changed) const
-      override {
+  virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                      const Slice& /*value*/, std::string* /*new_value*/,
+                      bool* /*value_changed*/) const override {
     return false;
   }
 
@@ -90,9 +95,9 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DelayFilter : public CompactionFilter {
  public:
   explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  virtual bool Filter(int level, const Slice& key, const Slice& value,
-                      std::string* new_value,
-                      bool* value_changed) const override {
+  virtual bool Filter(int /*level*/, const Slice& /*key*/,
+                      const Slice& /*value*/, std::string* /*new_value*/,
+                      bool* /*value_changed*/) const override {
     db_test->env_->addon_time_.fetch_add(1000);
     return true;
   }
@@ -107,7 +112,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
  public:
   explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) override {
+      const CompactionFilter::Context& /*context*/) override {
     return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
   }
 
@@ -118,7 +123,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // namespace
 
-// Make sure we don't trigger a problem if the trigger conditon is given
+// Make sure we don't trigger a problem if the trigger condtion is given
 // to be 0, which is invalid.
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
   Options options = CurrentOptions();
@@ -376,6 +381,181 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
   ASSERT_EQ(NumSortedRuns(1), 1);
 }
 
+TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 1;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = 3;
+  // Initial setup of compaction_options_universal will prevent universal
+  // compaction from happening
+  options.compaction_options_universal.size_ratio = 100;
+  options.compaction_options_universal.min_merge_width = 100;
+  DestroyAndReopen(options);
+
+  int total_picked_compactions = 0;
+  int total_size_amp_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (arg) {
+          total_picked_compactions++;
+          Compaction* c = static_cast<Compaction*>(arg);
+          if (c->compaction_reason() ==
+              CompactionReason::kUniversalSizeAmplification) {
+            total_size_amp_compactions++;
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  MutableCFOptions mutable_cf_options;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  //   Generate two files in Level 0. Both files are approx the same size.
+  for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
+       num++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
+      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    ASSERT_EQ(NumSortedRuns(1), num + 1);
+  }
+  ASSERT_EQ(NumSortedRuns(1), 2);
+
+  // Flush whatever is remaining in memtable. This is typically
+  // small, which should not trigger size ratio based compaction
+  // but could instead trigger size amplification if it's set
+  // to 110.
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  // Verify compaction did not happen
+  ASSERT_EQ(NumSortedRuns(1), 3);
+
+  // Trigger compaction if size amplification exceeds 110% without reopening DB
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_OK(dbfull()->SetOptions(handles_[1],
+                                 {{"compaction_options_universal",
+                                   "{max_size_amplification_percent=110;}"}}));
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_size_amplification_percent,
+            110);
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(110, mutable_cf_options.compaction_options_universal
+                     .max_size_amplification_percent);
+
+  dbfull()->TEST_WaitForCompact();
+  // Verify that size amplification did happen
+  ASSERT_EQ(NumSortedRuns(1), 1);
+  ASSERT_EQ(total_picked_compactions, 1);
+  ASSERT_EQ(total_size_amp_compactions, 1);
+}
+
+TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 1;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = 3;
+  // Initial setup of compaction_options_universal will prevent universal
+  // compaction from happening
+  options.compaction_options_universal.max_size_amplification_percent = 2000;
+  options.compaction_options_universal.size_ratio = 0;
+  options.compaction_options_universal.min_merge_width = 100;
+  DestroyAndReopen(options);
+
+  int total_picked_compactions = 0;
+  int total_size_ratio_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (arg) {
+          total_picked_compactions++;
+          Compaction* c = static_cast<Compaction*>(arg);
+          if (c->compaction_reason() == CompactionReason::kUniversalSizeRatio) {
+            total_size_ratio_compactions++;
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  MutableCFOptions mutable_cf_options;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // Generate three files in Level 0. All files are approx the same size.
+  for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
+      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    ASSERT_EQ(NumSortedRuns(1), num + 1);
+  }
+  ASSERT_EQ(NumSortedRuns(1), options.level0_file_num_compaction_trigger);
+
+  // Flush whatever is remaining in memtable. This is typically small, about
+  // 30KB.
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  // Verify compaction did not happen
+  ASSERT_EQ(NumSortedRuns(1), options.level0_file_num_compaction_trigger + 1);
+  ASSERT_EQ(total_picked_compactions, 0);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      handles_[1],
+      {{"compaction_options_universal",
+        "{min_merge_width=2;max_merge_width=2;size_ratio=100;}"}}));
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_merge_width,
+            2);
+  ASSERT_EQ(
+      dbfull()->GetOptions(handles_[1]).compaction_options_universal.size_ratio,
+      100);
+
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.size_ratio, 100);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width, 2);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width, 2);
+
+  dbfull()->TEST_WaitForCompact();
+
+  // Files in L0 are approx: 0.3 (30KB), 1, 1, 1.
+  // On compaction: the files are below the size amp threshold, so we
+  // fallthrough to checking read amp conditions. The configured size ratio is
+  // not big enough to take 0.3 into consideration. So the next files 1 and 1
+  // are compacted together first as they satisfy size ratio condition and
+  // (min_merge_width, max_merge_width) condition, to give out a file size of 2.
+  // Next, the newly generated 2 and the last file 1 are compacted together. So
+  // at the end: #sortedRuns = 2, #picked_compactions = 2, and all the picked
+  // ones are size ratio based compactions.
+  ASSERT_EQ(NumSortedRuns(1), 2);
+  // If max_merge_width had not been changed dynamically above, and if it
+  // continued to be the default value of UINIT_MAX, total_picked_compactions
+  // would have been 1.
+  ASSERT_EQ(total_picked_compactions, 2);
+  ASSERT_EQ(total_size_ratio_compactions, 2);
+}
+
 TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
@@ -482,7 +662,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
 }
 
-
+#ifndef ROCKSDB_VALGRIND_RUN
 class DBTestUniversalCompactionMultiLevels
     : public DBTestUniversalCompactionBase {
  public:
@@ -518,13 +698,14 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
     ASSERT_EQ(Get(1, Key(i % num_keys)), Key(i));
   }
 }
+
 // Tests universal compaction with trivial move enabled
 TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++; });
+      [&](void* /*arg*/) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         non_trivial_move++;
@@ -596,7 +777,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   std::atomic<int> num_compactions_running(0);
   std::atomic<bool> has_parallel(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Start",
-                                                 [&](void* arg) {
+                                                 [&](void* /*arg*/) {
     if (num_compactions_running.fetch_add(1) > 0) {
       has_parallel.store(true);
       return;
@@ -611,7 +792,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():End",
-      [&](void* arg) { num_compactions_running.fetch_add(-1); });
+      [&](void* /*arg*/) { num_compactions_running.fetch_add(-1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   options = CurrentOptions(options);
@@ -698,17 +879,12 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
     num_keys -= 100;
   }
 
-  // Wait for the 2nd background compaction process to start
-  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
-  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
-
-  // Hold the 1st and 2nd compaction from finishing
+  // Hold the 1st compaction from finishing
   TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:2");
   dbfull()->TEST_WaitForCompact();
 
-  // Although 2 compaction threads started, the second one did not compact
-  // anything because the number of files not being compacted is less than
-  // level0_file_num_compaction_trigger
+  // There should only be one picked compaction as the score drops below one
+  // after the first one is picked.
   EXPECT_EQ(total_picked_compactions, 1);
   EXPECT_EQ(TotalTableFiles(), 4);
 
@@ -765,6 +941,7 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionParallel,
                         DBTestUniversalCompactionParallel,
                         ::testing::Combine(::testing::Values(1, 10),
                                            ::testing::Values(false)));
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options = CurrentOptions();
@@ -980,13 +1157,14 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio2) {
   ASSERT_LT(TotalSize(), 120000U * 12 * 0.8 + 120000 * 2);
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 // Test that checks trivial move in universal compaction
 TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++; });
+      [&](void* /*arg*/) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         non_trivial_move++;
@@ -1032,7 +1210,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   int32_t trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++; });
+      [&](void* /*arg*/) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         ASSERT_TRUE(arg != nullptr);
@@ -1072,6 +1250,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   Options options = CurrentOptions();
@@ -1173,6 +1352,146 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   }
 
   Destroy(options);
+}
+
+TEST_P(DBTestUniversalCompaction, UniversalCompactionCFPathUse) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_, 300 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_2", 300 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_3", 500 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_4", 1024 * 1024 * 1024);
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 10;
+  options.write_buffer_size = 111 << 10;  // 114KB
+  options.arena_block_size = 4 << 10;
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+
+  std::vector<Options> option_vector;
+  option_vector.emplace_back(options);
+  ColumnFamilyOptions cf_opt1(options), cf_opt2(options);
+  // Configure CF1 specific paths.
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1", 300 * 1024);
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_2", 300 * 1024);
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_3", 500 * 1024);
+  cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_4", 1024 * 1024 * 1024);
+  option_vector.emplace_back(DBOptions(options), cf_opt1);
+  CreateColumnFamilies({"one"},option_vector[1]);
+
+  // Configura CF2 specific paths.
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2", 300 * 1024);
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_2", 300 * 1024);
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_3", 500 * 1024);
+  cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_4", 1024 * 1024 * 1024);
+  option_vector.emplace_back(DBOptions(options), cf_opt2);
+  CreateColumnFamilies({"two"},option_vector[2]);
+
+  ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
+
+  Random rnd(301);
+  int key_idx = 0;
+  int key_idx1 = 0;
+  int key_idx2 = 0;
+
+  auto generate_file = [&]() {
+    GenerateNewFile(0, &rnd, &key_idx);
+    GenerateNewFile(1, &rnd, &key_idx1);
+    GenerateNewFile(2, &rnd, &key_idx2);
+  };
+
+  auto check_sstfilecount = [&](int path_id, int expected) {
+    ASSERT_EQ(expected, GetSstFileCount(options.db_paths[path_id].path));
+    ASSERT_EQ(expected, GetSstFileCount(cf_opt1.cf_paths[path_id].path));
+    ASSERT_EQ(expected, GetSstFileCount(cf_opt2.cf_paths[path_id].path));
+  };
+
+  auto check_getvalues = [&]() {
+    for (int i = 0; i < key_idx; i++) {
+      auto v = Get(0, Key(i));
+      ASSERT_NE(v, "NOT_FOUND");
+      ASSERT_TRUE(v.size() == 1 || v.size() == 990);
+    }
+
+    for (int i = 0; i < key_idx1; i++) {
+      auto v = Get(1, Key(i));
+      ASSERT_NE(v, "NOT_FOUND");
+      ASSERT_TRUE(v.size() == 1 || v.size() == 990);
+    }
+
+    for (int i = 0; i < key_idx2; i++) {
+      auto v = Get(2, Key(i));
+      ASSERT_NE(v, "NOT_FOUND");
+      ASSERT_TRUE(v.size() == 1 || v.size() == 990);
+    }
+  };
+
+  // First three 110KB files are not going to second path.
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    generate_file();
+  }
+
+  // Another 110KB triggers a compaction to 400K file to second path
+  generate_file();
+  check_sstfilecount(2, 1);
+
+  // (1, 4)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(0, 1);
+
+  // (1,1,4) -> (2, 4)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(1, 1);
+  check_sstfilecount(0, 0);
+
+  // (1, 2, 4) -> (3, 4)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(1, 1);
+  check_sstfilecount(0, 0);
+
+  // (1, 3, 4) -> (8)
+  generate_file();
+  check_sstfilecount(3, 1);
+
+  // (1, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(0, 1);
+
+  // (1, 1, 8) -> (2, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(1, 1);
+
+  // (1, 2, 8) -> (3, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(1, 1);
+  check_sstfilecount(0, 0);
+
+  // (1, 3, 8) -> (4, 8)
+  generate_file();
+  check_sstfilecount(2, 1);
+  check_sstfilecount(3, 1);
+
+  // (1, 4, 8) -> (5, 8)
+  generate_file();
+  check_sstfilecount(3, 1);
+  check_sstfilecount(2, 1);
+  check_sstfilecount(0, 0);
+
+  check_getvalues();
+
+  ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
+
+  check_getvalues();
+
+  Destroy(options, true);
 }
 
 TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
@@ -1372,6 +1691,153 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   Destroy(options);
 }
 
+TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
+  if (num_levels_ == 1) {
+    // for single-level universal, everything's bottom level so nothing should
+    // be executed in bottom-pri thread pool.
+    return;
+  }
+  const int kNumFilesTrigger = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {// wait for the full compaction to be picked before adding files intended
+       // for the second one.
+       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+       // the full (bottom-pri) compaction waits until a partial (low-pri)
+       // compaction has started to verify they can run in parallel.
+       {"DBImpl::BackgroundCompaction:NonTrivial",
+        "DBImpl::BGWorkBottomCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+      // use no_wait above because that one waits for flush and compaction. We
+      // don't want to wait for compaction because the full compaction is
+      // intentionally blocked while more files are flushed.
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
+    if (i == 0) {
+      TEST_SYNC_POINT(
+          "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // First compaction should output to bottom level. Second should output to L0
+  // since older L0 files pending compaction prevent it from being placed lower.
+  ASSERT_EQ(NumSortedRuns(), 2);
+  ASSERT_GT(NumTableFilesAtLevel(0), 0);
+  ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+}
+
+TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
+  // Regression test for extra compactions scheduled. Once enough compactions
+  // have been scheduled to bring the score below one, we should stop
+  // scheduling more; otherwise, other CFs/DBs may be delayed unnecessarily.
+  const int kNumFilesTrigger = 8;
+  Options options = CurrentOptions();
+  options.compaction_options_universal.max_merge_width = kNumFilesTrigger / 2;
+  options.compaction_options_universal.max_size_amplification_percent =
+      static_cast<unsigned int>(-1);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  Reopen(options);
+
+  std::atomic<int> num_compactions_attempted(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start", [&](void* /*arg*/) {
+        ++num_compactions_attempted;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int num = 0; num < kNumFilesTrigger; num++) {
+    ASSERT_EQ(NumSortedRuns(), num);
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx);
+  }
+  dbfull()->TEST_WaitForCompact();
+  // Compacting the first four files was enough to bring the score below one so
+  // there's no need to schedule any more compactions.
+  ASSERT_EQ(1, num_compactions_attempted);
+  ASSERT_EQ(NumSortedRuns(), 5);
+}
+
+TEST_P(DBTestUniversalCompaction, FinalSortedRunCompactFilesConflict) {
+  // Regression test for conflict between:
+  // (1) Running CompactFiles including file in the final sorted run; and
+  // (2) Picking universal size-amp-triggered compaction, which always includes
+  //     the final sorted run.
+  if (exclusive_manual_compaction_) {
+    return;
+  }
+
+  Options opts = CurrentOptions();
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.compaction_options_universal.max_size_amplification_percent = 50;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compression = kNoCompression;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.max_background_compactions = 2;
+  opts.num_levels = num_levels_;
+  Reopen(opts);
+
+  // make sure compaction jobs can be parallelized
+  auto stop_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  Put("key", "val");
+  Flush();
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(num_levels_ - 1), 1);
+  ColumnFamilyMetaData cf_meta;
+  ColumnFamilyHandle* default_cfh = db_->DefaultColumnFamily();
+  dbfull()->GetColumnFamilyMetaData(default_cfh, &cf_meta);
+  ASSERT_EQ(1, cf_meta.levels[num_levels_ - 1].files.size());
+  std::string first_sst_filename =
+      cf_meta.levels[num_levels_ - 1].files[0].name;
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactFilesImpl:0",
+        "DBTestUniversalCompaction:FinalSortedRunCompactFilesConflict:0"},
+       {"DBImpl::BackgroundCompaction():AfterPickCompaction",
+        "CompactFilesImpl:1"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread compact_files_thread([&]() {
+    ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), default_cfh,
+                                     {first_sst_filename}, num_levels_ - 1));
+  });
+
+  TEST_SYNC_POINT(
+      "DBTestUniversalCompaction:FinalSortedRunCompactFilesConflict:0");
+  for (int i = 0; i < 2; ++i) {
+    Put("key", "val");
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  compact_files_thread.join();
+}
+
 INSTANTIATE_TEST_CASE_P(UniversalCompactionNumLevels, DBTestUniversalCompaction,
                         ::testing::Combine(::testing::Values(1, 3, 5),
                                            ::testing::Bool()));
@@ -1447,6 +1913,241 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         ::testing::Combine(::testing::Values(1, 8),
                                            ::testing::Bool()));
 
+TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
+  const int kNumKeys = 3000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.compression = kNoCompression;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  //  MoveFilesToLevel(6);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  for (i = 1999; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
+  const int kNumKeys = 3000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.compression = kNoCompression;
+  opts.num_levels = 1;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+
+  for (i = 1999; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 4;
+  opts.compression = kNoCompression;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 500; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 500; i < 1000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 1000; i < 1500; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 1500; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+
+  for (i = 1999; i < 2333; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2333; i < 2666; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2666; i < 2999; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+  ASSERT_GT(NumTableFilesAtLevel(5), 0);
+
+  for (i = 1900; i < 2100; ++i) {
+    Delete(Key(i));
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(3));
+  ASSERT_EQ(0, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 5;
+  opts.compression = kNoCompression;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2000; i < 3000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 3500; i < 4000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  for (i = 2900; i < 3100; ++i) {
+    Delete(Key(i));
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
+}
+
+TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
+  const int kNumKeys = 3000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 2;
+  opts.compression = kNoCompression;
+  opts.allow_ingest_behind = true;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  int i;
+  for (i = 0; i < 2000; ++i) {
+    Put(Key(i), "val");
+  }
+  Flush();
+  //  MoveFilesToLevel(6);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  for (i = 1999; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(6));
+  ASSERT_GT(NumTableFilesAtLevel(5), 0);
+}
+
 }  // namespace rocksdb
 
 #endif  // !defined(ROCKSDB_LITE)
@@ -1457,6 +2158,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
+  (void) argc;
+  (void) argv;
   return 0;
 #endif
 }

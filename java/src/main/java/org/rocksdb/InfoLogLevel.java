@@ -32,7 +32,7 @@ public enum InfoLogLevel {
    *
    * @param value byte representation of InfoLogLevel.
    *
-   * @return {@link org.rocksdb.InfoLogLevel} instance or null.
+   * @return {@link org.rocksdb.InfoLogLevel} instance.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */

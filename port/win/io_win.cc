@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -32,7 +30,7 @@ bool IsPowerOfTwo(const size_t alignment) {
 }
 
 inline
-bool IsSectorAligned(const size_t off) { 
+bool IsSectorAligned(const size_t off) {
   return (off & (kSectorSize - 1)) == 0;
 }
 
@@ -69,9 +67,20 @@ std::string GetWindowsErrSz(DWORD err) {
 // Because all the reads/writes happen by the specified offset, the caller in
 // theory should not
 // rely on the current file offset.
-SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
-  uint64_t offset) {
-  assert(numBytes <= std::numeric_limits<DWORD>::max());
+Status pwrite(const WinFileData* file_data, const Slice& data,
+  uint64_t offset, size_t& bytes_written) {
+
+  Status s;
+  bytes_written = 0;
+
+  size_t num_bytes = data.size();
+  if (num_bytes > std::numeric_limits<DWORD>::max()) {
+    // May happen in 64-bit builds where size_t is 64-bits but
+    // long is still 32-bit, but that's the API here at the moment
+    return Status::InvalidArgument("num_bytes is too large for a single write: " +
+          file_data->GetName());
+  }
+
   OVERLAPPED overlapped = { 0 };
   ULARGE_INTEGER offsetUnion;
   offsetUnion.QuadPart = offset;
@@ -79,23 +88,32 @@ SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
   overlapped.Offset = offsetUnion.LowPart;
   overlapped.OffsetHigh = offsetUnion.HighPart;
 
-  SSIZE_T result = 0;
+  DWORD bytesWritten = 0;
 
-  unsigned long bytesWritten = 0;
-
-  if (FALSE == WriteFile(hFile, src, static_cast<DWORD>(numBytes), &bytesWritten,
-    &overlapped)) {
-    result = -1;
+  if (FALSE == WriteFile(file_data->GetFileHandle(), data.data(), static_cast<DWORD>(num_bytes),
+    &bytesWritten, &overlapped)) {
+    auto lastError = GetLastError();
+    s = IOErrorFromWindowsError("WriteFile failed: " + file_data->GetName(),
+      lastError);
   } else {
-    result = bytesWritten;
+    bytes_written = bytesWritten;
   }
 
-  return result;
+  return s;
 }
 
 // See comments for pwrite above
-SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
-  assert(numBytes <= std::numeric_limits<DWORD>::max());
+Status pread(const WinFileData* file_data, char* src, size_t num_bytes,
+  uint64_t offset, size_t& bytes_read) {
+
+  Status s;
+  bytes_read = 0;
+
+  if (num_bytes > std::numeric_limits<DWORD>::max()) {
+    return Status::InvalidArgument("num_bytes is too large for a single read: " +
+      file_data->GetName());
+  }
+
   OVERLAPPED overlapped = { 0 };
   ULARGE_INTEGER offsetUnion;
   offsetUnion.QuadPart = offset;
@@ -103,18 +121,21 @@ SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
   overlapped.Offset = offsetUnion.LowPart;
   overlapped.OffsetHigh = offsetUnion.HighPart;
 
-  SSIZE_T result = 0;
+  DWORD bytesRead = 0;
 
-  unsigned long bytesRead = 0;
-
-  if (FALSE == ReadFile(hFile, src, static_cast<DWORD>(numBytes), &bytesRead,
-    &overlapped)) {
-    return -1;
+  if (FALSE == ReadFile(file_data->GetFileHandle(), src, static_cast<DWORD>(num_bytes),
+    &bytesRead, &overlapped)) {
+    auto lastError = GetLastError();
+    // EOF is OK with zero bytes read
+    if (lastError != ERROR_HANDLE_EOF) {
+      s = IOErrorFromWindowsError("ReadFile failed: " + file_data->GetName(),
+        lastError);
+    }
   } else {
-    result = bytesRead;
+    bytes_read = bytesRead;
   }
 
-  return result;
+  return s;
 }
 
 // SetFileInformationByHandle() is capable of fast pre-allocates.
@@ -159,9 +180,11 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
   }
-
-  // This function has to be re-worked for cases when
-  // ReFS file system introduced on Windows Server 2012 is used
+#if (_WIN32_WINNT == _WIN32_WINNT_VISTA)
+  // MINGGW as defined by CMake file.
+  // yuslepukhin: I hate the guts of the above macros.
+  // This impl does not guarantee uniqueness everywhere
+  // is reasonably good
   BY_HANDLE_FILE_INFORMATION FileInfo;
 
   BOOL result = GetFileInformationByHandle(hFile, &FileInfo);
@@ -179,6 +202,33 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
 
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
+#else
+  FILE_ID_INFO FileInfo;
+  BOOL result = GetFileInformationByHandleEx(hFile, FileIdInfo, &FileInfo,
+    sizeof(FileInfo));
+
+  TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
+
+  if (!result) {
+    return 0;
+  }
+
+  static_assert(sizeof(uint64_t) == sizeof(FileInfo.VolumeSerialNumber),
+    "Wrong sizeof expectations");
+  // FileId.Identifier is an array of 16 BYTEs, we encode them as two uint64_t
+  static_assert(sizeof(uint64_t) * 2 == sizeof(FileInfo.FileId.Identifier),
+    "Wrong sizeof expectations");
+
+  char* rid = id;
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.VolumeSerialNumber));
+  uint64_t* file_id = reinterpret_cast<uint64_t*>(&FileInfo.FileId.Identifier[0]);
+  rid = EncodeVarint64(rid, *file_id);
+  ++file_id;
+  rid = EncodeVarint64(rid, *file_id);
+
+  assert(rid >= id);
+  return static_cast<size_t>(rid - id);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -194,7 +244,8 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
       length_(length) {}
 
 WinMmapReadableFile::~WinMmapReadableFile() {
-  BOOL ret = ::UnmapViewOfFile(mapped_region_);
+  BOOL ret __attribute__((__unused__));
+  ret = ::UnmapViewOfFile(mapped_region_);
   assert(ret);
 
   ret = ::CloseHandle(hMap_);
@@ -209,7 +260,7 @@ Status WinMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
     *result = Slice();
     return IOError(filename_, EINVAL);
   } else if (offset + n > length_) {
-    n = length_ - offset;
+    n = length_ - static_cast<size_t>(offset);
   }
   *result =
     Slice(reinterpret_cast<const char*>(mapped_region_)+offset, n);
@@ -266,7 +317,7 @@ Status WinMmapFile::MapNewRegion() {
 
   assert(mapped_begin_ == nullptr);
 
-  size_t minDiskSize = file_offset_ + view_size_;
+  size_t minDiskSize = static_cast<size_t>(file_offset_) + view_size_;
 
   if (minDiskSize > reserved_size_) {
     status = Allocate(file_offset_, view_size_);
@@ -280,7 +331,8 @@ Status WinMmapFile::MapNewRegion() {
 
     if (hMap_ != NULL) {
       // Unmap the previous one
-      BOOL ret = ::CloseHandle(hMap_);
+      BOOL ret __attribute__((__unused__));
+      ret = ::CloseHandle(hMap_);
       assert(ret);
       hMap_ = NULL;
     }
@@ -527,7 +579,7 @@ Status WinMmapFile::Allocate(uint64_t offset, uint64_t len) {
   // Make sure that we reserve an aligned amount of space
   // since the reservation block size is driven outside so we want
   // to check if we are ok with reservation here
-  size_t spaceToReserve = Roundup(offset + len, view_size_);
+  size_t spaceToReserve = Roundup(static_cast<size_t>(offset + len), view_size_);
   // Nothing to do
   if (spaceToReserve <= reserved_size_) {
     return status;
@@ -557,34 +609,42 @@ WinSequentialFile::~WinSequentialFile() {
 }
 
 Status WinSequentialFile::Read(size_t n, Slice* result, char* scratch) {
-  assert(result != nullptr && !WinFileData::use_direct_io());
   Status s;
   size_t r = 0;
 
+  assert(result != nullptr);
+  if (WinFileData::use_direct_io()) {
+    return Status::NotSupported("Read() does not support direct_io");
+  }
+
   // Windows ReadFile API accepts a DWORD.
-  // While it is possible to read in a loop if n is > UINT_MAX
-  // it is a highly unlikely case.
-  if (n > UINT_MAX) {
-    return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
+  // While it is possible to read in a loop if n is too big
+  // it is an unlikely case.
+  if (n > std::numeric_limits<DWORD>::max()) {
+    return Status::InvalidArgument("n is too big for a single ReadFile: "
+      + filename_);
   }
 
   DWORD bytesToRead = static_cast<DWORD>(n); //cast is safe due to the check above
   DWORD bytesRead = 0;
   BOOL ret = ReadFile(hFile_, scratch, bytesToRead, &bytesRead, NULL);
-  if (ret == TRUE) {
+  if (ret != FALSE) {
     r = bytesRead;
   } else {
-    return IOErrorFromWindowsError(filename_, GetLastError());
+    auto lastError = GetLastError();
+    if (lastError != ERROR_HANDLE_EOF) {
+      s = IOErrorFromWindowsError("ReadFile failed: " + filename_,
+        lastError);
+    }
   }
 
   *result = Slice(scratch, r);
-
   return s;
 }
 
-SSIZE_T WinSequentialFile::PositionedReadInternal(char* src, size_t numBytes,
-  uint64_t offset) const {
-  return pread(GetFileHandle(), src, numBytes, offset);
+Status WinSequentialFile::PositionedReadInternal(char* src, size_t numBytes,
+  uint64_t offset, size_t& bytes_read) const {
+  return pread(this, src, numBytes, offset, bytes_read);
 }
 
 Status WinSequentialFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
@@ -592,27 +652,19 @@ Status WinSequentialFile::PositionedRead(uint64_t offset, size_t n, Slice* resul
 
   Status s;
 
-  assert(WinFileData::use_direct_io());
-
-  // Windows ReadFile API accepts a DWORD.
-  // While it is possible to read in a loop if n is > UINT_MAX
-  // it is a highly unlikely case.
-  if (n > UINT_MAX) {
-    return IOErrorFromWindowsError(GetName(), ERROR_INVALID_PARAMETER);
+  if (!WinFileData::use_direct_io()) {
+    return Status::NotSupported("This function is only used for direct_io");
   }
 
-  auto r = PositionedReadInternal(scratch, n, offset);
-
-  if (r < 0) {
-    auto lastError = GetLastError();
-    // Posix impl wants to treat reads from beyond
-    // of the file as OK.
-    if (lastError != ERROR_HANDLE_EOF) {
-      s = IOErrorFromWindowsError(GetName(), lastError);
-    }
+  if (!IsSectorAligned(static_cast<size_t>(offset)) ||
+      !IsSectorAligned(n)) {
+      return Status::InvalidArgument(
+        "WinSequentialFile::PositionedRead: offset is not properly aligned");
   }
 
-  *result = Slice(scratch, (r < 0) ? 0 : size_t(r));
+  size_t bytes_read = 0; // out param
+  s = PositionedReadInternal(scratch, static_cast<size_t>(n), offset, bytes_read);
+  *result = Slice(scratch, bytes_read);
   return s;
 }
 
@@ -620,15 +672,18 @@ Status WinSequentialFile::PositionedRead(uint64_t offset, size_t n, Slice* resul
 Status WinSequentialFile::Skip(uint64_t n) {
   // Can't handle more than signed max as SetFilePointerEx accepts a signed 64-bit
   // integer. As such it is a highly unlikley case to have n so large.
-  if (n > _I64_MAX) {
-    return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
+  if (n > static_cast<uint64_t>(std::numeric_limits<LONGLONG>::max())) {
+    return Status::InvalidArgument("n is too large for a single SetFilePointerEx() call" +
+      filename_);
   }
 
   LARGE_INTEGER li;
-  li.QuadPart = static_cast<int64_t>(n); //cast is safe due to the check above
+  li.QuadPart = static_cast<LONGLONG>(n); //cast is safe due to the check above
   BOOL ret = SetFilePointerEx(hFile_, li, NULL, FILE_CURRENT);
   if (ret == FALSE) {
-    return IOErrorFromWindowsError(filename_, GetLastError());
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError("Skip SetFilePointerEx():" + filename_, 
+      lastError);
   }
   return Status::OK();
 }
@@ -640,10 +695,12 @@ Status WinSequentialFile::InvalidateCache(size_t offset, size_t length) {
 //////////////////////////////////////////////////////////////////////////////////////////////////
 /// WinRandomAccessBase
 
-SSIZE_T WinRandomAccessImpl::PositionedReadInternal(char* src,
+inline
+Status WinRandomAccessImpl::PositionedReadInternal(char* src,
   size_t numBytes,
-  uint64_t offset) const {
-  return pread(file_base_->GetFileHandle(), src, numBytes, offset);
+  uint64_t offset,
+  size_t& bytes_read) const {
+  return pread(file_base_, src, numBytes, offset, bytes_read);
 }
 
 inline
@@ -664,8 +721,10 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
 
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
-    if (!IsAligned(alignment_, scratch)) {
-      return Status::InvalidArgument("WinRandomAccessImpl::ReadImpl: scratch is not properly aligned");
+    if (!IsSectorAligned(static_cast<size_t>(offset)) ||
+        !IsAligned(alignment_, scratch)) {
+      return Status::InvalidArgument(
+        "WinRandomAccessImpl::ReadImpl: offset or scratch is not properly aligned");
     }
   }
 
@@ -674,23 +733,9 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
     return s;
   }
 
-  size_t left = n;
-  char* dest = scratch;
-
-  SSIZE_T r = PositionedReadInternal(scratch, left, offset);
-  if (r > 0) {
-    left -= r;
-  } else if (r < 0) {
-    auto lastError = GetLastError();
-    // Posix impl wants to treat reads from beyond
-    // of the file as OK.
-    if(lastError != ERROR_HANDLE_EOF) {
-      s = IOErrorFromWindowsError(file_base_->GetName(), lastError);
-    }
-  }
-
-  *result = Slice(scratch, (r < 0) ? 0 : n - left);
-
+  size_t bytes_read = 0;
+  s = PositionedReadInternal(scratch, n, offset, bytes_read);
+  *result = Slice(scratch, bytes_read);
   return s;
 }
 
@@ -732,42 +777,53 @@ Status WinWritableImpl::PreallocateInternal(uint64_t spaceToReserve) {
   return fallocate(file_data_->GetName(), file_data_->GetFileHandle(), spaceToReserve);
 }
 
+inline
 WinWritableImpl::WinWritableImpl(WinFileData* file_data, size_t alignment)
   : file_data_(file_data),
   alignment_(alignment),
-  filesize_(0),
+  next_write_offset_(0),
   reservedsize_(0) {
+
+  // Query current position in case ReopenWritableFile is called
+  // This position is only important for buffered writes
+  // for unbuffered writes we explicitely specify the position.
+  LARGE_INTEGER zero_move;
+  zero_move.QuadPart = 0; // Do not move
+  LARGE_INTEGER pos;
+  pos.QuadPart = 0;
+  BOOL ret = SetFilePointerEx(file_data_->GetFileHandle(), zero_move, &pos,
+      FILE_CURRENT);
+  // Querying no supped to fail
+  if (ret != 0) {
+    next_write_offset_ = pos.QuadPart;
+  } else {
+    assert(false);
+  }
 }
 
+inline
 Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   Status s;
 
-  assert(data.size() < std::numeric_limits<DWORD>::max());
+  if (data.size() > std::numeric_limits<DWORD>::max()) {
+    return Status::InvalidArgument("data is too long for a single write" + 
+      file_data_->GetName());
+  }
 
-  uint64_t written = 0;
+  size_t bytes_written = 0; // out param
 
   if (file_data_->use_direct_io()) {
-
     // With no offset specified we are appending
     // to the end of the file
-
-    assert(IsSectorAligned(filesize_));
-    assert(IsSectorAligned(data.size()));
-    assert(IsAligned(GetAlignement(), data.data()));
-
-    SSIZE_T ret = pwrite(file_data_->GetFileHandle(), data.data(),
-     data.size(), filesize_);
-
-    if (ret < 0) {
-      auto lastError = GetLastError();
-      s = IOErrorFromWindowsError(
-        "Failed to pwrite for: " + file_data_->GetName(), lastError);
+    assert(IsSectorAligned(next_write_offset_));
+    if (!IsSectorAligned(data.size()) ||
+        !IsAligned(static_cast<size_t>(GetAlignement()), data.data())) {
+      s = Status::InvalidArgument(
+        "WriteData must be page aligned, size must be sector aligned");
+    } else {
+      s = pwrite(file_data_, data, next_write_offset_, bytes_written);
     }
-    else {
-      written = ret;
-    }
-
   } else {
 
     DWORD bytesWritten = 0;
@@ -777,62 +833,75 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
       s = IOErrorFromWindowsError(
         "Failed to WriteFile: " + file_data_->GetName(),
         lastError);
-    }
-    else {
-      written = bytesWritten;
+    } else {
+      bytes_written = bytesWritten;
     }
   }
 
   if(s.ok()) {
-    assert(written == data.size());
-    filesize_ += data.size();
+    if (bytes_written == data.size()) {
+      // This matters for direct_io cases where
+      // we rely on the fact that next_write_offset_
+      // is sector aligned
+      next_write_offset_ += bytes_written;
+    } else {
+      s = Status::IOError("Failed to write all bytes: " + 
+        file_data_->GetName());
+    }
   }
 
   return s;
 }
 
+inline
 Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset) {
 
   if(file_data_->use_direct_io()) {
-    assert(IsSectorAligned(offset));
-    assert(IsSectorAligned(data.size()));
-    assert(IsAligned(GetAlignement(), data.data()));
+    if (!IsSectorAligned(static_cast<size_t>(offset)) ||
+        !IsSectorAligned(data.size()) ||
+        !IsAligned(static_cast<size_t>(GetAlignement()), data.data())) {
+      return Status::InvalidArgument(
+        "Data and offset must be page aligned, size must be sector aligned");
+    }
   }
 
-  Status s;
+  size_t bytes_written = 0;
+  Status s = pwrite(file_data_, data, offset, bytes_written);
 
-  SSIZE_T ret = pwrite(file_data_->GetFileHandle(), data.data(), data.size(), offset);
-
-  // Error break
-  if (ret < 0) {
-    auto lastError = GetLastError();
-    s = IOErrorFromWindowsError(
-      "Failed to pwrite for: " + file_data_->GetName(), lastError);
-  }
-  else {
-    assert(size_t(ret) == data.size());
-    // For sequential write this would be simple
-    // size extension by data.size()
-    uint64_t write_end = offset + data.size();
-    if (write_end >= filesize_) {
-      filesize_ = write_end;
+  if(s.ok()) {
+    if (bytes_written == data.size()) {
+      // For sequential write this would be simple
+      // size extension by data.size()
+      uint64_t write_end = offset + bytes_written;
+      if (write_end >= next_write_offset_) {
+        next_write_offset_ = write_end;
+      }
+    } else {
+      s = Status::IOError("Failed to write all of the requested data: " +
+        file_data_->GetName());
     }
   }
   return s;
 }
 
-// Need to implement this so the file is truncated correctly
-// when buffered and unbuffered mode
 inline
 Status WinWritableImpl::TruncateImpl(uint64_t size) {
+
+  // It is tempting to check for the size for sector alignment
+  // but truncation may come at the end and there is not a requirement
+  // for this to be sector aligned so long as we do not attempt to write
+  // after that. The interface docs state that the behavior is undefined
+  // in that case.
   Status s = ftruncate(file_data_->GetName(), file_data_->GetFileHandle(),
     size);
+
   if (s.ok()) {
-    filesize_ = size;
+    next_write_offset_ = size;
   }
   return s;
 }
 
+inline
 Status WinWritableImpl::CloseImpl() {
 
   Status s;
@@ -840,14 +909,14 @@ Status WinWritableImpl::CloseImpl() {
   auto hFile = file_data_->GetFileHandle();
   assert(INVALID_HANDLE_VALUE != hFile);
 
-  if (fsync(hFile) < 0) {
+  if (!::FlushFileBuffers(hFile)) {
     auto lastError = GetLastError();
-    s = IOErrorFromWindowsError("fsync failed at Close() for: " +
+    s = IOErrorFromWindowsError("FlushFileBuffers failed at Close() for: " +
       file_data_->GetName(),
       lastError);
   }
 
-  if(!file_data_->CloseFile()) {
+  if(!file_data_->CloseFile() && s.ok()) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError("CloseHandle failed for: " + file_data_->GetName(),
       lastError);
@@ -855,18 +924,19 @@ Status WinWritableImpl::CloseImpl() {
   return s;
 }
 
+inline
 Status WinWritableImpl::SyncImpl() {
   Status s;
-  // Calls flush buffers
-  if (fsync(file_data_->GetFileHandle()) < 0) {
+  if (!::FlushFileBuffers (file_data_->GetFileHandle())) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
-        "fsync failed at Sync() for: " + file_data_->GetName(), lastError);
+        "FlushFileBuffers failed at Sync() for: " + file_data_->GetName(), lastError);
   }
   return s;
 }
 
 
+inline
 Status WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
   Status status;
   TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
@@ -874,7 +944,7 @@ Status WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
   // Make sure that we reserve an aligned amount of space
   // since the reservation block size is driven outside so we want
   // to check if we are ok with reservation here
-  size_t spaceToReserve = Roundup(offset + len, alignment_);
+  size_t spaceToReserve = Roundup(static_cast<size_t>(offset + len), static_cast<size_t>(alignment_));
   // Nothing to do
   if (spaceToReserve <= reservedsize_) {
     return status;
@@ -907,7 +977,7 @@ WinWritableFile::~WinWritableFile() {
 bool WinWritableFile::use_direct_io() const { return WinFileData::use_direct_io(); }
 
 size_t WinWritableFile::GetRequiredBufferAlignment() const {
-  return GetAlignement();
+  return static_cast<size_t>(GetAlignement());
 }
 
 Status WinWritableFile::Append(const Slice& data) {
@@ -940,8 +1010,10 @@ Status WinWritableFile::Sync() {
 
 Status WinWritableFile::Fsync() { return SyncImpl(); }
 
+bool WinWritableFile::IsSyncThreadSafe() const { return true; }
+
 uint64_t WinWritableFile::GetFileSize() {
-  return GetFileSizeImpl();
+  return GetFileNextWriteOffset();
 }
 
 Status WinWritableFile::Allocate(uint64_t offset, uint64_t len) {
@@ -965,7 +1037,7 @@ WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile,
 bool WinRandomRWFile::use_direct_io() const { return WinFileData::use_direct_io(); }
 
 size_t WinRandomRWFile::GetRequiredBufferAlignment() const {
-  return GetAlignement();
+  return static_cast<size_t>(GetAlignement());
 }
 
 Status WinRandomRWFile::Write(uint64_t offset, const Slice & data) {
@@ -990,15 +1062,40 @@ Status WinRandomRWFile::Close() {
 }
 
 //////////////////////////////////////////////////////////////////////////
+/// WinMemoryMappedBufer
+WinMemoryMappedBuffer::~WinMemoryMappedBuffer() {
+  BOOL ret = FALSE;
+  if (base_ != nullptr) {
+    ret = ::UnmapViewOfFile(base_);
+    assert(ret);
+    base_ = nullptr;
+  }
+  if (map_handle_ != NULL && map_handle_ != INVALID_HANDLE_VALUE) {
+    ret = ::CloseHandle(map_handle_);
+    assert(ret);
+    map_handle_ = NULL;
+  }
+  if (file_handle_ != NULL && file_handle_ != INVALID_HANDLE_VALUE) {
+    ret = ::CloseHandle(file_handle_);
+    assert(ret);
+    file_handle_ = NULL;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
 /// WinDirectory
 
 Status WinDirectory::Fsync() { return Status::OK(); }
 
+size_t WinDirectory::GetUniqueId(char* id, size_t max_size) const {
+  return GetUniqueIdFromFile(handle_, id, max_size);
+}
 //////////////////////////////////////////////////////////////////////////
 /// WinFileLock
 
 WinFileLock::~WinFileLock() {
-  BOOL ret = ::CloseHandle(hFile_);
+  BOOL ret __attribute__((__unused__));
+  ret = ::CloseHandle(hFile_);
   assert(ret);
 }
 

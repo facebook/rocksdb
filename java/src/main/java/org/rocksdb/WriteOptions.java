@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -19,6 +19,25 @@ public class WriteOptions extends RocksObject {
     super(newWriteOptions());
 
   }
+
+  // TODO(AR) consider ownership
+  WriteOptions(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
+  }
+
+  /**
+   * Copy constructor for WriteOptions.
+   *
+   * NOTE: This does a shallow copy, which means comparator, merge_operator, compaction_filter,
+   * compaction_filter_factory and other pointers will be cloned!
+   *
+   * @param other The ColumnFamilyOptions to copy.
+   */
+  public WriteOptions(WriteOptions other) {
+    super(copyWriteOptions(other.nativeHandle_));
+  }
+
 
   /**
    * If true, the write will be flushed from the operating system
@@ -145,6 +164,7 @@ public class WriteOptions extends RocksObject {
   }
 
   private native static long newWriteOptions();
+  private native static long copyWriteOptions(long handle);
   private native void setSync(long handle, boolean flag);
   private native boolean sync(long handle);
   private native void setDisableWAL(long handle, boolean flag);

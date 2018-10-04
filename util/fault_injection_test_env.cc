@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -35,8 +33,8 @@ Status Truncate(Env* env, const std::string& filename, uint64_t length) {
   const EnvOptions options;
   Status s = env->NewSequentialFile(filename, &orig_file, options);
   if (!s.ok()) {
-    fprintf(stderr, "Cannot truncate file %s: %s\n", filename.c_str(),
-            s.ToString().c_str());
+    fprintf(stderr, "Cannot open file %s for truncation: %s\n",
+            filename.c_str(), s.ToString().c_str());
     return s;
   }
 
@@ -123,7 +121,7 @@ TestWritableFile::~TestWritableFile() {
 
 Status TestWritableFile::Append(const Slice& data) {
   if (!env_->IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return env_->GetError();
   }
   Status s = target_->Append(data);
   if (s.ok()) {
@@ -174,7 +172,7 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
                                               unique_ptr<WritableFile>* result,
                                               const EnvOptions& soptions) {
   if (!IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return GetError();
   }
   // Not allow overwriting files
   Status s = target()->FileExists(fname);
@@ -199,9 +197,18 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
   return s;
 }
 
+Status FaultInjectionTestEnv::NewRandomAccessFile(
+    const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
+    const EnvOptions& soptions) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  return target()->NewRandomAccessFile(fname, result, soptions);
+}
+
 Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
   if (!IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return GetError();
   }
   Status s = EnvWrapper::DeleteFile(f);
   if (!s.ok()) {
@@ -218,7 +225,7 @@ Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
 Status FaultInjectionTestEnv::RenameFile(const std::string& s,
                                          const std::string& t) {
   if (!IsFilesystemActive()) {
-    return Status::Corruption("Not Active");
+    return GetError();
   }
   Status ret = EnvWrapper::RenameFile(s, t);
 

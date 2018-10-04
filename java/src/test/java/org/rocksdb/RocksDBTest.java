@@ -1,16 +1,18 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import java.nio.ByteBuffer;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -193,6 +195,39 @@ public class RocksDBTest {
       getResult = db.get(rOpt, "key2".getBytes(), outValue);
       assertThat(getResult).isNotEqualTo(RocksDB.NOT_FOUND);
       assertThat(outValue).isEqualTo("12345".getBytes());
+    }
+  }
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
+
+  @Test
+  public void getOutOfArrayMaxSizeValue() throws RocksDBException {
+    final int numberOfValueSplits = 10;
+    final int splitSize = Integer.MAX_VALUE / numberOfValueSplits;
+
+    Runtime runtime = Runtime.getRuntime();
+    long neededMemory = ((long)(splitSize)) * (((long)numberOfValueSplits) + 3);
+    boolean isEnoughMemory = runtime.maxMemory() - runtime.totalMemory() > neededMemory;
+    Assume.assumeTrue(isEnoughMemory);
+
+    final byte[] valueSplit = new byte[splitSize];
+    final byte[] key = "key".getBytes();
+
+    thrown.expect(RocksDBException.class);
+    thrown.expectMessage("Requested array size exceeds VM limit");
+
+    // merge (numberOfValueSplits + 1) valueSplit's to get value size exceeding Integer.MAX_VALUE
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options opt = new Options()
+                 .setCreateIfMissing(true)
+                 .setMergeOperator(stringAppendOperator);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      db.put(key, valueSplit);
+      for (int i = 0; i < numberOfValueSplits; i++) {
+        db.merge(key, valueSplit);
+      }
+      db.get(key);
     }
   }
 
@@ -837,6 +872,30 @@ public class RocksDBTest {
             handle.close();
           }
         }
+      }
+    }
+  }
+
+  @Test
+  public void destroyDB() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put("key1".getBytes(), "value".getBytes());
+      }
+      assertThat(dbFolder.getRoot().exists()).isTrue();
+      RocksDB.destroyDB(dbPath, options);
+      assertThat(dbFolder.getRoot().exists()).isFalse();
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void destroyDBFailIfOpen() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        // Fails as the db is open and locked.
+        RocksDB.destroyDB(dbPath, options);
       }
     }
   }

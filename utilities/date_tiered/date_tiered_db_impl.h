@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -57,6 +55,10 @@ class DateTieredDBImpl : public DateTieredDB {
   const ColumnFamilyOptions cf_options_;
 
   const ImmutableCFOptions ioptions_;
+
+  const MutableCFOptions moptions_;
+
+  const InternalKeyComparator icomp_;
 
   // Storing all column family handles for time series data.
   std::vector<ColumnFamilyHandle*> handles_;

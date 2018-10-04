@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -25,6 +25,18 @@ public class OptionsTest {
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
+
+  @Test
+  public void copyConstructor() {
+    Options origOpts = new Options();
+    origOpts.setNumLevels(rand.nextInt(8));
+    origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
+    origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
+    Options copyOpts = new Options(origOpts);
+    assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
+    assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
+    assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
+  }
 
   @Test
   public void setIncreaseParallelism() {
@@ -455,6 +467,15 @@ public class OptionsTest {
       opt.setMaxBackgroundFlushes(intValue);
       assertThat(opt.maxBackgroundFlushes()).
           isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void maxBackgroundJobs() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxBackgroundJobs(intValue);
+      assertThat(opt.maxBackgroundJobs()).isEqualTo(intValue);
     }
   }
 
@@ -979,6 +1000,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void sstFileManager() throws RocksDBException {
+    try (final Options options = new Options();
+         final SstFileManager sstFileManager =
+             new SstFileManager(Env.getDefault())) {
+      options.setSstFileManager(sstFileManager);
+    }
+  }
+
+  @Test
   public void shouldSetTestPrefixExtractor() {
     try (final Options options = new Options()) {
       options.useFixedLengthPrefixExtractor(100);
@@ -1010,14 +1040,15 @@ public class OptionsTest {
 
   @Test
   public void statistics() {
-    try (final Options options = new Options()) {
-      Statistics statistics = options.createStatistics().
-          statisticsPtr();
-      assertThat(statistics).isNotNull();
-      try (final Options anotherOptions = new Options()) {
-        statistics = anotherOptions.statisticsPtr();
-        assertThat(statistics).isNotNull();
-      }
+    try(final Options options = new Options()) {
+      final Statistics statistics = options.statistics();
+      assertThat(statistics).isNull();
+    }
+
+    try(final Statistics statistics = new Statistics();
+        final Options options = new Options().setStatistics(statistics);
+        final Statistics stats = options.statistics()) {
+      assertThat(stats).isNotNull();
     }
   }
 

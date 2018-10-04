@@ -9,5 +9,12 @@ This is the list of all known third-party language bindings for RocksDB. If some
 * Haskell - https://hackage.haskell.org/package/rocksdb-haskell
 * PHP - https://github.com/Photonios/rocksdb-php
 * C# - https://github.com/warrenfalk/rocksdb-sharp
-* Rust - https://github.com/spacejam/rust-rocksdb
+* Rust
+    * https://github.com/pingcap/rust-rocksdb (used in production fork of https://github.com/spacejam/rust-rocksdb)
+    * https://github.com/spacejam/rust-rocksdb
+    * https://github.com/bh1xuw/rust-rocks
 * D programming language - https://github.com/b1naryth1ef/rocksdb
+* Erlang - https://gitlab.com/barrel-db/erlang-rocksdb
+* Elixir - https://github.com/urbint/rox
+* Nim - https://github.com/status-im/nim-rocksdb
+* Swift and Objective-C (iOS/OSX) - https://github.com/iabudiab/ObjectiveRocks 

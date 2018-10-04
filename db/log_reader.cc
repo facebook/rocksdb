@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -16,6 +14,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+#include "util/util.h"
 
 namespace rocksdb {
 namespace log {
@@ -25,7 +24,7 @@ Reader::Reporter::~Reporter() {
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
-               bool checksum, uint64_t initial_offset, uint64_t log_num)
+               bool checksum, uint64_t log_num)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -37,35 +36,11 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       eof_offset_(0),
       last_record_offset_(0),
       end_of_buffer_offset_(0),
-      initial_offset_(initial_offset),
       log_number_(log_num),
       recycled_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
-}
-
-bool Reader::SkipToInitialBlock() {
-  size_t initial_offset_in_block = initial_offset_ % kBlockSize;
-  uint64_t block_start_location = initial_offset_ - initial_offset_in_block;
-
-  // Don't search a block if we'd be in the trailer
-  if (initial_offset_in_block > kBlockSize - 6) {
-    block_start_location += kBlockSize;
-  }
-
-  end_of_buffer_offset_ = block_start_location;
-
-  // Skip to start of first block that can contain the initial record
-  if (block_start_location > 0) {
-    Status skip_status = file_->Skip(block_start_location);
-    if (!skip_status.ok()) {
-      ReportDrop(static_cast<size_t>(block_start_location), skip_status);
-      return false;
-    }
-  }
-
-  return true;
 }
 
 // For kAbsoluteConsistency, on clean shutdown we don't expect any error
@@ -77,12 +52,6 @@ bool Reader::SkipToInitialBlock() {
 // restrict the inconsistency to only the last log
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
                         WALRecoveryMode wal_recovery_mode) {
-  if (last_record_offset_ < initial_offset_) {
-    if (!SkipToInitialBlock()) {
-      return false;
-    }
-  }
-
   scratch->clear();
   record->clear();
   bool in_fragmented_record = false;
@@ -153,7 +122,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           // in clean shutdown we don't expect any error in the log files
           ReportCorruption(drop_size, "truncated header");
         }
-      // fall-thru
+	FALLTHROUGH_INTENDED;
 
       case kEof:
         if (in_fragmented_record) {
@@ -183,7 +152,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           }
           return false;
         }
-      // fall-thru
+	FALLTHROUGH_INTENDED;
 
       case kBadRecord:
         if (in_fragmented_record) {
@@ -300,8 +269,7 @@ void Reader::ReportCorruption(size_t bytes, const char* reason) {
 }
 
 void Reader::ReportDrop(size_t bytes, const Status& reason) {
-  if (reporter_ != nullptr &&
-      end_of_buffer_offset_ - buffer_.size() - bytes >= initial_offset_) {
+  if (reporter_ != nullptr) {
     reporter_->Corruption(bytes, reason);
   }
 }
@@ -318,7 +286,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
       read_error_ = true;
       *error = kEof;
       return false;
-    } else if (buffer_.size() < (size_t)kBlockSize) {
+    } else if (buffer_.size() < static_cast<size_t>(kBlockSize)) {
       eof_ = true;
       eof_offset_ = buffer_.size();
     }
@@ -343,7 +311,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
 unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
     // We need at least the minimum header size
-    if (buffer_.size() < (size_t)kHeaderSize) {
+    if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
       int r;
       if (!ReadMore(drop_size, &r)) {
         return r;
@@ -364,7 +332,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       }
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
-      if (buffer_.size() < (size_t)kRecyclableHeaderSize) {
+      if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
         int r;
         if (!ReadMore(drop_size, &r)) {
           return r;
@@ -417,13 +385,6 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     }
 
     buffer_.remove_prefix(header_size + length);
-
-    // Skip physical record that started before initial_offset_
-    if (end_of_buffer_offset_ - buffer_.size() - header_size - length <
-        initial_offset_) {
-      result->clear();
-      return kBadRecord;
-    }
 
     *result = Slice(header + header_size, length);
     return type;

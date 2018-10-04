@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -11,6 +9,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
+#include "util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "util/sync_point.h"
 #endif
@@ -43,7 +42,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   Close();
 
   auto options = CurrentOptions();
-  assert(options.env = env_);
+  assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
@@ -177,6 +176,8 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   int i = 0;
   while (NumTableFilesAtLevel(2, 1) == 0) {
     ASSERT_OK(Put(1, Key(i++), value));
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
   }
 
   options.num_levels = 1;
@@ -360,15 +361,15 @@ TEST_F(DBBasicTest, FLUSH) {
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
     SetPerfLevel(kEnableTime);
-    ;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     // this will now also flush the last 2 writes
     ASSERT_OK(Flush(1));
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
 
-    perf_context.Reset();
+    get_perf_context()->Reset();
     Get(1, "foo");
-    ASSERT_TRUE((int)perf_context.get_from_output_files_time > 0);
+    ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
+    ASSERT_EQ(2, (int)get_perf_context()->get_read_bytes);
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -381,9 +382,9 @@ TEST_F(DBBasicTest, FLUSH) {
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v2", Get(1, "bar"));
-    perf_context.Reset();
+    get_perf_context()->Reset();
     ASSERT_EQ("v2", Get(1, "foo"));
-    ASSERT_TRUE((int)perf_context.get_from_output_files_time > 0);
+    ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
 
     writeOpt.disableWAL = false;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));
@@ -570,19 +571,19 @@ TEST_F(DBBasicTest, CompactBetweenSnapshots) {
 
 TEST_F(DBBasicTest, DBOpen_Options) {
   Options options = CurrentOptions();
-  std::string dbname = test::TmpDir(env_) + "/db_options_test";
-  ASSERT_OK(DestroyDB(dbname, options));
+  Close();
+  Destroy(options);
 
   // Does not exist, and create_if_missing == false: error
   DB* db = nullptr;
   options.create_if_missing = false;
-  Status s = DB::Open(options, dbname, &db);
+  Status s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does not exist, and create_if_missing == true: OK
   options.create_if_missing = true;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -592,14 +593,14 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   // Does exist, and error_if_exists == true: error
   options.create_if_missing = false;
   options.error_if_exists = true;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does exist, and error_if_exists == false: OK
   options.create_if_missing = true;
   options.error_if_exists = false;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -725,6 +726,7 @@ TEST_F(DBBasicTest, FlushOneColumnFamily) {
 TEST_F(DBBasicTest, MultiGetSimple) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    SetPerfLevel(kEnableCount);
     ASSERT_OK(Put(1, "k1", "v1"));
     ASSERT_OK(Put(1, "k2", "v2"));
     ASSERT_OK(Put(1, "k3", "v3"));
@@ -738,12 +740,15 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     std::vector<std::string> values(20, "Temporary data to be overwritten");
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
+    get_perf_context()->Reset();
     std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_EQ(values[0], "v1");
     ASSERT_EQ(values[1], "v2");
     ASSERT_EQ(values[2], "v3");
     ASSERT_EQ(values[4], "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
 
     ASSERT_OK(s[0]);
     ASSERT_OK(s[1]);
@@ -751,6 +756,7 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     ASSERT_TRUE(s[3].IsNotFound());
     ASSERT_OK(s[4]);
     ASSERT_TRUE(s[5].IsNotFound());
+    SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
 
@@ -787,36 +793,30 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
 TEST_F(DBBasicTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
+  // change when new checksum type added
+  int max_checksum = static_cast<int>(kxxHash);
+  const int kNumPerFile = 2;
 
-  table_options.checksum = kCRC32c;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_OK(Put("a", "b"));
-  ASSERT_OK(Put("c", "d"));
-  ASSERT_OK(Flush());  // table with crc checksum
+  // generate one table with each type of checksum
+  for (int i = 0; i <= max_checksum; ++i) {
+    table_options.checksum = static_cast<ChecksumType>(i);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    Reopen(options);
+    for (int j = 0; j < kNumPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), Key(i * kNumPerFile + j)));
+    }
+    ASSERT_OK(Flush());
+  }
 
-  table_options.checksum = kxxHash;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_OK(Put("e", "f"));
-  ASSERT_OK(Put("g", "h"));
-  ASSERT_OK(Flush());  // table with xxhash checksum
-
-  table_options.checksum = kCRC32c;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_EQ("b", Get("a"));
-  ASSERT_EQ("d", Get("c"));
-  ASSERT_EQ("f", Get("e"));
-  ASSERT_EQ("h", Get("g"));
-
-  table_options.checksum = kCRC32c;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_EQ("b", Get("a"));
-  ASSERT_EQ("d", Get("c"));
-  ASSERT_EQ("f", Get("e"));
-  ASSERT_EQ("h", Get("g"));
+  // verify data with each type of checksum
+  for (int i = 0; i <= kxxHash; ++i) {
+    table_options.checksum = static_cast<ChecksumType>(i);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    Reopen(options);
+    for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
+      ASSERT_EQ(Key(j), Get(Key(j)));
+    }
+  }
 }
 
 // On Windows you can have either memory mapped file or a file
@@ -824,6 +824,9 @@ TEST_F(DBBasicTest, ChecksumTest) {
 // sense to run
 #ifndef OS_WIN
 TEST_F(DBBasicTest, MmapAndBufferOptions) {
+  if (!IsMemoryMappedAccessSupported()) {
+    return;
+  }
   Options options = CurrentOptions();
 
   options.use_direct_reads = true;
@@ -844,6 +847,114 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
   ASSERT_OK(TryReopen(options));
 }
 #endif
+
+class TestEnv : public EnvWrapper {
+  public:
+    explicit TestEnv() : EnvWrapper(Env::Default()),
+                close_count(0) { }
+
+    class TestLogger : public Logger {
+      public:
+        using Logger::Logv;
+        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
+        ~TestLogger() {
+          if (!closed_) {
+            CloseHelper();
+          }
+        }
+        virtual void Logv(const char* /*format*/, va_list /*ap*/) override{};
+
+       protected:
+        virtual Status CloseImpl() override {
+          return CloseHelper();
+        }
+      private:
+        Status CloseHelper() {
+          env->CloseCountInc();;
+          return Status::IOError();
+        }
+        TestEnv *env;
+    };
+
+    void CloseCountInc() { close_count++; }
+
+    int GetCloseCount() { return close_count; }
+
+    virtual Status NewLogger(const std::string& /*fname*/,
+                             shared_ptr<Logger>* result) {
+      result->reset(new TestLogger(this));
+      return Status::OK();
+    }
+
+   private:
+    int close_count;
+};
+
+TEST_F(DBBasicTest, DBClose) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("db_close_test");
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  DB* db = nullptr;
+  TestEnv* env = new TestEnv();
+  options.create_if_missing = true;
+  options.env = env;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  s = db->Close();
+  ASSERT_EQ(env->GetCloseCount(), 1);
+  ASSERT_EQ(s, Status::IOError());
+
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 1);
+
+  // Do not call DB::Close() and ensure our logger Close() still gets called
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 2);
+
+  // Provide our own logger and ensure DB::Close() does not close it
+  options.info_log.reset(new TestEnv::TestLogger(env));
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  s = db->Close();
+  ASSERT_EQ(s, Status::OK());
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 2);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 3);
+
+  delete options.env;
+}
+
+TEST_F(DBBasicTest, DBCloseFlushError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.manual_wal_flush = true;
+  options.write_buffer_size=100;
+  options.env = fault_injection_env.get();
+
+  Reopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(Put("key3", "value3"));
+  fault_injection_env->SetFilesystemActive(false);
+  Status s = dbfull()->Close();
+  fault_injection_env->SetFilesystemActive(true);
+  ASSERT_NE(s, Status::OK());
+
+  Destroy(options);
+}
 
 }  // namespace rocksdb
 

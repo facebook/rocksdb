@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -88,35 +86,23 @@ void Compaction::GetBoundaryKeys(
 bool Compaction::IsBottommostLevel(
     int output_level, VersionStorageInfo* vstorage,
     const std::vector<CompactionInputFiles>& inputs) {
-  if (inputs[0].level == 0 &&
-      inputs[0].files.back() != vstorage->LevelFiles(0).back()) {
-    return false;
+  int output_l0_idx;
+  if (output_level == 0) {
+    output_l0_idx = 0;
+    for (const auto* file : vstorage->LevelFiles(0)) {
+      if (inputs[0].files.back() == file) {
+        break;
+      }
+      ++output_l0_idx;
+    }
+    assert(static_cast<size_t>(output_l0_idx) < vstorage->LevelFiles(0).size());
+  } else {
+    output_l0_idx = -1;
   }
-
   Slice smallest_key, largest_key;
   GetBoundaryKeys(vstorage, inputs, &smallest_key, &largest_key);
-
-  // Checks whether there are files living beyond the output_level.
-  // If lower levels have files, it checks for overlap between files
-  // if the compaction process and those files.
-  // Bottomlevel optimizations can be made if there are no files in
-  // lower levels or if there is no overlap with the files in
-  // the lower levels.
-  for (int i = output_level + 1; i < vstorage->num_levels(); i++) {
-    // It is not the bottommost level if there are files in higher
-    // levels when the output level is 0 or if there are files in
-    // higher levels which overlap with files to be compacted.
-    // output_level == 0 means that we want it to be considered
-    // s the bottommost level only if the last file on the level
-    // is a part of the files to be compacted - this is verified by
-    // the first if condition in this function
-    if (vstorage->NumLevelFiles(i) > 0 &&
-        (output_level == 0 ||
-         vstorage->OverlapInLevel(i, &smallest_key, &largest_key))) {
-      return false;
-    }
-  }
-  return true;
+  return !vstorage->RangeMightExistAfterSortedRun(smallest_key, largest_key,
+                                                  output_level, output_l0_idx);
 }
 
 // test function to validate the functionality of IsBottommostLevel()
@@ -148,6 +134,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        int _output_level, uint64_t _target_file_size,
                        uint64_t _max_compaction_bytes, uint32_t _output_path_id,
                        CompressionType _compression,
+                       CompressionOptions _compression_opts,
+                       uint32_t _max_subcompactions,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
@@ -157,6 +145,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
+      max_subcompactions_(_max_subcompactions),
       immutable_cf_options_(_immutable_cf_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
@@ -164,6 +153,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       cfd_(nullptr),
       output_path_id_(_output_path_id),
       output_compression_(_compression),
+      output_compression_opts_(_compression_opts),
       deletion_compaction_(_deletion_compaction),
       inputs_(std::move(_inputs)),
       grandparents_(std::move(_grandparents)),
@@ -171,10 +161,14 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
+      is_trivial_move_(false),
       compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
+  }
+  if (max_subcompactions_ == 0) {
+    max_subcompactions_ = immutable_cf_options_.max_subcompactions;
   }
 
 #ifndef NDEBUG
@@ -242,7 +236,7 @@ bool Compaction::IsTrivialMove() const {
 
   // Used in universal compaction, where trivial move can be done if the
   // input files are non overlapping
-  if ((immutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
+  if ((mutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
       (output_level_ != 0)) {
     return is_trivial_move_;
   }
@@ -285,28 +279,31 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(input_version_ != nullptr);
   assert(level_ptrs != nullptr);
   assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
-  assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
-    return bottommost_level_;
-  }
-  // Maybe use binary search to find right entry instead of linear search?
-  const Comparator* user_cmp = cfd_->user_comparator();
-  for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files = input_vstorage_->LevelFiles(lvl);
-    for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
-      auto* f = files[level_ptrs->at(lvl)];
-      if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
-        // We've advanced far enough
-        if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
-          // Key falls in this file's range, so definitely
-          // exists beyond output level
-          return false;
+  if (bottommost_level_) {
+    return true;
+  } else if (output_level_ != 0 &&
+             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    // Maybe use binary search to find right entry instead of linear search?
+    const Comparator* user_cmp = cfd_->user_comparator();
+    for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
+      const std::vector<FileMetaData*>& files =
+          input_vstorage_->LevelFiles(lvl);
+      for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
+        auto* f = files[level_ptrs->at(lvl)];
+        if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
+          // We've advanced far enough
+          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+            // Key falls in this file's range, so definitely
+            // exists beyond output level
+            return false;
+          }
+          break;
         }
-        break;
       }
     }
+    return true;
   }
-  return true;
+  return false;
 }
 
 // Mark (or clear) each file that is being compacted
@@ -415,20 +412,23 @@ void Compaction::Summary(char* output, int len) {
 uint64_t Compaction::OutputFilePreallocationSize() const {
   uint64_t preallocation_size = 0;
 
-  if (max_output_file_size_ != port::kMaxUint64 &&
-      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||
-       output_level() > 0)) {
-    preallocation_size = max_output_file_size_;
-  } else {
-    for (const auto& level_files : inputs_) {
-      for (const auto& file : level_files.files) {
-        preallocation_size += file->fd.GetFileSize();
-      }
+  for (const auto& level_files : inputs_) {
+    for (const auto& file : level_files.files) {
+      preallocation_size += file->fd.GetFileSize();
     }
   }
+
+  if (max_output_file_size_ != port::kMaxUint64 &&
+      (immutable_cf_options_.compaction_style == kCompactionStyleLevel ||
+       output_level() > 0)) {
+    preallocation_size = std::min(max_output_file_size_, preallocation_size);
+  }
+
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
-  return preallocation_size + (preallocation_size / 10);
+  // No point to prellocate more than 1GB.
+  return std::min(uint64_t{1073741824},
+                  preallocation_size + (preallocation_size / 10));
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
@@ -449,16 +449,34 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
-  if (immutable_cf_options_.max_subcompactions <= 1 || cfd_ == nullptr) {
+  if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    return start_level_ == 0 && output_level_ > 0 && !IsOutputLevelEmpty();
+    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
+           !IsOutputLevelEmpty();
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
     return false;
   }
+}
+
+uint64_t Compaction::MaxInputFileCreationTime() const {
+  uint64_t max_creation_time = 0;
+  for (const auto& file : inputs_[0].files) {
+    if (file->fd.table_reader != nullptr &&
+        file->fd.table_reader->GetTableProperties() != nullptr) {
+      uint64_t creation_time =
+          file->fd.table_reader->GetTableProperties()->creation_time;
+      max_creation_time = std::max(max_creation_time, creation_time);
+    }
+  }
+  return max_creation_time;
+}
+
+int Compaction::GetInputBaseLevel() const {
+  return input_vstorage_->base_level();
 }
 
 }  // namespace rocksdb

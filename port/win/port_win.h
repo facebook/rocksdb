@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -11,8 +9,7 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#ifndef STORAGE_LEVELDB_PORT_PORT_WIN_H_
-#define STORAGE_LEVELDB_PORT_PORT_WIN_H_
+#pragma once
 
 // Always want minimum headers
 #ifndef WIN32_LEAN_AND_MEAN
@@ -29,6 +26,8 @@
 #include <mutex>
 #include <limits>
 #include <condition_variable>
+#include <malloc.h>
+#include <intrin.h>
 
 #include <stdint.h>
 
@@ -81,19 +80,8 @@ namespace rocksdb {
 
 namespace port {
 
-// VS 15
-#if (defined _MSC_VER) && (_MSC_VER >= 1900)
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const int kMaxInt32 = std::numeric_limits<int>::max();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
-#else //_MSC_VER
+// VS < 2015
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
 
 // VS 15 has snprintf
 #define snprintf _snprintf
@@ -103,6 +91,7 @@ const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 // therefore, use the same limits
 
 // For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = UINT32_MAX;
 const int kMaxInt32 = INT32_MAX;
 const int64_t kMaxInt64 = INT64_MAX;
 const uint64_t kMaxUint64 = UINT64_MAX;
@@ -112,6 +101,18 @@ const size_t kMaxSizet = UINT64_MAX;
 #else
 const size_t kMaxSizet = UINT_MAX;
 #endif
+
+#else // VS >= 2015 or MinGW
+
+#define ROCKSDB_NOEXCEPT noexcept
+
+// For use at db/file_indexer.h kLevelMaxIndex
+const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
+const int kMaxInt32 = std::numeric_limits<int>::max();
+const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
+
+const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 #endif //_MSC_VER
 
@@ -241,6 +242,36 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define CACHE_LINE_SIZE 64U
 #endif
 
+#ifdef ROCKSDB_JEMALLOC
+// Separate inlines so they can be replaced if needed
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
+void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
+#endif
+
+inline void *cacheline_aligned_alloc(size_t size) {
+#ifdef ROCKSDB_JEMALLOC
+  return jemalloc_aligned_alloc(size, CACHE_LINE_SIZE);
+#else
+  return _aligned_malloc(size, CACHE_LINE_SIZE);
+#endif
+}
+
+inline void cacheline_aligned_free(void *memblock) {
+#ifdef ROCKSDB_JEMALLOC
+  jemalloc_aligned_free(memblock);
+#else
+  _aligned_free(memblock);
+#endif
+}
+
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
+// could not be worked around with by -mno-ms-bitfields
+#ifndef __MINGW32__
+#define ALIGN_AS(n) __declspec(align(n))
+#else
+#define ALIGN_AS(n)
+#endif
+
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)
   YieldProcessor();
@@ -309,5 +340,3 @@ using port::pthread_getspecific;
 using port::truncate;
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_PORT_PORT_WIN_H_

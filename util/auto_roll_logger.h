@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Logger implementation that can be shared by all environments
 // where enough posix functionality is available.
@@ -82,6 +80,9 @@ class AutoRollLogger : public Logger {
   }
 
   virtual ~AutoRollLogger() {
+    if (logger_ && !closed_) {
+      logger_->Close();
+    }
   }
 
   void SetCallNowMicrosEveryNRecords(uint64_t call_NowMicros_every_N_records) {
@@ -95,6 +96,16 @@ class AutoRollLogger : public Logger {
 
   uint64_t TEST_ctime() const { return ctime_; }
 
+ protected:
+  // Implementation of Close()
+  virtual Status CloseImpl() override {
+    if (logger_) {
+      return logger_->Close();
+    } else {
+      return Status::OK();
+    }
+  }
+
  private:
   bool LogExpired();
   Status ResetLogger();
@@ -105,7 +116,6 @@ class AutoRollLogger : public Logger {
   std::string ValistToString(const char* format, va_list args) const;
   // Write the logs marked as headers to the new log file
   void WriteHeaderInfo();
-
   std::string log_fname_; // Current active info log's file name.
   std::string dbname_;
   std::string db_log_dir_;

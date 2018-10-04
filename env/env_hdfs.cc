@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #include "rocksdb/env.h"
@@ -279,6 +277,19 @@ class HdfsLogger : public Logger {
   HdfsWritableFile* file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
 
+  Status HdfsCloseHelper() {
+    ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsLogger closed %s\n",
+                    file_->getName().c_str());
+    Status s = file_->Close();
+    if (mylog != nullptr && mylog == this) {
+      mylog = nullptr;
+    }
+    return s;
+  }
+
+ protected:
+  virtual Status CloseImpl() override { return HdfsCloseHelper(); }
+
  public:
   HdfsLogger(HdfsWritableFile* f, uint64_t (*gettid)())
       : file_(f), gettid_(gettid) {
@@ -287,11 +298,9 @@ class HdfsLogger : public Logger {
   }
 
   virtual ~HdfsLogger() {
-    ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsLogger closed %s\n",
-                    file_->getName().c_str());
-    delete file_;
-    if (mylog != nullptr && mylog == this) {
-      mylog = nullptr;
+    if (!closed_) {
+      closed_ = true;
+      HdfsCloseHelper();
     }
   }
 
@@ -600,13 +609,13 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
 
 // dummy placeholders used when HDFS is not available
 namespace rocksdb {
- Status HdfsEnv::NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options) {
-   return Status::NotSupported("Not compiled with hdfs support");
+Status HdfsEnv::NewSequentialFile(const std::string& /*fname*/,
+                                  unique_ptr<SequentialFile>* /*result*/,
+                                  const EnvOptions& /*options*/) {
+  return Status::NotSupported("Not compiled with hdfs support");
  }
 
- Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
+ Status NewHdfsEnv(Env** /*hdfs_env*/, const std::string& /*fsname*/) {
    return Status::NotSupported("Not compiled with hdfs support");
  }
 }

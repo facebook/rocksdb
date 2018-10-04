@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -25,6 +23,16 @@ namespace rocksdb {
 
 class TransactionDBMutexFactory;
 
+enum TxnDBWritePolicy {
+  WRITE_COMMITTED = 0,  // write only the committed data
+  // TODO(myabandeh): Not implemented yet
+  WRITE_PREPARED,  // write data after the prepare phase of 2pc
+  // TODO(myabandeh): Not implemented yet
+  WRITE_UNPREPARED  // write data before the prepare phase of 2pc
+};
+
+const uint32_t kInitialMaxDeadlocks = 5;
+
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
   // per column family.
@@ -32,6 +40,9 @@ struct TransactionDBOptions {
   // writes (or GetForUpdate) will return an error.
   // If this value is not positive, no limit will be enforced.
   int64_t max_num_locks = -1;
+
+  // Stores the number of latest deadlocks to track
+  uint32_t max_num_deadlocks = kInitialMaxDeadlocks;
 
   // Increasing this value will increase the concurrency by dividing the lock
   // table (per column family) into more sub-tables, each with their own
@@ -64,10 +75,24 @@ struct TransactionDBOptions {
   // expiration set.
   int64_t default_lock_timeout = 1000;  // 1 second
 
-  // If set, the TransactionDB will use this implemenation of a mutex and
+  // If set, the TransactionDB will use this implementation of a mutex and
   // condition variable for all transaction locking instead of the default
   // mutex/condvar implementation.
   std::shared_ptr<TransactionDBMutexFactory> custom_mutex_factory;
+
+  // The policy for when to write the data into the DB. The default policy is to
+  // write only the committed data (WRITE_COMMITTED). The data could be written
+  // before the commit phase. The DB then needs to provide the mechanisms to
+  // tell apart committed from uncommitted data.
+  TxnDBWritePolicy write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+
+  // TODO(myabandeh): remove this option
+  // Note: this is a temporary option as a hot fix in rollback of writeprepared
+  // txns in myrocks. MyRocks uses merge operands for autoinc column id without
+  // however obtaining locks. This breaks the assumption behind the rollback
+  // logic in myrocks. This hack of simply not rolling back merge operands works
+  // for the special way that myrocks uses this operands.
+  bool rollback_merge_operands = false;
 };
 
 struct TransactionOptions {
@@ -79,6 +104,13 @@ struct TransactionOptions {
   // check if doing so will cause a deadlock. If so, it will return with
   // Status::Busy.  The user should retry their transaction.
   bool deadlock_detect = false;
+
+  // If set, it states that the CommitTimeWriteBatch represents the latest state
+  // of the application, has only one sub-batch, i.e., no duplicate keys,  and
+  // meant to be used later during recovery. It enables an optimization to
+  // postpone updating the memtable with CommitTimeWriteBatch to only
+  // SwitchMemtable or recovery.
+  bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow
   // two non-equal keys to be equivalent.  Ie, cmp->Compare(a,b) should only
@@ -105,6 +137,29 @@ struct TransactionOptions {
 
   // The maximum number of bytes used for the write batch. 0 means no limit.
   size_t max_write_batch_size = 0;
+
+  // Skip Concurrency Control. This could be as an optimization if the
+  // application knows that the transaction would not have any conflict with
+  // concurrent transactions. It could also be used during recovery if (i)
+  // application guarantees no conflict between prepared transactions in the WAL
+  // (ii) application guarantees that recovered transactions will be rolled
+  // back/commit before new transactions start.
+  // Default: false
+  bool skip_concurrency_control = false;
+};
+
+// The per-write optimizations that do not involve transactions. TransactionDB
+// implementation might or might not make use of the specified optimizations.
+struct TransactionDBWriteOptimizations {
+  // If it is true it means that the application guarantees that the
+  // key-set in the write batch do not conflict with any concurrent transaction
+  // and hence the concurrency control mechanism could be skipped for this
+  // write.
+  bool skip_concurrency_control = false;
+  // If true, the application guarantees that there is no duplicate <column
+  // family, key> in the write batch and any employed mechanism to handle
+  // duplicate keys could be skipped.
+  bool skip_duplicate_key_check = false;
 };
 
 struct KeyLockInfo {
@@ -113,10 +168,44 @@ struct KeyLockInfo {
   bool exclusive;
 };
 
+struct DeadlockInfo {
+  TransactionID m_txn_id;
+  uint32_t m_cf_id;
+  std::string m_waiting_key;
+  bool m_exclusive;
+};
+
+struct DeadlockPath {
+  std::vector<DeadlockInfo> path;
+  bool limit_exceeded;
+  int64_t deadlock_time;
+
+  explicit DeadlockPath(std::vector<DeadlockInfo> path_entry,
+                        const int64_t& dl_time)
+      : path(path_entry), limit_exceeded(false), deadlock_time(dl_time) {}
+
+  // empty path, limit exceeded constructor and default constructor
+  explicit DeadlockPath(const int64_t& dl_time = 0, bool limit = false)
+      : path(0), limit_exceeded(limit), deadlock_time(dl_time) {}
+
+  bool empty() { return path.empty() && !limit_exceeded; }
+};
+
 class TransactionDB : public StackableDB {
  public:
+  // Optimized version of ::Write that receives more optimization request such
+  // as skip_concurrency_control.
+  using StackableDB::Write;
+  virtual Status Write(const WriteOptions& opts,
+                       const TransactionDBWriteOptimizations&,
+                       WriteBatch* updates) {
+    // The default implementation ignores TransactionDBWriteOptimizations and
+    // falls back to the un-optimized version of ::Write
+    return Write(opts, updates);
+  }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
+  // If the return status is not ok, then dbptr is set to nullptr.
   static Status Open(const Options& options,
                      const TransactionDBOptions& txn_db_options,
                      const std::string& dbname, TransactionDB** dbptr);
@@ -127,28 +216,30 @@ class TransactionDB : public StackableDB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      TransactionDB** dbptr);
-  // The following functions are used to open a TransactionDB internally using
-  // an opened DB or StackableDB.
-  // 1. Call prepareWrap(), passing an empty std::vector<size_t> to
-  // compaction_enabled_cf_indices.
-  // 2. Open DB or Stackable DB with db_options and column_families passed to
-  // prepareWrap()
   // Note: PrepareWrap() may change parameters, make copies before the
   // invocation if needed.
-  // 3. Call Wrap*DB() with compaction_enabled_cf_indices in step 1 and handles
-  // of the opened DB/StackableDB in step 2
   static void PrepareWrap(DBOptions* db_options,
                           std::vector<ColumnFamilyDescriptor>* column_families,
                           std::vector<size_t>* compaction_enabled_cf_indices);
+  // If the return status is not ok, then dbptr will bet set to nullptr. The
+  // input db parameter might or might not be deleted as a result of the
+  // failure. If it is properly deleted it will be set to nullptr. If the return
+  // status is ok, the ownership of db is transferred to dbptr.
   static Status WrapDB(DB* db, const TransactionDBOptions& txn_db_options,
                        const std::vector<size_t>& compaction_enabled_cf_indices,
                        const std::vector<ColumnFamilyHandle*>& handles,
                        TransactionDB** dbptr);
+  // If the return status is not ok, then dbptr will bet set to nullptr. The
+  // input db parameter might or might not be deleted as a result of the
+  // failure. If it is properly deleted it will be set to nullptr. If the return
+  // status is ok, the ownership of db is transferred to dbptr.
   static Status WrapStackableDB(
       StackableDB* db, const TransactionDBOptions& txn_db_options,
       const std::vector<size_t>& compaction_enabled_cf_indices,
       const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr);
-  virtual ~TransactionDB() {}
+  // Since the destructor in StackableDB is virtual, this destructor is virtual
+  // too. The root db will be deleted by the base's destructor.
+  ~TransactionDB() override {}
 
   // Starts a new Transaction.
   //
@@ -171,9 +262,12 @@ class TransactionDB : public StackableDB {
   // The mapping is column family id -> KeyLockInfo
   virtual std::unordered_multimap<uint32_t, KeyLockInfo>
   GetLockStatusData() = 0;
+  virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
+  virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
  protected:
   // To Create an TransactionDB, call Open()
+  // The ownership of db is transferred to the base StackableDB
   explicit TransactionDB(DB* db) : StackableDB(db) {}
 
  private:

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -68,8 +68,15 @@ class RandomTransactionInserter {
   // Error status may be obtained by calling GetLastStatus().
   bool DBInsert(DB* db);
 
+  // Get the ikey'th key from set set_i
+  static Status DBGet(DB* db, Transaction* txn, ReadOptions& read_options,
+                      uint16_t set_i, uint64_t ikey, bool get_for_update,
+                      uint64_t* int_value, std::string* full_key,
+                      bool* unexpected_error);
+
   // Returns OK if Invariant is true.
-  static Status Verify(DB* db, uint16_t num_sets);
+  static Status Verify(DB* db, uint16_t num_sets, uint64_t num_keys_per_set = 0,
+                       bool take_snapshot = false, Random64* rand = nullptr);
 
   // Returns the status of the previous Insert operation
   Status GetLastStatus() { return last_status_; }
@@ -83,11 +90,14 @@ class RandomTransactionInserter {
   // write any data.
   uint64_t GetFailureCount() { return failure_count_; }
 
+  // Returns the sum of user keys/values Put() to the DB.
+  size_t GetBytesInserted() { return bytes_inserted_; }
+
  private:
   // Input options
   Random64* rand_;
   const WriteOptions write_options_;
-  const ReadOptions read_options_;
+  ReadOptions read_options_;
   const uint64_t num_keys_;
   const uint16_t num_sets_;
 
@@ -97,12 +107,16 @@ class RandomTransactionInserter {
   // Number of failed insert batches attempted
   uint64_t failure_count_ = 0;
 
+  size_t bytes_inserted_ = 0;
+
   // Status returned by most recent insert operation
   Status last_status_;
 
   // optimization: re-use allocated transaction objects.
   Transaction* txn_ = nullptr;
   Transaction* optimistic_txn_ = nullptr;
+
+  std::atomic<int> txn_id_;
 
   bool DoInsert(DB* db, Transaction* txn, bool is_optimistic);
 };

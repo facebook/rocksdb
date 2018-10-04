@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <jni.h>
 
@@ -17,7 +17,7 @@
  * Signature: ()V
  */
 void Java_org_rocksdb_RocksDBExceptionTest_raiseException(JNIEnv* env,
-                                                          jobject jobj) {
+                                                          jobject /*jobj*/) {
   rocksdb::RocksDBExceptionJni::ThrowNew(env, std::string("test message"));
 }
 
@@ -27,7 +27,7 @@ void Java_org_rocksdb_RocksDBExceptionTest_raiseException(JNIEnv* env,
  * Signature: ()V
  */
 void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionWithStatusCode(
-    JNIEnv* env, jobject jobj) {
+    JNIEnv* env, jobject /*jobj*/) {
   rocksdb::RocksDBExceptionJni::ThrowNew(env, "test message",
                                          rocksdb::Status::NotSupported());
 }
@@ -38,7 +38,7 @@ void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionWithStatusCode(
  * Signature: ()V
  */
 void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionNoMsgWithStatusCode(
-    JNIEnv* env, jobject jobj) {
+    JNIEnv* env, jobject /*jobj*/) {
   rocksdb::RocksDBExceptionJni::ThrowNew(env, rocksdb::Status::NotSupported());
 }
 
@@ -48,7 +48,7 @@ void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionNoMsgWithStatusCode(
  * Signature: ()V
  */
 void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionWithStatusCodeSubCode(
-    JNIEnv* env, jobject jobj) {
+    JNIEnv* env, jobject /*jobj*/) {
   rocksdb::RocksDBExceptionJni::ThrowNew(
       env, "test message",
       rocksdb::Status::TimedOut(rocksdb::Status::SubCode::kLockTimeout));
@@ -60,7 +60,7 @@ void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionWithStatusCodeSubCode(
  * Signature: ()V
  */
 void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionNoMsgWithStatusCodeSubCode(
-    JNIEnv* env, jobject jobj) {
+    JNIEnv* env, jobject /*jobj*/) {
   rocksdb::RocksDBExceptionJni::ThrowNew(
       env, rocksdb::Status::TimedOut(rocksdb::Status::SubCode::kLockTimeout));
 }
@@ -71,7 +71,7 @@ void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionNoMsgWithStatusCodeSubC
  * Signature: ()V
  */
 void Java_org_rocksdb_RocksDBExceptionTest_raiseExceptionWithStatusCodeState(
-    JNIEnv* env, jobject jobj) {
+    JNIEnv* env, jobject /*jobj*/) {
   rocksdb::Slice state("test state");
   rocksdb::RocksDBExceptionJni::ThrowNew(env, "test message",
                                          rocksdb::Status::NotSupported(state));

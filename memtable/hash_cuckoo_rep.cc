@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #ifndef ROCKSDB_LITE
@@ -61,8 +59,7 @@ struct CuckooStep {
 class HashCuckooRep : public MemTableRep {
  public:
   explicit HashCuckooRep(const MemTableRep::KeyComparator& compare,
-                         MemTableAllocator* allocator,
-                         const size_t bucket_count,
+                         Allocator* allocator, const size_t bucket_count,
                          const unsigned int hash_func_count,
                          const size_t approximate_entry_size)
       : MemTableRep(allocator),
@@ -198,7 +195,7 @@ class HashCuckooRep : public MemTableRep {
  private:
   const MemTableRep::KeyComparator& compare_;
   // the pointer to Allocator to allocate memory, immutable after construction.
-  MemTableAllocator* const allocator_;
+  Allocator* const allocator_;
   // the number of hash bucket in the hash table.
   const size_t bucket_count_;
   // approximate size of each entry
@@ -411,6 +408,7 @@ bool HashCuckooRep::QuickInsert(const char* internal_key, const Slice& user_key,
       const auto bucket_user_key = UserKey(stored_key);
       if (bucket_user_key.compare(user_key) == 0) {
         cuckoo_bucket_id = bucket_ids[hid];
+        assert(cuckoo_bucket_id != -1);
         break;
       }
     }
@@ -600,8 +598,8 @@ void HashCuckooRep::Iterator::Seek(const Slice& user_key,
 }
 
 // Retreat to the last entry with a key <= target
-void HashCuckooRep::Iterator::SeekForPrev(const Slice& user_key,
-                                          const char* memtable_key) {
+void HashCuckooRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
+                                          const char* /*memtable_key*/) {
   assert(false);
 }
 
@@ -625,8 +623,8 @@ void HashCuckooRep::Iterator::SeekToLast() {
 }  // anom namespace
 
 MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
-    const SliceTransform* transform, Logger* logger) {
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
+    const SliceTransform* /*transform*/, Logger* /*logger*/) {
   // The estimated average fullness.  The write performance of any close hash
   // degrades as the fullness of the mem-table increases.  Setting kFullness
   // to a value around 0.7 can better avoid write performance degradation while

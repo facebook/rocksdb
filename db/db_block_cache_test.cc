@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -49,7 +47,7 @@ class DBBlockCacheTest : public DBTestBase {
     return options;
   }
 
-  void InitTable(const Options& options) {
+  void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks; i++) {
       ASSERT_OK(Put(ToString(i), value.c_str()));
@@ -112,6 +110,31 @@ class DBBlockCacheTest : public DBTestBase {
     compressed_failure_count_ = new_failure_count;
   }
 };
+
+TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  InitTable(options);
+
+  std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
+  table_options.block_cache = cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+  RecordCacheCounters(options);
+
+  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
+  Iterator* iter = nullptr;
+
+  ASSERT_EQ(0, cache->GetUsage());
+  iter = db_->NewIterator(read_options);
+  iter->Seek(ToString(0));
+  ASSERT_LT(0, cache->GetUsage());
+  delete iter;
+  iter = nullptr;
+  ASSERT_EQ(0, cache->GetUsage());
+}
 
 TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   ReadOptions read_options;
@@ -282,6 +305,41 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
             TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 }
 
+// With fill_cache = false, fills up the cache, then iterates over the entire
+// db, verify dummy entries inserted in `BlockBasedTable::NewDataBlockIterator`
+// does not cause heap-use-after-free errors in COMPILE_WITH_ASAN=1 runs
+TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  InitTable(options);
+
+  std::shared_ptr<Cache> cache = NewLRUCache(10, 0, true);
+  table_options.block_cache = cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Put("key4", "val4"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key5", "val5"));
+  ASSERT_OK(Put("key6", "val6"));
+  ASSERT_OK(Flush());
+
+  Iterator* iter = nullptr;
+
+  iter = db_->NewIterator(read_options);
+  iter->Seek(ToString(0));
+  while (iter->Valid()) {
+    iter->Next();
+  }
+  delete iter;
+  iter = nullptr;
+}
+
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -332,7 +390,10 @@ class MockCache : public LRUCache {
   static uint32_t high_pri_insert_count;
   static uint32_t low_pri_insert_count;
 
-  MockCache() : LRUCache(1 << 25, 0, false, 0.0) {}
+  MockCache()
+      : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
+                 false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
+  }
 
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
@@ -499,7 +560,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
         options.compression = kNoCompression;
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
     CreateAndReopenWithCF({"pikachu"}, options);
     // default column family doesn't have block cache
@@ -562,7 +623,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
         ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT), 0);
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
 
     options.create_if_missing = true;

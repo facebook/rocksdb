@@ -1,12 +1,7 @@
-/*
- *  Copyright (c) 2011-present, Facebook, Inc.
- *  All rights reserved.
- *
- *  This source code is licensed under the BSD-style license found in the
- *  LICENSE file in the root directory of this source tree. An additional grant
- *  of patent rights can be found in the PATENTS file in the same directory.
- *
- */
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 /*
  * This file defines FbsonJsonParserT (template) and FbsonJsonParser.
@@ -36,7 +31,7 @@
  * FbsonErrType, and can be retrieved by calling getErrorCode().
  *
  * ** External dictionary **
- * During parsing a JSON string, you can pass a call-back function to map a key
+ * During parsing a JSON string, you can pass a callback function to map a key
  * string to an id, and store the dictionary id in FBSON to save space. The
  * purpose of using an external dictionary is more towards a collection of
  * documents (which has common keys) rather than a single document, so that
@@ -52,8 +47,7 @@
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONPARSER_H
-#define FBSON_FBSONPARSER_H
+#pragma once
 
 #include <cmath>
 #include <limits>
@@ -461,7 +455,11 @@ class FbsonJsonParserT {
     }
     case '+':
       in.ignore();
-    // fall through
+#if defined(__clang__)
+      [[clang::fallthrough]];
+#elif defined(__GNUC__) && __GNUC__ >= 7
+      [[gnu::fallthrough]];
+#endif
     default:
       ret = parseDecimal(in, 1);
       break;
@@ -742,5 +740,3 @@ class FbsonJsonParserT {
 typedef FbsonJsonParserT<FbsonOutStream> FbsonJsonParser;
 
 } // namespace fbson
-
-#endif // FBSON_FBSONPARSER_H

@@ -101,7 +101,7 @@ bool RedisLists::Index(const std::string& key, int32_t index,
   if (curIndex == index && !it.Done()) {
     Slice elem;
     it.GetCurrent(&elem);
-    if (result != NULL) {
+    if (result != nullptr) {
       *result = elem.ToString();
     }
 
@@ -345,7 +345,7 @@ bool RedisLists::PopLeft(const std::string& key, std::string* result) {
     db_->Put(put_option_, key, it.WriteResult());
 
     // Return the value
-    if (result != NULL) {
+    if (result != nullptr) {
       *result = elem.ToString();
     }
     return true;
@@ -385,7 +385,7 @@ bool RedisLists::PopRight(const std::string& key, std::string* result) {
     db_->Put(put_option_, key, it.WriteResult());
 
     // Return the value
-    if (result != NULL) {
+    if (result != nullptr) {
       *result = elem.ToString();
     }
     return true;

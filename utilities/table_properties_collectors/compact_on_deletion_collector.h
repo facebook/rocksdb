@@ -1,47 +1,13 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
 #ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/table_properties_collectors.h"
 namespace rocksdb {
-
-// A factory of a table property collector that marks a SST
-// file as need-compaction when it observe at least "D" deletion
-// entries in any "N" consecutive entires.
-class CompactOnDeletionCollectorFactory
-    : public TablePropertiesCollectorFactory {
- public:
-  // A factory of a table property collector that marks a SST
-  // file as need-compaction when it observe at least "D" deletion
-  // entries in any "N" consecutive entires.
-  //
-  // @param sliding_window_size "N"
-  // @param deletion_trigger "D"
-  CompactOnDeletionCollectorFactory(
-      size_t sliding_window_size,
-      size_t deletion_trigger) :
-          sliding_window_size_(sliding_window_size),
-          deletion_trigger_(deletion_trigger) {}
-
-  virtual ~CompactOnDeletionCollectorFactory() {}
-
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override;
-
-  virtual const char* Name() const override {
-    return "CompactOnDeletionCollector";
-  }
-
- private:
-  size_t sliding_window_size_;
-  size_t deletion_trigger_;
-};
 
 class CompactOnDeletionCollector : public TablePropertiesCollector {
  public:
@@ -62,8 +28,8 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   // for writing the properties block.
   // @params properties  User will add their collected statistics to
   // `properties`.
-  virtual Status Finish(UserCollectedProperties* properties) override {
-    Reset();
+  virtual Status Finish(UserCollectedProperties* /*properties*/) override {
+    finished_ = true;
     return Status::OK();
   }
 
@@ -100,6 +66,7 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   size_t deletion_trigger_;
   // true if the current SST file needs to be compacted.
   bool need_compaction_;
+  bool finished_;
 };
 }  // namespace rocksdb
 #endif  // !ROCKSDB_LITE

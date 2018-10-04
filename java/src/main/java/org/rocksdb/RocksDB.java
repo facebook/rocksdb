@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -435,7 +435,7 @@ public class RocksDB extends RocksObject {
         path));
   }
 
-  private void storeOptionsInstance(DBOptionsInterface options) {
+  protected void storeOptionsInstance(DBOptionsInterface options) {
     options_ = options;
   }
 
@@ -2127,6 +2127,31 @@ public class RocksDB extends RocksObject {
         property, property.length());
   }
 
+ /**
+   * <p> Return sum of the getLongProperty of all the column families</p>
+   *
+   * <p><strong>Note</strong>: As the returned property is of type
+   * {@code uint64_t} on C++ side the returning value can be negative
+   * because Java supports in Java 7 only signed long values.</p>
+   *
+   * <p><strong>Java 7</strong>: To mitigate the problem of the non
+   * existent unsigned long tpye, values should be encapsulated using
+   * {@link java.math.BigInteger} to reflect the correct value. The correct
+   * behavior is guaranteed if {@code 2^64} is added to negative values.</p>
+   *
+   * <p><strong>Java 8</strong>: In Java 8 the value should be treated as
+   * unsigned long using provided methods of type {@link Long}.</p>
+   *
+   * @param property to be fetched.
+   *
+   * @return numerical property value
+   *
+   * @throws RocksDBException if an error happens in the underlying native code.
+   */
+  public long getAggregatedLongProperty(final String property) throws RocksDBException {
+    return getAggregatedLongProperty(nativeHandle_, property, property.length());
+  }
+
   /**
    * <p>Return a heap-allocated iterator over the contents of the
    * database. The result of newIterator() is initially invalid
@@ -2292,7 +2317,7 @@ public class RocksDB extends RocksObject {
    * @return The handle of the default column family
    */
   public ColumnFamilyHandle getDefaultColumnFamily() {
-    ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
+    final ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
         getDefaultColumnFamily(nativeHandle_));
     cfHandle.disOwnNativeHandle();
     return cfHandle;
@@ -2432,6 +2457,8 @@ public class RocksDB extends RocksObject {
    * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param reduce_level reduce level after compaction
    * @param target_level target level to compact to
    * @param target_path_id the target path id of output path
@@ -2439,6 +2466,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final boolean reduce_level,
       final int target_level, final int target_path_id)
       throws RocksDBException {
@@ -2464,6 +2492,8 @@ public class RocksDB extends RocksObject {
    * <li>{@link #compactRange(byte[], byte[])}</li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param begin start of key range (included in range)
    * @param end end of key range (excluded from range)
    * @param reduce_level reduce level after compaction
@@ -2473,6 +2503,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final byte[] begin, final byte[] end,
       final boolean reduce_level, final int target_level,
       final int target_path_id) throws RocksDBException {
@@ -2544,6 +2575,27 @@ public class RocksDB extends RocksObject {
         false, -1, 0, columnFamilyHandle.nativeHandle_);
   }
 
+
+  /**
+   * <p>Range compaction of column family.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle} instance.
+   * @param begin start of key range (included in range)
+   * @param end end of key range (excluded from range)
+   * @param compactRangeOptions options for the compaction
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
+    final byte[] begin, final byte[] end, CompactRangeOptions compactRangeOptions) throws RocksDBException {
+    compactRange(nativeHandle_, begin, begin.length, end, end.length,
+      compactRangeOptions.nativeHandle_, columnFamilyHandle.nativeHandle_);
+  }
+
   /**
    * <p>Range compaction of column family.</p>
    * <p><strong>Note</strong>: After the database has been compacted,
@@ -2566,6 +2618,8 @@ public class RocksDB extends RocksObject {
    * </li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance.
    * @param reduce_level reduce level after compaction
@@ -2575,6 +2629,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
       final boolean reduce_level, final int target_level,
       final int target_path_id) throws RocksDBException {
@@ -2603,6 +2658,8 @@ public class RocksDB extends RocksObject {
    * </li>
    * </ul>
    *
+   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance.
    * @param begin start of key range (included in range)
@@ -2614,6 +2671,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
+  @Deprecated
   public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] begin, final byte[] end, final boolean reduce_level,
       final int target_level, final int target_path_id)
@@ -2731,100 +2789,71 @@ public class RocksDB extends RocksObject {
     return handleList;
   }
 
-  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
-      final List<String> filePathList) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), false);
-  }
-
-  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
-      final List<String> filePathList, final boolean moveFile) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), moveFile);
-  }
-
-  public void addFileWithFilePath(final List<String> filePathList) throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), false);
-  }
-
-  public void addFileWithFilePath(final List<String> filePathList, final boolean moveFile)
+  /**
+   * ingestExternalFile will load a list of external SST files (1) into the DB
+   * We will try to find the lowest possible level that the file can fit in, and
+   * ingest the file into this level (2). A file that have a key range that
+   * overlap with the memtable key range will require us to Flush the memtable
+   * first before ingesting the file.
+   *
+   * (1) External SST files can be created using {@link SstFileWriter}
+   * (2) We will try to ingest the files to the lowest possible level
+   * even if the file compression doesn't match the level compression
+   *
+   * @param filePathList The list of files to ingest
+   * @param ingestExternalFileOptions the options for the ingestion
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public void ingestExternalFile(final List<String> filePathList,
+      final IngestExternalFileOptions ingestExternalFileOptions)
       throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), moveFile);
+    ingestExternalFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]),
+        filePathList.size(), ingestExternalFileOptions.nativeHandle_);
   }
 
-  public void addFileWithFilePath(
-      final ColumnFamilyHandle columnFamilyHandle, final String filePath) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new String[] {filePath}, 1, false);
-  }
-
-  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
-      final String filePath, final boolean moveFile) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new String[] {filePath}, 1, moveFile);
-  }
-
-  public void addFileWithFilePath(final String filePath) throws RocksDBException {
-    addFile(
-        nativeHandle_, getDefaultColumnFamily().nativeHandle_, new String[] {filePath}, 1, false);
-  }
-
-  public void addFileWithFilePath(final String filePath, final boolean moveFile)
+  /**
+   * ingestExternalFile will load a list of external SST files (1) into the DB
+   * We will try to find the lowest possible level that the file can fit in, and
+   * ingest the file into this level (2). A file that have a key range that
+   * overlap with the memtable key range will require us to Flush the memtable
+   * first before ingesting the file.
+   *
+   * (1) External SST files can be created using {@link SstFileWriter}
+   * (2) We will try to ingest the files to the lowest possible level
+   * even if the file compression doesn't match the level compression
+   *
+   * @param columnFamilyHandle The column family for the ingested files
+   * @param filePathList The list of files to ingest
+   * @param ingestExternalFileOptions the options for the ingestion
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public void ingestExternalFile(final ColumnFamilyHandle columnFamilyHandle,
+      final List<String> filePathList,
+      final IngestExternalFileOptions ingestExternalFileOptions)
       throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, new String[] {filePath}, 1,
-        moveFile);
+    ingestExternalFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]),
+        filePathList.size(), ingestExternalFileOptions.nativeHandle_);
   }
 
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final List<ExternalSstFileInfo> fileInfoList) throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(
-        nativeHandle_, columnFamilyHandle.nativeHandle_, fiHandleList, fiHandleList.length, false);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final List<ExternalSstFileInfo> fileInfoList, final boolean moveFile)
+  /**
+   * Static method to destroy the contents of the specified database.
+   * Be very careful using this method.
+   *
+   * @param path the path to the Rocksdb database.
+   * @param options {@link org.rocksdb.Options} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public static void destroyDB(final String path, final Options options)
       throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, fiHandleList, fiHandleList.length,
-        moveFile);
-  }
-
-  public void addFileWithFileInfo(final List<ExternalSstFileInfo> fileInfoList)
-      throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, fiHandleList,
-        fiHandleList.length, false);
-  }
-
-  public void addFileWithFileInfo(final List<ExternalSstFileInfo> fileInfoList,
-      final boolean moveFile) throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, fiHandleList,
-        fiHandleList.length, moveFile);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final ExternalSstFileInfo fileInfo) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new long[] {fileInfo.nativeHandle_}, 1,
-        false);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final ExternalSstFileInfo fileInfo, final boolean moveFile) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new long[] {fileInfo.nativeHandle_}, 1,
-        moveFile);
-  }
-
-  public void addFileWithFileInfo(final ExternalSstFileInfo fileInfo) throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        new long[] {fileInfo.nativeHandle_}, 1, false);
-  }
-
-  public void addFileWithFileInfo(final ExternalSstFileInfo fileInfo, final boolean moveFile)
-      throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        new long[] {fileInfo.nativeHandle_}, 1, moveFile);
+    destroyDB(path, options.nativeHandle_);
   }
 
   /**
@@ -2988,6 +3017,8 @@ public class RocksDB extends RocksObject {
       int propertyLength) throws RocksDBException;
   protected native long getLongProperty(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
+  protected native long getAggregatedLongProperty(long nativeHandle, String property,
+      int propertyLength) throws RocksDBException;
   protected native long iterator(long handle);
   protected native long iterator(long handle, long readOptHandle);
   protected native long iteratorCF(long handle, long cfHandle);
@@ -2997,8 +3028,9 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyHandles, final long readOptHandle)
       throws RocksDBException;
   protected native long getSnapshot(long nativeHandle);
-  protected native void releaseSnapshot(long nativeHandle, long snapshotHandle);
-  @Override protected final native void disposeInternal(final long handle);
+  protected native void releaseSnapshot(
+      long nativeHandle, long snapshotHandle);
+  @Override protected native void disposeInternal(final long handle);
   private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions)
@@ -3014,6 +3046,9 @@ public class RocksDB extends RocksObject {
   private native void compactRange0(long handle, byte[] begin, int beginLen,
       byte[] end, int endLen, boolean reduce_level, int target_level,
       int target_path_id) throws RocksDBException;
+  private native void compactRange(long handle, byte[] begin, int beginLen,
+    byte[] end, int endLen, long compactRangeOptHandle, long cfHandle)
+    throws RocksDBException;
   private native void compactRange(long handle, boolean reduce_level,
       int target_level, int target_path_id, long cfHandle)
       throws RocksDBException;
@@ -3030,9 +3065,10 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void setOptions(long handle, long cfHandle, String[] keys,
       String[] values) throws RocksDBException;
-  private native void addFile(long handle, long cfHandle, String[] filePathList,
-      int filePathListLen, boolean moveFile) throws RocksDBException;
-  private native void addFile(long handle, long cfHandle, long[] fiHandleList, int fiHandleListLen,
-      boolean moveFile) throws RocksDBException;
+  private native void ingestExternalFile(long handle, long cfHandle,
+      String[] filePathList, int filePathListLen,
+      long ingest_external_file_options_handle) throws RocksDBException;
+  private native static void destroyDB(final String path,
+      final long optionsHandle) throws RocksDBException;
   protected DBOptionsInterface options_;
 }

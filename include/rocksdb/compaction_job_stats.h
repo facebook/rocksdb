@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #include <stddef.h>
@@ -15,7 +15,7 @@ struct CompactionJobStats {
   // Aggregate the CompactionJobStats from another instance with this one
   void Add(const CompactionJobStats& stats);
 
-  // the elapsed time in micro of this compaction.
+  // the elapsed time of this compaction in microseconds.
   uint64_t elapsed_micros;
 
   // the number of compaction input records.
@@ -72,7 +72,7 @@ struct CompactionJobStats {
   // Time spent on file fsync.
   uint64_t file_fsync_nanos;
 
-  // Time spent on preparing file write (falocate, etc)
+  // Time spent on preparing file write (fallocate, etc)
   uint64_t file_prepare_write_nanos;
 
   // 0-terminated strings storing the first 8 bytes of the smallest and

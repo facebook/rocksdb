@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -37,11 +37,11 @@ enum CompactionStyle : char {
   kCompactionStyleNone = 0x3,
 };
 
-// In Level-based comapction, it Determines which file from a level to be
+// In Level-based compaction, it Determines which file from a level to be
 // picked to merge to the next level. We suggest people try
 // kMinOverlappingRatio first when you tune your database.
 enum CompactionPri : char {
-  // Slightly Priotize larger files by size compensated by #deletes
+  // Slightly prioritize larger files by size compensated by #deletes
   kByCompensatedSize = 0x0,
   // First compact files whose data's latest update time is oldest.
   // Try this if you only update some hot keys in small ranges.
@@ -62,6 +62,13 @@ struct CompactionOptionsFIFO {
   // Default: 1GB
   uint64_t max_table_files_size;
 
+  // Drop files older than TTL. TTL based deletion will take precedence over
+  // size based deletion if ttl > 0.
+  // delete if sst_file_creation_time < (current_time - ttl)
+  // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
+  // Default: 0 (disabled)
+  uint64_t ttl = 0;
+
   // If true, try to do compaction to compact smaller files into larger ones.
   // Minimum files to compact follows options.level0_file_num_compaction_trigger
   // and compaction won't trigger if average compact bytes per del file is
@@ -71,34 +78,80 @@ struct CompactionOptionsFIFO {
   bool allow_compaction = false;
 
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
-  CompactionOptionsFIFO(uint64_t _max_table_files_size,
-                        uint64_t _allow_compaction)
+  CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction,
+                        uint64_t _ttl = 0)
       : max_table_files_size(_max_table_files_size),
+        ttl(_ttl),
         allow_compaction(_allow_compaction) {}
 };
 
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
+  // RocksDB's generic default compression level. Internally it'll be translated
+  // to the default compression level specific to the library being used (see
+  // comment above `ColumnFamilyOptions::compression`).
+  //
+  // The default value is the max 16-bit int as it'll be written out in OPTIONS
+  // file, which should be portable.
+  const static int kDefaultCompressionLevel = 32767;
+
   int window_bits;
   int level;
   int strategy;
-  // Maximum size of dictionary used to prime the compression library. Currently
-  // this dictionary will be constructed by sampling the first output file in a
-  // subcompaction when the target level is bottommost. This dictionary will be
-  // loaded into the compression library before compressing/uncompressing each
-  // data block of subsequent files in the subcompaction. Effectively, this
-  // improves compression ratios when there are repetitions across data blocks.
-  // A value of 0 indicates the feature is disabled.
+
+  // Maximum size of dictionaries used to prime the compression library.
+  // Enabling dictionary can improve compression ratios when there are
+  // repetitions across data blocks.
+  //
+  // The dictionary is created by sampling the SST file data. If
+  // `zstd_max_train_bytes` is nonzero, the samples are passed through zstd's
+  // dictionary generator. Otherwise, the random samples are used directly as
+  // the dictionary.
+  //
+  // When compression dictionary is disabled, we compress and write each block
+  // before buffering data for the next one. When compression dictionary is
+  // enabled, we buffer all SST file data in-memory so we can sample it, as data
+  // can only be compressed and written after the dictionary has been finalized.
+  // So users of this feature may see increased memory usage.
+  //
   // Default: 0.
   uint32_t max_dict_bytes;
 
+  // Maximum size of training data passed to zstd's dictionary trainer. Using
+  // zstd's dictionary trainer can achieve even better compression ratio
+  // improvements than using `max_dict_bytes` alone.
+  //
+  // The training data will be used to generate a dictionary of max_dict_bytes.
+  //
+  // Default: 0.
+  uint32_t zstd_max_train_bytes;
+
+  // When the compression options are set by the user, it will be set to "true".
+  // For bottommost_compression_opts, to enable it, user must set enabled=true.
+  // Otherwise, bottommost compression will use compression_opts as default
+  // compression options.
+  //
+  // For compression_opts, if compression_opts.enabled=false, it is still
+  // used as compression options for compression process.
+  //
+  // Default: false.
+  bool enabled;
+
   CompressionOptions()
-      : window_bits(-14), level(-1), strategy(0), max_dict_bytes(0) {}
-  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes)
+      : window_bits(-14),
+        level(kDefaultCompressionLevel),
+        strategy(0),
+        max_dict_bytes(0),
+        zstd_max_train_bytes(0),
+        enabled(false) {}
+  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
+                     int _zstd_max_train_bytes, bool _enabled)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
-        max_dict_bytes(_max_dict_bytes) {}
+        max_dict_bytes(_max_dict_bytes),
+        zstd_max_train_bytes(_zstd_max_train_bytes),
+        enabled(_enabled) {}
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
@@ -221,7 +274,7 @@ struct AdvancedColumnFamilyOptions {
   // if prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
   // create prefix bloom for memtable with the size of
   // write_buffer_size * memtable_prefix_bloom_size_ratio.
-  // If it is larger than 0.25, it is santinized to 0.25.
+  // If it is larger than 0.25, it is sanitized to 0.25.
   //
   // Default: 0 (disable)
   //
@@ -252,7 +305,7 @@ struct AdvancedColumnFamilyOptions {
   // ignore the option.
   //
   // The option is best suited for workloads where keys will likely to insert
-  // to a location close the the last inserted key with the same prefix.
+  // to a location close the last inserted key with the same prefix.
   // One example could be inserting keys of the form (prefix + timestamp),
   // and keys of the same prefix always comes in with time order. Another
   // example would be updating the same key over and over again, in which case
@@ -274,7 +327,7 @@ struct AdvancedColumnFamilyOptions {
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
   // writer_buffer_size, rounded up to a multiple of 4KB).
   //
-  // There are two additional restriction of the The specified size:
+  // There are two additional restriction of the specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
   // (2) be the multiple of the CPU word (which helps with the memory
   // alignment).
@@ -403,8 +456,6 @@ struct AdvancedColumnFamilyOptions {
   // Turning this feature on or off for an existing DB can cause unexpected
   // LSM tree structure so it's not recommended.
   //
-  // NOTE: this option is experimental
-  //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
 
@@ -454,6 +505,10 @@ struct AdvancedColumnFamilyOptions {
   CompactionOptionsUniversal compaction_options_universal;
 
   // The options for FIFO compaction style
+  //
+  // Dynamically changeable through SetOptions() API
+  // Dynamic change example:
+  // SetOption("compaction_options_fifo", "{max_table_files_size=100;ttl=2;}")
   CompactionOptionsFIFO compaction_options_fifo;
 
   // An iteration->Next() sequentially skips over keys with the same
@@ -526,7 +581,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool paranoid_file_checks = false;
 
-  // In debug mode, RocksDB run consistency checks on the LSM everytime the LSM
+  // In debug mode, RocksDB run consistency checks on the LSM every time the LSM
   // change (Flush, Compaction, AddFile). These checks are disabled in release
   // mode, use this option to enable them in release mode as well.
   // Default: false
@@ -535,6 +590,15 @@ struct AdvancedColumnFamilyOptions {
   // Measure IO stats in compactions and flushes, if true.
   // Default: false
   bool report_bg_io_stats = false;
+
+  // Non-bottom-level files older than TTL will go through the compaction
+  // process. This needs max_open_files to be set to -1.
+  // Enabled only for level compaction for now.
+  //
+  // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  uint64_t ttl = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

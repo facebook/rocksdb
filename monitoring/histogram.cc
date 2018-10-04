@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -21,44 +19,30 @@
 #include <stdio.h>
 
 #include "port/port.h"
+#include "util/cast_util.h"
 
 namespace rocksdb {
 
-HistogramBucketMapper::HistogramBucketMapper()
-    :
-      // Add newer bucket index here.
-      // Should be always added in sorted order.
-      // If you change this, you also need to change
-      // size of array buckets_ in HistogramImpl
-      bucketValues_(
-          {1,         2,         3,         4,         5,         6,
-           7,         8,         9,         10,        12,        14,
-           16,        18,        20,        25,        30,        35,
-           40,        45,        50,        60,        70,        80,
-           90,        100,       120,       140,       160,       180,
-           200,       250,       300,       350,       400,       450,
-           500,       600,       700,       800,       900,       1000,
-           1200,      1400,      1600,      1800,      2000,      2500,
-           3000,      3500,      4000,      4500,      5000,      6000,
-           7000,      8000,      9000,      10000,     12000,     14000,
-           16000,     18000,     20000,     25000,     30000,     35000,
-           40000,     45000,     50000,     60000,     70000,     80000,
-           90000,     100000,    120000,    140000,    160000,    180000,
-           200000,    250000,    300000,    350000,    400000,    450000,
-           500000,    600000,    700000,    800000,    900000,    1000000,
-           1200000,   1400000,   1600000,   1800000,   2000000,   2500000,
-           3000000,   3500000,   4000000,   4500000,   5000000,   6000000,
-           7000000,   8000000,   9000000,   10000000,  12000000,  14000000,
-           16000000,  18000000,  20000000,  25000000,  30000000,  35000000,
-           40000000,  45000000,  50000000,  60000000,  70000000,  80000000,
-           90000000,  100000000, 120000000, 140000000, 160000000, 180000000,
-           200000000, 250000000, 300000000, 350000000, 400000000, 450000000,
-           500000000, 600000000, 700000000, 800000000, 900000000, 1000000000}),
-      maxBucketValue_(bucketValues_.back()),
-      minBucketValue_(bucketValues_.front()) {
-  for (size_t i =0; i < bucketValues_.size(); ++i) {
-    valueIndexMap_[bucketValues_[i]] = i;
+HistogramBucketMapper::HistogramBucketMapper() {
+  // If you change this, you also need to change
+  // size of array buckets_ in HistogramImpl
+  bucketValues_ = {1, 2};
+  valueIndexMap_ = {{1, 0}, {2, 1}};
+  double bucket_val = static_cast<double>(bucketValues_.back());
+  while ((bucket_val = 1.5 * bucket_val) <= static_cast<double>(port::kMaxUint64)) {
+    bucketValues_.push_back(static_cast<uint64_t>(bucket_val));
+    // Extracts two most significant digits to make histogram buckets more
+    // human-readable. E.g., 172 becomes 170.
+    uint64_t pow_of_ten = 1;
+    while (bucketValues_.back() / 10 > 10) {
+      bucketValues_.back() /= 10;
+      pow_of_ten *= 10;
+    }
+    bucketValues_.back() *= pow_of_ten;
+    valueIndexMap_[bucketValues_.back()] = bucketValues_.size() - 1;
   }
+  maxBucketValue_ = bucketValues_.back();
+  minBucketValue_ = bucketValues_.front();
 }
 
 size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
@@ -106,17 +90,26 @@ void HistogramStat::Add(uint64_t value) {
   // by concurrent threads is tolerable.
   const size_t index = bucketMapper.IndexForValue(value);
   assert(index < num_buckets_);
-  buckets_[index].fetch_add(1, std::memory_order_relaxed);
+  buckets_[index].store(buckets_[index].load(std::memory_order_relaxed) + 1,
+                        std::memory_order_relaxed);
 
   uint64_t old_min = min();
-  while (value < old_min && !min_.compare_exchange_weak(old_min, value)) {}
+  if (value < old_min) {
+    min_.store(value, std::memory_order_relaxed);
+  }
 
   uint64_t old_max = max();
-  while (value > old_max && !max_.compare_exchange_weak(old_max, value)) {}
+  if (value > old_max) {
+    max_.store(value, std::memory_order_relaxed);
+  }
 
-  num_.fetch_add(1, std::memory_order_relaxed);
-  sum_.fetch_add(value, std::memory_order_relaxed);
-  sum_squares_.fetch_add(value * value, std::memory_order_relaxed);
+  num_.store(num_.load(std::memory_order_relaxed) + 1,
+             std::memory_order_relaxed);
+  sum_.store(sum_.load(std::memory_order_relaxed) + value,
+             std::memory_order_relaxed);
+  sum_squares_.store(
+      sum_squares_.load(std::memory_order_relaxed) + value * value,
+      std::memory_order_relaxed);
 }
 
 void HistogramStat::Merge(const HistogramStat& other) {
@@ -209,6 +202,7 @@ std::string HistogramStat::ToString() const {
            Percentile(99.99));
   r.append(buf);
   r.append("------------------------------------------------------\n");
+  if (cur_num == 0) return r;   // all buckets are empty
   const double mult = 100.0 / cur_num;
   uint64_t cumulative_sum = 0;
   for (unsigned int b = 0; b < num_buckets_; b++) {
@@ -216,7 +210,8 @@ std::string HistogramStat::ToString() const {
     if (bucket_value <= 0.0) continue;
     cumulative_sum += bucket_value;
     snprintf(buf, sizeof(buf),
-             "[ %7" PRIu64 ", %7" PRIu64 " ) %8" PRIu64 " %7.3f%% %7.3f%% ",
+             "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
+             (b == 0) ? '[' : '(',
              (b == 0) ? 0 : bucketMapper.BucketLimit(b-1),  // left
               bucketMapper.BucketLimit(b),  // right
               bucket_value,                   // count
@@ -240,6 +235,8 @@ void HistogramStat::Data(HistogramData * const data) const {
   data->max = static_cast<double>(max());
   data->average = Average();
   data->standard_deviation = StandardDeviation();
+  data->count = num();
+  data->sum = sum();
 }
 
 void HistogramImpl::Clear() {
@@ -257,7 +254,8 @@ void HistogramImpl::Add(uint64_t value) {
 
 void HistogramImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
-    Merge(dynamic_cast<const HistogramImpl&>(other));
+    Merge(
+        *static_cast_with_check<const HistogramImpl, const Histogram>(&other));
   }
 }
 

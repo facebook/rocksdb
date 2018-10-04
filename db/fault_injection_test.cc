@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -36,19 +34,22 @@ static const int kValueSize = 1000;
 static const int kMaxNumValues = 2000;
 static const size_t kNumIterations = 3;
 
-class FaultInjectionTest : public testing::Test,
-                           public testing::WithParamInterface<bool> {
+enum FaultInjectionOptionConfig {
+  kDefault,
+  kDifferentDataDir,
+  kWalDir,
+  kSyncWal,
+  kWalDirSyncWal,
+  kMultiLevels,
+  kEnd,
+};
+class FaultInjectionTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::tuple<
+          bool, FaultInjectionOptionConfig, FaultInjectionOptionConfig>> {
  protected:
-  enum OptionConfig {
-    kDefault,
-    kDifferentDataDir,
-    kWalDir,
-    kSyncWal,
-    kWalDirSyncWal,
-    kMultiLevels,
-    kEnd,
-  };
   int option_config_;
+  int non_inclusive_end_range_;  // kEnd or equivalent to that
   // When need to make sure data is persistent, sync WAL
   bool sync_use_wal_;
   // When need to make sure data is persistent, call DB::CompactRange()
@@ -74,13 +75,13 @@ class FaultInjectionTest : public testing::Test,
   DB* db_;
 
   FaultInjectionTest()
-      : option_config_(kDefault),
+      : option_config_(std::get<1>(GetParam())),
+        non_inclusive_end_range_(std::get<2>(GetParam())),
         sync_use_wal_(false),
         sync_use_compact_(true),
         base_env_(nullptr),
-        env_(NULL),
-        db_(NULL) {
-  }
+        env_(nullptr),
+        db_(nullptr) {}
 
   ~FaultInjectionTest() {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -89,7 +90,7 @@ class FaultInjectionTest : public testing::Test,
 
   bool ChangeOptions() {
     option_config_++;
-    if (option_config_ >= kEnd) {
+    if (option_config_ >= non_inclusive_end_range_) {
       return false;
     } else {
       if (option_config_ == kMultiLevels) {
@@ -106,18 +107,18 @@ class FaultInjectionTest : public testing::Test,
     Options options;
     switch (option_config_) {
       case kWalDir:
-        options.wal_dir = test::TmpDir(env_) + "/fault_test_wal";
+        options.wal_dir = test::PerThreadDBPath(env_, "fault_test_wal");
         break;
       case kDifferentDataDir:
-        options.db_paths.emplace_back(test::TmpDir(env_) + "/fault_test_data",
-                                      1000000U);
+        options.db_paths.emplace_back(
+            test::PerThreadDBPath(env_, "fault_test_data"), 1000000U);
         break;
       case kSyncWal:
         sync_use_wal_ = true;
         sync_use_compact_ = false;
         break;
       case kWalDirSyncWal:
-        options.wal_dir = test::TmpDir(env_) + "/fault_test_wal";
+        options.wal_dir = test::PerThreadDBPath(env_, "/fault_test_wal");
         sync_use_wal_ = true;
         sync_use_compact_ = false;
         break;
@@ -141,9 +142,9 @@ class FaultInjectionTest : public testing::Test,
   }
 
   Status NewDB() {
-    assert(db_ == NULL);
+    assert(db_ == nullptr);
     assert(tiny_cache_ == nullptr);
-    assert(env_ == NULL);
+    assert(env_ == nullptr);
 
     env_ =
         new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
@@ -157,7 +158,7 @@ class FaultInjectionTest : public testing::Test,
     table_options.block_cache = tiny_cache_;
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    dbname_ = test::TmpDir() + "/fault_test";
+    dbname_ = test::PerThreadDBPath("fault_test");
 
     EXPECT_OK(DestroyDB(dbname_, options_));
 
@@ -168,7 +169,7 @@ class FaultInjectionTest : public testing::Test,
   }
 
   void SetUp() override {
-    sequential_order_ = GetParam();
+    sequential_order_ = std::get<0>(GetParam());
     ASSERT_OK(NewDB());
   }
 
@@ -178,7 +179,7 @@ class FaultInjectionTest : public testing::Test,
     Status s = DestroyDB(dbname_, options_);
 
     delete env_;
-    env_ = NULL;
+    env_ = nullptr;
 
     tiny_cache_.reset();
 
@@ -230,14 +231,9 @@ class FaultInjectionTest : public testing::Test,
     return Status::OK();
   }
 
-#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
-__attribute__((__no_sanitize__("undefined")))
-#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
-__attribute__((__no_sanitize_undefined__))
-#endif
   // Return the ith key
   Slice Key(int i, std::string* storage) const {
-    int num = i;
+    unsigned long long num = i;
     if (!sequential_order_) {
       // random transfer
       const int m = 0x5bd1e995;
@@ -245,7 +241,7 @@ __attribute__((__no_sanitize_undefined__))
       num ^= num << 24;
     }
     char buf[100];
-    snprintf(buf, sizeof(buf), "%016d", num);
+    snprintf(buf, sizeof(buf), "%016d", static_cast<int>(num));
     storage->assign(buf, strlen(buf));
     return Slice(*storage);
   }
@@ -258,13 +254,15 @@ __attribute__((__no_sanitize_undefined__))
 
   void CloseDB() {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
   }
 
   Status OpenDB() {
     CloseDB();
     env_->ResetState();
-    return DB::Open(options_, dbname_, &db_);
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_ != nullptr);
+    return s;
   }
 
   void DeleteAllData() {
@@ -348,7 +346,9 @@ __attribute__((__no_sanitize_undefined__))
   }
 };
 
-TEST_P(FaultInjectionTest, FaultTest) {
+class FaultInjectionTestSplitted : public FaultInjectionTest {};
+
+TEST_P(FaultInjectionTestSplitted, FaultTest) {
   do {
     Random rnd(301);
 
@@ -408,6 +408,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   write_options.sync = true;
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
+  db_->FlushWAL(false);
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -460,10 +461,10 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
 
   std::atomic<bool> opened(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::Open:Opened", [&](void* arg) { opened.store(true); });
+      "DBImpl::Open:Opened", [&](void* /*arg*/) { opened.store(true); });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkCompaction",
-      [&](void* arg) { ASSERT_TRUE(opened.load()); });
+      [&](void* /*arg*/) { ASSERT_TRUE(opened.load()); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(OpenDB());
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
@@ -492,7 +493,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   ASSERT_OK(db_->Flush(flush_options));
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
-  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(db_->FlushWAL(true));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -534,7 +535,17 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
 }
 
-INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(
+    FaultTest, FaultInjectionTest,
+    ::testing::Values(std::make_tuple(false, kDefault, kEnd),
+                      std::make_tuple(true, kDefault, kEnd)));
+
+INSTANTIATE_TEST_CASE_P(
+    FaultTest, FaultInjectionTestSplitted,
+    ::testing::Values(std::make_tuple(false, kDefault, kSyncWal),
+                      std::make_tuple(true, kDefault, kSyncWal),
+                      std::make_tuple(false, kSyncWal, kEnd),
+                      std::make_tuple(true, kSyncWal, kEnd)));
 
 }  // namespace rocksdb
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -11,6 +11,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -201,6 +202,26 @@ public class BackupEngineTest {
         if(db != null) {
           db.close();
         }
+      }
+    }
+  }
+
+  @Test
+  public void backupDbWithMetadata() throws RocksDBException {
+    // Open empty database.
+    try (final Options opt = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      // Fill database with some test values
+      prepareDatabase(db);
+
+      // Create two backups
+      try (final BackupableDBOptions bopt =
+               new BackupableDBOptions(backupFolder.getRoot().getAbsolutePath());
+           final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+        final String metadata = String.valueOf(ThreadLocalRandom.current().nextInt());
+        be.createNewBackupWithMetadata(db, metadata, true);
+        final List<BackupInfo> backupInfoList = verifyNumberOfValidBackups(be, 1);
+        assertThat(backupInfoList.get(0).appMetadata()).isEqualTo(metadata);
       }
     }
   }

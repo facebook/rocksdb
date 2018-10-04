@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #include <string>
@@ -28,8 +26,8 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
                                             SequenceNumber global_seqno)
       : version_(version), global_seqno_(global_seqno) {}
 
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override {
+  virtual Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
+                             uint64_t /*file_size*/) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
@@ -70,7 +68,7 @@ class SstFileWriterPropertiesCollectorFactory
       : version_(version), global_seqno_(global_seqno) {}
 
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t column_family_id) override {
+      uint32_t /*column_family_id*/) override {
     return new SstFileWriterPropertiesCollector(version_, global_seqno_);
   }
 

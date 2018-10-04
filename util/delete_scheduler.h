@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -26,7 +24,7 @@ class Logger;
 class SstFileManagerImpl;
 
 // DeleteScheduler allows the DB to enforce a rate limit on file deletion,
-// Instead of deleteing files immediately, files are moved to trash_dir
+// Instead of deleteing files immediately, files are marked as trash
 // and deleted in a background thread that apply sleep penlty between deletes
 // if they are happening in a rate faster than rate_bytes_per_sec,
 //
@@ -34,9 +32,9 @@ class SstFileManagerImpl;
 // case DeleteScheduler will delete files immediately.
 class DeleteScheduler {
  public:
-  DeleteScheduler(Env* env, const std::string& trash_dir,
-                  int64_t rate_bytes_per_sec, Logger* info_log,
-                  SstFileManagerImpl* sst_file_manager);
+  DeleteScheduler(Env* env, int64_t rate_bytes_per_sec, Logger* info_log,
+                  SstFileManagerImpl* sst_file_manager,
+                  double max_trash_db_ratio, uint64_t bytes_max_delete_chunk);
 
   ~DeleteScheduler();
 
@@ -45,11 +43,11 @@ class DeleteScheduler {
 
   // Set delete rate limit in bytes per second
   void SetRateBytesPerSecond(int64_t bytes_per_sec) {
-    return rate_bytes_per_sec_.store(bytes_per_sec);
+    rate_bytes_per_sec_.store(bytes_per_sec);
   }
 
-  // Move file to trash directory and schedule it's deletion
-  Status DeleteFile(const std::string& fname);
+  // Mark file as trash directory and schedule it's deletion
+  Status DeleteFile(const std::string& fname, const std::string& dir_to_sync);
 
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.
@@ -59,27 +57,59 @@ class DeleteScheduler {
   // file_path => error status
   std::map<std::string, Status> GetBackgroundErrors();
 
+  uint64_t GetTotalTrashSize() { return total_trash_size_.load(); }
+
+  // Return trash/DB size ratio where new files will be deleted immediately
+  double GetMaxTrashDBRatio() {
+    return max_trash_db_ratio_.load();
+  }
+
+  // Update trash/DB size ratio where new files will be deleted immediately
+  void SetMaxTrashDBRatio(double r) {
+    assert(r >= 0);
+    max_trash_db_ratio_.store(r);
+  }
+
+  static const std::string kTrashExtension;
+  static bool IsTrashFile(const std::string& file_path);
+
+  // Check if there are any .trash filse in path, and schedule their deletion
+  // Or delete immediately if sst_file_manager is nullptr
+  static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
+                                 const std::string& path);
+
  private:
-  Status MoveToTrash(const std::string& file_path, std::string* path_in_trash);
+  Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
 
   Status DeleteTrashFile(const std::string& path_in_trash,
-                         uint64_t* deleted_bytes);
+                         const std::string& dir_to_sync,
+                         uint64_t* deleted_bytes, bool* is_complete);
 
   void BackgroundEmptyTrash();
 
   Env* env_;
-  // Path to the trash directory
-  std::string trash_dir_;
+  // total size of trash files
+  std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second
   std::atomic<int64_t> rate_bytes_per_sec_;
   // Mutex to protect queue_, pending_files_, bg_errors_, closing_
   InstrumentedMutex mu_;
-  // Queue of files in trash that need to be deleted
-  std::queue<std::string> queue_;
-  // Number of files in trash that are waiting to be deleted
+
+  struct FileAndDir {
+    FileAndDir(const std::string& f, const std::string& d) : fname(f), dir(d) {}
+    std::string fname;
+    std::string dir;  // empty will be skipped.
+  };
+
+  // Queue of trash files that need to be deleted
+  std::queue<FileAndDir> queue_;
+  // Number of trash files that are waiting to be deleted
   int32_t pending_files_;
+  uint64_t bytes_max_delete_chunk_;
   // Errors that happened in BackgroundEmptyTrash (file_path => error)
   std::map<std::string, Status> bg_errors_;
+
+  bool num_link_error_printed_ = false;
   // Set to true in ~DeleteScheduler() to force BackgroundEmptyTrash to stop
   bool closing_;
   // Condition variable signaled in these conditions
@@ -93,6 +123,10 @@ class DeleteScheduler {
   InstrumentedMutex file_move_mu_;
   Logger* info_log_;
   SstFileManagerImpl* sst_file_manager_;
+  // If the trash size constitutes for more than this fraction of the total DB
+  // size we will start deleting new files passed to DeleteScheduler
+  // immediately
+  std::atomic<double> max_trash_db_ratio_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
 };
 

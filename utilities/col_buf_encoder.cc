@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "utilities/col_buf_encoder.h"
 #include <cstring>
@@ -46,11 +46,6 @@ ColBufEncoder *ColBufEncoder::NewColBufEncoder(
   return nullptr;
 }
 
-#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
-__attribute__((__no_sanitize__("undefined")))
-#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
-__attribute__((__no_sanitize_undefined__))
-#endif
 size_t FixedLengthColBufEncoder::Append(const char *buf) {
   if (nullable_) {
     if (buf == nullptr) {
@@ -70,7 +65,7 @@ size_t FixedLengthColBufEncoder::Append(const char *buf) {
       col_compression_type_ == kColRleDeltaVarint) {
     int64_t delta = read_val - last_val_;
     // Encode signed delta value
-    delta = (delta << 1) ^ (delta >> 63);
+    delta = (static_cast<uint64_t>(delta) << 1) ^ (delta >> 63);
     write_val = delta;
     last_val_ = read_val;
   } else if (col_compression_type_ == kColDict ||

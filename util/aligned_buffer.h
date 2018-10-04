@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -24,6 +22,8 @@ inline size_t TruncateToPageBoundary(size_t page_size, size_t s) {
 inline size_t Roundup(size_t x, size_t y) {
   return ((x + y - 1) / y) * y;
 }
+
+inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 
 // This class is to manage an aligned user
 // allocated buffer for direct I/O purposes
@@ -96,21 +96,41 @@ public:
     alignment_ = alignment;
   }
 
-  // Allocates a new buffer and sets bufstart_ to the aligned first byte
-  void AllocateNewBuffer(size_t requestedCapacity) {
-
+  // Allocates a new buffer and sets bufstart_ to the aligned first byte.
+  // requested_capacity: requested new buffer capacity. This capacity will be
+  //     rounded up based on alignment.
+  // copy_data: Copy data from old buffer to new buffer.
+  // copy_offset: Copy data from this offset in old buffer.
+  // copy_len: Number of bytes to copy.
+  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false,
+                         uint64_t copy_offset = 0, size_t copy_len = 0) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
-    size_t size = Roundup(requestedCapacity, alignment_);
-    buf_.reset(new char[size + alignment_]);
+    copy_len = copy_len > 0 ? copy_len : cursize_;
+    if (copy_data && requested_capacity < copy_len) {
+      // If we are downsizing to a capacity that is smaller than the current
+      // data in the buffer. Ignore the request.
+      return;
+    }
 
-    char* p = buf_.get();
-    bufstart_ = reinterpret_cast<char*>(
-      (reinterpret_cast<uintptr_t>(p)+(alignment_ - 1)) &
-      ~static_cast<uintptr_t>(alignment_ - 1));
-    capacity_ = size;
-    cursize_ = 0;
+    size_t new_capacity = Roundup(requested_capacity, alignment_);
+    char* new_buf = new char[new_capacity + alignment_];
+    char* new_bufstart = reinterpret_cast<char*>(
+        (reinterpret_cast<uintptr_t>(new_buf) + (alignment_ - 1)) &
+        ~static_cast<uintptr_t>(alignment_ - 1));
+
+    if (copy_data) {
+      assert(bufstart_ + copy_offset + copy_len <= bufstart_ + cursize_);
+      memcpy(new_bufstart, bufstart_ + copy_offset, copy_len);
+      cursize_ = copy_len;
+    } else {
+      cursize_ = 0;
+    }
+
+    bufstart_ = new_bufstart;
+    capacity_ = new_capacity;
+    buf_.reset(new_buf);
   }
   // Used for write
   // Returns the number of bytes appended
@@ -148,6 +168,12 @@ public:
       memset(bufstart_ + cursize_, padding, pad_size);
       cursize_ += pad_size;
     }
+  }
+
+  void PadWith(size_t pad_size, int padding) {
+    assert((pad_size + cursize_) <= capacity_);
+    memset(bufstart_ + cursize_, padding, pad_size);
+    cursize_ += pad_size;
   }
 
   // After a partial flush move the tail to the beginning of the buffer

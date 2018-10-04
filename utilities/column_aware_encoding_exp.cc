@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -15,7 +13,6 @@
 #ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 
-#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <vector>
 #include "rocksdb/env.h"
@@ -25,11 +22,12 @@
 #include "table/format.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/compression.h"
+#include "util/gflags_compat.h"
 #include "util/stop_watch.h"
 #include "utilities/col_buf_encoder.h"
 #include "utilities/column_aware_encoding_util.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_string(encoded_file, "", "file to store encoded data blocks");
 DEFINE_string(decoded_file, "",
               "file to store decoded data blocks after encoding");
@@ -171,7 +169,7 @@ int main() {
 }
 #endif  // GFLAGS
 #else
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "Not supported in lite mode.\n");
   return 1;
 }

@@ -19,6 +19,11 @@
             <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
             <distribution>repo</distribution>
         </license>
+        <license>
+            <name>GNU General Public License, version 2</name>
+            <url>http://www.gnu.org/licenses/gpl-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
     </licenses>
     <scm>
         <connection>scm:git:git://github.com/dropwizard/metrics.git</connection>

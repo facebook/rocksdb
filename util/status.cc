@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -11,20 +9,44 @@
 
 #include "rocksdb/status.h"
 #include <stdio.h>
+#ifdef OS_WIN
+#include <string.h>
+#endif
 #include <cstring>
 #include "port/port.h"
 
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
-  char* const result =
-      new char[std::strlen(state) + 1];  // +1 for the null terminator
-  std::strcpy(result, state);
+#ifdef OS_WIN
+  const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
+  char* result = new char[cch];
+  errno_t ret;
+  ret = strncpy_s(result, cch, state, cch - 1);
+  result[cch - 1] = '\0';
+  assert(ret == 0);
   return result;
+#else
+  const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
+  return std::strncpy(new char[cch], state, cch);
+#endif
 }
 
-Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2)
-    : code_(_code), subcode_(_subcode) {
+static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
+    "",                                                   // kNone
+    "Timeout Acquiring Mutex",                            // kMutexTimeout
+    "Timeout waiting to lock key",                        // kLockTimeout
+    "Failed to acquire lock due to max_num_locks limit",  // kLockLimit
+    "No space left on device",                            // kNoSpace
+    "Deadlock",                                           // kDeadlock
+    "Stale file handle",                                  // kStaleFile
+    "Memory limit reached",                               // kMemoryLimit
+    "Space limit reached"                                 // kSpaceLimit
+};
+
+Status::Status(Code _code, SubCode _subcode, const Slice& msg,
+               const Slice& msg2)
+    : code_(_code), subcode_(_subcode), sev_(kNoError) {
   assert(code_ != kOk);
   assert(subcode_ != kMaxSubCode);
   const size_t len1 = msg.size();

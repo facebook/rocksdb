@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -312,6 +310,7 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::
   int level = GetMaxHeight() - 1;
   Node* last_bigger = nullptr;
   while (true) {
+    assert(x != nullptr);
     Node* next = x->Next(level);
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->key, x));
@@ -340,6 +339,7 @@ SkipList<Key, Comparator>::FindLessThan(const Key& key, Node** prev) const {
   // KeyIsAfter(key, last_not_after) is definitely false
   Node* last_not_after = nullptr;
   while (true) {
+    assert(x != nullptr);
     Node* next = x->Next(level);
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->key, x));
     assert(x == head_ || KeyIsAfterNode(key, x));
@@ -409,8 +409,8 @@ template <typename Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
                                     int32_t max_height,
                                     int32_t branching_factor)
-    : kMaxHeight_(max_height),
-      kBranching_(branching_factor),
+    : kMaxHeight_(static_cast<uint16_t>(max_height)),
+      kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
       allocator_(allocator),

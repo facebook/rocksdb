@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "utilities/col_buf_decoder.h"
 #include <cstring>
@@ -147,7 +147,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
              col_compression_type_ == kColDict) {
     uint64_t dict_val = read_val;
     assert(dict_val < dict_vec_.size());
-    write_val = dict_vec_[dict_val];
+    write_val = dict_vec_[static_cast<size_t>(dict_val)];
   }
 
   // dest->append(reinterpret_cast<char*>(&write_val), size_);
@@ -222,7 +222,7 @@ size_t VariableChunkColBufDecoder::Decode(const char* src, char** dest) {
       uint64_t dict_val;
       ReadVarint64(&src, &dict_val);
       assert(dict_val < dict_vec_.size());
-      chunk_buf = dict_vec_[dict_val];
+      chunk_buf = dict_vec_[static_cast<size_t>(dict_val)];
     } else {
       memcpy(&chunk_buf, src, chunk_size);
       src += chunk_size;

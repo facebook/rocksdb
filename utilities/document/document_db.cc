@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -25,7 +23,7 @@ namespace rocksdb {
 // IMPORTANT NOTE: Secondary index column families should be very small and
 // generally fit in memory. Assume that accessing secondary index column
 // families is much faster than accessing primary index (data heap) column
-// family. Accessing a key (i.e. checking for existance) from a column family in
+// family. Accessing a key (i.e. checking for existence) from a column family in
 // RocksDB is not much faster than accessing both key and value since they are
 // kept together and loaded from storage together.
 
@@ -433,6 +431,10 @@ class SimpleSortedIndex : public Index {
     return direction;
   }
   // REQUIRES: UsefulIndex(filter) == true
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4702) // Unreachable code
+#endif
   virtual bool ShouldContinueLooking(
       const Filter& filter, const Slice& secondary_key,
       Index::Direction direction) const override {
@@ -485,7 +487,9 @@ class SimpleSortedIndex : public Index {
     // this is here just so compiler doesn't complain
     return false;
   }
-
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
  private:
   std::string field_;
   std::string name_;
@@ -918,7 +922,7 @@ class DocumentDBImpl : public DocumentDB {
       for (const auto& update : updates.Items()) {
         if (update.first == "$set") {
           JSONDocumentBuilder builder;
-          bool res __attribute__((unused)) = builder.WriteStartObject();
+          bool res __attribute__((__unused__)) = builder.WriteStartObject();
           assert(res);
           for (const auto& itr : update.second.Items()) {
             if (itr.first == kPrimaryKey) {
@@ -1040,28 +1044,33 @@ class DocumentDBImpl : public DocumentDB {
 
   // RocksDB functions
   using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override {
+  virtual Status Get(const ReadOptions& /*options*/,
+                     ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*key*/, PinnableSlice* /*value*/) override {
     return Status::NotSupported("");
   }
-  virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value) override {
+  virtual Status Get(const ReadOptions& /*options*/, const Slice& /*key*/,
+                     std::string* /*value*/) override {
     return Status::NotSupported("");
   }
-  virtual Status Write(const WriteOptions& options,
-                       WriteBatch* updates) override {
+  virtual Status Write(const WriteOptions& /*options*/,
+                       WriteBatch* /*updates*/) override {
     return Status::NotSupported("");
   }
-  virtual Iterator* NewIterator(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family) override {
+  virtual Iterator* NewIterator(
+      const ReadOptions& /*options*/,
+      ColumnFamilyHandle* /*column_family*/) override {
     return nullptr;
   }
-  virtual Iterator* NewIterator(const ReadOptions& options) override {
+  virtual Iterator* NewIterator(const ReadOptions& /*options*/) override {
     return nullptr;
   }
 
  private:
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4702) // unreachable code
+#endif
   Cursor* ConstructFilterCursor(ReadOptions read_options, Cursor* cursor,
                                 const JSONDocument& query) {
     std::unique_ptr<const Filter> filter(Filter::ParseFilter(query));
@@ -1115,6 +1124,9 @@ class DocumentDBImpl : public DocumentDB {
     assert(false);
     return nullptr;
   }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
   // currently, we lock and serialize all writes to rocksdb. reads are not
   // locked and always get consistent view of the database. we should optimize
@@ -1143,10 +1155,10 @@ Options GetRocksDBOptionsFromOptions(const DocumentDBOptions& options) {
   Options rocksdb_options;
   rocksdb_options.max_background_compactions = options.background_threads - 1;
   rocksdb_options.max_background_flushes = 1;
-  rocksdb_options.write_buffer_size = options.memtable_size;
+  rocksdb_options.write_buffer_size = static_cast<size_t>(options.memtable_size);
   rocksdb_options.max_write_buffer_number = 6;
   BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(options.cache_size);
+  table_options.block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   rocksdb_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   return rocksdb_options;
 }

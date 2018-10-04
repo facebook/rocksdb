@@ -1,7 +1,7 @@
 // Copyright (c) 2017-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -16,14 +16,14 @@ class TimedEnvTest : public testing::Test {
 
 TEST_F(TimedEnvTest, BasicTest) {
   SetPerfLevel(PerfLevel::kEnableTime);
-  ASSERT_EQ(0, perf_context.env_new_writable_file_nanos);
+  ASSERT_EQ(0, get_perf_context()->env_new_writable_file_nanos);
 
   std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
   std::unique_ptr<Env> timed_env(NewTimedEnv(mem_env.get()));
   std::unique_ptr<WritableFile> writable_file;
   timed_env->NewWritableFile("f", &writable_file, EnvOptions());
 
-  ASSERT_GT(perf_context.env_new_writable_file_nanos, 0);
+  ASSERT_GT(get_perf_context()->env_new_writable_file_nanos, 0);
 }
 
 }  // namespace rocksdb
@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
 #else  // ROCKSDB_LITE
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as TimedEnv is not supported in ROCKSDB_LITE\n");
   return 0;
 }

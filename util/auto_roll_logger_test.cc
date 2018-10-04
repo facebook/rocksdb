@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #ifndef ROCKSDB_LITE
@@ -73,9 +71,10 @@ class AutoRollLoggerTest : public testing::Test {
 
 const std::string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
-const std::string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
-const std::string AutoRollLoggerTest::kLogFile(test::TmpDir() +
-                                               "/db_log_test/LOG");
+const std::string AutoRollLoggerTest::kTestDir(
+    test::PerThreadDBPath("db_log_test"));
+const std::string AutoRollLoggerTest::kLogFile(
+    test::PerThreadDBPath("db_log_test") + "/LOG");
 Env* AutoRollLoggerTest::default_env = Env::Default();
 
 // In this test we only want to Log some simple log message with
@@ -356,6 +355,45 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   inFile.close();
 }
 
+TEST_F(AutoRollLoggerTest, Close) {
+  InitTestDb();
+
+  size_t log_size = 8192;
+  size_t log_lines = 0;
+  AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
+  for (int log_level = InfoLogLevel::HEADER_LEVEL;
+       log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
+    logger.SetInfoLogLevel((InfoLogLevel)log_level);
+    for (int log_type = InfoLogLevel::DEBUG_LEVEL;
+         log_type <= InfoLogLevel::HEADER_LEVEL; log_type++) {
+      // log messages with log level smaller than log_level will not be
+      // logged.
+      LogMessage((InfoLogLevel)log_type, &logger, kSampleMessage.c_str());
+    }
+    log_lines += InfoLogLevel::HEADER_LEVEL - log_level + 1;
+  }
+  for (int log_level = InfoLogLevel::HEADER_LEVEL;
+       log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
+    logger.SetInfoLogLevel((InfoLogLevel)log_level);
+
+    // again, messages with level smaller than log_level will not be logged.
+    ROCKS_LOG_HEADER(&logger, "%s", kSampleMessage.c_str());
+    ROCKS_LOG_DEBUG(&logger, "%s", kSampleMessage.c_str());
+    ROCKS_LOG_INFO(&logger, "%s", kSampleMessage.c_str());
+    ROCKS_LOG_WARN(&logger, "%s", kSampleMessage.c_str());
+    ROCKS_LOG_ERROR(&logger, "%s", kSampleMessage.c_str());
+    ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
+    log_lines += InfoLogLevel::HEADER_LEVEL - log_level + 1;
+  }
+  ASSERT_EQ(logger.Close(), Status::OK());
+
+  std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
+  size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
+                         std::istreambuf_iterator<char>(), '\n');
+  ASSERT_EQ(log_lines, lines);
+  inFile.close();
+}
+
 // Test the logger Header function for roll over logs
 // We expect the new logs creates as roll over to carry the headers specified
 static std::vector<std::string> GetOldFileNames(const std::string& path) {
@@ -483,7 +521,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as AutoRollLogger is not supported in ROCKSDB_LITE\n");
   return 0;

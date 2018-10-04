@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -28,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_batch.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
@@ -39,6 +38,15 @@
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
+
+Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
+  auto s = env_->DeleteFile(db_options_.wal_dir + "/" + fname);
+  if (s.ok()) {
+    MutexLock l(&read_first_record_cache_mutex_);
+    read_first_record_cache_.erase(number);
+  }
+  return s;
+}
 
 Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
   // First get sorted files in db dir, then get sorted files from archived
@@ -116,7 +124,7 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       db_options_.wal_dir, &db_options_, read_options, env_options_, seq,
-      std::move(wal_files), version_set));
+      std::move(wal_files), version_set, seq_per_batch_));
   return (*iter)->status();
 }
 
@@ -229,7 +237,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
 
   size_t const files_keep_num =
-      db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size;
+      static_cast<size_t>(db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size);
   if (log_files_num <= files_keep_num) {
     return;
   }
@@ -275,8 +283,8 @@ namespace {
 struct CompareLogByPointer {
   bool operator()(const std::unique_ptr<LogFile>& a,
                   const std::unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
-    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
+    LogFileImpl* a_impl = static_cast_with_check<LogFileImpl, LogFile>(a.get());
+    LogFileImpl* b_impl = static_cast_with_check<LogFileImpl, LogFile>(b.get());
     return *a_impl < *b_impl;
   }
 };
@@ -344,7 +352,7 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
   // Binary Search. avoid opening all files.
   while (end >= start) {
     int64_t mid = start + (end - start) / 2;  // Avoid overflow.
-    SequenceNumber current_seq_num = all_logs.at(mid)->StartSequence();
+    SequenceNumber current_seq_num = all_logs.at(static_cast<size_t>(mid))->StartSequence();
     if (current_seq_num == target) {
       end = mid;
       break;
@@ -355,7 +363,7 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
     }
   }
   // end could be -ve.
-  size_t start_index = std::max(static_cast<int64_t>(0), end);
+  size_t start_index = static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
   // The last wal file is always included
   all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();
@@ -433,9 +441,10 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   };
 
   std::unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file, env_options_);
+  Status status = env_->NewSequentialFile(
+      fname, &file, env_->OptimizeForLogRead(env_options_));
   unique_ptr<SequentialFileReader> file_reader(
-      new SequentialFileReader(std::move(file)));
+      new SequentialFileReader(std::move(file), fname));
 
   if (!status.ok()) {
     return status;
@@ -448,7 +457,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   reporter.status = &status;
   reporter.ignore_error = !db_options_.paranoid_checks;
   log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0 /*initial_offset*/, number);
+                     true /*checksum*/, number);
   std::string scratch;
   Slice record;
 

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -34,7 +32,7 @@ class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
       : env_(new MockEnv(Env::Default())),
-        dbname_(test::TmpDir() + "/wal_manager_test"),
+        dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
@@ -69,17 +67,19 @@ class WalManagerTest : public testing::Test {
     batch.Put(key, value);
     WriteBatchInternal::SetSequence(&batch, seq);
     current_log_writer_->AddRecord(WriteBatchInternal::Contents(&batch));
+    versions_->SetLastAllocatedSequence(seq);
+    versions_->SetLastPublishedSequence(seq);
     versions_->SetLastSequence(seq);
   }
 
   // NOT thread safe
-  void RollTheLog(bool archived) {
+  void RollTheLog(bool /*archived*/) {
     current_log_number_++;
     std::string fname = ArchivedLogFileName(dbname_, current_log_number_);
     unique_ptr<WritableFile> file;
     ASSERT_OK(env_->NewWritableFile(fname, &file, env_options_));
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), env_options_));
+        new WritableFileWriter(std::move(file), fname, env_options_));
     current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
   }
 
@@ -130,7 +130,7 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
   ASSERT_EQ(s, 0U);
 
   unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), EnvOptions()));
+      new WritableFileWriter(std::move(file), path, EnvOptions()));
   log::Writer writer(std::move(file_writer), 1,
                      db_options_.recycle_log_file_num > 0);
   WriteBatch batch;
@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as WalManager is not supported in ROCKSDB_LITE\n");
   return 0;
 }

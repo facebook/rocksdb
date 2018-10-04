@@ -1,7 +1,7 @@
 // Copyright (c) 2016-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -18,13 +18,14 @@ class EnvRegistryTest : public testing::Test {
 int EnvRegistryTest::num_a = 0;
 int EnvRegistryTest::num_b = 0;
 
-static Registrar<Env> test_reg_a("a://.*", [](const std::string& uri,
-                                              std::unique_ptr<Env>* env_guard) {
-  ++EnvRegistryTest::num_a;
-  return Env::Default();
-});
+static Registrar<Env> test_reg_a("a://.*",
+                                 [](const std::string& /*uri*/,
+                                    std::unique_ptr<Env>* /*env_guard*/) {
+                                   ++EnvRegistryTest::num_a;
+                                   return Env::Default();
+                                 });
 
-static Registrar<Env> test_reg_b("b://.*", [](const std::string& uri,
+static Registrar<Env> test_reg_b("b://.*", [](const std::string& /*uri*/,
                                               std::unique_ptr<Env>* env_guard) {
   ++EnvRegistryTest::num_b;
   // Env::Default() is a singleton so we can't grant ownership directly to the
@@ -64,7 +65,7 @@ int main(int argc, char** argv) {
 #else  // ROCKSDB_LITE
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as EnvRegistry is not supported in ROCKSDB_LITE\n");
   return 0;
 }

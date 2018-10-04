@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -356,8 +354,8 @@ class SpatialIndexCursor : public Cursor {
       : value_getter_(value_getter), valid_(true) {
     // calculate quad keys we'll need to query
     std::vector<uint64_t> quad_keys;
-    quad_keys.reserve((tile_bbox.max_x - tile_bbox.min_x + 1) *
-                      (tile_bbox.max_y - tile_bbox.min_y + 1));
+    quad_keys.reserve(static_cast<size_t>((tile_bbox.max_x - tile_bbox.min_x + 1) *
+                      (tile_bbox.max_y - tile_bbox.min_y + 1)));
     for (uint64_t x = tile_bbox.min_x; x <= tile_bbox.max_x; ++x) {
       for (uint64_t y = tile_bbox.min_y; y <= tile_bbox.max_y; ++y) {
         quad_keys.push_back(GetQuadKeyFromTile(x, y, tile_bits));
@@ -706,7 +704,7 @@ DBOptions GetDBOptionsFromSpatialDBOptions(const SpatialDBOptions& options) {
   return db_options;
 }
 
-ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
+ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& /*options*/,
                                            std::shared_ptr<Cache> block_cache) {
   ColumnFamilyOptions column_family_options;
   column_family_options.write_buffer_size = 128 * 1024 * 1024;  // 128MB
@@ -793,7 +791,7 @@ Status SpatialDB::Create(
   db_options.create_missing_column_families = true;
   db_options.error_if_exists = true;
 
-  auto block_cache = NewLRUCache(options.cache_size);
+  auto block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   ColumnFamilyOptions column_family_options =
       GetColumnFamilyOptions(options, block_cache);
 
@@ -834,7 +832,7 @@ Status SpatialDB::Create(
 Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
                        SpatialDB** db, bool read_only) {
   DBOptions db_options = GetDBOptionsFromSpatialDBOptions(options);
-  auto block_cache = NewLRUCache(options.cache_size);
+  auto block_cache = NewLRUCache(static_cast<size_t>(options.cache_size));
   ColumnFamilyOptions column_family_options =
       GetColumnFamilyOptions(options, block_cache);
 

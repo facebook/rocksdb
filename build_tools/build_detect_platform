@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 #
 # Detects OS we're compiling on and outputs a file specified by the first
 # argument, which in turn gets read while processing Makefile.
@@ -16,6 +16,8 @@
 #   PLATFORM_CXXFLAGS           C++ compiler flags.  Will contain:
 #   PLATFORM_SHARED_VERSIONED   Set to 'true' if platform supports versioned
 #                               shared libraries, empty otherwise.
+#   FIND			Command for the find utility
+#   WATCH			Command for the watch utility
 #
 # The PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS might include the following:
 #
@@ -64,11 +66,23 @@ rm -f "$OUTPUT"
 touch "$OUTPUT"
 
 if test -z "$CC"; then
-   CC=cc
+    if [ -x "$(command -v cc)" ]; then
+        CC=cc
+    elif [ -x "$(command -v clang)" ]; then
+        CC=clang
+    else
+        CC=cc
+    fi
 fi
 
 if test -z "$CXX"; then
-    CXX=g++
+    if [ -x "$(command -v g++)" ]; then
+        CXX=g++
+    elif [ -x "$(command -v clang++)" ]; then
+        CXX=clang++
+    else
+        CXX=g++
+    fi
 fi
 
 # Detect OS
@@ -85,7 +99,15 @@ if test -z "$CLANG_SCAN_BUILD"; then
 fi
 
 if test -z "$CLANG_ANALYZER"; then
-    CLANG_ANALYZER=$(which clang++ 2> /dev/null)
+    CLANG_ANALYZER=$(command -v clang++ 2> /dev/null)
+fi
+
+if test -z "$FIND"; then
+    FIND=find
+fi
+
+if test -z "$WATCH"; then
+    WATCH=watch
 fi
 
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
@@ -122,6 +144,8 @@ case "$TARGET_OS" in
         COMMON_FLAGS="$COMMON_FLAGS -DOS_LINUX"
         if [ -z "$USE_CLANG" ]; then
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/linux/linux_specific.cc
@@ -141,6 +165,7 @@ case "$TARGET_OS" in
         ;;
     FreeBSD)
         PLATFORM=OS_FREEBSD
+        CXX=clang++
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/freebsd/freebsd_specific.cc
@@ -153,9 +178,12 @@ case "$TARGET_OS" in
         ;;
     OpenBSD)
         PLATFORM=OS_OPENBSD
+	CXX=clang++
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_OPENBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread"
         # PORT_FILES=port/openbsd/openbsd_specific.cc
+	FIND=gfind
+	WATCH=gnuwatch
         ;;
     DragonFly)
         PLATFORM=OS_DRAGONFLYBSD
@@ -170,6 +198,8 @@ case "$TARGET_OS" in
         COMMON_FLAGS="$COMMON_FLAGS -DCYGWIN"
         if [ -z "$USE_CLANG" ]; then
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/linux/linux_specific.cc
@@ -210,117 +240,137 @@ EOF
         fi
     fi
 
-    # Test whether Snappy library is installed
-    # http://code.google.com/p/snappy/
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <snappy.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_SNAPPY; then
+        # Test whether Snappy library is installed
+        # http://code.google.com/p/snappy/
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <snappy.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lsnappy"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lsnappy"
+        fi
     fi
 
-    # Test whether gflags library is installed
-    # http://gflags.github.io/gflags/
-    # check if the namespace is gflags
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
-      #include <gflags/gflags.h>
-      using namespace gflags;
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_GFLAGS; then
+        # Test whether gflags library is installed
+        # http://gflags.github.io/gflags/
+        # check if the namespace is gflags
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+          #include <gflags/gflags.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=gflags"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-    else
-      # check if namespace is google
-      $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
-        #include <gflags/gflags.h>
-        using namespace google;
-        int main() {}
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        else
+          # check if namespace is google
+          $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+            #include <gflags/gflags.h>
+            using namespace google;
+            int main() {}
 EOF
-      if [ "$?" = 0 ]; then
-          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-      fi
+          if [ "$?" = 0 ]; then
+              COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
+              PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+          fi
+        fi
     fi
 
-    # Test whether zlib library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <zlib.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_ZLIB; then
+        # Test whether zlib library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <zlib.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DZLIB"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lz"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lz"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DZLIB"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lz"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lz"
+        fi
     fi
 
-    # Test whether bzip library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <bzlib.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_BZIP; then
+        # Test whether bzip library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <bzlib.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DBZIP2"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbz2"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lbz2"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DBZIP2"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbz2"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lbz2"
+        fi
     fi
 
-    # Test whether lz4 library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <lz4.h>
-      #include <lz4hc.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_LZ4; then
+        # Test whether lz4 library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <lz4.h>
+          #include <lz4hc.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -llz4"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -llz4"
+        fi
     fi
 
-    # Test whether zstd library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <zstd.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_ZSTD; then
+        # Test whether zstd library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <zstd.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DZSTD"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzstd"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lzstd"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DZSTD"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzstd"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lzstd"
+        fi
     fi
 
-    # Test whether numa is available
-    $CXX $CFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
-      #include <numa.h>
-      #include <numaif.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_NUMA; then
+        # Test whether numa is available
+        $CXX $CFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
+          #include <numa.h>
+          #include <numaif.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
+        fi
     fi
 
-    # Test whether tbb is available
-    $CXX $CFLAGS $LDFLAGS -x c++ - -o /dev/null -ltbb 2>/dev/null  <<EOF
-      #include <tbb/tbb.h>
-      int main() {}
+    if ! test $ROCKSDB_DISABLE_TBB; then
+        # Test whether tbb is available
+        $CXX $CFLAGS $LDFLAGS -x c++ - -o /dev/null -ltbb 2>/dev/null  <<EOF
+          #include <tbb/tbb.h>
+          int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DTBB"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltbb"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -ltbb"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DTBB"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltbb"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -ltbb"
+        fi
     fi
 
-    # Test whether jemalloc is available
-    if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
-      2>/dev/null; then
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ljemalloc"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -ljemalloc"
-        JEMALLOC=1
-    else
+    if ! test $ROCKSDB_DISABLE_JEMALLOC; then
+        # Test whether jemalloc is available
+        if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
+          2>/dev/null; then
+            # This will enable some preprocessor identifiers in the Makefile
+            JEMALLOC=1
+            # JEMALLOC can be enabled either using the flag (like here) or by
+            # providing direct link to the jemalloc library
+            WITH_JEMALLOC_FLAG=1
+        fi
+    fi
+    if ! test $JEMALLOC && ! test $ROCKSDB_DISABLE_TCMALLOC; then
         # jemalloc is not available. Let's try tcmalloc
         if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
           -ltcmalloc 2>/dev/null; then
@@ -329,88 +379,100 @@ EOF
         fi
     fi
 
-    # Test whether malloc_usable_size is available
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <malloc.h>
-      int main() {
-        size_t res = malloc_usable_size(0);
-        return 0;
-      }
+    if ! test $ROCKSDB_DISABLE_MALLOC_USABLE_SIZE; then
+        # Test whether malloc_usable_size is available
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <malloc.h>
+          int main() {
+            size_t res = malloc_usable_size(0);
+            return 0;
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
+        fi
     fi
 
-    # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <pthread.h>
-      int main() {
-        int x = PTHREAD_MUTEX_ADAPTIVE_NP;
-        return 0;
-      }
+    if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
+        # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <pthread.h>
+          int main() {
+            int x = PTHREAD_MUTEX_ADAPTIVE_NP;
+            return 0;
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX"
+        fi
     fi
 
-    # Test whether backtrace is available
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <execinfo.h>>
-      int main() {
-        void* frames[1];
-        backtrace_symbols(frames, backtrace(frames, 1));
-        return 0;
-      }
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
-    else
-        # Test whether execinfo library is installed
-        $CXX $CFLAGS -lexecinfo -x c++ - -o /dev/null 2>/dev/null  <<EOF
-          #include <execinfo.h>
+    if ! test $ROCKSDB_DISABLE_BACKTRACE; then
+        # Test whether backtrace is available
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <execinfo.h>>
           int main() {
             void* frames[1];
             backtrace_symbols(frames, backtrace(frames, 1));
+            return 0;
           }
 EOF
         if [ "$?" = 0 ]; then
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lexecinfo"
-            JAVA_LDFLAGS="$JAVA_LDFLAGS -lexecinfo"
+        else
+            # Test whether execinfo library is installed
+            $CXX $CFLAGS -lexecinfo -x c++ - -o /dev/null 2>/dev/null  <<EOF
+              #include <execinfo.h>
+              int main() {
+                void* frames[1];
+                backtrace_symbols(frames, backtrace(frames, 1));
+              }
+EOF
+            if [ "$?" = 0 ]; then
+                COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+                PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lexecinfo"
+                JAVA_LDFLAGS="$JAVA_LDFLAGS -lexecinfo"
+            fi
         fi
     fi
 
-    # Test if -pg is supported
-    $CXX $CFLAGS -pg -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      int main() {
-        return 0;
-      }
+    if ! test $ROCKSDB_DISABLE_PG; then
+        # Test if -pg is supported
+        $CXX $CFLAGS -pg -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          int main() {
+            return 0;
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        PROFILING_FLAGS=-pg
+        if [ "$?" = 0 ]; then
+            PROFILING_FLAGS=-pg
+        fi
     fi
 
-    # Test whether sync_file_range is supported for compatibility with an old glibc
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <fcntl.h>
-      int main() {
-        int fd = open("/dev/null", 0);
-        sync_file_range(fd, 0, 1024, SYNC_FILE_RANGE_WRITE);
-      }
+    if ! test $ROCKSDB_DISABLE_SYNC_FILE_RANGE; then
+        # Test whether sync_file_range is supported for compatibility with an old glibc
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <fcntl.h>
+          int main() {
+            int fd = open("/dev/null", 0);
+            sync_file_range(fd, 0, 1024, SYNC_FILE_RANGE_WRITE);
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_RANGESYNC_PRESENT"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_RANGESYNC_PRESENT"
+        fi
     fi
 
-    # Test whether sched_getcpu is supported
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <sched.h>
-      int main() {
-        int cpuid = sched_getcpu();
-      }
+    if ! test $ROCKSDB_DISABLE_SCHED_GETCPU; then
+        # Test whether sched_getcpu is supported
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <sched.h>
+          int main() {
+            int cpuid = sched_getcpu();
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SCHED_GETCPU_PRESENT"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SCHED_GETCPU_PRESENT"
+        fi
     fi
 fi
 
@@ -442,21 +504,28 @@ if test "$USE_HDFS"; then
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
-if test "$USE_SSE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
-elif test -z "$PORTABLE"; then
+if test -z "$PORTABLE"; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
-  elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^arm`"; then
+    # TODO: Handle this with approprite options.
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif [ "$TARGET_OS" == "IOS" ]; then
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif [ "$TARGET_OS" != "AIX" ] && [ "$TARGET_OS" != "SunOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  elif test "$USE_SSE"; then
+    COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
   fi
+elif test "$USE_SSE"; then
+  COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
 fi
 
-$CXX $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
   #include <cstdint>
   #include <nmmintrin.h>
   int main() {
@@ -467,6 +536,24 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+  exit 1
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <wmmintrin.h>
+  int main() {
+    const auto a = _mm_set_epi64x(0, 0);
+    const auto b = _mm_set_epi64x(0, 0);
+    const auto c = _mm_clmulepi64_si128(a, b, 0x00);
+    auto d = _mm_cvtsi128_si64(c);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
+  exit 1
 fi
 
 # iOS doesn't support thread-local storage, but this check would erroneously
@@ -517,7 +604,16 @@ echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
+echo "FIND=$FIND" >> "$OUTPUT"
+echo "WATCH=$WATCH" >> "$OUTPUT"
+# This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"
+fi
+# Indicates that jemalloc should be enabled using -ljemalloc flag
+# The alternative is to porvide a direct link to the library via JEMALLOC_LIB
+# and JEMALLOC_INCLUDE
+if test -n "$WITH_JEMALLOC_FLAG"; then
+  echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
