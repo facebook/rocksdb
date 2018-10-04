@@ -55,15 +55,12 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
         cur_end_keys.erase(cur_end_keys.begin(), it);
         cur_end_key = next_start_key;
       }
-      autovector<SequenceNumber> seqnums_to_flush;
+      SequenceNumber max_seqnum = 0;
       for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
-        seqnums_to_flush.push_back(flush_it->sequence);
+        max_seqnum = std::max(max_seqnum, flush_it->sequence);
       }
-      std::sort(seqnums_to_flush.begin(), seqnums_to_flush.end(),
-                std::greater<SequenceNumber>());
-      for (auto seqnum : seqnums_to_flush) {
-        tombstones_.push_back(RangeTombstone(cur_start_key, cur_end_key, seqnum));
-      }
+      tombstones_.push_back(
+          RangeTombstone(cur_start_key, cur_end_key, max_seqnum));
       cur_start_key = cur_end_key;
     }
     if (!reached_next_start_key) {
@@ -139,14 +136,11 @@ void FragmentedRangeTombstoneIterator::SeekForPrev(const Slice& target) {
              ucmp_->Compare(std::prev(pos_)->end_key_, target) <= 0) {
     // Target after last tombstone.
     pos_ = tombstones_.end();
-  } else if (pos_ != tombstones_.begin()) {
-    // Step backwards until we reach the earliest tombstone that covers the
-    // target, or the earliest tombstone that starts after the target if no
-    // covering tombstone exists.
-    while (pos_ != tombstones_.begin() &&
-        ucmp_->Compare(target, std::prev(pos_)->end_key_) < 0) {
-      --pos_;
-    }
+  } else if (pos_ != tombstones_.begin() &&
+             ucmp_->Compare(target, std::prev(pos_)->end_key_) < 0) {
+    // Position the iterator at the earliest tombstone that covers the
+    // target.
+    --pos_;
   }
 }
 

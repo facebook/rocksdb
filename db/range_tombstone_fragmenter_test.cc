@@ -99,7 +99,6 @@ TEST_F(RangeTombstoneFragmenterTest, OverlappingTombstones) {
                                         bytewise_icmp, kMaxSequenceNumber);
   VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
                                     {"c", "e", 15},
-                                    {"c", "e", 10},
                                     {"e", "g", 15}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, {{"a", 10},
                                            {"c", 15},
@@ -114,9 +113,7 @@ TEST_F(RangeTombstoneFragmenterTest, RepeatedStartAndEndKey) {
 
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
-  VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
-                                    {"a", "c", 7},
-                                    {"a", "c", 3}});
+  VerifyFragmentedRangeDels(&iter, {{"a", "c", 10}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, {{"a", 10},
                                            {"b", 10},
                                            {"c", 0}});
@@ -130,10 +127,7 @@ TEST_F(RangeTombstoneFragmenterTest, RepeatedStartKeyDifferentEndKeys) {
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
   VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
-                                    {"a", "c", 7},
-                                    {"a", "c", 3},
                                     {"c", "e", 10},
-                                    {"c", "e", 7},
                                     {"e", "g", 7}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, {{"a", 10},
                                            {"c", 10},
@@ -151,15 +145,8 @@ TEST_F(RangeTombstoneFragmenterTest, RepeatedStartKeyMixedEndKeys) {
   FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
                                         bytewise_icmp, kMaxSequenceNumber);
   VerifyFragmentedRangeDels(&iter, {{"a", "c", 30},
-                                    {"a", "c", 20},
-                                    {"a", "c", 10},
-                                    {"a", "c", 7},
-                                    {"a", "c", 3},
                                     {"c", "e", 20},
-                                    {"c", "e", 10},
-                                    {"c", "e", 7},
-                                    {"e", "g", 20},
-                                    {"e", "g", 7}});
+                                    {"e", "g", 20}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, {{"a", 30},
                                            {"c", 20},
                                            {"e", 20},
@@ -177,13 +164,9 @@ TEST_F(RangeTombstoneFragmenterTest, OverlapAndRepeatedStartKey) {
                                         bytewise_icmp, kMaxSequenceNumber);
   VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
                                     {"c", "e", 10},
-                                    {"c", "e", 8},
-                                    {"c", "e", 6},
                                     {"e", "g", 8},
-                                    {"e", "g", 6},
                                     {"g", "i", 6},
                                     {"j", "l", 4},
-                                    {"j", "l", 2},
                                     {"l", "n", 4}});
   VerifyMaxCoveringTombstoneSeqnum(&iter, {{"a", 10},
                                            {"c", 10},

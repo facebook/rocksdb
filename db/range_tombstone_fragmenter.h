@@ -36,15 +36,7 @@ class FragmentedRangeTombstoneIterator {
     FragmentedRangeTombstoneComparator(const Comparator* c) : cmp(c) {}
 
     bool operator()(const RangeTombstone& a, const RangeTombstone& b) const {
-      int start_cmp = cmp->Compare(a.start_key_, b.start_key_);
-      if (start_cmp < 0) {
-        return true;
-      } else if (start_cmp > 0) {
-        return false;
-      } else if (a.seq_ > b.seq_) {
-        return true;
-      }
-      return false;
+      return cmp->Compare(a.start_key_, b.start_key_) < 0;
     }
 
     const Comparator* cmp;
