@@ -925,6 +925,11 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
             "background I/O");
 
+DEFINE_bool(sine_read_rate, false,
+                "Use a sine wave read_rate_limit");
+
+DEFINE_uint64(sine_read_rate_interval_milliseconds, 10000,
+                  "Interval of which the sine wave read_rate_limit is recalculated");
 
 DEFINE_bool(sine_write_rate, false,
             "Use a sine wave write_rate_limit");
@@ -4639,6 +4644,27 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         int64_t access_pos = thread->rand.Next() % gen_exp.key_rand_max_;
         key_rand = gen_exp.DistGetKeyID(access_pos);
         GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      }
+      if (FLAGS_sine_read_rate && thread->shared->read_rate_limiter.get() != nullptr) {
+        uint64_t now = FLAGS_env->NowMicros();
+
+        uint64_t usecs_since_last;
+        if (now > thread->stats.GetSineInterval()) {
+          usecs_since_last = now - thread->stats.GetSineInterval();
+        } else {
+          usecs_since_last = 0;
+        }
+
+        if (usecs_since_last >
+            (FLAGS_sine_read_rate_interval_milliseconds * uint64_t{1000})) {
+          double usecs_since_start =
+                  static_cast<double>(now - thread->stats.GetStart());
+          thread->stats.ResetSineInterval();
+          uint64_t read_rate =
+                  static_cast<uint64_t>(SineRate(usecs_since_start / 1000000.0));
+          thread->shared->read_rate_limiter.reset(
+                  NewGenericRateLimiter(read_rate));
+        }
       }
       read++;
       Status s;
