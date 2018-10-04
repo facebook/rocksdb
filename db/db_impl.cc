@@ -359,8 +359,6 @@ void DBImpl::WaitForBackgroundWork() {
 
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
-  InstrumentedMutexLock l(&mutex_);
-
   if (thread_dump_stats_ != nullptr) {
     thread_dump_stats_->cancel();
     thread_dump_stats_ = nullptr;
@@ -369,6 +367,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
+  InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
