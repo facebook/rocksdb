@@ -937,8 +937,8 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
   // any currently-existing files.
   for (auto file_num : *input_files) {
     bool found = false;
-    for (auto level_meta : cf_meta.levels) {
-      for (auto file_meta : level_meta.files) {
+    for (const auto& level_meta : cf_meta.levels) {
+      for (const auto& file_meta : level_meta.files) {
         if (file_num == TableFileNameToNumber(file_meta.name)) {
           if (file_meta.being_compacted) {
             return Status::Aborted("Specified compaction input file " +
