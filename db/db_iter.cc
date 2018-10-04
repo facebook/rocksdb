@@ -232,7 +232,7 @@ class DBIter final: public Iterator {
       *prop = saved_key_.GetUserKey().ToString();
       return Status::OK();
     }
-    return Status::InvalidArgument("Undentified property.");
+    return Status::InvalidArgument("Unidentified property.");
   }
 
   virtual void Next() override;
