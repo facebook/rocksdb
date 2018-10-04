@@ -21,33 +21,38 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     JNIEnv *env, jclass /*jclazz*/, jlongArray jdb_handles, jlongArray jcache_handles) {
 
   std::vector<rocksdb::DB*> dbs;
-  jlong* ptr_jdb_handles = env->GetLongArrayElements(jdb_handles, nullptr);
-  if (ptr_jdb_handles == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
-  for (jsize i = 0; i < env->GetArrayLength(jdb_handles); i++) {
-    dbs.push_back(reinterpret_cast<rocksdb::DB*>(ptr_jdb_handles[i]));
+  jsize db_handle_count = env->GetArrayLength(jdb_handles)
+  if(db_handle_count > 0) {
+    jlong *ptr_jdb_handles = env->GetLongArrayElements(jdb_handles, nullptr);
+    if (ptr_jdb_handles == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+    for (jsize i = 0; db_handle_count; i++) {
+      dbs.push_back(reinterpret_cast<rocksdb::DB *>(ptr_jdb_handles[i]));
+    }
+    env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
   }
 
   std::unordered_set<const rocksdb::Cache*> cache_set;
-  jlong* ptr_jcache_handles = env->GetLongArrayElements(jcache_handles, nullptr);
-  if (ptr_jcache_handles == nullptr) {
-    // exception thrown: OutOfMemoryError
-    env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
-    return nullptr;
-  }
-  for (jsize i = 0; i < env->GetArrayLength(jcache_handles); i++) {
-    auto* cache_ptr =
-        reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(ptr_jcache_handles[i]);
-    cache_set.insert(cache_ptr->get());
+  jsize cache_handle_count = env->GetArrayLength(jcache_handles);
+  if(cache_handle_count > 0) {
+    jlong *ptr_jcache_handles = env->GetLongArrayElements(jcache_handles, nullptr);
+    if (ptr_jcache_handles == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+    for (jsize i = 0; i < cache_handle_count; i++) {
+      auto *cache_ptr =
+          reinterpret_cast<std::shared_ptr<rocksdb::Cache> *>(ptr_jcache_handles[i]);
+      cache_set.insert(cache_ptr->get());
+    }
+    env->ReleaseLongArrayElements(jcache_handles, ptr_jcache_handles, JNI_ABORT);
   }
 
   std::map<rocksdb::MemoryUtil::UsageType, uint64_t> usage_by_type;
   if(rocksdb::MemoryUtil::GetApproximateMemoryUsageByType(dbs, cache_set, &usage_by_type) != rocksdb::Status::OK()) {
     // Non-OK status
-    env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
-    env->ReleaseLongArrayElements(jcache_handles, ptr_jcache_handles, JNI_ABORT);
     return nullptr;
   }
 
@@ -55,7 +60,6 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
       env, static_cast<uint32_t>(usage_by_type.size()));
   if (jusage_by_type == nullptr) {
     // exception occurred
-    env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
     return nullptr;
   }
   const rocksdb::HashMapJni::FnMapKV<const rocksdb::MemoryUtil::UsageType, const uint64_t>
@@ -87,8 +91,6 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     jusage_by_type = nullptr;
   }
 
-  env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
-  env->ReleaseLongArrayElements(jcache_handles, ptr_jcache_handles, JNI_ABORT);
   return jusage_by_type;
 
 }

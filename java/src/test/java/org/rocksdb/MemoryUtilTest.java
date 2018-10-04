@@ -27,14 +27,15 @@ public class MemoryUtilTest {
 
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
+  /**
+   * Test MemoryUtil.getApproximateMemoryUsageByType before and after a put + get
+   */
   @Test
   public void getApproximateMemoryUsageByType() throws RocksDBException {
     try (final Cache cache = new LRUCache(8 * 1024 * 1024);
-         final Statistics statistics = new Statistics();
          final Options options =
                  new Options()
                          .setCreateIfMissing(true)
-                         .setStatistics(statistics)
                          .setTableFormatConfig(new BlockBasedTableConfig().setBlockCache(cache));
          final FlushOptions flushOptions =
                  new FlushOptions().setWaitForFlush(true);
@@ -74,6 +75,19 @@ public class MemoryUtilTest {
       assertThat(usage.get(MemoryUsageType.kCacheTotal)).isGreaterThan(0);
 
     }
+  }
+
+  /**
+   * Test MemoryUtil.getApproximateMemoryUsageByType with null inputs
+   */
+  @Test
+  public void getApproximateMemoryUsageByTypeNulls() throws RocksDBException {
+    Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(null, null);
+
+    assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isEqualTo(null);
+    assertThat(usage.get(MemoryUsageType.kMemTableUnFlushed)).isEqualTo(null);
+    assertThat(usage.get(MemoryUsageType.kTableReadersTotal)).isEqualTo(null);
+    assertThat(usage.get(MemoryUsageType.kCacheTotal)).isEqualTo(null);
   }
 
 }

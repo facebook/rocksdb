@@ -31,17 +31,23 @@ public class MemoryUtil {
    * @return Map from {@link MemoryUsageType} to memory usage as a {@link Long}.
    */
   public static Map<MemoryUsageType, Long> getApproximateMemoryUsageByType(final List<RocksDB> dbs, final Set<Cache> caches) {
-    long[] dbHandles = new long[dbs.size()];
-    long[] cacheHandles = new long[caches.size()];
+    int dbCount = (dbs == null) ? 0 : dbs.size();
+    int cacheCount = (caches == null) ? 0 : caches.size();
+    long[] dbHandles = new long[dbCount];
+    long[] cacheHandles = new long[cacheCount];
     int i = 0;
-    for(RocksDB db : dbs) {
-      dbHandles[i] = db.nativeHandle_;
-      i++;
+    if (dbCount > 0) {
+      for (RocksDB db : dbs) {
+        dbHandles[i] = db.nativeHandle_;
+        i++;
+      }
+      i = 0;
     }
-    i = 0;
-    for(Cache cache : caches) {
-      cacheHandles[i] = cache.nativeHandle_;
-      i++;
+    if (cacheCount > 0) {
+      for (Cache cache : caches) {
+        cacheHandles[i] = cache.nativeHandle_;
+        i++;
+      }
     }
     Map<Byte, Long> longOutput = getApproximateMemoryUsageByType(dbHandles, cacheHandles);
     Map<MemoryUsageType, Long> output = new HashMap<>();
