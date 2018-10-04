@@ -39,7 +39,6 @@
 #include "table/full_filter_block.h"
 #include "table/table_builder.h"
 
-#include "util/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -655,8 +654,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
     size_t size = block_contents.size();
 
-    auto ubuf =
-        AllocateBlock(size + 1, block_cache_compressed->cache_allocator());
+    std::unique_ptr<char[]> ubuf(new char[size + 1]);
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 

@@ -303,8 +303,7 @@ class BlockBasedTable : public TableReader {
       const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, GetContext* get_context = nullptr,
-      CacheAllocator* allocator = nullptr);
+      bool is_index = false, GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -323,7 +322,7 @@ class BlockBasedTable : public TableReader {
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
       bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
-      GetContext* get_context = nullptr, CacheAllocator* allocator = nullptr);
+      GetContext* get_context = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.

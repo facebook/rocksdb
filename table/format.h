@@ -26,7 +26,6 @@
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
 #include "util/file_reader_writer.h"
-#include "util/cache_allocator.h"
 
 namespace rocksdb {
 
@@ -193,7 +192,7 @@ struct BlockContents {
   Slice data;     // Actual contents of data
   bool cachable;  // True iff data can be cached
   CompressionType compression_type;
-  CacheAllocationPtr allocation;
+  std::unique_ptr<char[]> allocation;
 
   BlockContents() : cachable(false), compression_type(kNoCompression) {}
 
@@ -201,28 +200,16 @@ struct BlockContents {
                 CompressionType _compression_type)
       : data(_data), cachable(_cachable), compression_type(_compression_type) {}
 
-  BlockContents(CacheAllocationPtr&& _data, size_t _size, bool _cachable,
+  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
                 CompressionType _compression_type)
       : data(_data.get(), _size),
         cachable(_cachable),
         compression_type(_compression_type),
         allocation(std::move(_data)) {}
 
-  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data.get(), _size),
-        cachable(_cachable),
-        compression_type(_compression_type) {
-    allocation.reset(_data.release());
-  }
-
   // The additional memory space taken by the block data.
   size_t usable_size() const {
     if (allocation.get() != nullptr) {
-      auto allocator = allocation.get_deleter().allocator;
-      if (allocator) {
-        return allocator->UsableSize(allocation.get(), data.size());
-      }
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
       return malloc_usable_size(allocation.get());
 #else
@@ -265,7 +252,7 @@ extern Status ReadBlockContents(
 extern Status UncompressBlockContents(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator = nullptr);
+    const ImmutableCFOptions& ioptions);
 
 // This is an extension to UncompressBlockContents that accepts
 // a specific compression type. This is used by un-wrapped blocks
@@ -273,7 +260,7 @@ extern Status UncompressBlockContents(
 extern Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, CacheAllocator* allocator = nullptr);
+    const ImmutableCFOptions& ioptions);
 
 // Implementation details follow.  Clients should ignore,
 
