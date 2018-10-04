@@ -1,3 +1,7 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <jni.h>
 #include <map>
@@ -21,14 +25,14 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     JNIEnv *env, jclass /*jclazz*/, jlongArray jdb_handles, jlongArray jcache_handles) {
 
   std::vector<rocksdb::DB*> dbs;
-  jsize db_handle_count = env->GetArrayLength(jdb_handles)
+  jsize db_handle_count = env->GetArrayLength(jdb_handles);
   if(db_handle_count > 0) {
     jlong *ptr_jdb_handles = env->GetLongArrayElements(jdb_handles, nullptr);
     if (ptr_jdb_handles == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
     }
-    for (jsize i = 0; db_handle_count; i++) {
+    for (jsize i = 0; i < db_handle_count; i++) {
       dbs.push_back(reinterpret_cast<rocksdb::DB *>(ptr_jdb_handles[i]));
     }
     env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);

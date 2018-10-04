@@ -2281,7 +2281,7 @@ class ByteJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid =
+    static jmethodID mid =
         env->GetStaticMethodID(clazz, "valueOf", "(B)Ljava/lang/Byte;");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError

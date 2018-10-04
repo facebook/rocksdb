@@ -5,10 +5,7 @@
 
 package org.rocksdb;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * JNI passthrough for MemoryUtil.
@@ -35,23 +32,24 @@ public class MemoryUtil {
     int cacheCount = (caches == null) ? 0 : caches.size();
     long[] dbHandles = new long[dbCount];
     long[] cacheHandles = new long[cacheCount];
-    int i = 0;
     if (dbCount > 0) {
-      for (RocksDB db : dbs) {
-        dbHandles[i] = db.nativeHandle_;
-        i++;
+      ListIterator<RocksDB> dbIter = dbs.listIterator();
+      while (dbIter.hasNext()) {
+        dbHandles[dbIter.nextIndex()] = dbIter.next().nativeHandle_;
       }
-      i = 0;
     }
     if (cacheCount > 0) {
+      // NOTE: This index handling is super ugly but I couldn't get a clean way to track both the
+      // index and the iterator simultaneously within a Set.
+      int i = 0;
       for (Cache cache : caches) {
         cacheHandles[i] = cache.nativeHandle_;
         i++;
       }
     }
-    Map<Byte, Long> longOutput = getApproximateMemoryUsageByType(dbHandles, cacheHandles);
+    Map<Byte, Long> byteOutput = getApproximateMemoryUsageByType(dbHandles, cacheHandles);
     Map<MemoryUsageType, Long> output = new HashMap<>();
-    for(Map.Entry<Byte, Long> longEntry : longOutput.entrySet()) {
+    for(Map.Entry<Byte, Long> longEntry : byteOutput.entrySet()) {
       output.put(MemoryUsageType.getMemoryUsageType(longEntry.getKey()), longEntry.getValue());
     }
     return output;
