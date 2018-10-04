@@ -503,6 +503,7 @@ set(SOURCES
         db/merge_helper.cc
         db/merge_operator.cc
         db/range_del_aggregator.cc
+        db/range_tombstone_fragmenter.cc
         db/repair.cc
         db/snapshot_impl.cc
         db/table_cache.cc
@@ -901,6 +902,8 @@ if(WITH_TESTS)
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
+        db/range_del_aggregator_test.cc
+        db/range_tombstone_fragmenter_test.cc
         db/repair_test.cc
         db/table_properties_collector_test.cc
         db/version_builder_test.cc
