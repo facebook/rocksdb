@@ -280,8 +280,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 Status UncompressBlockContentsForCompressionType(
     const UncompressionContext& uncompression_ctx, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
-    const ImmutableCFOptions& ioptions,
-    CacheAllocator* allocator) {
+    const ImmutableCFOptions& ioptions, CacheAllocator* allocator) {
   CacheAllocationPtr ubuf;
 
   assert(uncompression_ctx.type() != kNoCompression &&
