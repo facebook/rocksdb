@@ -1102,7 +1102,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (tail_prefetch_stats != nullptr) {
       assert(prefetch_buffer->min_offset_read() < file_size);
       tail_prefetch_stats->RecordEffectiveSize(
-				static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
+        static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
     }
     *table_reader = std::move(new_table);
   }
@@ -1158,8 +1158,7 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
       rep->footer.metaindex_handle(), &meta, rep->ioptions,
       true /* decompress */, Slice() /*compression dict*/,
       rep->persistent_cache_options, kDisableGlobalSequenceNumber,
-      0 /* read_amp_bytes_per_bit */,
-      GetCacheAllocator(rep->table_options));
+      0 /* read_amp_bytes_per_bit */, GetCacheAllocator(rep->table_options));
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
@@ -1712,8 +1711,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
           compression_dict, rep->persistent_cache_options,
           is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
           rep->table_options.read_amp_bytes_per_bit,
-          GetCacheAllocator(rep->table_options),
-          rep->immortal_table);
+          GetCacheAllocator(rep->table_options), rep->immortal_table);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1819,8 +1817,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             compression_dict, rep->persistent_cache_options,
             is_index ? kDisableGlobalSequenceNumber : rep->global_seqno,
             rep->table_options.read_amp_bytes_per_bit,
-            GetCacheAllocator(rep->table_options),
-            rep->immortal_table);
+            GetCacheAllocator(rep->table_options), rep->immortal_table);
       }
 
       if (s.ok()) {
@@ -2544,8 +2541,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
         rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
         ReadOptions(), handle, &contents, rep_->ioptions,
         false /* decompress */, dummy_comp_dict /*compression dict*/,
-        rep_->persistent_cache_options,
-        GetCacheAllocator(rep_->table_options));
+        rep_->persistent_cache_options, GetCacheAllocator(rep_->table_options));
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;
@@ -2571,8 +2567,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
         rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
         ReadOptions(), handle, &contents, rep_->ioptions,
         false /* decompress */, dummy_comp_dict /*compression dict*/,
-        rep_->persistent_cache_options,
-        GetCacheAllocator(rep_->table_options));
+        rep_->persistent_cache_options, GetCacheAllocator(rep_->table_options));
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;

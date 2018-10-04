@@ -99,7 +99,6 @@ extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
                                             int num_shard_bits = -1,
                                             bool strict_capacity_limit = false);
 
-
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less
