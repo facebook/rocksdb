@@ -338,8 +338,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           }
         }
         write_group.last_sequence = last_sequence;
-        write_group.running.store(static_cast<uint32_t>(write_group.size),
-                                  std::memory_order_relaxed);
         write_thread_.LaunchParallelMemTableWriters(&write_group);
         in_parallel_group = true;
 
