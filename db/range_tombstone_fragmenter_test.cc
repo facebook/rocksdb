@@ -106,6 +106,23 @@ TEST_F(RangeTombstoneFragmenterTest, OverlappingTombstones) {
                                            {"g", 0}});
 }
 
+TEST_F(RangeTombstoneFragmenterTest, ContiguousTombstones) {
+  auto range_del_iter = MakeRangeDelIter({{"a", "c", 10},
+                                          {"c", "e", 20},
+                                          {"c", "e", 5},
+                                          {"e", "g", 15}});
+
+  FragmentedRangeTombstoneIterator iter(std::move(range_del_iter),
+                                        bytewise_icmp, kMaxSequenceNumber);
+  VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},
+                                    {"c", "e", 20},
+                                    {"e", "g", 15}});
+  VerifyMaxCoveringTombstoneSeqnum(&iter, {{"a", 10},
+                                           {"c", 20},
+                                           {"e", 15},
+                                           {"g", 0}});
+}
+
 TEST_F(RangeTombstoneFragmenterTest, RepeatedStartAndEndKey) {
   auto range_del_iter = MakeRangeDelIter({{"a", "c", 10},
                                           {"a", "c", 7},

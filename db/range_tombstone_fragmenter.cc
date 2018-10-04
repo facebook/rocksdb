@@ -10,7 +10,6 @@
 #include <functional>
 
 #include "util/kv_map.h"
-#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -39,7 +38,15 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   }
   Slice cur_start_key(nullptr, 0);
   auto cmp = ParsedInternalKeyComparator(&icmp);
+
+  // Stores the end keys and sequence numbers of range tombstones with a start
+  // key of cur_start_key. Provides an ordering by end key for use in
+  // flush_current_tombstones.
   std::set<ParsedInternalKey, ParsedInternalKeyComparator> cur_end_keys(cmp);
+
+  // Given the next start key in unfragmented_tombstones,
+  // flush_current_tombstones writes every tombstone fragment that starts and
+  // ends with a key before next_start_key.
   auto flush_current_tombstones = [&](const Slice& next_start_key) {
     auto it = cur_end_keys.begin();
     bool reached_next_start_key = false;
@@ -59,11 +66,15 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
       for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
         max_seqnum = std::max(max_seqnum, flush_it->sequence);
       }
+      // Flush only the tombstone fragment with the highest sequence number.
       tombstones_.push_back(
           RangeTombstone(cur_start_key, cur_end_key, max_seqnum));
       cur_start_key = cur_end_key;
     }
     if (!reached_next_start_key) {
+      // There is a gap between the last flushed tombstone fragment and the next
+      // tombstone's start key. Remove the remaining end keys in the working
+      // set.
       cur_end_keys.clear();
     }
     cur_start_key = next_start_key;
@@ -78,6 +89,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     Slice tombstone_start_key = ExtractUserKey(ikey);
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
     if (tombstone_seq > snapshot) {
+      // The tombstone is not visible by this snapshot.
       continue;
     }
     no_tombstones = false;
@@ -90,6 +102,8 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     }
     if (!cur_end_keys.empty() && icmp.user_comparator()->Compare(
                                      cur_start_key, tombstone_start_key) != 0) {
+      // The start key has changed. Flush all tombstones that start before this
+      // new start key.
       flush_current_tombstones(tombstone_start_key);
     }
     if (unfragmented_tombstones->IsKeyPinned()) {

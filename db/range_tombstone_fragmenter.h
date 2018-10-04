@@ -16,6 +16,13 @@
 
 namespace rocksdb {
 
+// FragmentedRangeTombstoneIterator converts an InternalIterator of a range-del
+// meta block into an iterator over non-overlapping tombstone fragments. The
+// tombstone fragmentation process should be more efficient than the range
+// tombstone collapsing algorithm in RangeDelAggregator because this leverages
+// the internal key ordering already provided by the input iterator. If there
+// are few overlaps, creating a FragmentedRangeTombstoneIterator should be
+// O(n), while the RangeDelAggregator tombstone collapsing is always O(n log n).
 class FragmentedRangeTombstoneIterator {
  public:
   FragmentedRangeTombstoneIterator(
