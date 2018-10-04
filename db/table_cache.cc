@@ -380,7 +380,8 @@ Status TableCache::Get(const ReadOptions& options,
       std::unique_ptr<InternalIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
       FragmentedRangeTombstoneIterator fragment_iter(std::move(range_del_iter),
-                                                     internal_comparator);
+                                                     internal_comparator,
+                                                     GetInternalKeySeqno(k));
       *max_covering_tombstone_seq =
           std::max(*max_covering_tombstone_seq,
                    fragment_iter.MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));

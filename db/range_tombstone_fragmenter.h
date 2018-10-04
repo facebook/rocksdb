@@ -16,13 +16,12 @@
 
 namespace rocksdb {
 
-// TODO: handle snapshots (i.e. keep track of snapshot as high water mark for
-// seqnums during a read)
 class FragmentedRangeTombstoneIterator {
  public:
   FragmentedRangeTombstoneIterator(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
-      const InternalKeyComparator& icmp);
+      const InternalKeyComparator& icmp,
+      SequenceNumber snapshot);
   void SeekToFirst();
   void SeekForPrev(const Slice& target);
   void Next();

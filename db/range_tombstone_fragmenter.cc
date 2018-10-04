@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <functional>
 
-#include <iostream>
-
 #include "util/kv_map.h"
 #include "util/autovector.h"
 
@@ -33,7 +31,7 @@ struct ParsedInternalKeyComparator {
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
-    const InternalKeyComparator& icmp)
+    const InternalKeyComparator& icmp, SequenceNumber snapshot)
     : tombstone_cmp_(icmp.user_comparator()), ucmp_(icmp.user_comparator()) {
   if (unfragmented_tombstones == nullptr) {
     pos_ = tombstones_.end();
@@ -46,17 +44,16 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     auto it = cur_end_keys.begin();
     bool reached_next_start_key = false;
     for (; it != cur_end_keys.end() && !reached_next_start_key; ++it) {
-      Slice end_key = it->user_key;
-      //std::cout << "current end key: " << (void*)end_key.data() << std::endl;
-      if (icmp.user_comparator()->Compare(cur_start_key, end_key) ==
+      Slice cur_end_key = it->user_key;
+      if (icmp.user_comparator()->Compare(cur_start_key, cur_end_key) ==
           0) {
         // Empty tombstone.
         continue;
       }
-      if (icmp.user_comparator()->Compare(next_start_key, end_key) <= 0) {
+      if (icmp.user_comparator()->Compare(next_start_key, cur_end_key) <= 0) {
         reached_next_start_key = true;
         cur_end_keys.erase(cur_end_keys.begin(), it);
-        end_key = next_start_key;
+        cur_end_key = next_start_key;
       }
       autovector<SequenceNumber> seqnums_to_flush;
       for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
@@ -65,9 +62,9 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
       std::sort(seqnums_to_flush.begin(), seqnums_to_flush.end(),
                 std::greater<SequenceNumber>());
       for (auto seqnum : seqnums_to_flush) {
-        tombstones_.push_back(RangeTombstone(cur_start_key, end_key, seqnum));
+        tombstones_.push_back(RangeTombstone(cur_start_key, cur_end_key, seqnum));
       }
-      cur_start_key = end_key;
+      cur_start_key = cur_end_key;
     }
     if (!reached_next_start_key) {
       cur_end_keys.clear();
@@ -80,31 +77,33 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   bool no_tombstones = true;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next()) {
-    no_tombstones = false;
     const Slice& ikey = unfragmented_tombstones->key();
-    Slice start_key = ExtractUserKey(ikey);
-    SequenceNumber seq = GetInternalKeySeqno(ikey);
-
-    Slice end_key = unfragmented_tombstones->value();
-    if (!unfragmented_tombstones->IsValuePinned()) {
-      pinned_slices_.emplace_back(unfragmented_tombstones->value().data(),
-                                  unfragmented_tombstones->value().size());
-      end_key = pinned_slices_.back();
+    Slice tombstone_start_key = ExtractUserKey(ikey);
+    SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
+    if (tombstone_seq > snapshot) {
+      continue;
     }
-    //std::cout << "cur start key ptr before: " << (void*)cur_start_key.data() << std::endl;
-    if (!cur_end_keys.empty() &&
-        icmp.user_comparator()->Compare(cur_start_key, start_key) != 0) {
-      flush_current_tombstones(start_key);
+    no_tombstones = false;
+
+    Slice tombstone_end_key = unfragmented_tombstones->value();
+    if (!unfragmented_tombstones->IsValuePinned()) {
+      pinned_slices_.emplace_back(tombstone_end_key.data(),
+                                  tombstone_end_key.size());
+      tombstone_end_key = pinned_slices_.back();
+    }
+    if (!cur_end_keys.empty() && icmp.user_comparator()->Compare(
+                                     cur_start_key, tombstone_start_key) != 0) {
+      flush_current_tombstones(tombstone_start_key);
     }
     if (unfragmented_tombstones->IsKeyPinned()) {
-      cur_start_key = start_key;
+      cur_start_key = tombstone_start_key;
     } else {
-      pinned_slices_.emplace_back(start_key.data(), start_key.size());
+      pinned_slices_.emplace_back(tombstone_start_key.data(),
+                                  tombstone_start_key.size());
       cur_start_key = pinned_slices_.back();
     }
-    //std::cout << "cur start key ptr after: " << (void*)cur_start_key.data()<< std::endl;
 
-    cur_end_keys.emplace(end_key, seq, kTypeRangeDeletion);
+    cur_end_keys.emplace(tombstone_end_key, tombstone_seq, kTypeRangeDeletion);
   }
   if (!cur_end_keys.empty()) {
     ParsedInternalKey last_end_key = *std::prev(cur_end_keys.end());
