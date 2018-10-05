@@ -46,7 +46,8 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
   unique_ptr<WritableFile> wf(new test::StringSink);
-  writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
+  writable->reset(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
   int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
@@ -279,7 +280,8 @@ void TestCustomizedTablePropertiesCollector(
           new test::StringSource(fwf->contents())));
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props);
+                                 magic_number, ioptions, &props,
+                                 true /* compression_type_missing */);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -421,7 +423,7 @@ void TestInternalKeyPropertiesCollector(
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            ioptions, &props);
+                            ioptions, &props, true /* compression_type_missing */);
     ASSERT_OK(s);
 
     std::unique_ptr<TableProperties> props_guard(props);

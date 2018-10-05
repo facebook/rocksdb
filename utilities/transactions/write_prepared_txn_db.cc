@@ -37,9 +37,13 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   for (auto rtxn : rtxns) {
-    auto cnt = rtxn.second->batch_cnt_ ? rtxn.second->batch_cnt_ : 1;
+    // There should only one batch for WritePrepared policy.
+    assert(rtxn.second->batches_.size() == 1);
+    const auto& seq = rtxn.second->batches_.begin()->first;
+    const auto& batch_info = rtxn.second->batches_.begin()->second;
+    auto cnt = batch_info.batch_cnt_ ? batch_info.batch_cnt_ : 1;
     for (size_t i = 0; i < cnt; i++) {
-      AddPrepared(rtxn.second->seq_ + i);
+      AddPrepared(seq + i);
     }
   }
   SequenceNumber prev_max = max_evicted_seq_;
@@ -306,9 +310,10 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
-                        options.snapshot)
-                        ->min_uncommitted_;
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(
+            options.snapshot)
+            ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
@@ -455,7 +460,7 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) const {
-  *entry_64b = commit_cache_[indexed_seq].load(std::memory_order_acquire);
+  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(std::memory_order_acquire);
   bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
   return valid;
 }
@@ -464,7 +469,7 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
                                         const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
-  CommitEntry64b evicted_entry_64b = commit_cache_[indexed_seq].exchange(
+  CommitEntry64b evicted_entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
       new_entry_64b, std::memory_order_acq_rel);
   bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
   return valid;
@@ -473,7 +478,7 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
 bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
                                              CommitEntry64b& expected_entry_64b,
                                              const CommitEntry& new_entry) {
-  auto& atomic_entry = commit_cache_[indexed_seq];
+  auto& atomic_entry = commit_cache_[static_cast<size_t>(indexed_seq)];
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
   bool succ = atomic_entry.compare_exchange_strong(
       expected_entry_64b, new_entry_64b, std::memory_order_acq_rel,

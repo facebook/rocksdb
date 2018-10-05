@@ -165,7 +165,6 @@ class PosixLogger : public Logger {
 
       size_t sz = fwrite(base, 1, write_size, file_);
       flush_pending_ = true;
-      assert(sz == write_size);
       if (sz > 0) {
         log_size_ += write_size;
       }

@@ -73,7 +73,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   env_options.bytes_per_sync = kMb;
   unique_ptr<FakeWF> wf(new FakeWF);
   unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), env_options));
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
   Random r(301);
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
@@ -154,8 +154,8 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
                                      false,
 #endif
                                      no_flush));
-    unique_ptr<WritableFileWriter> writer(
-        new WritableFileWriter(std::move(wf), env_options));
+    unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+        std::move(wf), "" /* don't care */, env_options));
 
     std::string target;
     for (int i = 0; i < 20; i++) {
@@ -209,7 +209,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
   unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), EnvOptions()));
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));
 
@@ -238,8 +238,9 @@ class ReadaheadRandomAccessFileTest
     return std::string(result.data(), result.size());
   }
   void ResetSourceStr(const std::string& str = "") {
-    auto write_holder = std::unique_ptr<WritableFileWriter>(
-        test::GetWritableFileWriter(new test::StringSink(&control_contents_)));
+    auto write_holder =
+        std::unique_ptr<WritableFileWriter>(test::GetWritableFileWriter(
+            new test::StringSink(&control_contents_), "" /* don't care */));
     write_holder->Append(Slice(str));
     write_holder->Flush();
     auto read_holder = std::unique_ptr<RandomAccessFile>(

@@ -12,6 +12,7 @@
 #include "port/port.h"
 
 #include "db/compaction.h"
+#include "db/error_handler.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/delete_scheduler.h"
 
@@ -33,7 +34,7 @@ class SstFileManagerImpl : public SstFileManager {
   ~SstFileManagerImpl();
 
   // DB will call OnAddFile whenever a new sst file is added.
-  Status OnAddFile(const std::string& file_path);
+  Status OnAddFile(const std::string& file_path, bool compaction = false);
 
   // DB will call OnDeleteFile whenever an sst file is deleted.
   Status OnDeleteFile(const std::string& file_path);
@@ -67,7 +68,9 @@ class SstFileManagerImpl : public SstFileManager {
   // estimates how much space is currently being used by compactions (i.e.
   // if a compaction has started, this function bumps the used space by
   // the full compaction size).
-  bool EnoughRoomForCompaction(const std::vector<CompactionInputFiles>& inputs);
+  bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
+                               const std::vector<CompactionInputFiles>& inputs,
+                               Status bg_error);
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction
   // finishes
@@ -93,6 +96,21 @@ class SstFileManagerImpl : public SstFileManager {
   // Update trash/DB size ratio where new files will be deleted immediately
   virtual void SetMaxTrashDBRatio(double ratio) override;
 
+  // Return the total size of trash files
+  uint64_t GetTotalTrashSize() override;
+
+  // Called by each DB instance using this sst file manager to reserve
+  // disk buffer space for recovery from out of space errors
+  void ReserveDiskBuffer(uint64_t buffer, const std::string& path);
+
+  // Set a flag upon encountering disk full. May enqueue the ErrorHandler
+  // instance for background polling and recovery
+  void StartErrorRecovery(ErrorHandler* db, Status bg_error);
+
+  // Remove the given Errorhandler instance from the recovery queue. Its
+  // not guaranteed
+  bool CancelErrorRecovery(ErrorHandler* db);
+
   // Mark file as trash and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path,
                                       const std::string& dir_to_sync);
@@ -103,11 +121,21 @@ class SstFileManagerImpl : public SstFileManager {
 
   DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
+  // Stop the error recovery background thread. This should be called only
+  // once in the object's lifetime, and before the destructor
+  void Close();
+
  private:
   // REQUIRES: mutex locked
-  void OnAddFileImpl(const std::string& file_path, uint64_t file_size);
+  void OnAddFileImpl(const std::string& file_path, uint64_t file_size,
+                     bool compaction);
   // REQUIRES: mutex locked
   void OnDeleteFileImpl(const std::string& file_path);
+
+  void ClearError();
+  bool CheckFreeSpace() {
+    return bg_err_.severity() == Status::Severity::kSoftError;
+  }
 
   Env* env_;
   std::shared_ptr<Logger> logger_;
@@ -115,6 +143,8 @@ class SstFileManagerImpl : public SstFileManager {
   port::Mutex mu_;
   // The summation of the sizes of all files in tracked_files_ map
   uint64_t total_files_size_;
+  // The summation of all output files of in-progress compactions
+  uint64_t in_progress_files_size_;
   // Compactions should only execute if they can leave at least
   // this amount of buffer space for logs and flushes
   uint64_t compaction_buffer_size_;
@@ -123,10 +153,32 @@ class SstFileManagerImpl : public SstFileManager {
   // A map containing all tracked files and there sizes
   //  file_path => file_size
   std::unordered_map<std::string, uint64_t> tracked_files_;
+  // A set of files belonging to in-progress compactions
+  std::unordered_set<std::string> in_progress_files_;
   // The maximum allowed space (in bytes) for sst files.
   uint64_t max_allowed_space_;
   // DeleteScheduler used to throttle file deletition.
   DeleteScheduler delete_scheduler_;
+  port::CondVar cv_;
+  // Flag to force error recovery thread to exit
+  bool closing_;
+  // Background error recovery thread
+  std::unique_ptr<port::Thread> bg_thread_;
+  // A path in the filesystem corresponding to this SFM. This is used for
+  // calling Env::GetFreeSpace. Posix requires a path in the filesystem
+  std::string path_;
+  // Save the current background error
+  Status bg_err_;
+  // Amount of free disk headroom before allowing recovery from hard errors
+  uint64_t reserved_disk_buffer_;
+  // For soft errors, amount of free disk space before we can allow
+  // compactions to run full throttle. If disk space is below this trigger,
+  // compactions will be gated by free disk space > input size
+  uint64_t free_space_trigger_;
+  // List of database error handler instances tracked by this sst file manager
+  std::list<ErrorHandler*> error_handler_list_;
+  // Pointer to ErrorHandler instance that is currently processing recovery
+  ErrorHandler* cur_instance_;
 };
 
 }  // namespace rocksdb

@@ -75,7 +75,7 @@ class ForwardLevelIterator : public InternalIterator {
         cfd_->internal_comparator(), {} /* snapshots */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd,
+        *files_[file_index_],
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         prefix_extractor_, nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
@@ -635,7 +635,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
       continue;
     }
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
-        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd,
+        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), *l0,
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         sv_->mutable_cf_options.prefix_extractor.get()));
   }
@@ -706,7 +706,7 @@ void ForwardIterator::RenewIterators() {
     }
     l0_iters_new.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        l0_files_new[inew]->fd,
+        *l0_files_new[inew],
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         svnew->mutable_cf_options.prefix_extractor.get()));
   }
@@ -766,7 +766,7 @@ void ForwardIterator::ResetIncompleteIterators() {
     DeleteIterator(l0_iters_[i]);
     l0_iters_[i] = cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        l0_files[i]->fd, nullptr /* range_del_agg */,
+        *l0_files[i], nullptr /* range_del_agg */,
         sv_->mutable_cf_options.prefix_extractor.get());
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }
@@ -916,21 +916,13 @@ bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
 uint32_t ForwardIterator::FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right) {
-  while (left < right) {
-    uint32_t mid = (left + right) / 2;
-    const FileMetaData* f = files[mid];
-    if (cfd_->internal_comparator().InternalKeyComparator::Compare(
-          f->largest.Encode(), internal_key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
+  auto cmp = [&](const FileMetaData* f, const Slice& key) -> bool {
+    return cfd_->internal_comparator().InternalKeyComparator::Compare(
+            f->largest.Encode(), key) < 0;
+  };
+  const auto &b = files.begin();
+  return static_cast<uint32_t>(std::lower_bound(b + left,
+                                 b + right, internal_key, cmp) - b);
 }
 
 void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {

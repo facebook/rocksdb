@@ -137,6 +137,15 @@ struct TransactionOptions {
 
   // The maximum number of bytes used for the write batch. 0 means no limit.
   size_t max_write_batch_size = 0;
+
+  // Skip Concurrency Control. This could be as an optimization if the
+  // application knows that the transaction would not have any conflict with
+  // concurrent transactions. It could also be used during recovery if (i)
+  // application guarantees no conflict between prepared transactions in the WAL
+  // (ii) application guarantees that recovered transactions will be rolled
+  // back/commit before new transactions start.
+  // Default: false
+  bool skip_concurrency_control = false;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
@@ -169,12 +178,15 @@ struct DeadlockInfo {
 struct DeadlockPath {
   std::vector<DeadlockInfo> path;
   bool limit_exceeded;
+  int64_t deadlock_time;
 
-  explicit DeadlockPath(std::vector<DeadlockInfo> path_entry)
-      : path(path_entry), limit_exceeded(false) {}
+  explicit DeadlockPath(std::vector<DeadlockInfo> path_entry,
+                        const int64_t& dl_time)
+      : path(path_entry), limit_exceeded(false), deadlock_time(dl_time) {}
 
   // empty path, limit exceeded constructor and default constructor
-  explicit DeadlockPath(bool limit = false) : path(0), limit_exceeded(limit) {}
+  explicit DeadlockPath(const int64_t& dl_time = 0, bool limit = false)
+      : path(0), limit_exceeded(limit), deadlock_time(dl_time) {}
 
   bool empty() { return path.empty() && !limit_exceeded; }
 };

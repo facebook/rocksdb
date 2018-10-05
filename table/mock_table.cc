@@ -28,7 +28,7 @@ stl_wrappers::KVMap MakeMockFile(
 
 InternalIterator* MockTableReader::NewIterator(
     const ReadOptions&, const SliceTransform* /* prefix_extractor */,
-    Arena* /*arena*/, bool /*skip_filters*/) {
+    Arena* /*arena*/, bool /*skip_filters*/, bool /*for_compaction*/) {
   return new MockTableIterator(table_);
 }
 
@@ -93,7 +93,7 @@ Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
     return s;
   }
 
-  WritableFileWriter file_writer(std::move(file), EnvOptions());
+  WritableFileWriter file_writer(std::move(file), fname, EnvOptions());
 
   uint32_t id = GetAndWriteNextID(&file_writer);
   file_system_.files.insert({id, std::move(file_contents)});

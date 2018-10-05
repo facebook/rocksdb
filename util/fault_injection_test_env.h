@@ -11,8 +11,7 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
-#ifndef UTIL_FAULT_INJECTION_TEST_ENV_H_
-#define UTIL_FAULT_INJECTION_TEST_ENV_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -111,10 +110,24 @@ class FaultInjectionTestEnv : public EnvWrapper {
                          unique_ptr<WritableFile>* result,
                          const EnvOptions& soptions) override;
 
+  Status NewRandomAccessFile(const std::string& fname,
+                             std::unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& soptions) override;
+
   virtual Status DeleteFile(const std::string& f) override;
 
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
+
+  virtual Status GetFreeSpace(const std::string& path,
+                              uint64_t* disk_free) override {
+    if (!IsFilesystemActive() && error_ == Status::NoSpace()) {
+      *disk_free = 0;
+      return Status::OK();
+    } else {
+      return target()->GetFreeSpace(path, disk_free);
+    }
+  }
 
   void WritableFileClosed(const FileState& state);
 
@@ -145,12 +158,20 @@ class FaultInjectionTestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     return filesystem_active_;
   }
-  void SetFilesystemActiveNoLock(bool active) { filesystem_active_ = active; }
-  void SetFilesystemActive(bool active) {
+  void SetFilesystemActiveNoLock(bool active,
+      Status error = Status::Corruption("Not active")) {
+    filesystem_active_ = active;
+    if (!active) {
+      error_ = error;
+    }
+  }
+  void SetFilesystemActive(bool active,
+      Status error = Status::Corruption("Not active")) {
     MutexLock l(&mutex_);
-    SetFilesystemActiveNoLock(active);
+    SetFilesystemActiveNoLock(active, error);
   }
   void AssertNoOpenFile() { assert(open_files_.empty()); }
+  Status GetError() { return error_; }
 
  private:
   port::Mutex mutex_;
@@ -159,8 +180,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
+  Status error_;
 };
 
 }  // namespace rocksdb
-
-#endif  // UTIL_FAULT_INJECTION_TEST_ENV_H_

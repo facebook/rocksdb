@@ -5,6 +5,14 @@
 
 #include "table/full_filter_block.h"
 
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
+#include <malloc.h>
+#endif
+#endif
+
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
@@ -72,8 +80,14 @@ inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
+void FullFilterBlockBuilder::Reset() {
+  last_whole_key_recorded_ = false;
+  last_prefix_recorded_ = false;
+}
+
 Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
                                      Status* status) {
+  Reset();
   // In this impl we ignore BlockHandle
   *status = Status::OK();
   if (num_added_ != 0) {
@@ -92,6 +106,10 @@ FullFilterBlockReader::FullFilterBlockReader(
       contents_(contents) {
   assert(filter_bits_reader != nullptr);
   filter_bits_reader_.reset(filter_bits_reader);
+  if (prefix_extractor_ != nullptr) {
+    full_length_enabled_ =
+        prefix_extractor_->FullLengthEnabled(&prefix_extractor_full_length_);
+  }
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
@@ -125,9 +143,6 @@ bool FullFilterBlockReader::PrefixMayMatch(
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  if (!prefix_extractor_) {
-    return true;
-  }
   return MayMatch(prefix);
 }
 
@@ -145,6 +160,67 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry) {
 }
 
 size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
-  return contents_.size();
+  size_t usage = block_contents_.usable_size();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+  usage += malloc_usable_size(filter_bits_reader_.get());
+#else
+  usage += sizeof(*this);
+  usage += sizeof(*filter_bits_reader_.get());
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  return usage;
 }
+
+bool FullFilterBlockReader::RangeMayExist(const Slice* iterate_upper_bound,
+    const Slice& user_key, const SliceTransform* prefix_extractor,
+    const Comparator* comparator, const Slice* const const_ikey_ptr,
+    bool* filter_checked, bool need_upper_bound_check) {
+  if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
+    *filter_checked = false;
+    return true;
+  }
+  Slice prefix = prefix_extractor->Transform(user_key);
+  if (need_upper_bound_check &&
+      !IsFilterCompatible(iterate_upper_bound, prefix, comparator)) {
+    *filter_checked = false;
+    return true;
+  } else {
+    *filter_checked = true;
+    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
+                          const_ikey_ptr);
+  }
+}
+
+bool FullFilterBlockReader::IsFilterCompatible(
+    const Slice* iterate_upper_bound, const Slice& prefix,
+    const Comparator* comparator) {
+  // Try to reuse the bloom filter in the SST table if prefix_extractor in
+  // mutable_cf_options has changed. If range [user_key, upper_bound) all
+  // share the same prefix then we may still be able to use the bloom filter.
+  if (iterate_upper_bound != nullptr && prefix_extractor_) {
+    if (!prefix_extractor_->InDomain(*iterate_upper_bound)) {
+      return false;
+    }
+    Slice upper_bound_xform =
+        prefix_extractor_->Transform(*iterate_upper_bound);
+    // first check if user_key and upper_bound all share the same prefix
+    if (!comparator->Equal(prefix, upper_bound_xform)) {
+      // second check if user_key's prefix is the immediate predecessor of
+      // upper_bound and have the same length. If so, we know for sure all
+      // keys in the range [user_key, upper_bound) share the same prefix.
+      // Also need to make sure upper_bound are full length to ensure
+      // correctness
+      if (!full_length_enabled_ ||
+          iterate_upper_bound->size() != prefix_extractor_full_length_ ||
+          !comparator->IsSameLengthImmediateSuccessor(prefix,
+                                                      *iterate_upper_bound)) {
+        return false;
+      }
+    }
+    return true;
+  } else {
+    return false;
+  }
+}
+
 }  // namespace rocksdb

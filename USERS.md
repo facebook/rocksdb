@@ -12,6 +12,7 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 6. LogDevice -- a distributed data store for logs [2]
 
 [1] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
 ## LinkedIn
@@ -26,7 +27,7 @@ Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasu
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
 
 ## CockroachDB
-CockroachDB is an open-source geo-replicated transactional database (still in development). They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
+CockroachDB is an open-source geo-replicated transactional database. They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
 
 ## DNANexus
 DNANexus is using RocksDB to speed up processing of genomics data.
@@ -88,3 +89,6 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 
 ## ProfaneDB
 [ProfaneDB](https://profanedb.gitlab.io/) is a database for Protocol Buffers, and uses RocksDB for storage. It is accessible via gRPC, and the schema is defined using directly `.proto` files.
+
+## IOTA Foundation
+ [IOTA Foundation](https://www.iota.org/) is using RocksDB in the [IOTA Reference Implementation (IRI)](https://github.com/iotaledger/iri) to store the local state of the Tangle. The Tangle is the first open-source distributed ledger powering the future of the Internet of Things.

@@ -23,7 +23,8 @@ class BlobDBImpl;
 
 class BlobFile {
   friend class BlobDBImpl;
-  friend struct blobf_compare_ttl;
+  friend struct BlobFileComparator;
+  friend struct BlobFileComparatorTTL;
 
  private:
   // access to parent
@@ -180,17 +181,18 @@ class BlobFile {
   // footer_valid_ to false and return Status::OK.
   Status ReadMetadata(Env* env, const EnvOptions& env_options);
 
+  Status GetReader(Env* env, const EnvOptions& env_options,
+                   std::shared_ptr<RandomAccessFileReader>* reader,
+                   bool* fresh_open);
+
  private:
-  std::shared_ptr<Reader> OpenSequentialReader(
+  std::shared_ptr<Reader> OpenRandomAccessReader(
       Env* env, const DBOptions& db_options,
       const EnvOptions& env_options) const;
 
   Status ReadFooter(BlobLogFooter* footer);
 
   Status WriteFooterAndCloseLocked();
-
-  std::shared_ptr<RandomAccessFileReader> GetOrOpenRandomAccessReader(
-      Env* env, const EnvOptions& env_options, bool* fresh_open);
 
   void CloseRandomAccessLocked();
 

@@ -22,8 +22,7 @@
 // non-const method, all threads accessing the same WriteBatch must use
 // external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
-#define STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
+#pragma once
 
 #include <atomic>
 #include <stack>
@@ -243,7 +242,7 @@ class WriteBatch : public WriteBatchBase {
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
 
-    virtual Status MarkBeginPrepare() {
+    virtual Status MarkBeginPrepare(bool = false) {
       return Status::InvalidArgument("MarkBeginPrepare() handler not defined.");
     }
 
@@ -272,6 +271,7 @@ class WriteBatch : public WriteBatchBase {
    protected:
     friend class WriteBatch;
     virtual bool WriteAfterCommit() const { return true; }
+    virtual bool WriteBeforePrepare() const { return false; }
   };
   Status Iterate(Handler* handler) const;
 
@@ -366,5 +366,3 @@ class WriteBatch : public WriteBatchBase {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_

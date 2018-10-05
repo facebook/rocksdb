@@ -47,8 +47,7 @@
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONPARSER_H
-#define FBSON_FBSONPARSER_H
+#pragma once
 
 #include <cmath>
 #include <limits>
@@ -456,7 +455,11 @@ class FbsonJsonParserT {
     }
     case '+':
       in.ignore();
-    // fall through
+#if defined(__clang__)
+      [[clang::fallthrough]];
+#elif defined(__GNUC__) && __GNUC__ >= 7
+      [[gnu::fallthrough]];
+#endif
     default:
       ret = parseDecimal(in, 1);
       break;
@@ -737,5 +740,3 @@ class FbsonJsonParserT {
 typedef FbsonJsonParserT<FbsonOutStream> FbsonJsonParser;
 
 } // namespace fbson
-
-#endif // FBSON_FBSONPARSER_H

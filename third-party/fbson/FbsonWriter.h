@@ -25,8 +25,7 @@
  * @author Tian Xia <tianx@fb.com>
  */
 
-#ifndef FBSON_FBSONWRITER_H
-#define FBSON_FBSONWRITER_H
+#pragma once
 
 #include <stack>
 #include "FbsonDocument.h"
@@ -433,5 +432,3 @@ class FbsonWriterT {
 typedef FbsonWriterT<FbsonOutStream> FbsonWriter;
 
 } // namespace fbson
-
-#endif // FBSON_FBSONWRITER_H

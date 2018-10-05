@@ -201,9 +201,6 @@ bool BlockBasedFilterBlockReader::PrefixMayMatch(
     uint64_t block_offset, const bool /*no_io*/,
     const Slice* const /*const_ikey_ptr*/) {
   assert(block_offset != kNotValid);
-  if (!prefix_extractor_) {
-    return true;
-  }
   return MayMatch(prefix, block_offset);
 }
 

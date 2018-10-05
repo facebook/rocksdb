@@ -75,9 +75,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           bool through_db, bool measured_by_nanosecond) {
   rocksdb::InternalKeyComparator ikc(opts.comparator);
 
-  std::string file_name = test::TmpDir()
-      + "/rocksdb_table_reader_benchmark";
-  std::string dbname = test::TmpDir() + "/rocksdb_table_reader_bench_db";
+  std::string file_name =
+      test::PerThreadDBPath("rocksdb_table_reader_benchmark");
+  std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
   Env* env = Env::Default();
   TableBuilder* tb = nullptr;
@@ -94,7 +94,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
 
-    file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+    file_writer.reset(
+        new WritableFileWriter(std::move(file), file_name, env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(

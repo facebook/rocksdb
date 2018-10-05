@@ -109,8 +109,6 @@ struct OptionsOverride {
   // These will be used only if filter_policy is set
   bool partition_filters = false;
   uint64_t metadata_block_size = 1024;
-  BlockBasedTableOptions::IndexType index_type =
-      BlockBasedTableOptions::IndexType::kBinarySearch;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
@@ -317,6 +315,9 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
 
      private:
       SpecialEnv* env_;
@@ -369,6 +370,9 @@ class SpecialEnv : public EnvWrapper {
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
+      }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
       }
 
      private:
@@ -575,7 +579,7 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
-  std::atomic<size_t> compaction_readahead_size_;
+  std::atomic<size_t> compaction_readahead_size_{};
 };
 
 class MockTimeEnv : public EnvWrapper {
@@ -698,13 +702,11 @@ class DBTestBase : public testing::Test {
     kLevelSubcompactions,
     kBlockBasedTableWithIndexRestartInterval,
     kBlockBasedTableWithPartitionedIndex,
+    kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
-    kEnd,
-
-    // TODO: This option although been there for a while was disable due to a
-    // mistake. Enabling it makes somem tests to fail. We should enable it and
-    // fix the unit tests.
     kUniversalSubcompactions,
+    // This must be the last line
+    kEnd,
   };
 
  public:
@@ -734,6 +736,13 @@ class DBTestBase : public testing::Test {
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
   };
+
+  const int kRangeDelSkipConfigs =
+      // Plain tables do not support range deletions.
+      kSkipPlainTable |
+      // MmapReads disables the iterator pinning that RangeDelAggregator
+      // requires.
+      kSkipMmapReads;
 
   explicit DBTestBase(const std::string path);
 

@@ -124,30 +124,40 @@ Status PessimisticTransactionDB::Initialize(
   for (auto it = rtrxs.begin(); it != rtrxs.end(); it++) {
     auto recovered_trx = it->second;
     assert(recovered_trx);
-    assert(recovered_trx->log_number_);
+    assert(recovered_trx->batches_.size() == 1);
+    const auto& seq = recovered_trx->batches_.begin()->first;
+    const auto& batch_info = recovered_trx->batches_.begin()->second;
+    assert(batch_info.log_number_);
     assert(recovered_trx->name_.length());
 
     WriteOptions w_options;
     w_options.sync = true;
     TransactionOptions t_options;
+    // This would help avoiding deadlock for keys that although exist in the WAL
+    // did not go through concurrency control. This includes the merge that
+    // MyRocks uses for auto-inc columns. It is safe to do so, since (i) if
+    // there is a conflict between the keys of two transactions that must be
+    // avoided, it is already avoided by the application, MyRocks, before the
+    // restart (ii) application, MyRocks, guarntees to rollback/commit the
+    // recovered transactions before new transactions start.
+    t_options.skip_concurrency_control = true;
 
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
-    real_trx->SetLogNumber(recovered_trx->log_number_);
-    assert(recovered_trx->seq_ != kMaxSequenceNumber);
-    real_trx->SetId(recovered_trx->seq_);
+    real_trx->SetLogNumber(batch_info.log_number_);
+    assert(seq != kMaxSequenceNumber);
+    real_trx->SetId(seq);
 
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
       break;
     }
 
-    s = real_trx->RebuildFromWriteBatch(recovered_trx->batch_);
+    s = real_trx->RebuildFromWriteBatch(batch_info.batch_);
     // WriteCommitted set this to to disable this check that is specific to
     // WritePrepared txns
-    assert(recovered_trx->batch_cnt_ == 0 ||
-           real_trx->GetWriteBatch()->SubBatchCnt() ==
-               recovered_trx->batch_cnt_);
+    assert(batch_info.batch_cnt_ == 0 ||
+           real_trx->GetWriteBatch()->SubBatchCnt() == batch_info.batch_cnt_);
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
       break;
@@ -217,9 +227,14 @@ Status TransactionDB::Open(
   DBOptions db_options_2pc = db_options;
   PrepareWrap(&db_options_2pc, &column_families_copy,
               &compaction_enabled_cf_indices);
-  const bool use_seq_per_batch = txn_db_options.write_policy == WRITE_PREPARED;
+  const bool use_seq_per_batch =
+      txn_db_options.write_policy == WRITE_PREPARED ||
+      txn_db_options.write_policy == WRITE_UNPREPARED;
+  const bool use_batch_per_txn =
+      txn_db_options.write_policy == WRITE_COMMITTED ||
+      txn_db_options.write_policy == WRITE_PREPARED;
   s = DBImpl::Open(db_options_2pc, dbname, column_families_copy, handles, &db,
-                   use_seq_per_batch);
+                   use_seq_per_batch, use_batch_per_txn);
   if (s.ok()) {
     s = WrapDB(db, txn_db_options, compaction_enabled_cf_indices, *handles,
                dbptr);

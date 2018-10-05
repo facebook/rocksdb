@@ -80,18 +80,21 @@ std::string BlobFile::PathName() const {
   return BlobFileName(path_to_dir_, file_number_);
 }
 
-std::shared_ptr<Reader> BlobFile::OpenSequentialReader(
+std::shared_ptr<Reader> BlobFile::OpenRandomAccessReader(
     Env* env, const DBOptions& db_options,
     const EnvOptions& env_options) const {
-  std::unique_ptr<SequentialFile> sfile;
-  Status s = env->NewSequentialFile(PathName(), &sfile, env_options);
+  constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
+  std::unique_ptr<RandomAccessFile> sfile;
+  std::string path_name(PathName());
+  Status s = env->NewRandomAccessFile(path_name, &sfile, env_options);
   if (!s.ok()) {
     // report something here.
     return nullptr;
   }
+  sfile = NewReadaheadRandomAccessFile(std::move(sfile), kReadaheadSize);
 
-  std::unique_ptr<SequentialFileReader> sfile_reader;
-  sfile_reader.reset(new SequentialFileReader(std::move(sfile)));
+  std::unique_ptr<RandomAccessFileReader> sfile_reader;
+  sfile_reader.reset(new RandomAccessFileReader(std::move(sfile), path_name));
 
   std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
       std::move(sfile_reader), db_options.env, db_options.statistics.get());
@@ -188,36 +191,48 @@ void BlobFile::CloseRandomAccessLocked() {
   last_access_ = -1;
 }
 
-std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
-    Env* env, const EnvOptions& env_options, bool* fresh_open) {
+Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
+                           std::shared_ptr<RandomAccessFileReader>* reader,
+                           bool* fresh_open) {
+  assert(reader != nullptr);
+  assert(fresh_open != nullptr);
   *fresh_open = false;
   int64_t current_time = 0;
   env->GetCurrentTime(&current_time);
   last_access_.store(current_time);
+  Status s;
 
   {
     ReadLock lockbfile_r(&mutex_);
-    if (ra_file_reader_) return ra_file_reader_;
+    if (ra_file_reader_) {
+      *reader = ra_file_reader_;
+      return s;
+    }
   }
 
   WriteLock lockbfile_w(&mutex_);
-  if (ra_file_reader_) return ra_file_reader_;
+  // Double check.
+  if (ra_file_reader_) {
+    *reader = ra_file_reader_;
+    return s;
+  }
 
   std::unique_ptr<RandomAccessFile> rfile;
-  Status s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
+  s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file for random-read: %s status: '%s'"
                     " exists: '%s'",
                     PathName().c_str(), s.ToString().c_str(),
                     env->FileExists(PathName()).ToString().c_str());
-    return nullptr;
+    return s;
   }
 
   ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile),
                                                              PathName());
+  *reader = ra_file_reader_;
   *fresh_open = true;
-  return ra_file_reader_;
+  return s;
 }
 
 Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {

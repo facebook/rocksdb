@@ -60,7 +60,7 @@ class TransactionTestBase : public ::testing::Test {
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
     options.two_write_queues = two_write_queue;
-    dbname = test::TmpDir() + "/transaction_testdb";
+    dbname = test::PerThreadDBPath("transaction_testdb");
 
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
@@ -100,6 +100,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
+    assert(!s.ok() || db != nullptr);
     return s;
   }
 
@@ -121,6 +122,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB(cfs, handles);
     }
+    assert(db != nullptr);
     return s;
   }
 
@@ -134,6 +136,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
+    assert(db != nullptr);
     return s;
   }
 
@@ -144,9 +147,13 @@ class TransactionTestBase : public ::testing::Test {
     DB* root_db = nullptr;
     Options options_copy(options);
     const bool use_seq_per_batch =
+        txn_db_options.write_policy == WRITE_PREPARED ||
+        txn_db_options.write_policy == WRITE_UNPREPARED;
+    const bool use_batch_per_txn =
+        txn_db_options.write_policy == WRITE_COMMITTED ||
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
-                            use_seq_per_batch);
+                            use_seq_per_batch, use_batch_per_txn);
     StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
@@ -173,18 +180,24 @@ class TransactionTestBase : public ::testing::Test {
     DB* root_db = nullptr;
     Options options_copy(options);
     const bool use_seq_per_batch =
+        txn_db_options.write_policy == WRITE_PREPARED ||
+        txn_db_options.write_policy == WRITE_UNPREPARED;
+    const bool use_batch_per_txn =
+        txn_db_options.write_policy == WRITE_COMMITTED ||
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
-                            &root_db, use_seq_per_batch);
-    StackableDB* stackable_db = new StackableDB(root_db);
-    if (s.ok()) {
-      assert(root_db != nullptr);
-      assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
-                                         compaction_enabled_cf_indices, handles,
-                                         &db);
-      delete handles[0];
+                            &root_db, use_seq_per_batch, use_batch_per_txn);
+    if (!s.ok()) {
+      delete root_db;
+      return s;
     }
+    StackableDB* stackable_db = new StackableDB(root_db);
+    assert(root_db != nullptr);
+    assert(handles.size() == 1);
+    s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+                                       compaction_enabled_cf_indices, handles,
+                                       &db);
+    delete handles[0];
     if (!s.ok()) {
       delete stackable_db;
       // just in case it was not deleted (and not set to nullptr).
@@ -264,8 +277,6 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
-    auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-    pdb->UnregisterTransaction(txn);
     delete txn;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
@@ -379,12 +390,6 @@ class TransactionTestBase : public ::testing::Test {
             ASSERT_OK(txn->Prepare());
           }
           ASSERT_OK(txn->Commit());
-          if (type == 2) {
-            auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-            // TODO(myabandeh): this is counter-intuitive. The destructor should
-            // also do the unregistering.
-            pdb->UnregisterTransaction(txn);
-          }
           delete txn;
           break;
         default:
@@ -406,7 +411,7 @@ class TransactionTestBase : public ::testing::Test {
     if (empty_wal) {
       ASSERT_OK(s);
     } else {
-      // Test that we can detect the WAL that is produced by an incompatbile
+      // Test that we can detect the WAL that is produced by an incompatible
       // WritePolicy and fail fast before mis-interpreting the WAL.
       ASSERT_TRUE(s.IsNotSupported());
       return;
@@ -440,6 +445,8 @@ class TransactionTest : public TransactionTestBase,
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
                             std::get<2>(GetParam())){};
 };
+
+class TransactionStressTest : public TransactionTest {};
 
 class MySQLStyleTransactionTest : public TransactionTest {};
 

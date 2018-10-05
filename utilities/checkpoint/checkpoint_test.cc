@@ -17,12 +17,13 @@
 #include <thread>
 #include <utility>
 #include "db/db_impl.h"
-#include "port/stack_trace.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/fault_injection_test_env.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 
@@ -47,7 +48,7 @@ class CheckpointTest : public testing::Test {
   CheckpointTest() : env_(Env::Default()) {
     env_->SetBackgroundThreads(1, Env::LOW);
     env_->SetBackgroundThreads(1, Env::HIGH);
-    dbname_ = test::TmpDir(env_) + "/checkpoint_test";
+    dbname_ = test::PerThreadDBPath(env_, "checkpoint_test");
     alternative_wal_dir_ = dbname_ + "/wal";
     auto options = CurrentOptions();
     auto delete_options = options;
@@ -56,7 +57,7 @@ class CheckpointTest : public testing::Test {
     // Destroy it for not alternative WAL dir is used.
     EXPECT_OK(DestroyDB(dbname_, options));
     db_ = nullptr;
-    snapshot_name_ = test::TmpDir(env_) + "/snapshot";
+    snapshot_name_ = test::PerThreadDBPath(env_, "snapshot");
     std::string snapshot_tmp_name = snapshot_name_ + ".tmp";
     EXPECT_OK(DestroyDB(snapshot_name_, options));
     env_->DeleteDir(snapshot_name_);
@@ -274,7 +275,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     delete checkpoint;
 
     // Restore DB name
-    dbname_ = test::TmpDir(env_) + "/db_test";
+    dbname_ = test::PerThreadDBPath(env_, "db_test");
   }
 }
 
@@ -450,7 +451,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
 
 TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   Close();
-  const std::string dbname = test::TmpDir() + "/transaction_testdb";
+  const std::string dbname = test::PerThreadDBPath("transaction_testdb");
   ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
   env_->DeleteDir(dbname);
 
@@ -583,6 +584,32 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
   thread.join();
+}
+
+TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
+  Options options = CurrentOptions();
+  std::unique_ptr<FaultInjectionTestEnv> env(new FaultInjectionTestEnv(env_));
+  options.env = env.get();
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  env->DropUnsyncedFileData();
+
+  // make sure it's openable even though whatever data that wasn't synced got
+  // dropped.
+  options.env = env_;
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "key1", &get_result));
+  ASSERT_EQ("val1", get_result);
+  delete snapshot_db;
+  delete db_;
+  db_ = nullptr;
 }
 
 }  // namespace rocksdb

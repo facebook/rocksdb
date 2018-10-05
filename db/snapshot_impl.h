@@ -56,6 +56,9 @@ class SnapshotList {
     count_ = 0;
   }
 
+  // No copy-construct.
+  SnapshotList(const SnapshotList&) = delete;
+
   bool empty() const { return list_.next_ == &list_; }
   SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
   SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }

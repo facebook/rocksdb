@@ -33,6 +33,7 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -40,6 +41,10 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
+
+#include <vector>
+#include <unordered_set>
+#include <map>
 
 using rocksdb::BytewiseComparator;
 using rocksdb::Cache;
@@ -108,8 +113,12 @@ using rocksdb::TransactionLogIterator;
 using rocksdb::BatchResult;
 using rocksdb::PerfLevel;
 using rocksdb::PerfContext;
+using rocksdb::MemoryUtil;
 
 using std::shared_ptr;
+using std::vector;
+using std::unordered_set;
+using std::map;
 
 extern "C" {
 
@@ -1985,6 +1994,11 @@ void rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
   options->rep.pin_l0_filter_and_index_blocks_in_cache = v;
 }
 
+void rocksdb_block_based_options_set_pin_top_level_index_and_filter(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.pin_top_level_index_and_filter = v;
+}
+
 void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt,
     rocksdb_block_based_table_options_t* table_options) {
@@ -2263,6 +2277,18 @@ void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
   }
 }
 
+void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
+                                                        int w_bits, int level,
+                                                        int strategy,
+                                                        int max_dict_bytes,
+                                                        bool enabled) {
+  opt->rep.bottommost_compression_opts.window_bits = w_bits;
+  opt->rep.bottommost_compression_opts.level = level;
+  opt->rep.bottommost_compression_opts.strategy = strategy;
+  opt->rep.bottommost_compression_opts.max_dict_bytes = max_dict_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
 void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
                                              int level, int strategy,
                                              int max_dict_bytes) {
@@ -2385,7 +2411,7 @@ void rocksdb_options_set_bytes_per_sync(
 
 void rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t* opt,
                                                        uint64_t v) {
-  opt->rep.writable_file_max_buffer_size = v;
+  opt->rep.writable_file_max_buffer_size = static_cast<size_t>(v);
 }
 
 void rocksdb_options_set_allow_concurrent_memtable_write(rocksdb_options_t* opt,
@@ -2414,6 +2440,20 @@ void rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t* opt
 void rocksdb_options_set_max_write_buffer_number_to_maintain(
     rocksdb_options_t* opt, int n) {
   opt->rep.max_write_buffer_number_to_maintain = n;
+}
+
+void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt,
+                                                unsigned char v) {
+  opt->rep.enable_pipelined_write = v;
+}
+
+void rocksdb_options_set_max_subcompactions(rocksdb_options_t* opt,
+                                            uint32_t n) {
+  opt->rep.max_subcompactions = n;
+}
+
+void rocksdb_options_set_max_background_jobs(rocksdb_options_t* opt, int n) {
+  opt->rep.max_background_jobs = n;
 }
 
 void rocksdb_options_set_max_background_compactions(rocksdb_options_t* opt, int n) {
@@ -3264,6 +3304,11 @@ void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
   SaveError(errptr, writer->rep->Finish(nullptr));
 }
 
+void rocksdb_sstfilewriter_file_size(rocksdb_sstfilewriter_t* writer,
+                                  uint64_t* file_size) {
+  *file_size = writer->rep->FileSize();
+}
+
 void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {
   delete writer->rep;
   delete writer;
@@ -4065,6 +4110,98 @@ const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
   *vlen = v->rep.size();
   return v->rep.data();
 }
+
+// container to keep databases and caches in order to use rocksdb::MemoryUtil
+struct rocksdb_memory_consumers_t {
+  std::vector<rocksdb_t*> dbs;
+  std::unordered_set<rocksdb_cache_t*> caches;
+};
+
+// initializes new container of memory consumers
+rocksdb_memory_consumers_t* rocksdb_memory_consumers_create() {
+  return new rocksdb_memory_consumers_t;
+}
+
+// adds datatabase to the container of memory consumers
+void rocksdb_memory_consumers_add_db(rocksdb_memory_consumers_t* consumers,
+                                     rocksdb_t* db) {
+  consumers->dbs.push_back(db);
+}
+
+// adds cache to the container of memory consumers
+void rocksdb_memory_consumers_add_cache(rocksdb_memory_consumers_t* consumers,
+                                        rocksdb_cache_t* cache) {
+  consumers->caches.insert(cache);
+}
+
+// deletes container with memory consumers
+void rocksdb_memory_consumers_destroy(rocksdb_memory_consumers_t* consumers) {
+  delete consumers;
+}
+
+// contains memory usage statistics provided by rocksdb::MemoryUtil
+struct rocksdb_memory_usage_t {
+  uint64_t mem_table_total;
+  uint64_t mem_table_unflushed;
+  uint64_t mem_table_readers_total;
+  uint64_t cache_total;
+};
+
+// estimates amount of memory occupied by consumers (dbs and caches)
+rocksdb_memory_usage_t* rocksdb_approximate_memory_usage_create(
+    rocksdb_memory_consumers_t* consumers, char** errptr) {
+
+  vector<DB*> dbs;
+  for (auto db : consumers->dbs) {
+    dbs.push_back(db->rep);
+  }
+
+  unordered_set<const Cache*> cache_set;
+  for (auto cache : consumers->caches) {
+    cache_set.insert(const_cast<const Cache*>(cache->rep.get()));
+  }
+
+  std::map<rocksdb::MemoryUtil::UsageType, uint64_t> usage_by_type;
+
+  auto status = MemoryUtil::GetApproximateMemoryUsageByType(dbs, cache_set,
+                                                            &usage_by_type);
+  if (SaveError(errptr, status)) {
+    return nullptr;
+  }
+
+  auto result = new rocksdb_memory_usage_t;
+  result->mem_table_total = usage_by_type[MemoryUtil::kMemTableTotal];
+  result->mem_table_unflushed = usage_by_type[MemoryUtil::kMemTableUnFlushed];
+  result->mem_table_readers_total = usage_by_type[MemoryUtil::kTableReadersTotal];
+  result->cache_total = usage_by_type[MemoryUtil::kCacheTotal];
+  return result;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_mem_table_total(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->mem_table_total;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_mem_table_unflushed(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->mem_table_unflushed;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_mem_table_readers_total(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->mem_table_readers_total;
+}
+
+uint64_t rocksdb_approximate_memory_usage_get_cache_total(
+    rocksdb_memory_usage_t* memory_usage) {
+  return memory_usage->cache_total;
+}
+
+// deletes container with memory usage estimates
+void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
+  delete usage;
+}
+
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE

@@ -132,8 +132,7 @@ Status SstFileReader::NewTableReader(
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
-                           soptions_, internal_comparator_,
-                           /*skip_filters=*/false),
+                           soptions_, internal_comparator_),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
@@ -164,7 +163,8 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
   unique_ptr<Env> env(NewMemEnv(Env::Default()));
   env->NewWritableFile(testFileName, &out_file, soptions_);
   unique_ptr<WritableFileWriter> dest_writer;
-  dest_writer.reset(new WritableFileWriter(std::move(out_file), soptions_));
+  dest_writer.reset(
+      new WritableFileWriter(std::move(out_file), testFileName, soptions_));
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);

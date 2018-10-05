@@ -46,7 +46,8 @@ PessimisticTransaction::PessimisticTransaction(
       waiting_key_(nullptr),
       lock_timeout_(0),
       deadlock_detect_(false),
-      deadlock_detect_depth_(0) {
+      deadlock_detect_depth_(0),
+      skip_concurrency_control_(false) {
   txn_db_impl_ =
       static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
@@ -61,6 +62,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   deadlock_detect_ = txn_options.deadlock_detect;
   deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
   write_batch_.SetMaxBytes(txn_options.max_write_batch_size);
+  skip_concurrency_control_ = txn_options.skip_concurrency_control;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
   if (lock_timeout_ < 0) {
@@ -191,14 +193,22 @@ Status PessimisticTransaction::Prepare() {
   }
 
   if (can_prepare) {
+    bool wal_already_marked = false;
     txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
+    if (log_number_ > 0) {
+      assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
+      wal_already_marked = true;
+    }
+
     s = PrepareInternal();
     if (s.ok()) {
       assert(log_number_ != 0);
-      dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
-          log_number_);
+      if (!wal_already_marked) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsContainingPrepSection(
+            log_number_);
+      }
       txn_state_.store(PREPARED);
     }
   } else if (txn_state_ == LOCKS_STOLEN) {
@@ -264,7 +274,14 @@ Status PessimisticTransaction::Commit() {
           "Commit-time batch contains values that will not be committed.");
     } else {
       txn_state_.store(AWAITING_COMMIT);
+      if (log_number_ > 0) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+            log_number_);
+      }
       s = CommitWithoutPrepareInternal();
+      if (!name_.empty()) {
+        txn_db_impl_->UnregisterTransaction(this);
+      }
       Clear();
       if (s.ok()) {
         txn_state_.store(COMMITED);
@@ -349,6 +366,16 @@ Status PessimisticTransaction::Rollback() {
       txn_state_.store(ROLLEDBACK);
     }
   } else if (txn_state_ == STARTED) {
+    if (log_number_ > 0) {
+      assert(txn_db_impl_->GetTxnDBOptions().write_policy == WRITE_UNPREPARED);
+      assert(GetId() > 0);
+      s = RollbackInternal();
+
+      if (s.ok()) {
+        dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
+            log_number_);
+      }
+    }
     // prepare couldn't have taken place
     Clear();
   } else if (txn_state_ == COMMITED) {
@@ -467,11 +494,14 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                        const Slice& key, bool read_only,
                                        bool exclusive, bool skip_validate) {
+  Status s;
+  if (UNLIKELY(skip_concurrency_control_)) {
+    return s;
+  }
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
   bool lock_upgrade = false;
-  Status s;
 
   // lock this key if this transactions hasn't already locked it
   SequenceNumber tracked_at_seq = kMaxSequenceNumber;

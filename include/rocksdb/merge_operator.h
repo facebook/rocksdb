@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
-#define STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
+#pragma once
 
 #include <deque>
 #include <memory>
@@ -195,6 +194,11 @@ class MergeOperator {
   // during a point lookup, thereby helping in limiting the number of levels to
   // read from.
   // Doesn't help with iterators.
+  //
+  // Note: the merge operands are passed to this function in the reversed order
+  // relative to how they were merged (passed to FullMerge or FullMergeV2)
+  // for performance reasons, see also:
+  // https://github.com/facebook/rocksdb/issues/3865
   virtual bool ShouldMerge(const std::vector<Slice>& /*operands*/) const {
     return false;
   }
@@ -236,5 +240,3 @@ class AssociativeMergeOperator : public MergeOperator {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_

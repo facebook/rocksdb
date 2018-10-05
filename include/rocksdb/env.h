@@ -14,8 +14,7 @@
 // All Env implementations are safe for concurrent access from
 // multiple threads without any external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_ENV_H_
-#define STORAGE_ROCKSDB_INCLUDE_ENV_H_
+#pragma once
 
 #include <stdint.h>
 #include <cstdarg>
@@ -289,6 +288,12 @@ class Env {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  virtual Status NumFileLinks(const std::string& /*fname*/,
+                              uint64_t* /*count*/) {
+    return Status::NotSupported(
+        "Getting number of file links is not supported for this Env");
+  }
+
   virtual Status AreFilesSame(const std::string& /*first*/,
                               const std::string& /*second*/, bool* /*res*/) {
     return Status::NotSupported("AreFilesSame is not supported for this Env");
@@ -471,6 +476,15 @@ class Env {
 
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
+
+// This seems to clash with a macro on Windows, so #undef it here
+#undef GetFreeSpace
+
+  // Get the amount of free disk space
+  virtual Status GetFreeSpace(const std::string& /*path*/,
+                              uint64_t* /*diskfree*/) {
+    return Status::NotSupported();
+  }
 
  protected:
   // The pointer to an internal structure that will update the
@@ -1064,6 +1078,10 @@ class EnvWrapper : public Env {
     return target_->LinkFile(s, t);
   }
 
+  Status NumFileLinks(const std::string& fname, uint64_t* count) override {
+    return target_->NumFileLinks(fname, count);
+  }
+
   Status AreFilesSame(const std::string& first, const std::string& second,
                       bool* res) override {
     return target_->AreFilesSame(first, second, res);
@@ -1257,5 +1275,3 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 Env* NewTimedEnv(Env* base_env);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_

@@ -477,8 +477,8 @@ class BackupableDBTest : public testing::Test {
  public:
   BackupableDBTest() {
     // set up files
-    std::string db_chroot = test::TmpDir() + "/backupable_db";
-    std::string backup_chroot = test::TmpDir() + "/backupable_db_backup";
+    std::string db_chroot = test::PerThreadDBPath("backupable_db");
+    std::string backup_chroot = test::PerThreadDBPath("backupable_db_backup");
     Env::Default()->CreateDir(db_chroot);
     Env::Default()->CreateDir(backup_chroot);
     dbname_ = "/tempdb";
@@ -1016,6 +1016,33 @@ TEST_F(BackupableDBTest, BackupOptions) {
     }
   }
 
+  CloseDBAndBackupEngine();
+}
+
+TEST_F(BackupableDBTest, SetOptionsBackupRaceCondition) {
+  OpenDBAndBackupEngine(true);
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
+        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions"},
+       {"BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions",
+        "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  rocksdb::port::Thread setoptions_thread{[this]() {
+    TEST_SYNC_POINT(
+        "BackupableDBTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
+    DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+    // Change arbitrary option to trigger OPTIONS file deletion
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "false"}}));
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "true"}}));
+    ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
+                              {{"paranoid_file_checks", "false"}}));
+    TEST_SYNC_POINT(
+        "BackupableDBTest::SetOptionsBackupRaceCondition:AfterSetOptions");
+  }};
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  setoptions_thread.join();
   CloseDBAndBackupEngine();
 }
 
