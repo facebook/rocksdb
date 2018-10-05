@@ -170,7 +170,7 @@ class Block {
   //
   // key_includes_seq, default true, means that the keys are in internal key
   // format.
-  // value_is_full, default ture, means that no delta encoding is
+  // value_is_full, default true, means that no delta encoding is
   // applied to values.
   //
   // NewIterator<DataBlockIter>
@@ -449,7 +449,7 @@ class IndexBlockIter final : public BlockIter<BlockHandle> {
   }
   // key_includes_seq, default true, means that the keys are in internal key
   // format.
-  // value_is_full, default ture, means that no delta encoding is
+  // value_is_full, default true, means that no delta encoding is
   // applied to values.
   IndexBlockIter(const Comparator* comparator,
                  const Comparator* user_comparator, const char* data,
