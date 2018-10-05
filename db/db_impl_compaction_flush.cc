@@ -145,7 +145,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   Status s;
   if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
     // If there are more than one column families, we need to make sure that
     // all the log files except the most recent one are synced. Otherwise if
     // the host crashes after flushing and before WAL is persistent, the
@@ -153,6 +153,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     // other column families are missing.
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
     s = SyncClosedLogs(job_context);
+  } else {
+    TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
 
   // Within flush_job.Run, rocksdb may call event listener to notify

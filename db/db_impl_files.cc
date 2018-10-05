@@ -456,7 +456,13 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     } else {
       dir_to_sync =
           (type == kLogFile) ? immutable_db_options_.wal_dir : dbname_;
-      fname = dir_to_sync + "/" + to_delete;
+      fname = dir_to_sync
+            + (
+                (!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
+                (!to_delete.empty() && to_delete.front() == '/')
+                ? "" : "/"
+              )
+            + to_delete;
     }
 
 #ifndef ROCKSDB_LITE

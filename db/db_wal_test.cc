@@ -88,6 +88,7 @@ class DBWALTestWithEnrichedEnv : public DBTestBase {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
+    options.allow_2pc = true;
     Reopen(options);
     delete env_;
     // to be deleted by the parent class

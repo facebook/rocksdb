@@ -77,7 +77,7 @@ TEST_F(DBFlushTest, SyncFail) {
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  Reopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   Put("key", "value");
   auto* cfd =
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
@@ -100,6 +100,30 @@ TEST_F(DBFlushTest, SyncFail) {
   // Backgroun flush job should release ref count to current version.
   ASSERT_EQ(current_before, cfd->current());
   ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, SyncSkip) {
+  Options options = CurrentOptions();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBFlushTest::SyncSkip:1", "DBImpl::SyncClosedLogs:Skip"},
+       {"DBImpl::SyncClosedLogs:Skip", "DBFlushTest::SyncSkip:2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+  Put("key", "value");
+
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  ASSERT_OK(dbfull()->Flush(flush_options));
+
+  TEST_SYNC_POINT("DBFlushTest::SyncSkip:1");
+  TEST_SYNC_POINT("DBFlushTest::SyncSkip:2");
+
+  // Now the background job will do the flush; wait for it.
+  dbfull()->TEST_WaitForFlushMemTable();
+
   Destroy(options);
 }
 #endif  // TRAVIS
