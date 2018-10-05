@@ -16,12 +16,12 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
+#include <list>
 #include <map>
 #include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <list>
 #include "db/compaction.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -2069,7 +2069,8 @@ void VersionStorageInfo::GetOverlappingInputs(
       if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
         // "f" is completely before specified range; skip it
         iter++;
-      } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
+      } else if (end != nullptr &&
+                 user_cmp->Compare(file_start, user_end) > 0) {
         // "f" is completely after specified range; skip it
         iter++;
       } else {
@@ -2087,8 +2088,7 @@ void VersionStorageInfo::GetOverlappingInputs(
               user_cmp->Compare(file_start, user_begin) < 0) {
             user_begin = file_start;
           }
-          if (end != nullptr &&
-              user_cmp->Compare(file_limit, user_end) > 0) {
+          if (end != nullptr && user_cmp->Compare(file_limit, user_end) > 0) {
             user_end = file_limit;
           }
         }

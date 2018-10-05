@@ -589,6 +589,7 @@ inline CacheAllocationPtr Zlib_Uncompress(
   (void)input_length;
   (void)decompress_size;
   (void)compress_format_version;
+  (void)allocator;
   (void)windowBits;
   return nullptr;
 #endif
@@ -733,6 +734,7 @@ inline CacheAllocationPtr BZip2_Uncompress(
   (void)input_length;
   (void)decompress_size;
   (void)compress_format_version;
+  (void)allocator;
   return nullptr;
 #endif
 }
