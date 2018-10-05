@@ -507,7 +507,7 @@ void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
 
 void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
   assert(write_group != nullptr);
-  write_group->running.store(write_group->size, std::memory_order_release);
+  write_group->running.store(write_group->size);
   for (auto w : *write_group) {
     SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
   }
