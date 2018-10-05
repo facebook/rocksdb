@@ -1190,6 +1190,17 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
+  if(tracer_.get() == nullptr) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if(tracer_.get() == nullptr) {
+      std::string trace_filename = "/home/zhichao/trace/trace." + std::to_string(env_->NowMicros());
+      EnvOptions env_opts;
+      std::unique_ptr<TraceWriter> trace_writer;
+      NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer);
+      tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+    }
+  }
+
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.

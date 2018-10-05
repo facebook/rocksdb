@@ -76,6 +76,18 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+
+  if(tracer_.get() == nullptr) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if(tracer_.get() == nullptr) {
+      std::string trace_filename = "/home/zhichao/trace/trace." + std::to_string(env_->NowMicros());
+      EnvOptions env_opts;
+      std::unique_ptr<TraceWriter> trace_writer;
+      NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer);
+      tracer_.reset(new Tracer(env_, std::move(trace_writer)));
+    }
+  }
+
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
