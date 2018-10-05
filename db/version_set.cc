@@ -2925,8 +2925,9 @@ Status VersionSet::ProcessManifestWrites(
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
 
-        unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(descriptor_file), descriptor_fname, opt_env_opts, nullptr, db_options_->listeners));
+        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+            std::move(descriptor_file), descriptor_fname, opt_env_opts, nullptr,
+            db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteSnapshot(descriptor_log_.get());

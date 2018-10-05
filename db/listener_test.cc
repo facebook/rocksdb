@@ -947,13 +947,12 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   dbfull()->Flush(FlushOptions());
   dbfull()->TEST_WaitForFlushMemTable();
   ASSERT_EQ(listener->file_writes_.load(),
-      listener->file_writes_success_.load());
+            listener->file_writes_success_.load());
   ASSERT_GT(listener->file_writes_success_.load(), 0);
   Close();
 
   Reopen(options);
-  ASSERT_EQ(listener->file_reads_.load(),
-      listener->file_reads_success_.load());
+  ASSERT_EQ(listener->file_reads_.load(), listener->file_reads_success_.load());
   ASSERT_GT(listener->file_reads_success_.load(), 0);
 }
 

@@ -75,7 +75,7 @@ class RandomAccessFileReader {
       listener->OnFileReadFinish(info);
     }
   }
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
   std::unique_ptr<RandomAccessFile> file_;
   std::string     file_name_;
@@ -88,14 +88,11 @@ class RandomAccessFileReader {
   std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
-  explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
-      std::string _file_name,
-      Env* env = nullptr,
-      Statistics* stats = nullptr,
-      uint32_t hist_type = 0,
+  explicit RandomAccessFileReader(
+      std::unique_ptr<RandomAccessFile>&& raf, std::string _file_name,
+      Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
-      RateLimiter* rate_limiter = nullptr,
-      bool for_compaction = false,
+      RateLimiter* rate_limiter = nullptr, bool for_compaction = false,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
@@ -143,18 +140,18 @@ class RandomAccessFileReader {
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-   void NotifyOnFileWriteStart(FileOperationInfo* info) {
-     for (auto& listener : listeners_) {
-       listener->OnFileWriteStart(info);
-     }
-   }
+  void NotifyOnFileWriteStart(FileOperationInfo* info) {
+    for (auto& listener : listeners_) {
+      listener->OnFileWriteStart(info);
+    }
+  }
 
-   void NotifyOnFileWriteFinish(FileOperationInfo* info) {
-     for (auto& listener : listeners_) {
-       listener->OnFileWriteFinish(info);
-     }
-   }
-#endif // ROCKSDB_LITE
+  void NotifyOnFileWriteFinish(FileOperationInfo* info) {
+    for (auto& listener : listeners_) {
+      listener->OnFileWriteFinish(info);
+    }
+  }
+#endif  // ROCKSDB_LITE
 
   std::unique_ptr<WritableFile> writable_file_;
   std::string file_name_;
@@ -177,8 +174,10 @@ class WritableFileWriter {
   std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
-  WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                     const std::string& _file_name, const EnvOptions& options, Statistics* stats = nullptr, const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+  WritableFileWriter(
+      std::unique_ptr<WritableFile>&& file, const std::string& _file_name,
+      const EnvOptions& options, Statistics* stats = nullptr,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : writable_file_(std::move(file)),
         file_name_(_file_name),
         buf_(),
