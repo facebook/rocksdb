@@ -662,7 +662,13 @@ inline bool BZip2_Compress(const CompressionContext& /*ctx*/,
 // header in varint32 format
 inline CacheAllocationPtr BZip2_Uncompress(
     const char* input_data, size_t input_length, int* decompress_size,
-    uint32_t compress_format_version, CacheAllocator* allocator = nullptr) {
+    uint32_t compress_format_version, 
+#ifdef BZIP2
+    CacheAllocator* allocator = nullptr) {
+#else
+    CacheAllocator* /*allocator*/ = nullptr) {
+#endif
+
 #ifdef BZIP2
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
