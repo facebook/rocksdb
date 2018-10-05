@@ -208,8 +208,9 @@ class MemTableList {
   void RollbackMemtableFlush(const autovector<MemTable*>& mems,
                              uint64_t file_number);
 
-  // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(
+  // Try commit a successful flush in the manifest file. It might just return
+  // Status::OK letting a concurrent flush to do the actual the recording.
+  Status TryInstallMemtableFlushResults(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, LogsWithPrepTracker* prep_tracker,
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,

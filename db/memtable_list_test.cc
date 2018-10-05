@@ -47,7 +47,7 @@ class MemTableListTest : public testing::Test {
     }
   }
 
-  // Calls MemTableList::InstallMemtableFlushResults() and sets up all
+  // Calls MemTableList::TryInstallMemtableFlushResults() and sets up all
   // structures needed to call this function.
   Status Mock_InstallMemtableFlushResults(
       MemTableList* list, const MutableCFOptions& mutable_cf_options,
@@ -83,7 +83,7 @@ class MemTableListTest : public testing::Test {
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     LogsWithPrepTracker dummy_prep_tracker;
-    return list->InstallMemtableFlushResults(
+    return list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex, 1,
         to_delete, nullptr, &log_buffer);
   }
@@ -560,7 +560,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Note:  now to_flush contains tables[0,1,2,4].  to_flush2 contains
   // tables[3].
   // Current implementation will only commit memtables in the order they were
-  // created.  So InstallMemtableFlushResults will install the first 3 tables
+  // created. So TryInstallMemtableFlushResults will install the first 3 tables
   // in to_flush and stop when it encounters a table not yet flushed.
   ASSERT_EQ(2, list.NumNotFlushed());
   int num_in_history = std::min(3, max_write_buffer_number_to_maintain);
@@ -585,7 +585,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_EQ(5 - list.NumNotFlushed() - num_in_history, to_delete.size());
 
   for (const auto& m : to_delete) {
-    // Refcount should be 0 after calling InstallMemtableFlushResults.
+    // Refcount should be 0 after calling TryInstallMemtableFlushResults.
     // Verify this, by Ref'ing then UnRef'ing:
     m->Ref();
     ASSERT_EQ(m, m->Unref());
@@ -598,7 +598,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_EQ(to_delete_size, to_delete.size());
 
   for (const auto& m : to_delete) {
-    // Refcount should be 0 after calling InstallMemtableFlushResults.
+    // Refcount should be 0 after calling TryInstallMemtableFlushResults.
     // Verify this, by Ref'ing then UnRef'ing:
     m->Ref();
     ASSERT_EQ(m, m->Unref());
