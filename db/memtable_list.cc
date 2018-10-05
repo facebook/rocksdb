@@ -320,9 +320,9 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   imm_flush_needed.store(true, std::memory_order_release);
 }
 
-// Maybe record a successful flush in the manifest file. It might just return
+// Try record a successful flush in the manifest file. It might just return
 // Status::OK letting a concurrent flush to do actual the recording..
-Status MemTableList::MaybeInstallMemtableFlushResults(
+Status MemTableList::TryInstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
@@ -332,9 +332,9 @@ Status MemTableList::MaybeInstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  // flush was successful
-  // Record the status on the memtable object. Either this call or a future call
-  // will read the status and write it to manifest.
+  // Flush was successful
+  // Record the status on the memtable object. Either this call or a call by a
+  // concurrent flush thread will read the status and write it to manifest.
   for (size_t i = 0; i < mems.size(); ++i) {
     // All the edits are associated with the first memtable of this batch.
     assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
@@ -346,7 +346,7 @@ Status MemTableList::MaybeInstallMemtableFlushResults(
   // if some other thread is already committing, then return
   Status s;
   if (commit_in_progress_) {
-    TEST_SYNC_POINT("MemTableList::InstallMemtableFlushResults:InProgress");
+    TEST_SYNC_POINT("MemTableList::TryInstallMemtableFlushResults:InProgress");
     return s;
   }
 
