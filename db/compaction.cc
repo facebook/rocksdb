@@ -331,12 +331,14 @@ const char* Compaction::InputLevelSummary(
     if (!is_first) {
       len +=
           snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, " + ");
+      len = std::min(len, static_cast<int>(sizeof(scratch->buffer)));
     } else {
       is_first = false;
     }
     len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
                     "%" ROCKSDB_PRIszt "@%d", input_level.size(),
                     input_level.level);
+    len = std::min(len, static_cast<int>(sizeof(scratch->buffer)));
   }
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
            " files to L%d", output_level());
