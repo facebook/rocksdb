@@ -736,9 +736,10 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   SequenceNumber snapshot = GetInternalKeySeqno(key.internal_key());
   FragmentedRangeTombstoneIterator fragment_iter(
       std::move(range_del_iter), comparator_.comparator, snapshot);
-  *max_covering_tombstone_seq =
-      std::max(*max_covering_tombstone_seq,
-               fragment_iter.MaxCoveringTombstoneSeqnum(key.user_key()));
+  *max_covering_tombstone_seq = std::max(
+      *max_covering_tombstone_seq,
+      MaxCoveringTombstoneSeqnum(&fragment_iter, key.user_key(),
+                                 comparator_.comparator.user_comparator()));
 
   Slice user_key = key.user_key();
   bool found_final_value = false;

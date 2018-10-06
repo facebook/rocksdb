@@ -382,9 +382,10 @@ Status TableCache::Get(const ReadOptions& options,
       FragmentedRangeTombstoneIterator fragment_iter(std::move(range_del_iter),
                                                      internal_comparator,
                                                      GetInternalKeySeqno(k));
-      *max_covering_tombstone_seq =
-          std::max(*max_covering_tombstone_seq,
-                   fragment_iter.MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+      *max_covering_tombstone_seq = std::max(
+          *max_covering_tombstone_seq,
+          MaxCoveringTombstoneSeqnum(&fragment_iter, ExtractUserKey(k),
+                                     internal_comparator.user_comparator()));
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
