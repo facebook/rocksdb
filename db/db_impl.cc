@@ -2969,8 +2969,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                       "Unexpected status returned from Version::Get: %s\n",
                       s.ToString().c_str());
 
-  return s;
-}
+      return s;
+    }
   }
 
   return Status::OK();
