@@ -680,10 +680,11 @@ void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
 }
 
 static void 
-another_lock_mgr_release_lock_int(toku::locktree *lt,
+range_lock_mgr_release_lock_int(toku::locktree *lt,
                                   const PessimisticTransaction* txn,
                                   uint32_t column_family_id,
-                                  const std::string& key)
+                                  const std::string& key,
+                                  bool releasing_all_locks_hint= false)
 {
   DBT key_dbt; 
   toku_fill_dbt(&key_dbt, key.data(), key.size());
@@ -697,31 +698,45 @@ another_lock_mgr_release_lock_int(toku::locktree *lt,
 void RangeLockMgr::UnLock(PessimisticTransaction* txn,
                             uint32_t column_family_id,
                             const std::string& key, Env* env) {
-  //fprintf(stderr, "RangeLockMgr::UnLock (key)\n");
-  another_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
+  range_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 }
 
 void RangeLockMgr::UnLock(const PessimisticTransaction* txn,
                             const TransactionKeyMap* key_map, Env* env) {
-
-  //fprintf(stderr, "RangeLockMgr::UnLock(key_map)\n");
-
-
+  //TODO: if we collect all locks in a range buffer and then
+  // make one call to lock_tree::release_locks(), will that be faster?
   for (auto& key_map_iter : *key_map) {
     uint32_t column_family_id = key_map_iter.first;
-    //TODO: ^ What to do about the above? 
     auto& keys = key_map_iter.second;
 
     for (auto& key_iter : keys) {
       const std::string& key = key_iter.first;
-      another_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
+      range_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
+    }
+  }
+
+  toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
+}
+
+void RangeLockMgr::UnLockAll(const PessimisticTransaction* txn,
+                            const TransactionKeyMap* key_map, Env* env) {
+  //TODO: collecting multiple locks into a buffer and then making one call
+  // to lock_tree::release_locks() will be faster.
+  for (auto& key_map_iter : *key_map) {
+    uint32_t column_family_id = key_map_iter.first;
+    auto& keys = key_map_iter.second;
+
+    for (auto& key_iter : keys) {
+      const std::string& key = key_iter.first;
+      range_lock_mgr_release_lock_int(lt, txn, column_family_id, key, true);
     }
   }
 
   toku::lock_request::retry_all_lock_requests(lt, nullptr /* lock_wait_needed_callback */);
 
 #if 0
+  Original usage:
    void release_locks(TXNID txnid, const range_buffer *ranges);
 
     // release all of the locks this txn has ever successfully

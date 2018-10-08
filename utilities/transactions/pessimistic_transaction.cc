@@ -101,7 +101,7 @@ PessimisticTransaction::~PessimisticTransaction() {
 }
 
 void PessimisticTransaction::Clear() {
-  txn_db_impl_->UnLock(this, &GetTrackedKeys());
+  txn_db_impl_->UnLock(this, &GetTrackedKeys(), /*all_keys_hint=*/true);
   TransactionBaseImpl::Clear();
 }
 

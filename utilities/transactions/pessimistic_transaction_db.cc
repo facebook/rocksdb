@@ -406,9 +406,15 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
 }
 
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
-                                      const TransactionKeyMap* keys) {
+                                      const TransactionKeyMap* keys,
+                                      bool all_keys_hint) {
   if (use_range_locking)
-    range_lock_mgr_.UnLock(txn, keys, GetEnv());
+  {
+    if (all_keys_hint)
+      range_lock_mgr_.UnLockAll(txn, keys, GetEnv());
+    else
+      range_lock_mgr_.UnLock(txn, keys, GetEnv());
+  }
   else
     lock_mgr_.UnLock(txn, keys, GetEnv());
 }
