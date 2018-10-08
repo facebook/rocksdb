@@ -27,7 +27,11 @@ public enum MemoryUsageType {
   /**
    * Memory usage by Cache.
    */
-  kCacheTotal((byte) 3);
+  kCacheTotal((byte) 3),
+  /**
+   * Max usage types - copied to keep 1:1 with native.
+   */
+  kNumUsageTypes((byte) 4);
 
   /**
    * Returns the byte value of the enumerations value

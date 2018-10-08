@@ -3846,7 +3846,8 @@ public:
       case rocksdb::MemoryUtil::UsageType::kCacheTotal:
         return 0x3;
       default:
-        return 0xFF;  // undefined
+        // undefined: use kNumUsageTypes
+        return 0x4;
     }
   }
 
@@ -3864,7 +3865,7 @@ public:
       case 0x3:
         return rocksdb::MemoryUtil::UsageType::kCacheTotal;
       default:
-        // undefined/default
+        // undefined/default: use kNumUsageTypes
         return rocksdb::MemoryUtil::UsageType::kNumUsageTypes;
     }
   }
