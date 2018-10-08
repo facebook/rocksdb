@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
+
+## 5.17.0 (10/05/2018)
 ### Public API Change
 * `OnTableFileCreated` will now be called for empty files generated during compaction. In that case, `TableFileCreationInfo::file_path` will be "(nil)" and `TableFileCreationInfo::file_size` will be zero.
 * Add `FlushOptions::allow_write_stall`, which controls whether Flush calls start working immediately, even if it causes user writes to stall, or will wait until flush can be performed without causing write stall (similar to `CompactRangeOptions::allow_write_stall`). Note that the default value is false, meaning we add delay to Flush calls until stalling can be avoided when possible. This is behavior change compared to previous RocksDB versions, where Flush calls didn't check if they might cause stall or not.
@@ -7,13 +11,24 @@
 
 ### New Features
 * TransactionOptions::skip_concurrency_control allows pessimistic transactions to skip the overhead of concurrency control. Could be used for optimizing certain transactions or during recovery.
-* Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
 
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
 * Sync CURRENT file contents during checkpoint.
-* Fix format_version 4 bug with partitioned filters
+
+## 5.16.3 (10/1/2018)
+### Bug Fixes
 * Fix crash caused when `CompactFiles` run with `CompactionOptions::compression == CompressionType::kDisableCompressionOption`. Now that setting causes the compression type to be chosen according to the column family-wide compression options.
+
+## 5.16.2 (9/21/2018)
+### Bug Fixes
+* Fix bug in partition filters with format_version=4.
+
+## 5.16.1 (9/17/2018)
+### Bug Fixes
+* Remove trace_analyzer_tool from rocksdb_lib target in TARGETS file.
+* Fix RocksDB Java build and tests.
+* Remove sync point in Block destructor.
 
 ## 5.16.0 (8/21/2018)
 ### Public API Change
