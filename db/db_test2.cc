@@ -2835,6 +2835,44 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
+  // Setup sync point dependency to reproduce the race condition of
+  // DBImpl::GetColumnFamilyHandleUnlocked
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      { {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1",
+         "TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2"},
+        {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2",
+         "TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1"},
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateColumnFamilies({"test1", "test2"}, Options());
+  ASSERT_EQ(handles_.size(), 2);
+
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  port::Thread user_thread1([&]() {
+    auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[0]->GetID());
+    ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1");
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1");
+    ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
+  });
+
+  port::Thread user_thread2([&]() {
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2");
+    auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[1]->GetID());
+    ASSERT_EQ(cfh->GetID(), handles_[1]->GetID());
+    TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2");
+    ASSERT_EQ(cfh->GetID(), handles_[1]->GetID());
+  });
+
+  user_thread1.join();
+  user_thread2.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -1459,8 +1459,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     return s;
   }
 
-  auto* cfh =
-      db_impl_->GetColumnFamilyHandleUnlocked(bfptr->column_family_id());
+  auto cfh = db_impl_->DefaultColumnFamily();
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
   auto column_family_id = cfd->GetID();
   bool has_ttl = header.has_ttl;
