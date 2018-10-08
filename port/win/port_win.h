@@ -327,10 +327,61 @@ inline void* pthread_getspecific(pthread_key_t key) {
 // using C-runtime to implement. Note, this does not
 // feel space with zeros in case the file is extended.
 int truncate(const char* path, int64_t length);
+int Truncate(std::string path, int64_t length);
 void Crash(const std::string& srcfile, int srcline);
 extern int GetMaxOpenFiles();
+std::string utf16_to_utf8(const std::wstring& utf16);
+std::wstring utf8_to_utf16(const std::string& utf8);
 
 }  // namespace port
+
+
+#ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
+
+#define RX_FILESTRING std::wstring
+#define RX_FN(a) rocksdb::port::utf8_to_utf16(a)
+#define FN_TO_RX(a) rocksdb::port::utf16_to_utf8(a)
+#define RX_FNLEN(a) ::wcslen(a)
+
+#define RX_DeleteFile DeleteFileW
+#define RX_CreateFile CreateFileW
+#define RX_CreateFileMapping CreateFileMappingW
+#define RX_GetFileAttributesEx GetFileAttributesExW
+#define RX_FindFirstFileEx FindFirstFileExW
+#define RX_FindNextFile FindNextFileW
+#define RX_WIN32_FIND_DATA WIN32_FIND_DATAW
+#define RX_CreateDirectory CreateDirectoryW
+#define RX_RemoveDirectory RemoveDirectoryW
+#define RX_GetFileAttributesEx GetFileAttributesExW
+#define RX_MoveFileEx MoveFileExW
+#define RX_CreateHardLink CreateHardLinkW
+#define RX_PathIsRelative PathIsRelativeW
+#define RX_GetCurrentDirectory GetCurrentDirectoryW
+
+#else
+
+#define RX_FILESTRING std::string
+#define RX_FN(a) a
+#define FN_TO_RX(a) a
+#define RX_FNLEN(a) strlen(a)
+
+#define RX_DeleteFile DeleteFileA
+#define RX_CreateFile CreateFileA
+#define RX_CreateFileMapping CreateFileMappingA
+#define RX_GetFileAttributesEx GetFileAttributesExA
+#define RX_FindFirstFileEx FindFirstFileExA
+#define RX_CreateDirectory CreateDirectoryA
+#define RX_FindNextFile FindNextFileA
+#define RX_WIN32_FIND_DATA WIN32_FIND_DATA
+#define RX_CreateDirectory CreateDirectoryA
+#define RX_RemoveDirectory RemoveDirectoryA
+#define RX_GetFileAttributesEx GetFileAttributesExA
+#define RX_MoveFileEx MoveFileExA
+#define RX_CreateHardLink CreateHardLinkA
+#define RX_PathIsRelative PathIsRelativeA
+#define RX_GetCurrentDirectory GetCurrentDirectoryA
+
+#endif
 
 using port::pthread_key_t;
 using port::pthread_key_create;
