@@ -518,7 +518,10 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   Options options;
   options.create_if_missing = true;
   options.stats_dump_period_sec = 5;
-  options.env = env_;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0); // in seconds
+  options.env = mock_env.get();
   int counter = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DumpStats:1", [&](void* /*arg*/) {
@@ -527,7 +530,7 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
-  env_->SleepForMicroseconds(6000000);
+  dbfull()->TEST_WaitForTimedTaskRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
 
   // Test cacel job through SetOptions

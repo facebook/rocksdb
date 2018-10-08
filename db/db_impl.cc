@@ -773,27 +773,22 @@ Status DBImpl::SetDBOptions(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
       }
-      if (new_options.stats_dump_period_sec == 0) {
-        if (thread_dump_stats_) {
-          mutex_.Unlock();
-          thread_dump_stats_->cancel();
-          mutex_.Lock();
-          thread_dump_stats_.reset();
-        }
+      if (new_options.stats_dump_period_sec !=
+          mutable_db_options_.stats_dump_period_sec) {
+          if (thread_dump_stats_) {
+            mutex_.Unlock();
+            thread_dump_stats_->cancel();
+            mutex_.Lock();
+          }
+          if (new_options.stats_dump_period_sec > 0) {
+            thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+                [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
+                new_options.stats_dump_period_sec * 1000000));
+          }
+          else {
+            thread_dump_stats_.reset();
+          }
       }
-      else if (new_options.stats_dump_period_sec > 0 &&
-          new_options.stats_dump_period_sec !=
-              mutable_db_options_.stats_dump_period_sec) {
-        if (thread_dump_stats_) {
-          mutex_.Unlock();
-          thread_dump_stats_->cancel();
-          mutex_.Lock();
-        }
-        thread_dump_stats_.reset(new rocksdb::RepeatableThread(
-            [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            new_options.stats_dump_period_sec * 1000000));
-      }
-
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
