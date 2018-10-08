@@ -58,7 +58,7 @@ class WinFileData {
  protected:
   const std::string filename_;
   HANDLE hFile_;
-  // If ture,  the I/O issued would be direct I/O which the buffer
+  // If true, the I/O issued would be direct I/O which the buffer
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
   const bool use_direct_io_;

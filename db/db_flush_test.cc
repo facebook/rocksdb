@@ -40,7 +40,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
         "DBFlushTest::FlushWhileWritingManifest:1"},
-       {"MemTableList::InstallMemtableFlushResults:InProgress",
+       {"MemTableList::TryInstallMemtableFlushResults:InProgress",
         "VersionSet::LogAndApply:WriteManifestDone"}});
   SyncPoint::GetInstance()->EnableProcessing();
 

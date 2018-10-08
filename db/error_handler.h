@@ -60,7 +60,7 @@ class ErrorHandler {
     DBImpl* db_;
     const ImmutableDBOptions& db_options_;
     Status bg_error_;
-    // A seperate Status variable used to record any errors during the
+    // A separate Status variable used to record any errors during the
     // recovery process from hard errors
     Status recovery_error_;
     InstrumentedMutex* db_mutex_;

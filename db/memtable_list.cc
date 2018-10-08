@@ -320,8 +320,9 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   imm_flush_needed.store(true, std::memory_order_release);
 }
 
-// Record a successful flush in the manifest file
-Status MemTableList::InstallMemtableFlushResults(
+// Try record a successful flush in the manifest file. It might just return
+// Status::OK letting a concurrent flush to do actual the recording..
+Status MemTableList::TryInstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
@@ -331,7 +332,9 @@ Status MemTableList::InstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  // flush was successful
+  // Flush was successful
+  // Record the status on the memtable object. Either this call or a call by a
+  // concurrent flush thread will read the status and write it to manifest.
   for (size_t i = 0; i < mems.size(); ++i) {
     // All the edits are associated with the first memtable of this batch.
     assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
@@ -343,7 +346,7 @@ Status MemTableList::InstallMemtableFlushResults(
   // if some other thread is already committing, then return
   Status s;
   if (commit_in_progress_) {
-    TEST_SYNC_POINT("MemTableList::InstallMemtableFlushResults:InProgress");
+    TEST_SYNC_POINT("MemTableList::TryInstallMemtableFlushResults:InProgress");
     return s;
   }
 
@@ -354,11 +357,16 @@ Status MemTableList::InstallMemtableFlushResults(
   // while the current thread is writing manifest where mutex is released.
   while (s.ok()) {
     auto& memlist = current_->memlist_;
+    // The back is the oldest; if flush_completed_ is not set to it, it means
+    // that we were assigned a more recent memtable. The memtables' flushes must
+    // be recorded in manifest in order. A concurrent flush thread, who is
+    // assigned to flush the oldest memtable, will later wake up and does all
+    // the pending writes to manifest, in order.
     if (memlist.empty() || !memlist.back()->flush_completed_) {
       break;
     }
     // scan all memtables from the earliest, and commit those
-    // (in that order) that have finished flushing. Memetables
+    // (in that order) that have finished flushing. Memtables
     // are always committed in the order that they were created.
     uint64_t batch_file_number = 0;
     size_t batch_count = 0;
@@ -381,6 +389,7 @@ Status MemTableList::InstallMemtableFlushResults(
       batch_count++;
     }
 
+    // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
@@ -406,7 +415,7 @@ Status MemTableList::InstallMemtableFlushResults(
       // The reason is as follows (refer to
       // ColumnFamilyTest.FlushAndDropRaceCondition).
       // If the column family is dropped, then according to LogAndApply, its
-      // corrresponding flush operation is NOT written to the MANIFEST. This
+      // corresponding flush operation is NOT written to the MANIFEST. This
       // means the DB is not aware of the L0 files generated from the flush.
       // By committing the new state, we remove the memtable from the memtable
       // list. Creating an iterator on this column family will not be able to
