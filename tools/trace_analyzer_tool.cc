@@ -744,6 +744,9 @@ Status TraceAnalyzer::MakeStatisticQPS() {
       static_cast<uint32_t>((end_time_ - begin_time_) / 1000000);
   int ret;
   Status s;
+  if(begin_time_ == 0) {
+    duration = 1;
+  }
   std::vector<std::vector<uint32_t>> type_qps(
       duration, std::vector<uint32_t>(kTaTypeNum + 1, 0));
   std::vector<uint64_t> qps_sum(kTaTypeNum + 1, 0);
