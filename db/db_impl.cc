@@ -2967,12 +2967,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Unexpected status returned from Version::Get: %s\n",
                       s.ToString().c_str());
-
-      return s;
     }
   }
 
-  return Status::OK();
+  return s;
 }
 
 Status DBImpl::IngestExternalFile(
