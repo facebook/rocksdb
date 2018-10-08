@@ -2164,18 +2164,8 @@ std::unique_ptr<ColumnFamilyHandle> DBImpl::GetColumnFamilyHandleUnlocked(
     return nullptr;
   }
 
-  auto cfd = cf_memtables->current();
-  cfd->Ref();
-
-  return std::unique_ptr<ManagedColumnFamilyHandle>(
-      new ManagedColumnFamilyHandle(this, cfd));
-}
-
-// REQUIRED: mutex is NOT held.
-void DBImpl::UnrefColumnFamilyDataUnlocked(ColumnFamilyData* cfd) {
-  InstrumentedMutexLock l(&mutex_);
-
-  if (cfd->Unref()) delete cfd;
+  return std::unique_ptr<ColumnFamilyHandleImpl>(
+      new ColumnFamilyHandleImpl(cf_memtables->current(), this, &mutex_));
 }
 
 void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
@@ -2978,10 +2968,12 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Unexpected status returned from Version::Get: %s\n",
                       s.ToString().c_str());
-    }
-  }
 
   return s;
+}
+  }
+
+  return Status::OK();
 }
 
 Status DBImpl::IngestExternalFile(

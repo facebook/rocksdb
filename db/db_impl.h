@@ -545,11 +545,8 @@ class DBImpl : public DB {
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
   // Same as above, should called without mutex held and not on write thread.
-  std::unique_ptr<ColumnFamilyHandle> GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
-
-  // Unref ColumnFamilyData safely.
-  // REQUIRED: mutex_ is not held
-  void UnrefColumnFamilyDataUnlocked(ColumnFamilyData* cfd);
+  std::unique_ptr<ColumnFamilyHandle> GetColumnFamilyHandleUnlocked(
+      uint32_t column_family_id);
 
   // Returns the number of currently running flushes.
   // REQUIREMENT: mutex_ must be held when calling this function.
