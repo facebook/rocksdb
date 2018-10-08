@@ -514,6 +514,30 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   }
 }
 
+TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_dump_period_sec = 5;
+  options.env = env_;
+  int counter = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DumpStats:1", [&](void* /*arg*/) {
+        counter++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+  env_->SleepForMicroseconds(6000000);
+  ASSERT_GE(counter, 1);
+
+  // Test cacel job through SetOptions
+  ASSERT_OK(dbfull()->SetDBOptions(
+      {{"stats_dump_period_sec", "0"}}));
+  int old_val = counter;
+  env_->SleepForMicroseconds(10000000);
+  ASSERT_EQ(counter, old_val);
+}
+
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();
   JobContext job_context(0);

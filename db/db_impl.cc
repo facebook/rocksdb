@@ -602,6 +602,7 @@ void DBImpl::StartTimedTasks() {
 }
 
 void DBImpl::DumpStats() {
+  TEST_SYNC_POINT("DBImpl::DumpStats:1");
 #ifndef ROCKSDB_LITE
   const DBPropertyInfo* cf_property_info =
       GetPropertyInfo(DB::Properties::kCFStats);
@@ -631,6 +632,7 @@ void DBImpl::DumpStats() {
       }
     }
   }
+  TEST_SYNC_POINT("DBImpl::DumpStats:2");
   ROCKS_LOG_WARN(immutable_db_options_.info_log,
                  "------- DUMPING STATS -------");
   ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
@@ -771,7 +773,15 @@ Status DBImpl::SetDBOptions(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
       }
-      if (new_options.stats_dump_period_sec > 0 &&
+      if (new_options.stats_dump_period_sec == 0) {
+        if (thread_dump_stats_) {
+          mutex_.Unlock();
+          thread_dump_stats_->cancel();
+          mutex_.Lock();
+          thread_dump_stats_.reset();
+        }
+      }
+      else if (new_options.stats_dump_period_sec > 0 &&
           new_options.stats_dump_period_sec !=
               mutable_db_options_.stats_dump_period_sec) {
         if (thread_dump_stats_) {
