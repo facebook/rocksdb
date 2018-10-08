@@ -900,38 +900,24 @@ class TestFileOperationListener : public EventListener {
     file_writes_success_.store(0);
   }
 
-  void OnFileReadStart(FileOperationInfo* info) override {
-    time_t start =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    info->start_timestamp = static_cast<uint64_t>(start);
-    file_reads_++;
+  void OnFileReadFinish(const FileOperationInfo& info) override {
+    ++file_reads_;
+    if (info.status.ok()) {
+      ++file_reads_success_;
+    }
   }
 
-  void OnFileReadFinish(FileOperationInfo* info) override {
-    time_t finish =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    info->finish_timestamp = static_cast<uint64_t>(finish);
-    file_reads_success_++;
+  void OnFileWriteFinish(const FileOperationInfo& info) override {
+    ++file_writes_;
+    if (info.status.ok()) {
+      ++file_writes_success_;
+    }
   }
 
-  void OnFileWriteStart(FileOperationInfo* info) override {
-    time_t start =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    info->start_timestamp = static_cast<uint64_t>(start);
-    file_writes_++;
-  }
-
-  void OnFileWriteFinish(FileOperationInfo* info) override {
-    time_t finish =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    info->finish_timestamp = static_cast<uint64_t>(finish);
-    file_writes_success_++;
-  }
-
-  std::atomic<int> file_reads_;
-  std::atomic<int> file_reads_success_;
-  std::atomic<int> file_writes_;
-  std::atomic<int> file_writes_success_;
+  std::atomic<size_t> file_reads_;
+  std::atomic<size_t> file_reads_success_;
+  std::atomic<size_t> file_writes_;
+  std::atomic<size_t> file_writes_success_;
 };
 
 TEST_F(EventListenerTest, OnFileOperationTest) {

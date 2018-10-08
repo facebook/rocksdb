@@ -64,18 +64,27 @@ class SequentialFileReader {
 class RandomAccessFileReader {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileReadStart(FileOperationInfo* info) const {
-    for (auto& listener : listeners_) {
-      listener->OnFileReadStart(info);
-    }
-  }
+  void NotifyOnFileReadFinish(uint64_t offset, size_t length, time_t start_ts,
+                              const Status& status) const {
+    FileOperationInfo info;
+    info.path = file_name_;
+    info.offset = offset;
+    info.length = length;
+    info.start_timestamp = start_ts;
+    time_t finish_ts =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    info.finish_timestamp = finish_ts;
+    info.status = status;
 
-  void NotifyOnFileReadFinish(FileOperationInfo* info) const {
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
     }
   }
 #endif  // ROCKSDB_LITE
+
+  bool ShouldNotifyListeners() const {
+    return enable_listeners_ && !listeners_.empty();
+  }
 
   std::unique_ptr<RandomAccessFile> file_;
   std::string     file_name_;
@@ -86,6 +95,7 @@ class RandomAccessFileReader {
   RateLimiter* rate_limiter_;
   bool for_compaction_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  bool enable_listeners_;
 
  public:
   explicit RandomAccessFileReader(
@@ -93,7 +103,8 @@ class RandomAccessFileReader {
       Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr, bool for_compaction = false,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      bool enable_listeners = false)
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
         env_(env),
@@ -102,7 +113,8 @@ class RandomAccessFileReader {
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
         for_compaction_(for_compaction),
-        listeners_(listeners) {}
+        listeners_(listeners),
+        enable_listeners_(enable_listeners) {}
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -140,18 +152,27 @@ class RandomAccessFileReader {
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileWriteStart(FileOperationInfo* info) {
-    for (auto& listener : listeners_) {
-      listener->OnFileWriteStart(info);
-    }
-  }
+  void NotifyOnFileWriteFinish(uint64_t offset, size_t length, time_t start_ts,
+                               const Status& status) {
+    FileOperationInfo info;
+    info.path = file_name_;
+    info.offset = offset;
+    info.length = length;
+    info.start_timestamp = start_ts;
+    time_t finish_ts =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    info.finish_timestamp = finish_ts;
+    info.status = status;
 
-  void NotifyOnFileWriteFinish(FileOperationInfo* info) {
     for (auto& listener : listeners_) {
       listener->OnFileWriteFinish(info);
     }
   }
 #endif  // ROCKSDB_LITE
+
+  bool ShouldNotifyListeners() const {
+    return enable_listeners_ && !listeners_.empty();
+  }
 
   std::unique_ptr<WritableFile> writable_file_;
   std::string file_name_;
@@ -172,12 +193,14 @@ class WritableFileWriter {
   RateLimiter*            rate_limiter_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  bool enable_listeners_;
 
  public:
   WritableFileWriter(
       std::unique_ptr<WritableFile>&& file, const std::string& _file_name,
       const EnvOptions& options, Statistics* stats = nullptr,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      bool enable_listeners = false)
       : writable_file_(std::move(file)),
         file_name_(_file_name),
         buf_(),
@@ -191,7 +214,8 @@ class WritableFileWriter {
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats),
-        listeners_(listeners) {
+        listeners_(listeners),
+        enable_listeners_(enable_listeners) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());

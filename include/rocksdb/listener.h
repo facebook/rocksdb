@@ -144,8 +144,12 @@ struct TableFileDeletionInfo {
 };
 
 struct FileOperationInfo {
-  uint64_t start_timestamp;
-  uint64_t finish_timestamp;
+  std::string path;
+  uint64_t offset;
+  size_t length;
+  time_t start_timestamp;
+  time_t finish_timestamp;
+  Status status;
 };
 
 struct FlushJobInfo {
@@ -400,13 +404,9 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
-  virtual void OnFileReadStart(FileOperationInfo* /* info */) {}
+  virtual void OnFileReadFinish(const FileOperationInfo& /* info */) {}
 
-  virtual void OnFileReadFinish(FileOperationInfo* /* info */) {}
-
-  virtual void OnFileWriteStart(FileOperationInfo* /* info */) {}
-
-  virtual void OnFileWriteFinish(FileOperationInfo* /* info */) {}
+  virtual void OnFileWriteFinish(const FileOperationInfo& /* info */) {}
 
   // A callback function for RocksDB which will be called just before
   // starting the automatic recovery process for recoverable background
