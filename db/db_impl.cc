@@ -2154,7 +2154,7 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
 }
 
 // REQUIRED: mutex is NOT held.
-std::unique_ptr<ColumnFamilyHandle> DBImpl::GetColumnFamilyHandleUnlocked(
+ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
     uint32_t column_family_id) {
   ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
 
@@ -2164,18 +2164,7 @@ std::unique_ptr<ColumnFamilyHandle> DBImpl::GetColumnFamilyHandleUnlocked(
     return nullptr;
   }
 
-  auto cfd = cf_memtables->current();
-  cfd->Ref();
-
-  return std::unique_ptr<ManagedColumnFamilyHandle>(
-      new ManagedColumnFamilyHandle(this, cfd));
-}
-
-// REQUIRED: mutex is NOT held.
-void DBImpl::UnrefColumnFamilyDataUnlocked(ColumnFamilyData* cfd) {
-  InstrumentedMutexLock l(&mutex_);
-
-  if (cfd->Unref()) delete cfd;
+  return cf_memtables->GetColumnFamilyHandle();
 }
 
 void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
