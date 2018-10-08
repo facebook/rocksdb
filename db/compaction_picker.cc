@@ -320,14 +320,33 @@ Compaction* CompactionPicker::CompactFiles(
   // shouldn't have been released since.
   assert(!FilesRangeOverlapWithCompaction(input_files, output_level));
 
+  CompressionType compression_type;
+  if (compact_options.compression == kDisableCompressionOption) {
+    int base_level;
+    if (ioptions_.compaction_style == kCompactionStyleLevel) {
+      base_level = vstorage->base_level();
+    }
+    else {
+      base_level = 1;
+    }
+    compression_type =
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+        output_level, base_level);
+  }
+  else {
+    // TODO(ajkr): `CompactionOptions` offers configurable `CompressionType`
+    // without configurable `CompressionOptions`, which is inconsistent.
+    compression_type = compact_options.compression;
+  }
   CompactionParams params(vstorage, ioptions_, mutable_cf_options);
   params.inputs = std::move(input_files);
   params.output_level = output_level;
   params.target_file_size = compact_options.output_file_size_limit;
   params.max_compaction_bytes = mutable_cf_options.max_compaction_bytes;
   params.output_path_id = output_path_id;
-  params.compression = compact_options.compression;
-  params.compression_opts = ioptions_.compression_opts;
+  params.compression = compression_type;
+  params.compression_opts =
+      GetCompressionOptions(ioptions_, vstorage, output_level);
   params.max_subcompactions = compact_options.max_subcompactions;
   params.manual_compaction = true;
   params.compaction_purpose = compact_options.compaction_purpose;

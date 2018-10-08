@@ -225,7 +225,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   for (IngestedFileInfo& f : files_to_ingest_) {
     InternalStats::CompactionStats stats(CompactionReason::kExternalSstIngestion, 1);
     stats.micros = total_time;
-    // If actual copy occured for this file, then we need to count the file
+    // If actual copy occurred for this file, then we need to count the file
     // size as the actual bytes written. If the file was linked, then we ignore
     // the bytes written for file metadata.
     // TODO (yanqin) maybe account for file metadata bytes for exact accuracy?
