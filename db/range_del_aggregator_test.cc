@@ -29,8 +29,8 @@ enum Direction {
 
 struct AddTombstonesArgs {
   const std::vector<RangeTombstone> tombstones;
-  const InternalKey* smallest;
-  const InternalKey* largest;
+  const InternalKey* smallest = nullptr;
+  const InternalKey* largest = nullptr;
 };
 
 static auto bytewise_icmp = InternalKeyComparator(BytewiseComparator());
@@ -84,7 +84,8 @@ void VerifyRangeDels(
         if (dir == kReverse) {
           std::reverse(range_dels.begin(), range_dels.end());
         }
-        all_range_dels.insert(all_range_dels.end(), range_dels.begin(), range_dels.end());
+        all_range_dels.insert(all_range_dels.end(), range_dels.begin(),
+                              range_dels.end());
         AddTombstones(&range_del_agg, range_dels, args.smallest, args.largest);
       }
 

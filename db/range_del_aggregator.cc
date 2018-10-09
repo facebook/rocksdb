@@ -10,8 +10,11 @@
 
 namespace rocksdb {
 
+namespace {
+
 struct TombstoneStartKeyComparator {
-  TombstoneStartKeyComparator(const InternalKeyComparator* c) : cmp(c) {}
+  explicit TombstoneStartKeyComparator(const InternalKeyComparator* c)
+      : cmp(c) {}
 
   bool operator()(const TruncatedRangeTombstone& a,
                   const TruncatedRangeTombstone& b) const {
@@ -22,7 +25,8 @@ struct TombstoneStartKeyComparator {
 };
 
 struct ParsedInternalKeyComparator {
-  ParsedInternalKeyComparator(const InternalKeyComparator* c) : cmp(c) {}
+  explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
+      : cmp(c) {}
 
   bool operator()(const ParsedInternalKey& a,
                   const ParsedInternalKey& b) const {
@@ -31,6 +35,8 @@ struct ParsedInternalKeyComparator {
 
   const InternalKeyComparator* cmp;
 };
+
+}  // namespace
 
 // An UncollapsedRangeDelMap is quick to create but slow to answer ShouldDelete
 // queries.
@@ -67,7 +73,7 @@ class UncollapsedRangeDelMap : public RangeDelMap {
   const InternalKeyComparator* icmp_;
 
  public:
-  UncollapsedRangeDelMap(const InternalKeyComparator* icmp)
+  explicit UncollapsedRangeDelMap(const InternalKeyComparator* icmp)
       : rep_(TombstoneStartKeyComparator(icmp)), icmp_(icmp) {}
 
   bool ShouldDelete(const ParsedInternalKey& parsed,
