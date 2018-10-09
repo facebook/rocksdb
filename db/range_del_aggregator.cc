@@ -13,7 +13,8 @@ namespace rocksdb {
 struct TombstoneStartKeyComparator {
   TombstoneStartKeyComparator(const InternalKeyComparator* c) : cmp(c) {}
 
-  bool operator()(const TruncatedRangeTombstone& a, const TruncatedRangeTombstone& b) const {
+  bool operator()(const TruncatedRangeTombstone& a,
+                  const TruncatedRangeTombstone& b) const {
     return cmp->Compare(a.start_key_, b.start_key_) < 0;
   }
 
@@ -23,7 +24,8 @@ struct TombstoneStartKeyComparator {
 struct ParsedInternalKeyComparator {
   ParsedInternalKeyComparator(const InternalKeyComparator* c) : cmp(c) {}
 
-  bool operator()(const ParsedInternalKey& a, const ParsedInternalKey& b) const {
+  bool operator()(const ParsedInternalKey& a,
+                  const ParsedInternalKey& b) const {
     return cmp->Compare(a, b) < 0;
   }
 
@@ -33,7 +35,8 @@ struct ParsedInternalKeyComparator {
 // An UncollapsedRangeDelMap is quick to create but slow to answer ShouldDelete
 // queries.
 class UncollapsedRangeDelMap : public RangeDelMap {
-  typedef std::multiset<TruncatedRangeTombstone, TombstoneStartKeyComparator> Rep;
+  typedef std::multiset<TruncatedRangeTombstone, TombstoneStartKeyComparator>
+      Rep;
 
   class Iterator : public RangeDelIterator {
     const Rep& rep_;
@@ -45,12 +48,15 @@ class UncollapsedRangeDelMap : public RangeDelMap {
     void Next() override { iter_++; }
 
     void Seek(const Slice&) override {
-      fprintf(stderr, "UncollapsedRangeDelMap::Iterator::Seek(Slice&) unimplemented\n");
+      fprintf(stderr,
+              "UncollapsedRangeDelMap::Iterator::Seek(Slice&) unimplemented\n");
       abort();
     }
 
     void Seek(const ParsedInternalKey&) override {
-      fprintf(stderr, "UncollapsedRangeDelMap::Iterator::Seek(ParsedInternalKey&) unimplemented\n");
+      fprintf(stderr,
+              "UncollapsedRangeDelMap::Iterator::Seek(ParsedInternalKey&) "
+              "unimplemented\n");
       abort();
     }
 
@@ -75,7 +81,6 @@ class UncollapsedRangeDelMap : public RangeDelMap {
       if (parsed.sequence < tombstone.seq_ &&
           icmp_->Compare(parsed, tombstone.end_key_) < 0) {
         return true;
-      } else {
       }
     }
     return false;
@@ -465,6 +470,7 @@ bool RangeDelAggregator::ShouldDeleteImpl(const Slice& internal_key,
 
 bool RangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
                                           RangeDelPositioningMode mode) {
+  assert(IsValueType(parsed.type));
   assert(rep_ != nullptr);
   auto& tombstone_map = GetRangeDelMap(parsed.sequence);
   if (tombstone_map.IsEmpty()) {
@@ -552,9 +558,9 @@ Status RangeDelAggregator::AddTombstones(
         end_key.user_key = parsed_largest.user_key;
         if (parsed_largest.sequence != kMaxSequenceNumber) {
           // The same user key straddles two adjacent sstables. To make sure we
-          // can truncate to a range that includes the largest range tombstone,
-          // set the tombstone end key's sequence number to 1 less than the
-          // largest key.
+          // can truncate to a range that includes the largest point key in the
+          // first sstable, set the tombstone end key's sequence number to 1
+          // less than the largest key.
           assert(parsed_largest.sequence != 0);
           end_key.sequence = parsed_largest.sequence - 1;
         } else {
@@ -662,7 +668,6 @@ class MergingRangeDelIter : public RangeDelIterator {
   RangeTombstone Tombstone() const override { return current_->Tombstone(); }
 
  private:
-  // TODO: evaluate whether this is the best approach; maybe use truncated tombstones instead
   struct IterComparator {
     IterComparator(const Comparator* c) : cmp(c) {}
 

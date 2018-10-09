@@ -15,6 +15,26 @@
 
 namespace rocksdb {
 
+// Utility for comparing sstable boundary keys. Returns -1 if either a or b is
+// null which provides the property that a==null indicates a key that is less
+// than any key and b==null indicates a key that is greater than any key. Note
+// that the comparison is performed primarily on the user-key portion of the
+// key. If the user-keys compare equal, an additional test is made to sort
+// range tombstone sentinel keys before other keys with the same user-key. The
+// result is that 2 user-keys will compare equal if they differ purely on
+// their sequence number and value, but the range tombstone sentinel for that
+// user-key will compare not equal. This is necessary because the range
+// tombstone sentinel key is set as the largest key for an sstable even though
+// that key never appears in the database. We don't want adjacent sstables to
+// be considered overlapping if they are separated by the range tombstone
+// sentinel.
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
+                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                      const InternalKey* b);
+
 // An AtomicCompactionUnitBoundary represents a range of keys [smallest,
 // largest] that exactly spans one ore more neighbouring SSTs on the same
 // level. Every pair of  SSTs in this range "overlap" (i.e., the largest
@@ -22,8 +42,8 @@ namespace rocksdb {
 // boundaries are propagated down to RangeDelAggregator during compaction
 // to provide safe truncation boundaries for range tombstones.
 struct AtomicCompactionUnitBoundary {
-  Slice smallest;
-  Slice largest;
+  const InternalKey* smallest = nullptr;
+  const InternalKey* largest = nullptr;
 };
 
 // The structure that manages compaction input files associated

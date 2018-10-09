@@ -57,8 +57,8 @@ class TableCache {
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1,
-      const Slice* smallest_compaction_key = nullptr,
-      const Slice* largest_compaction_key = nullptr);
+      const InternalKey* smallest_compaction_key = nullptr,
+      const InternalKey* largest_compaction_key = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until

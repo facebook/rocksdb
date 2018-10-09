@@ -135,7 +135,7 @@ void VerifyRangeDels(
   RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
                                    false /* collapse_deletions */);
   for (const auto& args : all_args) {
-    AddTombstones(&range_del_agg, args.tombstones);
+    AddTombstones(&range_del_agg, args.tombstones, args.smallest, args.largest);
   }
   for (size_t i = 1; i < expected_points.size(); ++i) {
     bool overlapped = range_del_agg.IsRangeOverlapped(

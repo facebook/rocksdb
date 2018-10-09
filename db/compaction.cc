@@ -23,6 +23,43 @@
 
 namespace rocksdb {
 
+const uint64_t kRangeTombstoneSentinel =
+    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
+
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                      const InternalKey& b) {
+  auto c = user_cmp->Compare(a.user_key(), b.user_key());
+  if (c != 0) {
+    return c;
+  }
+  auto a_footer = ExtractInternalKeyFooter(a.Encode());
+  auto b_footer = ExtractInternalKeyFooter(b.Encode());
+  if (a_footer == kRangeTombstoneSentinel) {
+    if (b_footer != kRangeTombstoneSentinel) {
+      return -1;
+    }
+  } else if (b_footer == kRangeTombstoneSentinel) {
+    return 1;
+  }
+  return 0;
+}
+
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
+                      const InternalKey& b) {
+  if (a == nullptr) {
+    return -1;
+  }
+  return sstableKeyCompare(user_cmp, *a, b);
+}
+
+int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                      const InternalKey* b) {
+  if (b == nullptr) {
+    return -1;
+  }
+  return sstableKeyCompare(user_cmp, a, *b);
+}
+
 uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
@@ -90,7 +127,6 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     }
     inputs[i].atomic_compaction_unit_boundaries.reserve(inputs[i].files.size());
     AtomicCompactionUnitBoundary cur_boundary;
-    uint64_t cur_end_key_footer = 0;
     size_t first_atomic_idx = 0;
     auto add_unit_boundary = [&](size_t to) {
       if (first_atomic_idx == to) return;
@@ -101,27 +137,22 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     };
     for (size_t j = 0; j < inputs[i].files.size(); j++) {
       const auto* f = inputs[i].files[j];
-      const Slice& start_user_key = f->smallest.user_key();
-      const Slice& end_user_key = f->largest.user_key();
-      if (first_atomic_idx == j) {
-        // First file in an atomic compaction unit.
-        cur_boundary.smallest = start_user_key;
-        cur_boundary.largest = end_user_key;
-      } else if (ucmp->Compare(cur_boundary.largest, start_user_key) == 0 &&
-                 cur_end_key_footer !=
-                     PackSequenceAndType(kMaxSequenceNumber,
-                                         kTypeRangeDeletion)) {
+      if (j == 0) {
+        // First file in a level.
+        cur_boundary.smallest = &f->smallest;
+        cur_boundary.largest = &f->largest;
+      } else if (sstableKeyCompare(ucmp, *cur_boundary.largest, f->smallest) ==
+                 0) {
         // SSTs overlap but the end key of the previous file was not
         // artificially extended by a range tombstone. Extend the current
         // boundary.
-        cur_boundary.largest = end_user_key;
+        cur_boundary.largest = &f->largest;
       } else {
         // Atomic compaction unit has ended.
         add_unit_boundary(j);
-        cur_boundary.smallest = start_user_key;
-        cur_boundary.largest = end_user_key;
+        cur_boundary.smallest = &f->smallest;
+        cur_boundary.largest = &f->largest;
       }
-      cur_end_key_footer = ExtractInternalKeyFooter(f->largest.Encode());
     }
     add_unit_boundary(inputs[i].files.size());
     assert(inputs[i].files.size() ==
