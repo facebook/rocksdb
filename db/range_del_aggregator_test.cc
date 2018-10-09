@@ -29,8 +29,8 @@ enum Direction {
 
 struct AddTombstonesArgs {
   const std::vector<RangeTombstone> tombstones;
-  const InternalKey* smallest = nullptr;
-  const InternalKey* largest = nullptr;
+  const InternalKey* smallest;
+  const InternalKey* largest;
 };
 
 static auto bytewise_icmp = InternalKeyComparator(BytewiseComparator());
