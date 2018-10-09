@@ -1166,6 +1166,10 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       }
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
 
+      // Notify write_thread_ about the stall so it can setup a barrier and
+      // fail any pending writers with no_slowdown
+      write_thread_.BeginWriteStall();
+      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       mutex_.Unlock();
       // We will delay the write until we have slept for delay ms or
       // we don't need a delay anymore
@@ -1182,6 +1186,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
         env_->SleepForMicroseconds(kDelayInterval);
       }
       mutex_.Lock();
+      write_thread_.EndWriteStall();
     }
 
     // Don't wait if there's a background error, even if its a soft error. We
@@ -1193,8 +1198,13 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
         return Status::Incomplete();
       }
       delayed = true;
+
+      // Notify write_thread_ about the stall so it can setup a barrier and
+      // fail any pending writers with no_slowdown
+      write_thread_.BeginWriteStall();
       TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
       bg_cv_.Wait();
+      write_thread_.EndWriteStall();
     }
   }
   assert(!delayed || !write_options.no_slowdown);

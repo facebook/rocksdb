@@ -342,6 +342,13 @@ class WriteThread {
     return last_sequence_;
   }
 
+  // Insert a dummy writer at the tail of the write queue to indicate a write
+  // stall, and fail any writers in the queue with no_slowdown set to true
+  void BeginWriteStall();
+
+  // Remove the dummy writer and wake up waiting writers
+  void EndWriteStall();
+
  private:
   // See AwaitState.
   const uint64_t max_yield_usec_;
@@ -365,6 +372,17 @@ class WriteThread {
   // is not necessary visible to reads because the writer can be ongoing.
   SequenceNumber last_sequence_;
 
+  // A dummy writer to indicate a write stall condition. This will be inserted
+  // at the tail of the writer queue by the leader, so newer writers can just
+  // check for this and bail
+  Writer write_stall_dummy_;
+
+  // Mutex and condvar for writers to block on a write stall. During a write
+  // stall, writers with no_slowdown set to false will wait on this rather
+  // on the writer queue
+  std::mutex mu_;
+  std::condition_variable stall_cv_;
+
   // Waits for w->state & goal_mask using w->StateMutex().  Returns
   // the state that satisfies goal_mask.
   uint8_t BlockingAwaitState(Writer* w, uint8_t goal_mask);
@@ -381,7 +399,10 @@ class WriteThread {
   // Links w into the newest_writer list. Return true if w was linked directly
   // into the leader position.  Safe to call from multiple threads without
   // external locking.
-  bool LinkOne(Writer* w, std::atomic<Writer*>* newest_writer);
+  bool LinkOne(
+      Writer* w,
+      std::atomic<Writer*>* newest_writer,
+      const bool check_write_stall = false);
 
   // Link write group into the newest_writer list as a whole, while keeping the
   // order of the writers unchanged. Return true if the group was linked

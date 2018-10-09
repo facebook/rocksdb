@@ -24,7 +24,10 @@ WriteThread::WriteThread(const ImmutableDBOptions& db_options)
       enable_pipelined_write_(db_options.enable_pipelined_write),
       newest_writer_(nullptr),
       newest_memtable_writer_(nullptr),
-      last_sequence_(0) {}
+      last_sequence_(0),
+      write_stall_dummy_(),
+      mu_(),
+      stall_cv_() {}
 
 uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
   // We're going to block.  Lazily create the mutex.  We guarantee
@@ -214,11 +217,35 @@ void WriteThread::SetState(Writer* w, uint8_t new_state) {
   }
 }
 
-bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
+bool WriteThread::LinkOne(
+    Writer* w,
+    std::atomic<Writer*>* newest_writer,
+    const bool check_write_stall) {
   assert(newest_writer != nullptr);
   assert(w->state == STATE_INIT);
   Writer* writers = newest_writer->load(std::memory_order_relaxed);
   while (true) {
+    // If write stall in effect, and w->no_slowdown is not true,
+    // block here until stall is cleared. If its true, then return
+    // immediately
+    if (check_write_stall && writers == &write_stall_dummy_) {
+      if (w->no_slowdown) {
+        SetState(w, STATE_COMPLETED);
+        return false;
+      }
+      // Since no_slowdown is false, wait here to be notified of the write
+      // stall clearing
+      {
+        std::unique_lock<std::mutex> lock(mu_);
+        writers = newest_writer->load(std::memory_order_relaxed);
+        if (writers == &write_stall_dummy_) {
+          stall_cv_.wait(lock);
+          // Load newest_writers_ again since it may have changed
+          writers = newest_writer->load(std::memory_order_relaxed);
+          continue;
+        }
+      }
+    }
     w->link_older = writers;
     if (newest_writer->compare_exchange_weak(writers, w)) {
       return (writers == nullptr);
@@ -303,12 +330,50 @@ void WriteThread::CompleteFollower(Writer* w, WriteGroup& write_group) {
   SetState(w, STATE_COMPLETED);
 }
 
+void WriteThread::BeginWriteStall() {
+  LinkOne(&write_stall_dummy_, &newest_writer_, false);
+
+  // Walk writer list until w->write_group != nullptr. The current write group
+  // will not have a mix of slowdown/no_slowdown, so its ok to stop at that
+  // point
+  Writer* w = write_stall_dummy_.link_older;
+  Writer* prev = &write_stall_dummy_;
+  while (w != nullptr && w->write_group == nullptr) {
+    if (w->no_slowdown) {
+      prev->link_older = w->link_older;
+      w->status = Status::Incomplete();
+      SetState(w, STATE_COMPLETED);
+      w = prev->link_older;
+    } else {
+      prev = w;
+      w = w->link_older;
+    }
+  }
+}
+
+void WriteThread::EndWriteStall() {
+  std::lock_guard<std::mutex> lock(mu_);
+
+  assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
+  Writer* expected = &write_stall_dummy_;
+  newest_writer_.compare_exchange_weak(expected, write_stall_dummy_.link_older);
+
+  // Wake up writers
+  stall_cv_.notify_all();
+}
+
 static WriteThread::AdaptationContext jbg_ctx("JoinBatchGroup");
 void WriteThread::JoinBatchGroup(Writer* w) {
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Start", w);
   assert(w->batch != nullptr);
 
-  bool linked_as_leader = LinkOne(w, &newest_writer_);
+  bool linked_as_leader = LinkOne(w, &newest_writer_, true);
+  if (w->state.load(std::memory_order_acquire) == STATE_COMPLETED) {
+    // This means there is a write stall. Set incomplete status
+    w->status = Status::Incomplete();
+    return;
+  }
+
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
   }
@@ -668,7 +733,7 @@ static WriteThread::AdaptationContext eu_ctx("EnterUnbatched");
 void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   assert(w != nullptr && w->batch == nullptr);
   mu->Unlock();
-  bool linked_as_leader = LinkOne(w, &newest_writer_);
+  bool linked_as_leader = LinkOne(w, &newest_writer_, true);
   if (!linked_as_leader) {
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
     // Last leader will not pick us as a follower since our batch is nullptr
