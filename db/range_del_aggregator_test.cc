@@ -443,6 +443,26 @@ TEST_F(RangeDelAggregatorTest, OverlappingBoundaryGapContainsTombstone) {
       {{"b", "c", 15}, {"c", "d", 15}}); // not collapsed due to boundaries
 }
 
+TEST_F(RangeDelAggregatorTest, FileCoversOneKeyAndTombstoneAbove) {
+  const InternalKey smallest("a", kMaxSequenceNumber, kTypeRangeDeletion);
+  const InternalKey largest("a", 20, kTypeValue);
+  VerifyRangeDels(
+      {{{{"a", "b", 35}}, &smallest, &largest}},
+      {{"a", 40, true}, // not truncated
+       {"a", 35, false}}, // not truncated
+      {{"a", "a", 35}}); // empty tombstone but can't occur during a compaction
+}
+
+TEST_F(RangeDelAggregatorTest, FileCoversOneKeyAndTombstoneBelow) {
+  const InternalKey smallest("a", kMaxSequenceNumber, kTypeRangeDeletion);
+  const InternalKey largest("a", 20, kTypeValue);
+  VerifyRangeDels(
+      {{{{"a", "b", 15}}, &smallest, &largest}},
+      {{"a", 20, true}, // truncated here
+       {"a", 15, true}}, // truncated
+      {{"a", "a", 15}}); // empty tombstone but can't occur during a compaction
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
