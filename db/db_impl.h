@@ -1112,7 +1112,7 @@ class DBImpl : public DB {
   void PrintStatistics();
 
   // persist stats to column family "_persistent_stats"
-  void MaybePersistStats();
+  void PersistStats();
 
   // dump rocksdb.stats to LOG
   void DumpStats();
@@ -1520,9 +1520,13 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
-  // handle for scheduling jobs at fixed intervals
+  // handle for scheduling stats dumping at fixed intervals
   // REQUIRES: mutex locked
   std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+
+  // handle for scheduling stats persisting at fixed intervals
+  // REQUIRES: mutex locked
+  std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

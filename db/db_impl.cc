@@ -401,6 +401,12 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     mutex_.Lock();
     thread_dump_stats_.reset();
   }
+  if (thread_persist_stats_ != nullptr) {
+    mutex_.Unlock();
+    thread_persist_stats_->cancel();
+    mutex_.Lock();
+    thread_persist_stats_.reset();
+  }
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
@@ -629,6 +635,7 @@ void DBImpl::PrintStatistics() {
 
 void DBImpl::StartTimedTasks() {
   unsigned int stats_dump_period_sec = 0;
+  unsigned int stats_persist_period_sec = 0;
   {
     InstrumentedMutexLock l(&mutex_);
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
@@ -639,67 +646,66 @@ void DBImpl::StartTimedTasks() {
             stats_dump_period_sec * 1000000));
       }
     }
-    // TODO: schedule thread to call MaybePersistStats() here
+    stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
+    if (stats_persist_period_sec > 0) {
+      if (!thread_persist_stats_) {
+        thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+          [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+          stats_persist_period_sec * 1000000));
+      }
+    }
   }
 }
 
-void DBImpl::MaybePersistStats() {
-  mutex_.Lock();
-  // stats_persist_period_sec controls the frequency of persisting stats to
-  // a special column family "_persistent_stats". The default frequency is
-  // once per minute.
-  unsigned int stats_persist_period_sec =
-      mutable_db_options_.stats_persist_period_sec;
-  mutex_.Unlock();
-  if (stats_persist_period_sec == 0) return;
-  const uint64_t now_micros = env_->NowMicros();
-  if (last_stats_persist_time_microsec_ + stats_persist_period_sec * 1000000 <=
-      now_micros) {
-    // Multiple threads could race in here simultaneously.
-    last_stats_persist_time_microsec_ = now_micros;
+void DBImpl::PersistStats() {
+  TEST_SYNC_POINT("DBImpl::PersistStats:1");
 #ifndef ROCKSDB_LITE
-    const DBPropertyInfo* cf_property_info =
-        GetPropertyInfo(DB::Properties::kCFStats);
-    assert(cf_property_info != nullptr);
-    const DBPropertyInfo* db_property_info =
-        GetPropertyInfo(DB::Properties::kDBStats);
-    assert(db_property_info != nullptr);
-    std::map<std::string, std::string> stats_map;
-    {
-      InstrumentedMutexLock l(&mutex_);
-      default_cf_internal_stats_->GetMapProperty(
-          *db_property_info, DB::Properties::kDBStats, &stats_map);
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->initialized()) {
-          // TODO(Zhongyi): OK to call GetMapProperty repeatedly?
-          // exclude cf._persistent_stats here?
-          cfd->internal_stats()->GetMapProperty(
-              *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
-              &stats_map);
-        }
-      }
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->initialized()) {
-          cfd->internal_stats()->GetMapProperty(
-              *cf_property_info, DB::Properties::kCFFileHistogram, &stats_map);
-        }
-      }
-    }
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "------- PERSISTING STATS -------");
-    WriteOptions wo;
-    ColumnFamilyOptions cf_options;
-    std::string now_micros_string = std::to_string(now_micros);
-    for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
-      // how do we maintain a historical view if key/value pairs are overwritten?
-      std::string key = iter->first + now_micros_string;
-      DB::Put(wo, persist_stats_cf_handle_, key,
-              iter->second);
-      fprintf(stdout, "persisting stats: key = %s, value = %s\n", key.c_str(),
-              iter->second.c_str());
-    }
-#endif  // !ROCKSDB_LITE
+  const DBPropertyInfo* cf_property_info =
+      GetPropertyInfo(DB::Properties::kCFStats);
+  assert(cf_property_info != nullptr);
+  const DBPropertyInfo* db_property_info =
+      GetPropertyInfo(DB::Properties::kDBStats);
+  assert(db_property_info != nullptr);
+  std::map<std::string, std::string> stats_map;
+  if (shutdown_initiated_) {
+    return;
   }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    default_cf_internal_stats_->GetMapProperty(
+        *db_property_info, DB::Properties::kDBStats, &stats_map);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        // TODO(Zhongyi): OK to call GetMapProperty repeatedly?
+        // exclude cf._persistent_stats here?
+        cfd->internal_stats()->GetMapProperty(
+            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
+            &stats_map);
+      }
+    }
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetMapProperty(
+            *cf_property_info, DB::Properties::kCFFileHistogram, &stats_map);
+      }
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::PersistStats:2");
+  ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                 "------- PERSISTING STATS -------");
+  WriteOptions wo;
+  ColumnFamilyOptions cf_options;
+  const uint64_t now_micros = env_->NowMicros();
+  std::string now_micros_string = std::to_string(now_micros);
+  for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
+    // how do we maintain a historical view if key/value pairs are overwritten?
+    std::string key = iter->first + now_micros_string;
+    DB::Put(wo, persist_stats_cf_handle_, key,
+            iter->second);
+    // fprintf(stdout, "persisting stats: key = %s, value = %s\n", key.c_str(),
+    //         iter->second.c_str());
+  }
+#endif  // !ROCKSDB_LITE
 }
 
 void DBImpl::DumpStats() {
@@ -886,6 +892,22 @@ Status DBImpl::SetDBOptions(
           }
           else {
             thread_dump_stats_.reset();
+          }
+      }
+      if (new_options.stats_persist_period_sec !=
+          mutable_db_options_.stats_persist_period_sec) {
+          if (thread_persist_stats_) {
+            mutex_.Unlock();
+            thread_persist_stats_->cancel();
+            mutex_.Lock();
+          }
+          if (new_options.stats_persist_period_sec > 0) {
+            thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+                [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
+                new_options.stats_persist_period_sec * 1000000));
+          }
+          else {
+            thread_persist_stats_.reset();
           }
       }
       write_controller_.set_max_delayed_write_rate(
