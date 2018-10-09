@@ -515,6 +515,9 @@ class ColumnFamilyTestBase : public testing::Test {
 
   void RecalculateWriteStallConditions(ColumnFamilyData* cfd,
       const MutableCFOptions& mutable_cf_options)  {
+    // add lock to avoid race condition between
+    // `RecalculateWriteStallConditions` which writes to CFStats and
+    // background `DBImpl::DumpStats()` threads which read CFStats
     dbfull()->TEST_LockMutex();
     cfd->RecalculateWriteStallConditions(mutable_cf_options);
     dbfull()-> TEST_UnlockMutex();
