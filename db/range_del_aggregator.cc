@@ -10,20 +10,39 @@
 
 namespace rocksdb {
 
+struct TruncatedRangeTombstone : public RangeTombstone {
+  explicit TruncatedRangeTombstone(RangeTombstone t, bool truncated = false)
+      : RangeTombstone(t), is_truncated(truncated) {}
+
+  bool is_truncated;
+};
+
 struct TombstoneStartKeyComparator {
   TombstoneStartKeyComparator(const Comparator* c) : cmp(c) {}
 
-  bool operator()(const RangeTombstone& a, const RangeTombstone& b) const {
+  bool operator()(const TruncatedRangeTombstone& a,
+                  const TruncatedRangeTombstone& b) const {
     return cmp->Compare(a.start_key_, b.start_key_) < 0;
   }
 
   const Comparator* cmp;
 };
 
+struct CollapsedMapBoundary {
+  CollapsedMapBoundary() = default;
+  explicit CollapsedMapBoundary(SequenceNumber s)
+      : point_seqnum(s), range_seqnum(s) {}
+  CollapsedMapBoundary(SequenceNumber ps, SequenceNumber rs)
+      : point_seqnum(ps), range_seqnum(rs) {}
+
+  SequenceNumber point_seqnum;
+  SequenceNumber range_seqnum;
+};
+
 // An UncollapsedRangeDelMap is quick to create but slow to answer ShouldDelete
 // queries.
 class UncollapsedRangeDelMap : public RangeDelMap {
-  typedef std::multiset<RangeTombstone, TombstoneStartKeyComparator> Rep;
+  typedef std::multiset<TruncatedRangeTombstone, TombstoneStartKeyComparator> Rep;
 
   class Iterator : public RangeDelIterator {
     const Rep& rep_;
@@ -57,8 +76,10 @@ class UncollapsedRangeDelMap : public RangeDelMap {
       if (ucmp_->Compare(parsed.user_key, tombstone.start_key_) < 0) {
         break;
       }
+      int end_key_cmp = ucmp_->Compare(parsed.user_key, tombstone.end_key_);
       if (parsed.sequence < tombstone.seq_ &&
-          ucmp_->Compare(parsed.user_key, tombstone.end_key_) < 0) {
+          (end_key_cmp < 0 ||
+           (tombstone.is_truncated && end_key_cmp <= 0))) {
         return true;
       }
     }
@@ -67,7 +88,9 @@ class UncollapsedRangeDelMap : public RangeDelMap {
 
   bool IsRangeOverlapped(const Slice& start, const Slice& end) override {
     for (const auto& tombstone : rep_) {
-      if (ucmp_->Compare(start, tombstone.end_key_) < 0 &&
+      int end_key_cmp = ucmp_->Compare(start, tombstone.end_key_);
+      if ((end_key_cmp < 0 ||
+           (tombstone.is_truncated && end_key_cmp <= 0)) &&
           ucmp_->Compare(tombstone.start_key_, end) <= 0 &&
           ucmp_->Compare(tombstone.start_key_, tombstone.end_key_) < 0) {
         return true;
@@ -76,8 +99,8 @@ class UncollapsedRangeDelMap : public RangeDelMap {
     return false;
   }
 
-  void AddTombstone(RangeTombstone tombstone) override {
-    rep_.emplace(tombstone);
+  void AddTombstone(RangeTombstone tombstone, bool is_truncated) override {
+    rep_.emplace(TruncatedRangeTombstone(tombstone, is_truncated));
   }
 
   size_t Size() const override { return rep_.size(); }
@@ -120,17 +143,24 @@ class UncollapsedRangeDelMap : public RangeDelMap {
 // is installed to indicate that no tombstone exists. This occurs at keys n and
 // t in the example above.
 //
+// To provide end-key-inclusive semantics for truncated range tombstones, the
+// map actually stores two sequence numbers: one for the "point" seqnum that applies
+// to the key of the entry, and one for the "range" seqnum that applies from the
+// current key until the next key, exclusive on both ends. For untruncated range
+// tombstones, the point and range seqnums are equal, so the semantics match
+// to the description above.
+//
 // To check whether a key K is covered by a tombstone, the map is binary
 // searched for the last key less than K. K is covered iff the map entry has a
 // larger seqno than K. As an example, consider the key h @ 4. It would be
 // compared against the map entry g → 3 and determined to be uncovered. By
 // contrast, the key h @ 2 would be determined to be covered.
 class CollapsedRangeDelMap : public RangeDelMap {
-  typedef std::map<Slice, SequenceNumber, stl_wrappers::LessOfComparator> Rep;
+  typedef std::map<Slice, CollapsedMapBoundary, stl_wrappers::LessOfComparator> Rep;
 
   class Iterator : public RangeDelIterator {
     void MaybeSeekPastSentinel() {
-      if (Valid() && iter_->second == 0) {
+      if (Valid() && iter_->second.range_seqnum == 0) {
         iter_++;
       }
     }
@@ -159,11 +189,11 @@ class CollapsedRangeDelMap : public RangeDelMap {
     RangeTombstone Tombstone() const override {
       assert(Valid());
       assert(std::next(iter_) != rep_.end());
-      assert(iter_->second != 0);
+      assert(iter_->second.range_seqnum != 0);
       RangeTombstone tombstone;
       tombstone.start_key_ = iter_->first;
       tombstone.end_key_ = std::next(iter_)->first;
-      tombstone.seq_ = iter_->second;
+      tombstone.seq_ = iter_->second.range_seqnum;
       return tombstone;
     }
   };
@@ -173,8 +203,8 @@ class CollapsedRangeDelMap : public RangeDelMap {
   const Comparator* ucmp_;
 
  public:
-  explicit CollapsedRangeDelMap(const Comparator* ucmp) 
-    : rep_(stl_wrappers::LessOfComparator(ucmp)), 
+  explicit CollapsedRangeDelMap(const Comparator* ucmp)
+    : rep_(stl_wrappers::LessOfComparator(ucmp)),
       ucmp_(ucmp) {
     InvalidatePosition();
   }
@@ -228,7 +258,7 @@ class CollapsedRangeDelMap : public RangeDelMap {
            ucmp_->Compare(iter_->first, parsed.user_key) <= 0);
     assert(std::next(iter_) == rep_.end() ||
            ucmp_->Compare(parsed.user_key, std::next(iter_)->first) < 0);
-    return parsed.sequence < iter_->second;
+    return parsed.sequence < iter_->second.point_seqnum;
   }
 
   bool IsRangeOverlapped(const Slice&, const Slice&) override {
@@ -238,41 +268,47 @@ class CollapsedRangeDelMap : public RangeDelMap {
     abort();
   }
 
-  void AddTombstone(RangeTombstone t) override {
+  void AddTombstone(RangeTombstone t, bool is_truncated) override {
     if (ucmp_->Compare(t.start_key_, t.end_key_) >= 0 || t.seq_ == 0) {
       // The tombstone covers no keys. Nothing to do.
       return;
     }
 
     auto it = rep_.upper_bound(t.start_key_);
-    auto prev_seq = [&]() {
-      return it == rep_.begin() ? 0 : std::prev(it)->second;
+    auto prev_point_seq = [&]() {
+      return it == rep_.begin() ? 0 : std::prev(it)->second.point_seqnum;
+    };
+    auto prev_range_seq = [&]() {
+      return it == rep_.begin() ? 0 : std::prev(it)->second.range_seqnum;
     };
 
-    // end_seq stores the seqno of the last transition that the new tombstone
-    // covered. This is the seqno that we'll install if we need to insert a
-    // transition for the new tombstone's end key.
+    // end_seq stores the range seqno of the last transition that the new
+    // tombstone covered. This is the range seqno that we'll install if we need
+    // to insert a transition for the new tombstone's end key.
     SequenceNumber end_seq = 0;
 
-    // In the diagrams below, the new tombstone is always [c, k) @ 2. The
-    // existing tombstones are varied to depict different scenarios. Uppercase
-    // letters are used to indicate points that exist in the map, while
-    // lowercase letters are used to indicate points that do not exist in the
-    // map. The location of the iterator is marked with a caret; it may point
-    // off the end of the diagram to indicate that it is positioned at a
-    // entry with a larger key whose specific key is irrelevant.
+    // In the diagrams below, the new tombstone is [c, k) @ 2, or [c, k] @ 2 if
+    // specified. The existing tombstones are varied to depict different
+    // scenarios. Uppercase letters are used to indicate points that exist in
+    // the map, while lowercase letters are used to indicate points that do not
+    // exist in the map. The location of the iterator is marked with a caret;
+    // it may point off the end of the diagram to indicate that it is
+    // positioned at a entry with a larger key whose specific key is
+    // irrelevant. Truncated end keys not pointed at by the caret are marked by a *;
+    // those pointed at by the caret are marked by a !.
 
-    if (t.seq_ > prev_seq()) {
+    if (t.seq_ > prev_range_seq()) {
       // The new tombstone's start point covers the existing tombstone:
       //
       //     3:                3: A--C           3:                3:
       //     2:    c---   OR   2:    c---   OR   2:    c---   OR   2: c------
       //     1: A--C           1:                1: A------        1: C------
-      //                ^                 ^                 ^                  ^
-      end_seq = prev_seq();
+      //           *    ^            *    ^                 ^                  ^
+      end_seq = prev_range_seq();
       Rep::iterator pit;
       if (it != rep_.begin() && (pit = std::prev(it)) != rep_.begin() &&
-          ucmp_->Compare(pit->first, t.start_key_) == 0 && std::prev(pit)->second == t.seq_) {
+          ucmp_->Compare(pit->first, t.start_key_) == 0 &&
+          std::prev(pit)->second.range_seqnum == t.seq_) {
         // The new tombstone starts at the end of an existing tombstone with an
         // identical seqno:
         //
@@ -285,7 +321,14 @@ class CollapsedRangeDelMap : public RangeDelMap {
       } else {
         // Insert a new transition at the new tombstone's start point, or raise
         // the existing transition at that point to the new tombstone's seqno.
-        rep_[t.start_key_] = t.seq_;  // operator[] will overwrite existing entry
+        SequenceNumber new_point_seq = t.seq_;
+        if (it != rep_.begin() &&
+            ucmp_->Compare(std::prev(it)->first, t.start_key_) == 0 &&
+            prev_point_seq() > new_point_seq) {
+          new_point_seq = prev_point_seq();
+        }
+        rep_[t.start_key_] = CollapsedMapBoundary(
+            new_point_seq, t.seq_);  // operator[] will overwrite existing entry
       }
     } else {
       // The new tombstone's start point is covered by an existing tombstone:
@@ -298,13 +341,13 @@ class CollapsedRangeDelMap : public RangeDelMap {
 
     // Look at all the existing transitions that overlap the new tombstone.
     while (it != rep_.end() && ucmp_->Compare(it->first, t.end_key_) < 0) {
-      if (t.seq_ >= it->second) {
+      if (t.seq_ >= it->second.point_seqnum) {
         // The transition is to an existing tombstone that the new tombstone
         // covers. Save the covered tombstone's seqno. We'll need to return to
         // it if the new tombstone ends before the existing tombstone.
-        end_seq = it->second;
+        end_seq = it->second.range_seqnum;
 
-        if (t.seq_ == prev_seq()) {
+        if (t.seq_ == prev_range_seq()) {
           // The previous transition is to the seqno of the new tombstone:
           //
           //     3:                3:                3: --F
@@ -326,8 +369,15 @@ class CollapsedRangeDelMap : public RangeDelMap {
           //            ^                ^
           // Preserve this transition point, but raise it to the new tombstone's
           // seqno.
-          it->second = t.seq_;
+          it->second = CollapsedMapBoundary(t.seq_);
         }
+      } else if (t.seq_ >= it->second.range_seqnum) {
+        // A truncated tombstone with a higher seqno ended here, but the new
+        // tombstone covers the tombstone that currently starts here. Raise the
+        // range seqno only.
+        end_seq = it->second.range_seqnum;
+        SequenceNumber old_point_seqno = it->second.point_seqnum;
+        it->second = CollapsedMapBoundary(old_point_seqno, t.seq_);
       } else {
         // The transition is to an existing tombstone that covers the new
         // tombstone:
@@ -341,29 +391,43 @@ class CollapsedRangeDelMap : public RangeDelMap {
       ++it;
     }
 
-    if (t.seq_ == prev_seq()) {
+    if (t.seq_ == prev_range_seq()) {
       // The new tombstone is unterminated in the map.
-      if (it != rep_.end() && t.seq_ == it->second && ucmp_->Compare(it->first, t.end_key_) == 0) {
+      if (it != rep_.end() && t.seq_ == it->second.range_seqnum &&
+          ucmp_->Compare(it->first, t.end_key_) == 0) {
         // The new tombstone ends at the start of another tombstone with an
         // identical seqno. Merge the tombstones by removing the existing
         // tombstone's start key.
         rep_.erase(it);
-      } else if (end_seq == prev_seq() || (it != rep_.end() && end_seq == it->second)) {
+      } else if (end_seq == prev_range_seq() ||
+                 (it != rep_.end() && end_seq == it->second.range_seqnum)) {
         // The new tombstone is implicitly ended because its end point is
         // contained within an existing tombstone with the same seqno:
         //
         //     2: ---k--N
         //              ^
+      } else if (is_truncated) {
+        // We must have an entry at the tombstone's end key, since we want to
+        // preserve the range tombstone's seqnum for the end key.
+        if (it != rep_.end() && ucmp_->Compare(it->first, t.end_key_) == 0) {
+          CollapsedMapBoundary old_boundary = it->second;
+          it->second = CollapsedMapBoundary(
+              std::max(t.seq_, old_boundary.point_seqnum), old_boundary.range_seqnum);
+        } else {
+          rep_[t.end_key_] = CollapsedMapBoundary(t.seq_, end_seq);
+        }
       } else {
         // The new tombstone needs an explicit end point.
         //
         //     3:             OR   3: --G       OR   3: --G   K--
         //     2: C-------k        2:   G---k        2:   G---k
         //                  ^                 ^               ^
-        // Install one that returns to the last seqno we covered. Because end
-        // keys are exclusive, if there's an existing transition at t.end_key_,
+        // Install one that returns to the last seqno we covered. Because this end
+        // key is exclusive, if there's an existing transition at t.end_key_,
         // it takes precedence over the transition that we install here.
-        rep_.emplace(t.end_key_, end_seq);  // emplace is a noop if existing entry
+        rep_.emplace(t.end_key_,
+                     CollapsedMapBoundary(
+                         end_seq));  // emplace is a noop if existing entry
       }
     } else {
       // The new tombstone is implicitly ended because its end point is covered
@@ -493,6 +557,7 @@ Status RangeDelAggregator::AddTombstones(
       return Status::Corruption("Unable to parse range tombstone InternalKey");
     }
     RangeTombstone tombstone;
+    bool is_truncated = false;
     if (input->IsValuePinned()) {
       tombstone = RangeTombstone(parsed_key, input->value());
     } else {
@@ -519,13 +584,13 @@ Status RangeDelAggregator::AddTombstones(
       // two versions of the user-key), in which case we cannot truncate the
       // range tombstone.
       if (icmp_.user_comparator()->Compare(tombstone.end_key_,
-                                           largest->user_key()) > 0 &&
-          GetInternalKeySeqno(largest->Encode()) == kMaxSequenceNumber) {
+                                           largest->user_key()) > 0) {
         tombstone.end_key_ = largest->user_key();
+        is_truncated = true;
       }
     }
     auto seq = tombstone.seq_;
-    GetRangeDelMap(seq).AddTombstone(std::move(tombstone));
+    GetRangeDelMap(seq).AddTombstone(std::move(tombstone), is_truncated);
     input->Next();
   }
   if (!first_iter) {

@@ -68,7 +68,7 @@ class RangeDelMap {
   virtual size_t Size() const = 0;
   bool IsEmpty() const { return Size() == 0; }
 
-  virtual void AddTombstone(RangeTombstone tombstone) = 0;
+  virtual void AddTombstone(RangeTombstone tombstone, bool is_truncated) = 0;
   virtual std::unique_ptr<RangeDelIterator> NewIterator() = 0;
 };
 
