@@ -1295,6 +1295,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           persist_options_status.ToString());
     }
   }
+  if (s.ok()) {
+    impl->StartTimedTasks();
+  }
   if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;

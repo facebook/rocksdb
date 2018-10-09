@@ -573,7 +573,7 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int> delete_count_;
 
-  bool time_elapse_only_sleep_;
+  std::atomic<bool> time_elapse_only_sleep_;
 
   bool no_slowdown_;
 
