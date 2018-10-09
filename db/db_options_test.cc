@@ -534,11 +534,11 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   ASSERT_GE(counter, 1);
 
   // Test cacel job through SetOptions
-  ASSERT_OK(dbfull()->SetDBOptions(
-      {{"stats_dump_period_sec", "0"}}));
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
   int old_val = counter;
   env_->SleepForMicroseconds(10000000);
   ASSERT_EQ(counter, old_val);
+  Close();
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
