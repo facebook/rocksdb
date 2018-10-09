@@ -557,8 +557,8 @@ Compaction* CompactionPicker::CompactRange(
     uint32_t output_path_id, uint32_t max_subcompactions,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* manual_conflict,
-    std::unordered_set<uint64_t>* files_being_compact,
-    bool enable_lazy_compaction) {
+    std::unordered_set<uint64_t>* /*files_being_compact*/,
+    bool /*enable_lazy_compaction*/) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
   CompactionInputFiles inputs;

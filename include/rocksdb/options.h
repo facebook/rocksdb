@@ -1262,8 +1262,6 @@ struct CompactRangeOptions {
   // If true, will execute immediately even if doing so would cause the DB to
   // enter write stall mode. Otherwise, it'll sleep until load is low enough.
   bool allow_write_stall = false;
-  // If true, will delete all records in range
-  bool is_compaction_for_delete = false;
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions = 0;
 };
