@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.16.4 (10/10/2018)
+### Bug Fixes
+* Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
+
 ## 5.16.3 (10/1/2018)
 ### Bug Fixes
 * Fix crash caused when `CompactFiles` run with `CompactionOptions::compression == CompressionType::kDisableCompressionOption`. Now that setting causes the compression type to be chosen according to the column family-wide compression options.
