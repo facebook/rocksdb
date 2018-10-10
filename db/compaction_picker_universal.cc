@@ -1575,89 +1575,13 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
   CompactionInputFiles inputs;
   inputs.level = level;
 
-  struct SimpleMapIterator : public InternalIterator {
-    explicit SimpleMapIterator(
-        const std::vector<FileMetaData*>& _level_files, void* _args,
-        InternalIterator* (*_create_arena_iter)(void* args, FileMetaData* f))
-        : level_files(_level_files),
-          args(_args),
-          create_arena_iter(_create_arena_iter),
-          i(size_t(-1)) {
-      assert(!level_files.empty());
-    }
-    virtual bool Valid() const override { return i < level_files.size(); }
-    virtual void Seek(const Slice& /*target*/) override { assert(false); }
-    virtual void SeekForPrev(const Slice& /*target*/) override {
-      assert(false);
-    }
-    virtual void SeekToFirst() override {
-      i = size_t(-1);
-      iter.set(nullptr);
-      SimpleMapIterator::Next();
-    }
-    virtual void SeekToLast() override { assert(false); }
-    virtual void Next() override { Update(); }
-    virtual void Prev() override { assert(false); }
-    Slice key() const override { return key_slice; }
-    Slice value() const override { return value_slice; }
-    virtual Status status() const override { return Status::OK(); }
-
-    void Update() {
-      if (iter.get() != nullptr) {
-        iter->Next();
-        if (iter->Valid()) {
-          key_slice = iter->key();
-          value_slice = iter->value();
-          return;
-        }
-      }
-      ++i;
-      iter.set(nullptr);
-      if (i >= level_files.size()) {
-        return;
-      }
-      if (level_files[i]->sst_purpose == kMapSst) {
-        iter.set(create_arena_iter(args, level_files[i]));
-        key_slice = iter->key();
-        value_slice = iter->value();
-      } else {
-        element.smallest_key_ = level_files[i]->smallest.Encode();
-        element.largest_key_ = level_files[i]->largest.Encode();
-        element.include_smallest_ = true;
-        element.include_largest_ = true;
-        element.no_records_ = false;
-        element.link_.clear();
-        element.link_.emplace_back(MapSstElement::LinkTarget{
-            level_files[i]->fd.GetNumber(), level_files[i]->fd.GetFileSize()});
-        key_slice = element.Key();
-        value_slice = element.Value(&buffer);
-      }
-    }
-
-    const std::vector<FileMetaData*>& level_files;
-    size_t i;
-    std::string buffer;
-    MapSstElement element;
-    ScopedArenaIterator iter;
-    void* args;
-    InternalIterator* (*create_arena_iter)(void*, FileMetaData*);
-    Slice key_slice, value_slice;
-  };
-
   std::vector<RangeStorage> input_range;
   Arena arena;
   DependFileMap empty_depend_files;
   ReadOptions options;
-  auto create_arena_iter = [&](FileMetaData* f) {
-    return table_cache_->NewIterator(
-        options, env_options_, *icmp_, *inputs.files.front(),
-        empty_depend_files, nullptr, mutable_cf_options.prefix_extractor.get(),
-        nullptr, nullptr, false, &arena, true, inputs.level);
-  };
-  ScopedArenaIterator iter(
-      new (arena.AllocateAligned(sizeof(SimpleMapIterator)))
-          SimpleMapIterator(vstorage->LevelFiles(level), &create_arena_iter,
-                            c_style_callback(create_arena_iter)));
+  ScopedArenaIterator iter(NewMapElementIterator(
+      level_files.data(), level_files.size(), table_cache_, options,
+      env_options_, icmp_, mutable_cf_options.prefix_extractor.get(), &arena));
   if (!iter->status().ok()) {
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: Read level files error %s.",
                      cf_name.c_str(), iter->status().getState());

@@ -892,4 +892,194 @@ Status MapBuilder::WriteOutputFile(
   return s;
 }
 
+struct MapElementIterator : public InternalIterator {
+  explicit MapElementIterator(FileMetaData* const* meta_array, size_t meta_size,
+                              TableCache* table_cache,
+                              const ReadOptions& read_options,
+                              const EnvOptions& env_options,
+                              const InternalKeyComparator* icmp,
+                              const SliceTransform* slice_transform)
+      : meta_array_(meta_array),
+        meta_size_(meta_size),
+        table_cache_(table_cache),
+        read_options_(read_options),
+        env_options_(env_options),
+        icmp_(icmp),
+        slice_transform_(slice_transform),
+        where_(meta_size) {
+    assert(meta_size > 0);
+  }
+  virtual bool Valid() const override { return where_ < meta_size_; }
+  virtual void Seek(const Slice& target) override {
+    where_ = std::lower_bound(meta_array_, meta_array_ + meta_size_, target,
+                              [this](FileMetaData* f, const Slice& target) {
+                                return icmp_->Compare(f->largest.Encode(),
+                                                      target) < 0;
+                              }) -
+             meta_array_;
+    if (where_ == meta_size_) {
+      return;
+    }
+    if (meta_array_[where_]->sst_purpose == kMapSst) {
+      InitMapSstIterator();
+      iter_->Seek(target);
+      if (!iter_->Valid()) {
+        iter_.reset();
+        if (++where_ == meta_size_) {
+          return;
+        }
+        if (meta_array_[where_]->sst_purpose == kMapSst) {
+          InitMapSstIterator();
+          iter_->SeekToFirst();
+        }
+      }
+    }
+    Update();
+  }
+  virtual void SeekForPrev(const Slice& target) override {
+    where_ = std::upper_bound(meta_array_, meta_array_ + meta_size_, target,
+                              [this](const Slice& target, FileMetaData* f) {
+                                return icmp_->Compare(target,
+                                                      f->largest.Encode()) < 0;
+                              }) -
+             meta_array_;
+    if (where_-- == 0) {
+      where_ = meta_size_;
+      return;
+    }
+    if (meta_array_[where_]->sst_purpose == kMapSst) {
+      InitMapSstIterator();
+      iter_->SeekForPrev(target);
+      if (!iter_->Valid()) {
+        iter_.reset();
+        if (where_-- == 0) {
+          where_ = meta_size_;
+          return;
+        }
+        if (meta_array_[where_]->sst_purpose == kMapSst) {
+          InitMapSstIterator();
+          iter_->SeekToLast();
+        }
+      }
+    }
+    Update();
+  }
+  virtual void SeekToFirst() override {
+    where_ = 0;
+    if (meta_array_[where_]->sst_purpose == kMapSst) {
+      InitMapSstIterator();
+      iter_->SeekToFirst();
+    }
+    Update();
+  }
+  virtual void SeekToLast() override {
+    where_ = meta_size_ - 1;
+    if (meta_array_[where_]->sst_purpose == kMapSst) {
+      InitMapSstIterator();
+      iter_->SeekToLast();
+    }
+    Update();
+  }
+  virtual void Next() override {
+    if (iter_) {
+      assert(iter_->Valid());
+      iter_->Next();
+      if (iter_->Valid()) {
+        return;
+      }
+    }
+    if (++where_ == meta_size_) {
+      iter_.reset();
+      return;
+    }
+    if (meta_array_[where_]->sst_purpose == kMapSst) {
+      InitMapSstIterator();
+      iter_->SeekToFirst();
+    }
+    Update();
+  }
+  virtual void Prev() override {
+    if (iter_) {
+      assert(iter_->Valid());
+      iter_->Prev();
+      if (iter_->Valid()) {
+        return;
+      }
+    }
+    if (where_-- == 0) {
+      where_ = meta_size_;
+      iter_.reset();
+      return;
+    }
+    if (meta_array_[where_]->sst_purpose == kMapSst) {
+      InitMapSstIterator();
+      iter_->SeekToLast();
+    }
+    Update();
+  }
+  Slice key() const override { return key_slice; }
+  Slice value() const override { return value_slice; }
+  virtual Status status() const override { return Status::OK(); }
+
+  void InitMapSstIterator() {
+    DependFileMap empty_depend_files;
+    iter_.reset(table_cache_->NewIterator(
+        read_options_, env_options_, *icmp_, *meta_array_[where_],
+        empty_depend_files, nullptr, slice_transform_, nullptr, nullptr, false,
+        nullptr, true, -1));
+  }
+  void Update() {
+    if (iter_) {
+      key_slice = iter_->key();
+      value_slice = iter_->value();
+    } else {
+      FileMetaData* f = meta_array_[where_];
+      element_.smallest_key_ = f->smallest.Encode();
+      element_.largest_key_ = f->largest.Encode();
+      element_.include_smallest_ = true;
+      element_.include_largest_ = true;
+      element_.no_records_ = false;
+      element_.link_.clear();
+      element_.link_.emplace_back(
+          MapSstElement::LinkTarget{f->fd.GetNumber(), f->fd.GetFileSize()});
+      key_slice = element_.Key();
+      value_slice = element_.Value(&buffer_);
+    }
+  }
+
+  FileMetaData* const* meta_array_;
+  size_t meta_size_;
+  TableCache* table_cache_;
+  const ReadOptions& read_options_;
+  const EnvOptions& env_options_;
+  const InternalKeyComparator* icmp_;
+  const SliceTransform* slice_transform_;
+  size_t where_;
+  MapSstElement element_;
+  std::string buffer_;
+  std::unique_ptr<InternalIterator> iter_;
+  Slice key_slice, value_slice;
+};
+
+InternalIterator* NewMapElementIterator(
+    FileMetaData* const* meta_array, size_t meta_size, TableCache* table_cache,
+    const ReadOptions& read_options, const EnvOptions& env_options,
+    const InternalKeyComparator* icmp, const SliceTransform* slice_transform,
+    Arena* arena) {
+  if (meta_size == 1 && meta_array[0]->sst_purpose == kMapSst) {
+    DependFileMap empty_depend_files;
+    return table_cache->NewIterator(
+        read_options, env_options, *icmp, *meta_array[0], empty_depend_files,
+        nullptr, slice_transform, nullptr, nullptr, false, arena, true, -1);
+  } else if (arena == nullptr) {
+    return new MapElementIterator(meta_array, meta_size, table_cache,
+                                  read_options, env_options, icmp,
+                                  slice_transform);
+  } else {
+    return new (arena->AllocateAligned(sizeof(MapElementIterator)))
+        MapElementIterator(meta_array, meta_size, table_cache, read_options,
+                           env_options, icmp, slice_transform);
+  }
+}
+
 }  // namespace rocksdb
