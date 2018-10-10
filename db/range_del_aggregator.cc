@@ -10,8 +10,6 @@
 
 namespace rocksdb {
 
-namespace {
-
 struct TombstoneStartKeyComparator {
   explicit TombstoneStartKeyComparator(const InternalKeyComparator* c)
       : cmp(c) {}
@@ -35,8 +33,6 @@ struct ParsedInternalKeyComparator {
 
   const InternalKeyComparator* cmp;
 };
-
-}  // namespace
 
 // An UncollapsedRangeDelMap is quick to create but slow to answer ShouldDelete
 // queries.
