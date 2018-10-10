@@ -318,7 +318,7 @@ TEST_F(DBTest, MixedSlowdownOptions) {
   for (auto& t : threads) {
     t.join();
   }
-  ASSERT_EQ(sleep_count.load(), 1);
+  ASSERT_GE(sleep_count.load(), 1);
 
   wo.no_slowdown = true;
   ASSERT_OK(dbfull()->Put(wo, "foo3", "bar"));
