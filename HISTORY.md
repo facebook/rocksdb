@@ -3,6 +3,9 @@
 ### New Features
 * Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
 
+### Bug Fixes
+* Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
+
 ## 5.17.0 (10/05/2018)
 ### Public API Change
 * `OnTableFileCreated` will now be called for empty files generated during compaction. In that case, `TableFileCreationInfo::file_path` will be "(nil)" and `TableFileCreationInfo::file_size` will be zero.
@@ -16,7 +19,6 @@
 ### Bug Fixes
 * Avoid creating empty SSTs and subsequently deleting them in certain cases during compaction.
 * Sync CURRENT file contents during checkpoint.
-* Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
 
 ## 5.16.3 (10/1/2018)
 ### Bug Fixes

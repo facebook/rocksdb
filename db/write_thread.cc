@@ -217,7 +217,7 @@ void WriteThread::SetState(Writer* w, uint8_t new_state) {
   }
 }
 
-bool WriteThread::LinkOne( Writer* w, std::atomic<Writer*>* newest_writer) {
+bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
   assert(newest_writer != nullptr);
   assert(w->state == STATE_INIT);
   Writer* writers = newest_writer->load(std::memory_order_relaxed);
@@ -352,7 +352,8 @@ void WriteThread::EndWriteStall() {
   MutexLock lock(&stall_mu_);
 
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
-  newest_writer_.exchange(write_stall_dummy_.link_older);
+  auto w = newest_writer_.exchange(write_stall_dummy_.link_older);
+  assert(w == &write_stall_dummy_);
 
   // Wake up writers
   stall_cv_.SignalAll();

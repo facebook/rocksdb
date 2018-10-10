@@ -399,7 +399,7 @@ class WriteThread {
   // Links w into the newest_writer list. Return true if w was linked directly
   // into the leader position.  Safe to call from multiple threads without
   // external locking.
-  bool LinkOne( Writer* w, std::atomic<Writer*>* newest_writer);
+  bool LinkOne(Writer* w, std::atomic<Writer*>* newest_writer);
 
   // Link write group into the newest_writer list as a whole, while keeping the
   // order of the writers unchanged. Return true if the group was linked
