@@ -352,8 +352,7 @@ void WriteThread::EndWriteStall() {
   MutexLock lock(&stall_mu_);
 
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
-  auto w = newest_writer_.exchange(write_stall_dummy_.link_older);
-  assert(w == &write_stall_dummy_);
+  newest_writer_.exchange(write_stall_dummy_.link_older);
 
   // Wake up writers
   stall_cv_.SignalAll();
