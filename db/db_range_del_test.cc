@@ -1103,6 +1103,193 @@ TEST_F(DBRangeDelTest, UnorderedTombstones) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
+class MockMergeOperator : public MergeOperator {
+  // Mock non-associative operator. Non-associativity is expressed by lack of
+  // implementation for any `PartialMerge*` functions.
+ public:
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    assert(merge_out != nullptr);
+    merge_out->new_value = merge_in.operand_list.back().ToString();
+    return true;
+  }
+
+  virtual const char* Name() const override { return "MockMergeOperator"; }
+};
+
+TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {
+  // This test uses a non-associative merge operator since that is a convenient
+  // way to get compaction to write out files with overlapping user-keys at the
+  // endpoints. Note, however, overlapping endpoints can also occur with other
+  // value types (Put, etc.), assuming the right snapshots are present.
+  const int kFileBytes = 1 << 20;
+  const int kValueBytes = 1 << 10;
+  const int kNumFiles = 4;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.merge_operator.reset(new MockMergeOperator());
+  options.target_file_size_base = kFileBytes;
+  Reopen(options);
+
+  Random rnd(301);
+  const Snapshot* snapshot = nullptr;
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
+      auto value = RandomString(&rnd, kValueBytes);
+      ASSERT_OK(db_->Merge(WriteOptions(), "key", value));
+    }
+    if (i == kNumFiles - 1) {
+      // Take snapshot to prevent covered merge operands from being dropped by
+      // compaction.
+      snapshot = db_->GetSnapshot();
+      // The DeleteRange is the last write so all merge operands are covered.
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 "key", "key_"));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+  ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(0));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr /* begin_key */,
+                              nullptr /* end_key */));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  // Now we have multiple files at L1 all containing a single user key, thus
+  // guaranteeing overlap in the file endpoints.
+  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+
+  // Verify no merge operands reappeared after the compaction.
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
+
+  // Compact and verify again. It's worthwhile because now the files have
+  // tighter endpoints, so we can verify that doesn't mess anything up.
+  dbfull()->TEST_CompactRange(1 /* level */, nullptr /* begin */,
+                              nullptr /* end */, nullptr /* column_family */,
+                              true /* disallow_trivial_move */);
+  ASSERT_GT(NumTableFilesAtLevel(2), 1);
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
+  // Verify a key newer than a range tombstone cannot be deleted by being
+  // compacted to the bottom level (and thus having its seqnum zeroed) before
+  // the range tombstone. This used to happen when range tombstones were
+  // untruncated on reads such that they extended past their file boundaries.
+  //
+  // Test summary:
+  //
+  // - L1 is bottommost.
+  // - A couple snapshots are strategically taken to prevent seqnums from being
+  //   zeroed, range tombstone from being dropped, merge operands from being
+  //   dropped, and merge operands from being combined.
+  // - Left half of files in L1 all have same user key, ensuring their file
+  //   boundaries overlap. In the past this would cause range tombstones to be
+  //   untruncated.
+  // - Right half of L1 files all have different keys, ensuring no overlap.
+  // - A range tombstone spans all L1 keys, so it is stored in every L1 file.
+  // - Keys in the right side of the key-range are overwritten. These are
+  //   compacted down to L1 after releasing snapshots such that their seqnums
+  //   will be zeroed.
+  // - A full range scan is performed. If the tombstone in the left L1 files
+  //   were untruncated, it would now cover keys newer than it (but with zeroed
+  //   seqnums) in the right L1 files.
+  const int kFileBytes = 1 << 20;
+  const int kValueBytes = 1 << 10;
+  const int kNumFiles = 4;
+  const int kMaxKey = kNumFiles* kFileBytes / kValueBytes;
+  const int kKeysOverwritten = 10;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.merge_operator.reset(new MockMergeOperator());
+  options.num_levels = 2;
+  options.target_file_size_base = kFileBytes;
+  Reopen(options);
+
+  Random rnd(301);
+  // - snapshots[0] prevents merge operands from being combined during
+  //   compaction.
+  // - snapshots[1] prevents merge operands from being dropped due to the
+  //   covering range tombstone.
+  const Snapshot* snapshots[] = {nullptr, nullptr};
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
+      auto value = RandomString(&rnd, kValueBytes);
+      std::string key;
+      if (i < kNumFiles / 2) {
+        key = Key(0);
+      } else {
+        key = Key(1 + i * kFileBytes / kValueBytes + j);
+      }
+      ASSERT_OK(db_->Merge(WriteOptions(), key, value));
+    }
+    if (i == 0) {
+      snapshots[0] = db_->GetSnapshot();
+    }
+    if (i == kNumFiles - 1) {
+      snapshots[1] = db_->GetSnapshot();
+      // The DeleteRange is the last write so all merge operands are covered.
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 Key(0), Key(kMaxKey + 1)));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+  ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(0));
+
+  auto get_key_count = [this]() -> int {
+    auto* iter = db_->NewIterator(ReadOptions());
+    iter->SeekToFirst();
+    int keys_found = 0;
+    for (; iter->Valid(); iter->Next()) {
+      ++keys_found;
+    }
+    delete iter;
+    return keys_found;
+  };
+
+  // All keys should be covered
+  ASSERT_EQ(0, get_key_count());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr /* begin_key */,
+                              nullptr /* end_key */));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  // Roughly the left half of L1 files should have overlapping boundary keys,
+  // while the right half should not.
+  ASSERT_GE(NumTableFilesAtLevel(1), kNumFiles);
+
+  // Now overwrite a few keys that are in L1 files that definitely don't have
+  // overlapping boundary keys.
+  for (int i = kMaxKey; i > kMaxKey - kKeysOverwritten; --i) {
+    auto value = RandomString(&rnd, kValueBytes);
+    ASSERT_OK(db_->Merge(WriteOptions(), Key(i), value));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // The overwritten keys are in L0 now, so clearly aren't covered by the range
+  // tombstone in L1.
+  ASSERT_EQ(kKeysOverwritten, get_key_count());
+
+  // Release snapshots so seqnums can be zeroed when L0->L1 happens.
+  db_->ReleaseSnapshot(snapshots[0]);
+  db_->ReleaseSnapshot(snapshots[1]);
+
+  auto begin_key_storage = Key(kMaxKey - kKeysOverwritten + 1);
+  auto end_key_storage = Key(kMaxKey);
+  Slice begin_key(begin_key_storage);
+  Slice end_key(end_key_storage);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin_key, &end_key));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GE(NumTableFilesAtLevel(1), kNumFiles);
+
+  ASSERT_EQ(kKeysOverwritten, get_key_count());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
