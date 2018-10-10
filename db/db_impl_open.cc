@@ -238,8 +238,19 @@ Status DBImpl::NewDB() {
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
+    std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+    const auto& listeners = immutable_db_options_.listeners;
+    std::for_each(
+        listeners.begin(), listeners.end(),
+        [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
+          if (e->ShouldBeNotifiedOnFileIO()) {
+            file_io_listeners.emplace_back(e);
+          }
+        });
+
     unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, env_options));
+        new WritableFileWriter(std::move(file), manifest, env_options,
+                               nullptr /* stats */, file_io_listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -1144,8 +1155,20 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       {
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
-        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(lfile), log_fname, opt_env_options));
+
+        std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+        const auto& listeners = impl->immutable_db_options_.listeners;
+        std::for_each(
+            listeners.begin(), listeners.end(),
+            [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
+              if (e->ShouldBeNotifiedOnFileIO()) {
+                file_io_listeners.emplace_back(e);
+              }
+            });
+
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
+                                   nullptr /* stats */, file_io_listeners));
         impl->logs_.emplace_back(
             new_log_number,
             new log::Writer(

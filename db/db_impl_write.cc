@@ -1386,8 +1386,20 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         // of calling GetWalPreallocateBlockSize()
         lfile->SetPreallocationBlockSize(preallocate_block_size);
         lfile->SetWriteLifeTimeHint(write_hint);
+
+        std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+        const auto& listeners = immutable_db_options_.listeners;
+        std::for_each(
+            listeners.begin(), listeners.end(),
+            [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
+              if (e->ShouldBeNotifiedOnFileIO()) {
+                file_io_listeners.emplace_back(e);
+              }
+            });
+
         unique_ptr<WritableFileWriter> file_writer(
-            new WritableFileWriter(std::move(lfile), log_fname, opt_env_opt));
+            new WritableFileWriter(std::move(lfile), log_fname, opt_env_opt,
+                                   nullptr /* stats */, file_io_listeners));
         new_log = new log::Writer(
             std::move(file_writer), new_log_number,
             immutable_db_options_.recycle_log_file_num > 0, manual_wal_flush_);

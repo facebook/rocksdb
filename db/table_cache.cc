@@ -112,12 +112,21 @@ Status TableCache::GetTableReader(
       file->Hint(RandomAccessFile::RANDOM);
     }
     StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+    std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+    const auto& listeners = ioptions_.listeners;
+    std::for_each(
+        listeners.begin(), listeners.end(),
+        [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
+          if (e->ShouldBeNotifiedOnFileIO()) {
+            file_io_listeners.emplace_back(e);
+          }
+        });
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
             std::move(file), fname, ioptions_.env,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, for_compaction,
-            ioptions_.listeners));
+            file_io_listeners));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
                            internal_comparator, skip_filters, immortal_tables_,

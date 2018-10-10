@@ -914,6 +914,8 @@ class TestFileOperationListener : public EventListener {
     }
   }
 
+  bool ShouldBeNotifiedOnFileIO() { return true; }
+
   std::atomic<size_t> file_reads_;
   std::atomic<size_t> file_reads_success_;
   std::atomic<size_t> file_writes_;
@@ -932,14 +934,14 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   ASSERT_OK(Put("foo", "aaa"));
   dbfull()->Flush(FlushOptions());
   dbfull()->TEST_WaitForFlushMemTable();
-  ASSERT_EQ(listener->file_writes_.load(),
+  ASSERT_GE(listener->file_writes_.load(),
             listener->file_writes_success_.load());
-  ASSERT_GT(listener->file_writes_success_.load(), 0);
+  ASSERT_GT(listener->file_writes_.load(), 0);
   Close();
 
   Reopen(options);
-  ASSERT_EQ(listener->file_reads_.load(), listener->file_reads_success_.load());
-  ASSERT_GT(listener->file_reads_success_.load(), 0);
+  ASSERT_GE(listener->file_reads_.load(), listener->file_reads_success_.load());
+  ASSERT_GT(listener->file_reads_.load(), 0);
 }
 
 }  // namespace rocksdb

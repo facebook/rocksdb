@@ -751,8 +751,20 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   TableProperties* raw_table_properties;
   // By setting the magic number to kInvalidTableMagicNumber, we can by
   // pass the magic number check in the footer.
+  std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+  const auto& listeners = ioptions->listeners;
+  std::for_each(listeners.begin(), listeners.end(),
+                [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
+                  if (e->ShouldBeNotifiedOnFileIO()) {
+                    file_io_listeners.emplace_back(e);
+                  }
+                });
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), file_name));
+      new RandomAccessFileReader(std::move(file), file_name, nullptr /* env */,
+                                 nullptr /* stats */, 0 /* hist_type */,
+                                 nullptr /* file_read_hist */,
+                                 nullptr /* rate_limiter */,
+                                 false /* for_compaction*/, file_io_listeners));
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
       Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions,
@@ -2925,9 +2937,19 @@ Status VersionSet::ProcessManifestWrites(
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
 
-        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_env_opts, nullptr,
-            db_options_->listeners));
+        std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+        const auto& listeners = db_options_->listeners;
+        std::for_each(
+            listeners.begin(), listeners.end(),
+            [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
+              if (e->ShouldBeNotifiedOnFileIO()) {
+                file_io_listeners.emplace_back(e);
+              }
+            });
+
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(descriptor_file), descriptor_fname,
+                                   opt_env_opts, nullptr, file_io_listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteSnapshot(descriptor_log_.get());
