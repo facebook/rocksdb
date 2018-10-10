@@ -177,6 +177,8 @@ struct CompactionJobInfo {
   explicit CompactionJobInfo(const CompactionJobStats& _stats) :
       stats(_stats) {}
 
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
   // the name of the column family where the compaction happened.
   std::string cf_name;
   // the status indicating whether the compaction was successful or not.

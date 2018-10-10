@@ -276,6 +276,7 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   total_access_keys_ = 0;
   total_gets_ = 0;
   total_writes_ = 0;
+  trace_create_time_ = 0;
   begin_time_ = 0;
   end_time_ = 0;
   time_series_start_ = 0;
@@ -422,6 +423,7 @@ Status TraceAnalyzer::StartProcessing() {
     fprintf(stderr, "Cannot read the header\n");
     return s;
   }
+  trace_create_time_ = header.ts;
   if (FLAGS_output_time_series) {
     time_series_start_ = header.ts;
   }
@@ -740,6 +742,9 @@ Status TraceAnalyzer::MakeStatisticCorrelation(TraceStats& stats,
 
 // Process the statistics of QPS
 Status TraceAnalyzer::MakeStatisticQPS() {
+  if(begin_time_ == 0) {
+    begin_time_ = trace_create_time_;
+  }
   uint32_t duration =
       static_cast<uint32_t>((end_time_ - begin_time_) / 1000000);
   int ret;

@@ -1212,10 +1212,11 @@ Status CompactionJob::FinishCompactionOutputFile(
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
       if (upper_bound != nullptr &&
-          ucmp->Compare(*upper_bound, tombstone.start_key_) <= 0) {
-        // Tombstones starting at upper_bound or later only need to be included
-        // in the next table. Break because subsequent tombstones will start
-        // even later.
+          ucmp->Compare(*upper_bound, tombstone.start_key_) < 0) {
+        // Tombstones starting after upper_bound only need to be included in the
+        // next table (if the SSTs overlap, then upper_bound is contained in
+        // this SST and hence must be covered). Break because subsequent
+        // tombstones will start even later.
         break;
       }
 

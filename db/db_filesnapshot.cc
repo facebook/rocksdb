@@ -126,7 +126,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;
-  for (auto live_file : live) {
+  for (const auto& live_file : live) {
     ret.push_back(MakeTableFileName("", live_file.GetNumber()));
   }
 
