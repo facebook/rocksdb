@@ -293,6 +293,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */);
+    jobs.back().PickMemTable();
   }
 
   autovector<FileMetaData> file_meta;
@@ -300,8 +301,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   assert(num_cfs == static_cast<int>(jobs.size()));
 
   for (int i = 0; i != num_cfs; ++i) {
-    auto& job = jobs[i];
-    job.PickMemTable();
     file_meta.emplace_back(FileMetaData());
 
 #ifndef ROCKSDB_LITE
@@ -309,18 +308,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         *cfds[i]->GetLatestMutableCFOptions();
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
-                       job_context->job_id, job.GetTableProperties());
+                       job_context->job_id, jobs[i].GetTableProperties());
 #endif /* !ROCKSDB_LITE */
   }
 
-  if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
-    // If there are more than one column families, we need to make sure that
-    // all the log files except the most recent one are synced. Otherwise if
-    // the host crashes after flushing and before WAL is persistent, the
-    // flushed SST may contain data from write batches whose updates to
-    // other column families are missing.
-    // SyncClosedLogs() may unlock and re-lock the db_mutex.
+  if (logfile_number_ > 0) {
+    // TODO (yanqin) investigate whether we should sync the closed logs for
+    // single column family case.
     s = SyncClosedLogs(job_context);
   }
 

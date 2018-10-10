@@ -783,6 +783,7 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
   // Request flush even though there is nothing to flush
   for (int i = 0; i != num_cfs; ++i) {
     auto list = lists[i];
+    list->FlushRequested();
     ASSERT_FALSE(list->IsFlushPending());
     ASSERT_FALSE(list->imm_flush_needed.load(std::memory_order_acquire));
   }
