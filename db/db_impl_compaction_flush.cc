@@ -547,7 +547,7 @@ Status DBImpl::CompactFilesImpl(
   }
 
   std::unordered_set<uint64_t> input_set;
-  for (auto file_name : input_file_names) {
+  for (const auto& file_name : input_file_names) {
     input_set.insert(TableFileNameToNumber(file_name));
   }
 
@@ -579,7 +579,7 @@ Status DBImpl::CompactFilesImpl(
     return s;
   }
 
-  for (auto inputs : input_files) {
+  for (const auto& inputs : input_files) {
     if (cfd->compaction_picker()->AreFilesInCompaction(inputs.files)) {
       return Status::Aborted(
           "Some of the necessary compaction input "
