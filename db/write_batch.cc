@@ -414,9 +414,10 @@ Status WriteBatch::Iterate(Handler* handler) const {
   char tag = 0;
   uint32_t column_family = 0;  // default
   bool last_was_try_again = false;
-  bool handlerContinue = true;
+  bool handler_continue = true;
   while (((s.ok() && !input.empty()) || UNLIKELY(s.IsTryAgain()))) {
-    if (!(handlerContinue = handler->Continue())) {
+    handler_continue = handler->Continue();
+    if (!handler_continue) {
       break;
     }
     
@@ -587,7 +588,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
   if (!s.ok()) {
     return s;
   }
-  if (handlerContinue && found != WriteBatchInternal::Count(this)) {
+  if (handler_continue && found != WriteBatchInternal::Count(this)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
