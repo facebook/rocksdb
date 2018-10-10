@@ -299,6 +299,16 @@ class EventListener {
   // returned value.
   virtual void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
 
+  // A callback function to RocksDB which will be called before a
+  // RocksDB starts to compact.  The default implementation is
+  // no-op.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnCompactionBegin(DB* /*db*/,
+                                 const CompactionJobInfo& /*ci*/) {}
+
   // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
   // is a no-op.
