@@ -227,6 +227,7 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
     // immediately
     if (writers == &write_stall_dummy_) {
       if (w->no_slowdown) {
+        w->status = Status::Incomplete("Write stall");
         SetState(w, STATE_COMPLETED);
         return false;
       }
@@ -364,11 +365,6 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   assert(w->batch != nullptr);
 
   bool linked_as_leader = LinkOne(w, &newest_writer_);
-  if (w->state.load(std::memory_order_acquire) == STATE_COMPLETED) {
-    // This means there is a write stall. Set incomplete status
-    w->status = Status::Incomplete("Write stall");
-    return;
-  }
 
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
