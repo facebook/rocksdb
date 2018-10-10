@@ -27,6 +27,7 @@ public class ReadOptions extends RocksObject {
   public ReadOptions(ReadOptions other) {
     super(copyReadOptions(other.nativeHandle_));
     iterateUpperBoundSlice_ = other.iterateUpperBoundSlice_;
+    iterateLowerBoundSlice_ = other.iterateLowerBoundSlice_;
   }
 
   /**
@@ -423,15 +424,65 @@ public class ReadOptions extends RocksObject {
     return null;
   }
 
+  /**
+   * Defines the smallest key at which the backward iterator can return an
+   * entry. Once the bound is passed, Valid() will be false.
+   * `iterate_lower_bound` is inclusive ie the bound value is a valid entry.
+   *
+   * If prefix_extractor is not null, the Seek target and `iterate_lower_bound`
+   * need to have the same prefix. This is because ordering is not guaranteed
+   * outside of prefix domain.
+   *
+   * Default: nullptr
+   *
+   * @param iterateLowerBound Slice representing the lower bound
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setIterateLowerBound(final Slice iterateLowerBound) {
+    assert(isOwningHandle());
+    if (iterateLowerBound != null) {
+      // Hold onto a reference so it doesn't get garbaged collected out from under us.
+      iterateLowerBoundSlice_ = iterateLowerBound;
+      setIterateLowerBound(nativeHandle_, iterateLowerBoundSlice_.getNativeHandle());
+    }
+    return this;
+  }
+
+  /**
+   * Defines the smallest key at which the backward iterator can return an
+   * entry. Once the bound is passed, Valid() will be false.
+   * `iterate_lower_bound` is inclusive ie the bound value is a valid entry.
+   *
+   * If prefix_extractor is not null, the Seek target and `iterate_lower_bound`
+   * need to have the same prefix. This is because ordering is not guaranteed
+   * outside of prefix domain.
+   *
+   * Default: nullptr
+   *
+   * @return Slice representing current iterate_lower_bound setting, or null if
+   *         one does not exist.
+   */
+  public Slice iterateLowerBound() {
+    assert(isOwningHandle());
+    long lowerBoundSliceHandle = iterateLowerBound(nativeHandle_);
+    if (lowerBoundSliceHandle != 0) {
+      // Disown the new slice - it's owned by the C++ side of the JNI boundary
+      // from the perspective of this method.
+      return new Slice(lowerBoundSliceHandle, false);
+    }
+    return null;
+  }
+
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
   //
-  // Hold a reference to any iterate upper bound that was set on this object
-  // until we're destroyed or it's overwritten.  That way the caller can freely
+  // Hold a reference to any iterate upper/lower bound that was set on this object
+  // until we're destroyed or it's overwritten. That way the caller can freely
   // leave scope without us losing the Java Slice object, which during close()
   // would also reap its associated rocksdb::Slice native object since it's
   // possibly (likely) to be an owning handle.
   protected Slice iterateUpperBoundSlice_;
+  protected Slice iterateLowerBoundSlice_;
 
   private native static long newReadOptions();
   private native static long copyReadOptions(long handle);
@@ -465,6 +516,9 @@ public class ReadOptions extends RocksObject {
   private native void setIterateUpperBound(final long handle,
       final long upperBoundSliceHandle);
   private native long iterateUpperBound(final long handle);
+  private native void setIterateLowerBound(final long handle,
+      final long upperBoundSliceHandle);
+  private native long iterateLowerBound(final long handle);
 
   @Override protected final native void disposeInternal(final long handle);
 

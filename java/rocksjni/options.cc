@@ -6525,6 +6525,31 @@ jlong Java_org_rocksdb_ReadOptions_iterateUpperBound(JNIEnv* /*env*/,
   return reinterpret_cast<jlong>(upper_bound_slice_handle);
 }
 
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setIterateLowerBound
+ * Signature: (JJ)I
+ */
+void Java_org_rocksdb_ReadOptions_setIterateLowerBound(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    jlong jlower_bound_slice_handle) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->iterate_lower_bound =
+      reinterpret_cast<rocksdb::Slice*>(jlower_bound_slice_handle);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    iterateLowerBound
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_iterateLowerBound(JNIEnv* /*env*/,
+                                                     jobject /*jobj*/,
+                                                     jlong jhandle) {
+  auto& lower_bound_slice_handle =
+      reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->iterate_lower_bound;
+  return reinterpret_cast<jlong>(lower_bound_slice_handle);
+}
+
 /////////////////////////////////////////////////////////////////////
 // rocksdb::ComparatorOptions
 
