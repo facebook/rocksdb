@@ -1162,7 +1162,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     uint64_t delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
       if (write_options.no_slowdown) {
-        return Status::Incomplete();
+        return Status::Incomplete("Write stall");
       }
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
 
@@ -1195,7 +1195,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     // indefinitely
     while (error_handler_.GetBGError().ok() && write_controller_.IsStopped()) {
       if (write_options.no_slowdown) {
-        return Status::Incomplete();
+        return Status::Incomplete("Write stall");
       }
       delayed = true;
 
