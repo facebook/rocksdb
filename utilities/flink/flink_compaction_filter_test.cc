@@ -10,20 +10,36 @@
 namespace rocksdb {
 namespace flink {
 
+#define DISABLED FlinkCompactionFilter::StateType::Disabled
 #define VALUE FlinkCompactionFilter::StateType::Value
 #define LIST FlinkCompactionFilter::StateType::List
-#define MAP FlinkCompactionFilter::StateType::Map
-#define DISABLED FlinkCompactionFilter::StateType::Disabled
 
 #define KVALUE CompactionFilter::ValueType::kValue
 #define KMERGE CompactionFilter::ValueType::kMergeOperand
+#define KBLOB CompactionFilter::ValueType::kBlobIndex
 
 #define KKEEP CompactionFilter::Decision::kKeep
 #define KREMOVE CompactionFilter::Decision::kRemove
+#define KCHANGE CompactionFilter::Decision::kChangeValue
 
 #define EXPIRE (time += ttl + 20)
 
-#define FLINK_MAP_STATE_NULL_BYTE_OFFSET 1
+#define TEST_TIMESTAMP_OFFSET 2
+
+#define LIST_ELEM_FIXED_LEN (8 + 4)
+
+#define EXPECT_ARR_EQ(arr1, arr2, num) EXPECT_TRUE( 0 == memcmp( arr1, arr2, num ) );
+
+class ConsoleLogger : public Logger {
+public:
+  using Logger::Logv;
+  ConsoleLogger() : Logger(InfoLogLevel::DEBUG_LEVEL) {}
+
+  void Logv(const char* format, va_list ap) override {
+    vprintf(format, ap);
+    printf("\n");
+  }
+};
 
 std::random_device rd; // NOLINT
 std::mt19937 mt(rd()); // NOLINT
@@ -33,97 +49,110 @@ int64_t time = 0;
 int64_t ttl = 100;
 
 Slice key = Slice("key"); // NOLINT
-char data[16];
+char data[24];
+std::string new_list = ""; // NOLINT
 std::string stub = ""; // NOLINT
 
 FlinkCompactionFilter::StateType state_type;
 CompactionFilter::ValueType value_type;
-FlinkCompactionFilter filter; // NOLINT
+FlinkCompactionFilter filter(shared_ptr<rocksdb::Logger>(new ConsoleLogger())); // NOLINT
 
 void SetTimestamp(int64_t timestamp = time, size_t offset = 0, char* value = data) {
-  time = timestamp;
   for (unsigned long i = 0; i < sizeof(uint64_t); i++) {
     value[offset + i] = static_cast<char>(static_cast<uint64_t>(timestamp)
             >> ((sizeof(int64_t) - 1 - i) * BITS_PER_BYTE));
   }
 }
 
-void init(FlinkCompactionFilter::StateType stype, CompactionFilter::ValueType vtype, size_t timestamp_offset = 0) {
-  SetTimestamp(rnd(mt), timestamp_offset);
+void Init(FlinkCompactionFilter::StateType stype,
+          CompactionFilter::ValueType vtype,
+          size_t timestamp_offset = TEST_TIMESTAMP_OFFSET) {
+  time = rnd(mt);
+  SetTimestamp(time, timestamp_offset);
   state_type = stype;
   value_type = vtype;
   
-  filter.Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false});
+  filter.Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, nullptr});
+}
+
+void InitList(CompactionFilter::ValueType vtype, bool first_elem_expired=false, size_t timestamp_offset = 0) {
+  time = rnd(mt);
+  SetTimestamp(first_elem_expired ? time - ttl - 20 : time, timestamp_offset); // elem 1 ts
+  SetTimestamp(time, LIST_ELEM_FIXED_LEN + timestamp_offset); // elem 2 ts
+  state_type = LIST;
+  value_type = vtype;
+
+  auto fixed_len_iter = new FlinkCompactionFilter::FixedListElementIter(LIST_ELEM_FIXED_LEN);
+  filter.Configure(new FlinkCompactionFilter::Config{state_type, timestamp_offset, ttl, false, fixed_len_iter});
 }
 
 CompactionFilter::Decision decide(size_t data_size = sizeof(data)) {
   filter.SetCurrentTimestamp(time);
-  return filter.FilterV2(0, key, value_type, Slice(data, data_size), &stub, &stub);
+  return filter.FilterV2(0, key, value_type, Slice(data, data_size), &new_list, &stub);
 }
 
 TEST(FlinkStateTtlTest, CheckStateTypeEnumOrder) { // NOLINT
   // if the order changes it also needs to be adjusted in Java client:
   // in org.rocksdb.FlinkCompactionFilter
   // and in org.rocksdb.FlinkCompactionFilterTest
-  EXPECT_EQ(VALUE, 0);
-  EXPECT_EQ(LIST, 1);
-  EXPECT_EQ(MAP, 2);
-  EXPECT_EQ(DISABLED, 3);
+  EXPECT_EQ(DISABLED, 0);
+  EXPECT_EQ(VALUE, 1);
+  EXPECT_EQ(LIST, 2);
 }
 
 TEST(FlinkStateTtlTest, SkipShortDataWithoutTimestamp) { // NOLINT
-  init(VALUE, KVALUE);
+  Init(VALUE, KVALUE);
   EXPIRE;
   EXPECT_EQ(decide(TIMESTAMP_BYTE_SIZE - 1), KKEEP);
 }
 
 TEST(FlinkValueStateTtlTest, Unexpired) { // NOLINT
-  init(VALUE, KVALUE);
+  Init(VALUE, KVALUE);
   EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkValueStateTtlTest, Expired) { // NOLINT
-  init(VALUE, KVALUE);
+  Init(VALUE, KVALUE);
   EXPIRE;
   EXPECT_EQ(decide(), KREMOVE);
 }
 
 TEST(FlinkValueStateTtlTest, WrongFilterValueType) { // NOLINT
-  init(VALUE, KMERGE);
+  Init(VALUE, KMERGE);
   EXPIRE;
   EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkListStateTtlTest, Unexpired) { // NOLINT
-  init(LIST, KMERGE);
+  InitList(KMERGE);
+  EXPECT_EQ(decide(), KKEEP);
+
+  InitList(KVALUE);
   EXPECT_EQ(decide(), KKEEP);
 }
 
 TEST(FlinkListStateTtlTest, Expired) { // NOLINT
-  init(LIST, KMERGE);
+  InitList(KMERGE);
   EXPIRE;
   EXPECT_EQ(decide(), KREMOVE);
+
+  InitList(KVALUE);
+  EXPIRE;
+  EXPECT_EQ(decide(), KREMOVE);
+}
+
+TEST(FlinkListStateTtlTest, HalfExpired) { // NOLINT
+  InitList(KMERGE, true);
+  EXPECT_EQ(decide(), KCHANGE);
+  EXPECT_ARR_EQ(new_list.data(), data + LIST_ELEM_FIXED_LEN, LIST_ELEM_FIXED_LEN);
+
+  InitList(KVALUE, true);
+  EXPECT_EQ(decide(), KCHANGE);
+  EXPECT_ARR_EQ(new_list.data(), data + LIST_ELEM_FIXED_LEN, LIST_ELEM_FIXED_LEN);
 }
 
 TEST(FlinkListStateTtlTest, WrongFilterValueType) { // NOLINT
-  init(LIST, KVALUE);
-  EXPIRE;
-  EXPECT_EQ(decide(), KKEEP);
-}
-
-TEST(FlinkMapStateTtlTest, Unexpired) { // NOLINT
-  init(MAP, KVALUE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
-  EXPECT_EQ(decide(), KKEEP);
-}
-
-TEST(FlinkMapStateTtlTest, Expired) { // NOLINT
-  init(MAP, KVALUE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
-  EXPIRE;
-  EXPECT_EQ(decide(), KREMOVE);
-}
-
-TEST(FlinkMapStateTtlTest, WrongFilterValueType) { // NOLINT
-  init(MAP, KMERGE, FLINK_MAP_STATE_NULL_BYTE_OFFSET);
+  InitList(KBLOB);
   EXPIRE;
   EXPECT_EQ(decide(), KKEEP);
 }
