@@ -49,6 +49,10 @@ option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
 option(WITH_ZSTD "build with zstd" OFF)
+option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, regardles of the system code page" OFF)
+if (WITH_WINDOWS_UTF8_FILENAMES)
+  add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
+endif()
 if(MSVC)
   # Defaults currently different for GFLAGS.
   #  We will address find_package work a little later
