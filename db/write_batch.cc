@@ -420,7 +420,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
     if (!handler_continue) {
       break;
     }
-    
+
     if (LIKELY(!s.IsTryAgain())) {
       last_was_try_again = false;
       tag = 0;
