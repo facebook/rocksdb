@@ -243,10 +243,13 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
   return GetWalPreallocateBlockSize(write_buffer_size);
 }
 
-void DBImpl::TEST_WaitForTimedTaskRun(std::function<void()> callback) const {
+void DBImpl::TEST_WaitForDumpStatsRun(std::function<void()> callback) const {
   if (thread_dump_stats_ != nullptr) {
     thread_dump_stats_->TEST_WaitForRun(callback);
   }
+}
+
+void DBImpl::TEST_WaitForPersistStatsRun(std::function<void()> callback) const {
   if (thread_persist_stats_ != nullptr) {
     thread_persist_stats_->TEST_WaitForRun(callback);
   }

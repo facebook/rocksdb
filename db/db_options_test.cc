@@ -530,11 +530,38 @@ TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
   ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
-  dbfull()->TEST_WaitForTimedTaskRun([&] { mock_env->set_current_time(5); });
+  dbfull()->TEST_WaitForDumpStatsRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
 
   // Test cacel job through SetOptions
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
+  int old_val = counter;
+  env_->SleepForMicroseconds(10000000);
+  ASSERT_EQ(counter, old_val);
+  Close();
+}
+
+TEST_F(DBOptionsTest, RunStatsPersistPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_persist_period_sec = 5;
+  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
+  mock_env.reset(new rocksdb::MockTimeEnv(env_));
+  mock_env->set_current_time(0); // in seconds
+  options.env = mock_env.get();
+  int counter = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PersistStats:1", [&](void* /*arg*/) {
+        counter++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  ASSERT_GE(counter, 1);
+
+  // Test cacel job through SetOptions
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   int old_val = counter;
   env_->SleepForMicroseconds(10000000);
   ASSERT_EQ(counter, old_val);
@@ -557,6 +584,16 @@ TEST_F(DBOptionsTest, SetStatsPersistPeriodSec) {
   }
 }
 
+int countkeys(Iterator* iter) {
+  int count = 0;
+  for(iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    // if (count % 100 == 0) {
+    //   fprintf(stdout, "key = %s, value = %s\n", iter->key().ToString().c_str(), iter->value().ToString().c_str());
+    // }
+    count++;
+  }
+  return count;
+}
 // 1. create 1 column family, write some keys to it
 // 2. reopen and get keys
 // 3. list all column column_families
@@ -566,22 +603,30 @@ TEST_F(DBOptionsTest, SetStatsPersistPeriodSec) {
 TEST_F(DBOptionsTest, EnableStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
+  // column family "_persistent_stats" is created implicitly after DB::Open
   options.stats_persist_period_sec = 5;
   options.env = env_;
-  CreateColumnFamilies({"_persistent_stats", "pikachu"}, options);
-  ReopenWithColumnFamilies({"default", "_persistent_stats", "pikachu"}, options);
+  CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
-  ReopenWithColumnFamilies({"default", "_persistent_stats", "pikachu"}, options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ(Get("foo"), "bar");
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(Get("foo"), "bar");
   env_->SleepForMicroseconds(8000000);  // Wait for stats persist to finish
-  auto iter = db_->NewIterator(ReadOptions(), handles_[1]);
-  int count = 0;
-  for(iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
-    fprintf(stdout, "key = %s, value = %s\n", iter->key().ToString().c_str(), iter->value().ToString().c_str());
-    count++;
-  }
+  auto iter = db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  int key_count1 = countkeys(iter);
   delete iter;
+  env_->SleepForMicroseconds(6000000);
+  iter = db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  int key_count2 = countkeys(iter);
+  delete iter;
+  env_->SleepForMicroseconds(6000000);
+  iter = db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
+  int key_count3 = countkeys(iter);
+  delete iter;
+  ASSERT_GE(key_count2, key_count1);
+  ASSERT_GE(key_count3, key_count2);
+  ASSERT_EQ(key_count1+key_count3, key_count2*2);
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {

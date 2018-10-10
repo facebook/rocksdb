@@ -470,7 +470,8 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForTimedTaskRun(std::function<void()> callback) const;
+  void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
+  void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
 
 #endif  // NDEBUG
 
@@ -520,6 +521,8 @@ class DBImpl : public DB {
   void SchedulePurge();
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
+
+  ColumnFamilyHandle* PersistentStatsColumnFamily() const;
 
   const SnapshotList& snapshots() const { return snapshots_; }
 
@@ -1454,9 +1457,6 @@ class DBImpl : public DB {
 
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
-
-  // last time stats were dumped to LOG
-  std::atomic<uint64_t> last_stats_persist_time_microsec_;
 
   // Each flush or compaction gets its own job id. this counter makes sure
   // they're unique

@@ -414,7 +414,9 @@ Status DBImpl::Recover(
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
     if (mutable_db_options_.stats_persist_period_sec != 0) {
       persist_stats_cf_handle_ = new ColumnFamilyHandleImpl(
-          versions_->GetColumnFamilySet()->GetColumnFamily(kPersistentStatsColumnFamilyName), this, &mutex_);
+          versions_->GetColumnFamilySet()->
+              GetColumnFamily(kPersistentStatsColumnFamilyName),
+          this, &mutex_);
     }
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;

@@ -184,7 +184,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(env_->NowMicros()),
       last_stats_dump_time_microsec_(0),
-      last_stats_persist_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
       unable_to_release_oldest_log_(false),
@@ -676,8 +675,6 @@ void DBImpl::PersistStats() {
         *db_property_info, DB::Properties::kDBStats, &stats_map);
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->initialized()) {
-        // TODO(Zhongyi): OK to call GetMapProperty repeatedly?
-        // exclude cf._persistent_stats here?
         cfd->internal_stats()->GetMapProperty(
             *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
             &stats_map);
@@ -697,13 +694,13 @@ void DBImpl::PersistStats() {
   ColumnFamilyOptions cf_options;
   const uint64_t now_micros = env_->NowMicros();
   std::string now_micros_string = std::to_string(now_micros);
+  int keycount = 0;
   for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
     // how do we maintain a historical view if key/value pairs are overwritten?
     std::string key = iter->first + now_micros_string;
-    DB::Put(wo, persist_stats_cf_handle_, key,
+    Status s = DB::Put(wo, persist_stats_cf_handle_, key,
             iter->second);
-    // fprintf(stdout, "persisting stats: key = %s, value = %s\n", key.c_str(),
-    //         iter->second.c_str());
+    keycount++;
   }
 #endif  // !ROCKSDB_LITE
 }
@@ -1292,6 +1289,10 @@ InternalIterator* DBImpl::NewInternalIterator(
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
   return default_cf_handle_;
+}
+
+ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
+  return persist_stats_cf_handle_;
 }
 
 Status DBImpl::Get(const ReadOptions& read_options,
