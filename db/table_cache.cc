@@ -112,7 +112,9 @@ Status TableCache::GetTableReader(
       file->Hint(RandomAccessFile::RANDOM);
     }
     StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+
     std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
     const auto& listeners = ioptions_.listeners;
     std::for_each(
         listeners.begin(), listeners.end(),
@@ -121,6 +123,8 @@ Status TableCache::GetTableReader(
             file_io_listeners.emplace_back(e);
           }
         });
+#endif
+
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
             std::move(file), fname, ioptions_.env,

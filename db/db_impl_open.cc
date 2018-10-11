@@ -238,7 +238,9 @@ Status DBImpl::NewDB() {
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
+
     std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
     const auto& listeners = immutable_db_options_.listeners;
     std::for_each(
         listeners.begin(), listeners.end(),
@@ -247,6 +249,7 @@ Status DBImpl::NewDB() {
             file_io_listeners.emplace_back(e);
           }
         });
+#endif
 
     unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), manifest, env_options,
@@ -1157,6 +1160,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->logfile_number_ = new_log_number;
 
         std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
         const auto& listeners = impl->immutable_db_options_.listeners;
         std::for_each(
             listeners.begin(), listeners.end(),
@@ -1165,6 +1169,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                 file_io_listeners.emplace_back(e);
               }
             });
+#endif
 
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,

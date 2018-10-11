@@ -1463,7 +1463,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
+
   std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
   std::for_each(listeners.begin(), listeners.end(),
@@ -1472,6 +1474,7 @@ Status CompactionJob::OpenCompactionOutputFile(
                     file_io_listeners.emplace_back(e);
                   }
                 });
+#endif
 
   sub_compact->outfile.reset(
       new WritableFileWriter(std::move(writable_file), fname, env_options_,

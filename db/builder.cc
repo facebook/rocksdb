@@ -122,6 +122,7 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
       const auto& listeners = ioptions.listeners;
       std::for_each(
           listeners.begin(), listeners.end(),
@@ -130,6 +131,8 @@ Status BuildTable(
               file_io_listeners.emplace_back(e);
             }
           });
+#endif
+
       file_writer.reset(new WritableFileWriter(std::move(file), fname,
                                                env_options, ioptions.statistics,
                                                file_io_listeners));

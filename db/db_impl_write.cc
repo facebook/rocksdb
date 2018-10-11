@@ -1388,6 +1388,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         lfile->SetWriteLifeTimeHint(write_hint);
 
         std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
         const auto& listeners = immutable_db_options_.listeners;
         std::for_each(
             listeners.begin(), listeners.end(),
@@ -1396,6 +1397,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                 file_io_listeners.emplace_back(e);
               }
             });
+#endif
 
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), log_fname, opt_env_opt,

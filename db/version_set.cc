@@ -751,7 +751,9 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   TableProperties* raw_table_properties;
   // By setting the magic number to kInvalidTableMagicNumber, we can by
   // pass the magic number check in the footer.
+
   std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
   const auto& listeners = ioptions->listeners;
   std::for_each(listeners.begin(), listeners.end(),
                 [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
@@ -759,6 +761,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                     file_io_listeners.emplace_back(e);
                   }
                 });
+#endif
+
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(file), file_name, nullptr /* env */,
                                  nullptr /* stats */, 0 /* hist_type */,
@@ -2938,6 +2942,7 @@ Status VersionSet::ProcessManifestWrites(
             db_options_->manifest_preallocation_size);
 
         std::vector<std::shared_ptr<EventListener>> file_io_listeners;
+#ifndef ROCKSDB_LITE
         const auto& listeners = db_options_->listeners;
         std::for_each(
             listeners.begin(), listeners.end(),
@@ -2946,6 +2951,7 @@ Status VersionSet::ProcessManifestWrites(
                 file_io_listeners.emplace_back(e);
               }
             });
+#endif
 
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(descriptor_file), descriptor_fname,
