@@ -1290,6 +1290,73 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
   ASSERT_EQ(kKeysOverwritten, get_key_count());
 }
 
+TEST_F(DBRangeDelTest, DeletedMergeOperandReappearsIterPrev) {
+  // Exposes a bug where we were using
+  // `RangeDelPositioningMode::kBackwardTraversal` while scanning merge operands
+  // in the forward direction. Confusingly, this case happened during
+  // `DBIter::Prev`. It could cause assertion failure, or reappearing keys.
+  const int kFileBytes = 1 << 20;
+  const int kValueBytes = 1 << 10;
+  // Need multiple keys so we can get results when calling `Prev()` after
+  // `SeekToLast()`.
+  const int kNumKeys = 3;
+  const int kNumFiles = 4;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.merge_operator.reset(new MockMergeOperator());
+  options.target_file_size_base = kFileBytes;
+  Reopen(options);
+
+  Random rnd(301);
+  const Snapshot* snapshot = nullptr;
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
+      auto value = RandomString(&rnd, kValueBytes);
+      ASSERT_OK(db_->Merge(WriteOptions(), Key(j % kNumKeys), value));
+      if (i == 0 && j == kNumKeys) {
+        // Take snapshot to prevent covered merge operands from being dropped or
+        // merged by compaction.
+        snapshot = db_->GetSnapshot();
+        // Do a DeleteRange near the beginning so only the oldest merge operand
+        // for each key is covered. This ensures the sequence of events:
+        //
+        // - `DBIter::Prev()` is called
+        // - After several same versions of the same user key are encountered,
+        //   it decides to seek using `DBIter::FindValueForCurrentKeyUsingSeek`.
+        // - Binary searches to the newest version of the key, which is in the
+        //   leftmost file containing the user key.
+        // - Scans forwards to collect all merge operands. Eventually reaches
+        //   the rightmost file containing the oldest merge operand, which
+        //   should be covered by the `DeleteRange`. If `RangeDelAggregator`
+        //   were not properly using `kForwardTraversal` here, that operand
+        //   would reappear.
+        ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                   Key(0), Key(kNumKeys + 1)));
+      }
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+  ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(0));
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr /* begin_key */,
+                              nullptr /* end_key */));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+
+  auto* iter = db_->NewIterator(ReadOptions());
+  iter->SeekToLast();
+  int keys_found = 0;
+  for (; iter->Valid(); iter->Prev()) {
+    ++keys_found;
+  }
+  delete iter;
+  ASSERT_EQ(kNumKeys, keys_found);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
