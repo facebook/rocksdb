@@ -41,8 +41,7 @@ struct ParsedInternalKeyComparator {
 // An UncollapsedRangeDelMap is quick to create but slow to answer ShouldDelete
 // queries.
 class UncollapsedRangeDelMap : public RangeDelMap {
-  typedef std::multiset<TruncatedRangeTombstone, TombstoneStartKeyComparator>
-      Rep;
+  typedef std::vector<TruncatedRangeTombstone> Rep;
 
   class Iterator : public RangeDelIterator {
     const Rep& rep_;
@@ -74,7 +73,7 @@ class UncollapsedRangeDelMap : public RangeDelMap {
 
  public:
   explicit UncollapsedRangeDelMap(const InternalKeyComparator* icmp)
-      : rep_(TombstoneStartKeyComparator(icmp)), icmp_(icmp) {}
+      : icmp_(icmp) {}
 
   bool ShouldDelete(const ParsedInternalKey& parsed,
                     RangeDelPositioningMode mode) override {
@@ -82,7 +81,7 @@ class UncollapsedRangeDelMap : public RangeDelMap {
     assert(mode == RangeDelPositioningMode::kFullScan);
     for (const auto& tombstone : rep_) {
       if (icmp_->Compare(parsed, tombstone.start_key_) < 0) {
-        break;
+        continue;
       }
       if (parsed.sequence < tombstone.seq_ &&
           icmp_->Compare(parsed, tombstone.end_key_) < 0) {
@@ -105,7 +104,7 @@ class UncollapsedRangeDelMap : public RangeDelMap {
   }
 
   void AddTombstone(TruncatedRangeTombstone tombstone) override {
-    rep_.emplace(tombstone);
+    rep_.emplace_back(tombstone);
   }
 
   size_t Size() const override { return rep_.size(); }
@@ -113,6 +112,7 @@ class UncollapsedRangeDelMap : public RangeDelMap {
   void InvalidatePosition() override {}  // no-op
 
   std::unique_ptr<RangeDelIterator> NewIterator() override {
+    std::sort(rep_.begin(), rep_.end(), TombstoneStartKeyComparator(icmp_));
     return std::unique_ptr<RangeDelIterator>(new Iterator(this->rep_));
   }
 };
