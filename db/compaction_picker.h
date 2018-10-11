@@ -47,6 +47,12 @@ class CompactionPicker {
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer) = 0;
 
+  virtual void InitFilesBeingCompact(
+      const MutableCFOptions& mutable_cf_options, VersionStorageInfo* vstorage,
+      int input_level, int output_level, const InternalKey* begin,
+      const InternalKey* end, std::unordered_set<uint64_t>* files_being_compact,
+      bool enable_lazy_compaction);
+
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
   // level that overlaps the specified range.  Caller should delete

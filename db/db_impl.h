@@ -1365,6 +1365,7 @@ class DBImpl : public DB {
     bool incomplete;              // only part of requested range compacted
     bool exclusive;               // current behavior of only one manual
     bool disallow_trivial_move;   // Force actual compaction to run
+    bool enable_lazy_compaction;  // Enable lazy compaction
     const InternalKey* begin;     // nullptr means beginning of key range
     const InternalKey* end;       // nullptr means end of key range
     InternalKey* manual_end;      // how far we are compacting

@@ -921,7 +921,9 @@ struct MapElementIterator : public InternalIterator {
       return;
     }
     if (meta_array_[where_]->sst_purpose == kMapSst) {
-      InitMapSstIterator();
+      if (!InitMapSstIterator()) {
+        return;
+      }
       iter_->Seek(target);
       if (!iter_->Valid()) {
         iter_.reset();
@@ -929,7 +931,9 @@ struct MapElementIterator : public InternalIterator {
           return;
         }
         if (meta_array_[where_]->sst_purpose == kMapSst) {
-          InitMapSstIterator();
+          if (!InitMapSstIterator()) {
+            return;
+          }
           iter_->SeekToFirst();
         }
       }
@@ -948,7 +952,9 @@ struct MapElementIterator : public InternalIterator {
       return;
     }
     if (meta_array_[where_]->sst_purpose == kMapSst) {
-      InitMapSstIterator();
+      if (!InitMapSstIterator()) {
+        return;
+      }
       iter_->SeekForPrev(target);
       if (!iter_->Valid()) {
         iter_.reset();
@@ -957,7 +963,9 @@ struct MapElementIterator : public InternalIterator {
           return;
         }
         if (meta_array_[where_]->sst_purpose == kMapSst) {
-          InitMapSstIterator();
+          if (!InitMapSstIterator()) {
+            return;
+          }
           iter_->SeekToLast();
         }
       }
@@ -967,7 +975,9 @@ struct MapElementIterator : public InternalIterator {
   virtual void SeekToFirst() override {
     where_ = 0;
     if (meta_array_[where_]->sst_purpose == kMapSst) {
-      InitMapSstIterator();
+      if (!InitMapSstIterator()) {
+        return;
+      }
       iter_->SeekToFirst();
     }
     Update();
@@ -975,7 +985,9 @@ struct MapElementIterator : public InternalIterator {
   virtual void SeekToLast() override {
     where_ = meta_size_ - 1;
     if (meta_array_[where_]->sst_purpose == kMapSst) {
-      InitMapSstIterator();
+      if (!InitMapSstIterator()) {
+        return;
+      }
       iter_->SeekToLast();
     }
     Update();
@@ -993,7 +1005,9 @@ struct MapElementIterator : public InternalIterator {
       return;
     }
     if (meta_array_[where_]->sst_purpose == kMapSst) {
-      InitMapSstIterator();
+      if (!InitMapSstIterator()) {
+        return;
+      }
       iter_->SeekToFirst();
     }
     Update();
@@ -1012,21 +1026,30 @@ struct MapElementIterator : public InternalIterator {
       return;
     }
     if (meta_array_[where_]->sst_purpose == kMapSst) {
-      InitMapSstIterator();
+      if (!InitMapSstIterator()) {
+        return;
+      }
       iter_->SeekToLast();
     }
     Update();
   }
   Slice key() const override { return key_slice; }
   Slice value() const override { return value_slice; }
-  virtual Status status() const override { return Status::OK(); }
+  virtual Status status() const override {
+    return iter_ ? iter_->status() : Status::OK();
+  }
 
-  void InitMapSstIterator() {
+  bool InitMapSstIterator() {
     DependFileMap empty_depend_files;
     iter_.reset(table_cache_->NewIterator(
         read_options_, env_options_, *icmp_, *meta_array_[where_],
         empty_depend_files, nullptr, slice_transform_, nullptr, nullptr, false,
         nullptr, true, -1));
+    if (iter_->status().ok()) {
+      return true;
+    }
+    where_ = meta_size_;
+    return false;
   }
   void Update() {
     if (iter_) {
@@ -1066,7 +1089,9 @@ InternalIterator* NewMapElementIterator(
     const ReadOptions& read_options, const EnvOptions& env_options,
     const InternalKeyComparator* icmp, const SliceTransform* slice_transform,
     Arena* arena) {
-  if (meta_size == 1 && meta_array[0]->sst_purpose == kMapSst) {
+  if (meta_size == 0) {
+    return NewEmptyInternalIterator(arena);
+  } else if (meta_size == 1 && meta_array[0]->sst_purpose == kMapSst) {
     DependFileMap empty_depend_files;
     return table_cache->NewIterator(
         read_options, env_options, *icmp, *meta_array[0], empty_depend_files,

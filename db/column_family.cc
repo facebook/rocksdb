@@ -998,16 +998,29 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 const int ColumnFamilyData::kCompactAllLevels = -1;
 const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
+void ColumnFamilyData::PrepareCompactRange(
+    const MutableCFOptions& mutable_cf_options, int input_level,
+    int output_level, const InternalKey* begin, const InternalKey* end,
+    std::unordered_set<uint64_t>* files_being_compact,
+    bool enable_lazy_compaction) {
+
+  compaction_picker_->InitFilesBeingCompact(
+      mutable_cf_options, current_->storage_info(), input_level, output_level,
+      begin, end, files_being_compact, enable_lazy_compaction);
+
+}
+
 Compaction* ColumnFamilyData::CompactRange(
     const MutableCFOptions& mutable_cf_options, int input_level,
     int output_level, uint32_t output_path_id, uint32_t max_subcompactions,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
-    std::unordered_set<uint64_t>* files_being_compact, bool lazy_compaction) {
+    std::unordered_set<uint64_t>* files_being_compact,
+    bool enable_lazy_compaction) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, current_->storage_info(), input_level,
       output_level, output_path_id, max_subcompactions, begin, end,
-      compaction_end, conflict, files_being_compact, lazy_compaction);
+      compaction_end, conflict, files_being_compact, enable_lazy_compaction);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }

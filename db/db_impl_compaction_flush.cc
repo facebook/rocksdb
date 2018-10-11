@@ -1009,6 +1009,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   manual.incomplete = false;
   manual.exclusive = exclusive;
   manual.disallow_trivial_move = disallow_trivial_move;
+  manual.enable_lazy_compaction = enable_lazy_compaction;
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
@@ -1066,6 +1067,11 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual compaction starting", cfd->GetName().c_str());
 
+  manual.cfd->PrepareCompactRange(
+      *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
+      manual.output_level, manual.begin, manual.end,
+      &manual.files_being_compact, enable_lazy_compaction);
+
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.
@@ -1073,7 +1079,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     assert(HasPendingManualCompaction());
     manual_conflict = false;
     Compaction* compaction = nullptr;
-    if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
+    if (ShouldntRunManualCompaction(&manual) || manual.in_progress ||
         scheduled ||
         (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
          ((compaction = manual.cfd->CompactRange(
@@ -1087,7 +1093,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
-      if (scheduled && manual.incomplete == true) {
+      if (scheduled && manual.incomplete) {
         assert(!manual.in_progress);
         scheduled = false;
         manual.incomplete = false;
@@ -2215,12 +2221,17 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
       // Universal and FIFO compactions should always compact the whole range
-      assert(m->cfd->ioptions()->compaction_style !=
-                 kCompactionStyleUniversal ||
-             m->cfd->ioptions()->num_levels > 1);
-      assert(m->cfd->ioptions()->compaction_style != kCompactionStyleFIFO);
-      m->tmp_storage = *m->manual_end;
-      m->begin = &m->tmp_storage;
+      if (m->cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
+          m->enable_lazy_compaction) {
+        // do nothing
+      } else {
+        assert(m->cfd->ioptions()->compaction_style !=
+                   kCompactionStyleUniversal ||
+               m->cfd->ioptions()->num_levels > 1);
+        assert(m->cfd->ioptions()->compaction_style != kCompactionStyleFIFO);
+        m->tmp_storage = *m->manual_end;
+        m->begin = &m->tmp_storage;
+      }
       m->incomplete = true;
     }
     m->in_progress = false;  // not being processed anymore

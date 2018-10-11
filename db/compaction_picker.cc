@@ -19,6 +19,7 @@
 #include <string>
 #include <utility>
 #include "db/column_family.h"
+#include "db/map_builder.h"
 #include "monitoring/statistics.h"
 #include "util/filename.h"
 #include "util/log_buffer.h"
@@ -548,6 +549,43 @@ void CompactionPicker::GetGrandparents(
   if (output_level_inputs.level + 1 < NumberLevels()) {
     vstorage->GetOverlappingInputs(output_level_inputs.level + 1, &start,
                                    &limit, grandparents);
+  }
+}
+
+void CompactionPicker::InitFilesBeingCompact(
+    const MutableCFOptions& mutable_cf_options, VersionStorageInfo* vstorage,
+    int input_level, int output_level, const InternalKey* begin,
+    const InternalKey* end, std::unordered_set<uint64_t>* files_being_compact,
+    bool enable_lazy_compaction) {
+  if (!enable_lazy_compaction) {
+    return;
+  }
+  auto& icmp = ioptions_.internal_comparator;
+  Arena arena;
+  DependFileMap empty_depend_files;
+  ReadOptions options;
+  auto& level_files = vstorage->LevelFiles(input_level);
+  ScopedArenaIterator iter(NewMapElementIterator(
+      level_files.data(), level_files.size(), table_cache_, options,
+      env_options_, &icmp, mutable_cf_options.prefix_extractor.get(), &arena));
+  MapSstElement element;
+  for (begin == nullptr ? iter->SeekToFirst() : iter->Seek(begin->Encode());
+       iter->Valid(); iter->Next()) {
+    if (!element.Decode(iter->key(), iter->value())) {
+      // TODO: log error ?
+      break;
+    }
+    if (begin != nullptr &&
+        icmp.Compare(element.largest_key_, begin->Encode()) < 0) {
+      break;
+    }
+    if (end != nullptr &&
+        icmp.Compare(element.smallest_key_, end->Encode()) > 0) {
+      break;
+    }
+    for (auto& link : element.link_) {
+      files_being_compact->emplace(link.file_number);
+    }
   }
 }
 
