@@ -437,6 +437,7 @@ class EventListener {
 #else
 
 class EventListener {
+  bool ShouldBeNotifiedOnFileIO() { return false; }
 };
 
 #endif  // ROCKSDB_LITE
