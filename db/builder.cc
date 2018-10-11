@@ -121,21 +121,9 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      std::vector<std::shared_ptr<EventListener>> file_io_listeners;
-#ifndef ROCKSDB_LITE
-      const auto& listeners = ioptions.listeners;
-      std::for_each(
-          listeners.begin(), listeners.end(),
-          [&file_io_listeners](const std::shared_ptr<EventListener>& e) {
-            if (e->ShouldBeNotifiedOnFileIO()) {
-              file_io_listeners.emplace_back(e);
-            }
-          });
-#endif
-
       file_writer.reset(new WritableFileWriter(std::move(file), fname,
                                                env_options, ioptions.statistics,
-                                               file_io_listeners));
+                                               ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,

@@ -109,7 +109,18 @@ class RandomAccessFileReader {
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
         for_compaction_(for_compaction),
-        listeners_(listeners) {}
+        listeners_() {
+#ifndef ROCKSDB_LITE
+    std::for_each(listeners.begin(), listeners.end(),
+                  [this](const std::shared_ptr<EventListener>& e) {
+                    if (e->ShouldBeNotifiedOnFileIO()) {
+                      listeners_.emplace_back(e);
+                    }
+                  });
+#else  // !ROCKSDB_LITE
+    (void)listeners;
+#endif
+  }
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -205,11 +216,21 @@ class WritableFileWriter {
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats),
-        listeners_(listeners) {
+        listeners_() {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
     buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
+#ifndef ROCKSDB_LITE
+    std::for_each(listeners.begin(), listeners.end(),
+                  [this](const std::shared_ptr<EventListener>& e) {
+                    if (e->ShouldBeNotifiedOnFileIO()) {
+                      listeners_.emplace_back(e);
+                    }
+                  });
+#else  // !ROCKSDB_LITE
+    (void)listeners;
+#endif
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;

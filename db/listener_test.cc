@@ -914,7 +914,7 @@ class TestFileOperationListener : public EventListener {
     }
   }
 
-  bool ShouldBeNotifiedOnFileIO() { return true; }
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
 
   std::atomic<size_t> file_reads_;
   std::atomic<size_t> file_reads_success_;
