@@ -4630,6 +4630,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           FLAGS_prefix_dist_b, FLAGS_prefix_dist_c, FLAGS_prefix_dist_d);
     }
 
+    if(FLAGS_sine_read_rate) {
+      thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
+          1000000, 100000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kReadsOnly));
+    }
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
@@ -4645,6 +4651,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         key_rand = gen_exp.DistGetKeyID(access_pos);
         GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       }
+
+      // If user want ot use Sine to control the read QPS, user can
+      // specify the flag and the parameters of A*sine(B*x + C) + D.
+      // The QPS will be reset at the end of each time interval
       if (FLAGS_sine_read_rate &&
           thread->shared->read_rate_limiter.get() != nullptr) {
         uint64_t now = FLAGS_env->NowMicros();
