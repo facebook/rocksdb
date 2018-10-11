@@ -135,7 +135,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   bool unexpected_error = false;
 
   std::vector<uint16_t> set_vec(num_sets_);
-  std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0)); 
+  std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
   std::shuffle(set_vec.begin(), set_vec.end(), std::random_device{});
 
   // For each set, pick a key at random and increment it
@@ -259,7 +259,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   std::vector<uint16_t> set_vec(num_sets);
   std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
   std::shuffle(set_vec.begin(), set_vec.end(), std::random_device{});
-    
+
   // For each set of keys with the same prefix, sum all the values
   for (uint16_t set_i : set_vec) {
     // Five digits (since the largest uint16_t is 65535) plus the NUL
