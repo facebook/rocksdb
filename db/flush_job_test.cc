@@ -332,7 +332,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   }
 
   bool atomic_flush_commit_in_progress = false;
-  Status s = MemTableList::InstallMemtableFlushResults(
+  Status s = MemTableList::TryInstallMemtableFlushResults(
       imm_lists, all_cfds, mutable_cf_options_list, mems_list,
       &atomic_flush_commit_in_progress, nullptr /* logs_prep_tracker */,
       versions_.get(), &mutex_, file_metas, &job_context.memtables_to_free,

@@ -269,7 +269,10 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
   }
 }
 
-Status MemTableList::InstallMemtableFlushResults(
+// Try to record multiple successful flush to the MANIFEST as an atomic unit.
+// This function may just return Status::OK if there has already been
+// a concurrent thread performing actual recording.
+Status MemTableList::TryInstallMemtableFlushResults(
     autovector<MemTableList*>& imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
@@ -329,10 +332,10 @@ Status MemTableList::InstallMemtableFlushResults(
     }
   }
 
-  int num = static_cast<int>(imm_lists.size());
-  assert(num == static_cast<int>(cfds.size()));
-  for (int k = 0; k != num; ++k) {
-    for (int i = 0; i != static_cast<int>(mems_list[k]->size()); ++i) {
+  size_t num = imm_lists.size();
+  assert(num == cfds.size());
+  for (size_t k = 0; k != num; ++k) {
+    for (size_t i = 0; i != mems_list[k]->size(); ++i) {
       assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
       (*mems_list[k])[i]->flush_completed_ = true;
       (*mems_list[k])[i]->file_number_ = file_meta[k].fd.GetNumber();
@@ -342,15 +345,21 @@ Status MemTableList::InstallMemtableFlushResults(
   assert(atomic_flush_commit_in_progress != nullptr);
   Status s;
   if (*atomic_flush_commit_in_progress) {
+    // If the function reaches here, there must be a concurrent thread that
+    // have already started recording to MANIFEST. Therefore we should just
+    // return Status::OK and let the othe thread finish writing to MANIFEST on
+    // our behalf.
     return s;
   }
 
+  // If the function reaches here, the current thread will start writing to
+  // MANIFEST. It may record to MANIFEST the flush results of other flushes.
   *atomic_flush_commit_in_progress = true;
 
   while (s.ok()) {
-    std::unordered_map<MemTable*, int> mem_to_idx;
-    autovector<int> next;
-    for (int i = 0; i != num; ++i) {
+    std::unordered_map<MemTable*, size_t> mem_to_idx;
+    autovector<size_t> next;
+    for (size_t i = 0; i != num; ++i) {
       const std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
       if (!memlist.empty()) {
         const auto it = memlist.rbegin();
@@ -358,13 +367,13 @@ Status MemTableList::InstallMemtableFlushResults(
           mem_to_idx.insert({*it, i});
         }
       }
-      next.push_back(-1);
+      next.push_back(std::numeric_limits<size_t>::max());
     }
     if (mem_to_idx.empty()) {
       // Nothing to commit
       break;
     }
-    for (int i = 0; i != num; ++i) {
+    for (size_t i = 0; i != num; ++i) {
       const std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
       if (!memlist.empty()) {
         const auto it = memlist.rbegin();
@@ -381,26 +390,26 @@ Status MemTableList::InstallMemtableFlushResults(
       // Try to find a linked list formed by memtables at the rbegin side of
       // each imm_lists. If such a linked list exist, we have found a new group
       // to commit to MANIFEST.
-      int k = 0;
-      while (k < num && next[k] < 0) {
+      size_t k = 0;
+      while (k < num && next[k] == std::numeric_limits<size_t>::max()) {
         ++k;
       }
       if (k == num) {
         break;
       }
 
-      autovector<int> idx;
-      int head = k;
+      autovector<size_t> idx;
+      size_t head = k;
       do {
         idx.push_back(k);
         k = next[k];
-      } while (k != head && k >= 0);
+      } while (k != head && k != std::numeric_limits<size_t>::max());
 
       for (auto i : idx) {
-        next[i] = -1;
+        next[i] = std::numeric_limits<size_t>::max();
       }
 
-      if (k < 0) {
+      if (k == std::numeric_limits<size_t>::max()) {
         continue;
       }
 
@@ -447,7 +456,7 @@ Status MemTableList::InstallMemtableFlushResults(
       assert(batch_sz == edit_lists.size());
 
       if (vset->db_options()->allow_2pc) {
-        for (int i = 0; i != static_cast<int>(batch_sz); ++i) {
+        for (size_t i = 0; i != batch_sz; ++i) {
           auto& edit_list = edit_lists[i];
           assert(!edit_list.empty());
           edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(

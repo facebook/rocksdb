@@ -162,7 +162,7 @@ class MemTableListTest : public testing::Test {
     bool atomic_flush_commit_in_progress = false;
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
-    return MemTableList::InstallMemtableFlushResults(
+    return MemTableList::TryInstallMemtableFlushResults(
         lists, cfds, mutable_cf_options_list, mems_list,
         &atomic_flush_commit_in_progress, &dummy_prep_tracker, &versions,
         &mutex, file_meta, to_delete, nullptr, &log_buffer);

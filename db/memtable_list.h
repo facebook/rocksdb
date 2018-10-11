@@ -164,7 +164,7 @@ class MemTableListVersion {
 class MemTableList {
  public:
   // Commit a successful atomic flush in the manifest file
-  static Status InstallMemtableFlushResults(
+  static Status TryInstallMemtableFlushResults(
       autovector<MemTableList*>& imm_lists,
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,

@@ -354,7 +354,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
       }
 
-      s = MemTableList::InstallMemtableFlushResults(
+      s = MemTableList::TryInstallMemtableFlushResults(
           imm_lists, all_cfds, mutable_cf_options_list, mems_list,
           &atomic_flush_commit_in_progress_, &logs_with_prep_tracker_,
           versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
