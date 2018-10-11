@@ -383,7 +383,9 @@ class MemTable {
 
   uint64_t GetID() const { return id_; }
 
-  void TEST_SetNext(MemTable* next) { next_ = next; }
+  SequenceNumber& TEST_AtomicFlushSequenceNumber() {
+    return atomic_flush_seqno_;
+  }
 
   void TEST_SetFlushCompleted(bool completed) { flush_completed_ = completed; }
 
@@ -462,7 +464,7 @@ class MemTable {
   uint64_t id_ = 0;
 
   // Currently used to link next memtables in the same atomic flush
-  MemTable* next_;
+  SequenceNumber atomic_flush_seqno_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;

@@ -279,6 +279,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
           *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
       mem->SetID(i);
       mem->Ref();
+      mem->TEST_AtomicFlushSequenceNumber() = 123;
 
       for (size_t j = 0; j != num_keys_per_memtable; ++j) {
         std::string key(ToString(j + i * num_keys_per_memtable));

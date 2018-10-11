@@ -128,12 +128,12 @@ class MemTableListTest : public testing::Test {
     auto column_family_set = versions.GetColumnFamilySet();
 
     LogsWithPrepTracker dummy_prep_tracker;
-    if (1 == static_cast<int>(cf_ids.size())) {
+    if (1 == cf_ids.size()) {
       auto cfd = column_family_set->GetColumnFamily(cf_ids[0]);
       EXPECT_TRUE(nullptr != cfd);
-      EXPECT_EQ(1, static_cast<int>(lists.size()));
+      EXPECT_EQ(1, lists.size());
       MemTableList* list = lists[0];
-      EXPECT_EQ(1, static_cast<int>(mutable_cf_options_list.size()));
+      EXPECT_EQ(1, mutable_cf_options_list.size());
       const MutableCFOptions& mutable_cf_options =
           *(mutable_cf_options_list.at(0));
       const autovector<MemTable*>* mems = mems_list.at(0);
@@ -152,12 +152,12 @@ class MemTableListTest : public testing::Test {
       cfds.emplace_back(column_family_set->GetColumnFamily(cf_ids[i]));
       EXPECT_NE(nullptr, cfds[i]);
     }
-    autovector<FileMetaData> file_meta;
-    for (int i = 0; i != static_cast<int>(cf_ids.size()); ++i) {
+    autovector<FileMetaData> file_metas;
+    for (size_t i = 0; i != cf_ids.size(); ++i) {
       FileMetaData meta;
       uint64_t file_num = file_number.fetch_add(1);
       meta.fd = FileDescriptor(file_num, 0, 0);
-      file_meta.emplace_back(meta);
+      file_metas.emplace_back(meta);
     }
     bool atomic_flush_commit_in_progress = false;
     InstrumentedMutex mutex;
@@ -165,7 +165,7 @@ class MemTableListTest : public testing::Test {
     return MemTableList::TryInstallMemtableFlushResults(
         lists, cfds, mutable_cf_options_list, mems_list,
         &atomic_flush_commit_in_progress, &dummy_prep_tracker, &versions,
-        &mutex, file_meta, to_delete, nullptr, &log_buffer);
+        &mutex, file_metas, to_delete, nullptr, &log_buffer);
   }
 };
 
@@ -845,6 +845,9 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
       flush_candidates[i].clear();
       lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i],
                                      &flush_candidates[i]);
+      for (auto mem : flush_candidates[i]) {
+        mem->TEST_AtomicFlushSequenceNumber() = SequenceNumber(k);
+      }
       if (prev_memtable_ids.empty()) {
         ASSERT_EQ(flush_memtable_ids[i] - 0 + 1, flush_candidates[i].size());
       } else {
@@ -863,26 +866,12 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
     prev_memtable_ids = flush_memtable_ids;
 
     if (k < 3) {
-      MemTable* head = nullptr;
-      MemTable* mem = nullptr;
       for (const auto& mems : flush_candidates) {
-        if (!mems.empty()) {
-          if (head == nullptr) {
-            head = mems.front();
-          }
-          if (mem != nullptr) {
-            mem->TEST_SetNext(mems.front());
-          }
-          mem = mems.front();
-        }
         uint64_t file_num = file_number.fetch_add(1);
         for (auto m : mems) {
           m->TEST_SetFlushCompleted(true);
           m->TEST_SetFileNumber(file_num);
         }
-      }
-      if (mem != nullptr) {
-        mem->TEST_SetNext(head);
       }
     }
 
