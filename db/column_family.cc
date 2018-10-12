@@ -998,16 +998,24 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 const int ColumnFamilyData::kCompactAllLevels = -1;
 const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
-void ColumnFamilyData::PrepareCompactRange(
-    const MutableCFOptions& mutable_cf_options, int input_level,
-    int output_level, const InternalKey* begin, const InternalKey* end,
-    std::unordered_set<uint64_t>* files_being_compact,
+void ColumnFamilyData::PrepareManualCompaction(
+    const MutableCFOptions& mutable_cf_options, const Slice* begin,
+    const Slice* end, std::unordered_set<uint64_t>* files_being_compact,
     bool enable_lazy_compaction) {
-
+  InternalKey ibegin, iend;
+  InternalKey* ibegin_ptr = nullptr;
+  InternalKey* iend_ptr = nullptr;
+  if (begin != nullptr) {
+    ibegin.SetMinPossibleForUserKey(*begin);
+    ibegin_ptr = &ibegin;
+  }
+  if (end != nullptr) {
+    iend.SetMaxPossibleForUserKey(*end);
+    iend_ptr = &iend;
+  }
   compaction_picker_->InitFilesBeingCompact(
-      mutable_cf_options, current_->storage_info(), input_level, output_level,
-      begin, end, files_being_compact, enable_lazy_compaction);
-
+      mutable_cf_options, current_->storage_info(), ibegin_ptr, iend_ptr,
+      files_being_compact, enable_lazy_compaction);
 }
 
 Compaction* ColumnFamilyData::CompactRange(

@@ -911,12 +911,12 @@ struct MapElementIterator : public InternalIterator {
   }
   virtual bool Valid() const override { return where_ < meta_size_; }
   virtual void Seek(const Slice& target) override {
-    where_ = std::lower_bound(meta_array_, meta_array_ + meta_size_, target,
-                              [this](FileMetaData* f, const Slice& target) {
-                                return icmp_->Compare(f->largest.Encode(),
-                                                      target) < 0;
-                              }) -
-             meta_array_;
+    where_ =
+        std::lower_bound(meta_array_, meta_array_ + meta_size_, target,
+                         [this](FileMetaData* f, const Slice& t) {
+                           return icmp_->Compare(f->largest.Encode(), t) < 0;
+                         }) -
+        meta_array_;
     if (where_ == meta_size_) {
       return;
     }
@@ -941,12 +941,12 @@ struct MapElementIterator : public InternalIterator {
     Update();
   }
   virtual void SeekForPrev(const Slice& target) override {
-    where_ = std::upper_bound(meta_array_, meta_array_ + meta_size_, target,
-                              [this](const Slice& target, FileMetaData* f) {
-                                return icmp_->Compare(target,
-                                                      f->largest.Encode()) < 0;
-                              }) -
-             meta_array_;
+    where_ =
+        std::upper_bound(meta_array_, meta_array_ + meta_size_, target,
+                         [this](const Slice& t, FileMetaData* f) {
+                           return icmp_->Compare(t, f->largest.Encode()) < 0;
+                         }) -
+        meta_array_;
     if (where_-- == 0) {
       where_ = meta_size_;
       return;

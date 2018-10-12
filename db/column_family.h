@@ -296,11 +296,10 @@ class ColumnFamilyData {
   static const int kCompactToBaseLevel;
 
   // REQUIRES: DB mutex held
-  void PrepareCompactRange(const MutableCFOptions& mutable_cf_options,
-                           int input_level, int output_level,
-                           const InternalKey* begin, const InternalKey* end,
-                           std::unordered_set<uint64_t>* files_being_compact,
-                           bool enable_lazy_compaction);
+  void PrepareManualCompaction(
+      const MutableCFOptions& mutable_cf_options, const Slice* begin,
+      const Slice* end, std::unordered_set<uint64_t>* files_being_compact,
+      bool enable_lazy_compaction);
 
   // REQUIRES: DB mutex held
   Compaction* CompactRange(const MutableCFOptions& mutable_cf_options,

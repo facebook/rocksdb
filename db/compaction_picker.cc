@@ -554,37 +554,52 @@ void CompactionPicker::GetGrandparents(
 
 void CompactionPicker::InitFilesBeingCompact(
     const MutableCFOptions& mutable_cf_options, VersionStorageInfo* vstorage,
-    int input_level, int output_level, const InternalKey* begin,
-    const InternalKey* end, std::unordered_set<uint64_t>* files_being_compact,
+    const InternalKey* begin, const InternalKey* end,
+    std::unordered_set<uint64_t>* files_being_compact,
     bool enable_lazy_compaction) {
   if (!enable_lazy_compaction) {
     return;
   }
   auto& icmp = ioptions_.internal_comparator;
-  Arena arena;
   DependFileMap empty_depend_files;
   ReadOptions options;
-  auto& level_files = vstorage->LevelFiles(input_level);
-  ScopedArenaIterator iter(NewMapElementIterator(
-      level_files.data(), level_files.size(), table_cache_, options,
-      env_options_, &icmp, mutable_cf_options.prefix_extractor.get(), &arena));
   MapSstElement element;
-  for (begin == nullptr ? iter->SeekToFirst() : iter->Seek(begin->Encode());
-       iter->Valid(); iter->Next()) {
-    if (!element.Decode(iter->key(), iter->value())) {
-      // TODO: log error ?
-      break;
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    auto& level_files = vstorage->LevelFiles(level);
+    if (level_files.empty()) {
+      continue;
     }
-    if (begin != nullptr &&
-        icmp.Compare(element.largest_key_, begin->Encode()) < 0) {
-      break;
-    }
-    if (end != nullptr &&
-        icmp.Compare(element.smallest_key_, end->Encode()) > 0) {
-      break;
-    }
-    for (auto& link : element.link_) {
-      files_being_compact->emplace(link.file_number);
+    Arena arena;
+    ScopedArenaIterator iter(NewMapElementIterator(
+        level_files.data(), level_files.size(), table_cache_, options,
+        env_options_, &icmp, mutable_cf_options.prefix_extractor.get(),
+        &arena));
+    for (level == 0 || begin == nullptr ? iter->SeekToFirst()
+                                        : iter->Seek(begin->Encode());
+         iter->Valid(); iter->Next()) {
+      if (!element.Decode(iter->key(), iter->value())) {
+        // TODO: log error ?
+        break;
+      }
+      if (begin != nullptr &&
+          icmp.Compare(element.largest_key_, begin->Encode()) < 0) {
+        if (level == 0) {
+          continue;
+        } else {
+          break;
+        }
+      }
+      if (end != nullptr &&
+          icmp.Compare(element.smallest_key_, end->Encode()) > 0) {
+        if (level == 0) {
+          continue;
+        } else {
+          break;
+        }
+      }
+      for (auto& link : element.link_) {
+        files_being_compact->emplace(link.file_number);
+      }
     }
   }
 }

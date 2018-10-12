@@ -359,10 +359,10 @@ class DBImpl : public DB {
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
-                             uint32_t max_subcompactions,
-                             const Slice* begin, const Slice* end,
-                             bool exclusive,
-                             bool disallow_trivial_move = false,
+                             uint32_t max_subcompactions, const Slice* begin,
+                             const Slice* end,
+                             std::unordered_set<uint64_t>& files_being_compact,
+                             bool exclusive, bool disallow_trivial_move = false,
                              bool enable_lazy_compaction = false);
 
   // Return an internal iterator over the current state of the database.

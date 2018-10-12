@@ -363,6 +363,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   }
 
   int max_level_with_files = 0;
+  bool enable_lazy_compaction =
+      cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction;
+  std::unordered_set<uint64_t> files_being_compact;
   {
     InstrumentedMutexLock l(&mutex_);
     Version* base = cfd->current();
@@ -372,11 +375,11 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         max_level_with_files = level;
       }
     }
+    cfd->PrepareManualCompaction(*cfd->GetLatestMutableCFOptions(), begin, end,
+                                 &files_being_compact, enable_lazy_compaction);
   }
 
   int final_output_level = 0;
-  bool enable_lazy_compaction =
-      cfd->GetCurrentMutableCFOptions()->enable_lazy_compaction;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1 && !enable_lazy_compaction) {
     // Always compact all files together.
@@ -387,7 +390,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options.target_path_id,
-                            options.max_subcompactions, begin, end, exclusive);
+                            options.max_subcompactions, begin, end,
+                            files_being_compact, exclusive);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -421,8 +425,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         }
       }
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
-                              options.max_subcompactions, begin, end, exclusive,
-                              false, enable_lazy_compaction);
+                              options.max_subcompactions, begin, end,
+                              files_being_compact, exclusive, false,
+                              enable_lazy_compaction);
       if (!s.ok()) {
         break;
       }
@@ -985,12 +990,11 @@ Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
   return s;
 }
 
-Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                                   int output_level, uint32_t output_path_id,
-                                   uint32_t max_subcompactions,
-                                   const Slice* begin, const Slice* end,
-                                   bool exclusive, bool disallow_trivial_move,
-                                   bool enable_lazy_compaction) {
+Status DBImpl::RunManualCompaction(
+    ColumnFamilyData* cfd, int input_level, int output_level,
+    uint32_t output_path_id, uint32_t max_subcompactions, const Slice* begin,
+    const Slice* end, std::unordered_set<uint64_t>& files_being_compact,
+    bool exclusive, bool disallow_trivial_move, bool enable_lazy_compaction) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1010,6 +1014,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   manual.exclusive = exclusive;
   manual.disallow_trivial_move = disallow_trivial_move;
   manual.enable_lazy_compaction = enable_lazy_compaction;
+  manual.files_being_compact = std::move(files_being_compact);
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
@@ -1067,10 +1072,6 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] Manual compaction starting", cfd->GetName().c_str());
 
-  manual.cfd->PrepareCompactRange(
-      *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-      manual.output_level, manual.begin, manual.end,
-      &manual.files_being_compact, enable_lazy_compaction);
 
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to

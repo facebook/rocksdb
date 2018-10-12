@@ -103,7 +103,7 @@ class UniversalCompactionPicker : public CompactionPicker {
   Compaction* PickRangeCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, int level, const InternalKey* begin,
-      const InternalKey* end, bool include_begin, bool include_end,
+      const InternalKey* end,
       const std::unordered_set<uint64_t>& files_being_compact,
       bool* manual_conflict, LogBuffer* log_buffer);
 

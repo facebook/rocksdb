@@ -1278,7 +1278,6 @@ void CompactionJob::ProcessLinkCompaction(SubcompactionState* sub_compact) {
     link.largest_key_ = last_key.Encode();
     link.file_number_ = last_file_number;
     sst_depend_build.emplace(link.file_number_);
-    link.key_count_ = key_count;
     key_count = 0;
 
     sub_compact->builder->Add(link.Key(), link.Value(&buffer));

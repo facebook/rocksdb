@@ -592,9 +592,9 @@ Compaction* UniversalCompactionPicker::CompactRange(
         manual_conflict, files_being_compact, enable_lazy_compaction);
   }
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.info_log);
-  auto c = PickRangeCompaction(
-      cf_name, mutable_cf_options, vstorage, input_level, begin, end, true,
-      true, *files_being_compact, manual_conflict, &log_buffer);
+  auto c = PickRangeCompaction(cf_name, mutable_cf_options, vstorage,
+                               input_level, begin, end, *files_being_compact,
+                               manual_conflict, &log_buffer);
   log_buffer.FlushBufferToLog();
   return c;
 }
@@ -1327,7 +1327,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
                      cf_name.c_str(), iter->status().getState());
     return nullptr;
   }
-  auto range_size = [](const MapSstElement& range) {
+  auto estimate_size = [](const MapSstElement& range) {
     size_t sum = 0;
     size_t max = 0;
     for (auto& l : range.link_) {
@@ -1365,7 +1365,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
       link_count_map.emplace(map_element.link_.size(), std::move(internal_key));
     }
     size_t sum, max;
-    std::tie(sum, max) = range_size(map_element);
+    std::tie(sum, max) = estimate_size(map_element);
     if (map_element.link_.size() > 2 && (sum - max) * 2 < max) {
       if (!has_start) {
         has_start = true;
@@ -1448,7 +1448,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     assign_user_key(range.limit, map_element.largest_key_);
     range.include_start = true;
     range.include_limit = false;
-    size_t sum = range_size(map_element).first;
+    size_t sum = estimate_size(map_element).first;
     push_unique(iter->key());
     while (sum < max_file_size_for_leval) {
       iter->Next();
@@ -1462,7 +1462,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
         break;
       } else {
         assign_user_key(range.limit, map_element.largest_key_);
-        sum += range_size(map_element).first;
+        sum += estimate_size(map_element).first;
         push_unique(iter->key());
       }
     }
@@ -1478,7 +1478,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
           break;
         }
         assign_user_key(range.start, map_element.smallest_key_);
-        sum += range_size(map_element).first;
+        sum += estimate_size(map_element).first;
         push_unique(iter->key());
       } while (sum < max_file_size_for_leval);
     }
@@ -1541,7 +1541,7 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
 Compaction* UniversalCompactionPicker::PickRangeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, int level, const InternalKey* begin,
-    const InternalKey* end, bool include_begin, bool include_end,
+    const InternalKey* end,
     const std::unordered_set<uint64_t>& files_being_compact,
     bool* manual_conflict, LogBuffer* log_buffer) {
 
@@ -1609,13 +1609,6 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
     }
     return false;
   };
-  auto range_size = [](const MapSstElement& range) {
-    size_t sum = 0;
-    for (auto& l : range.link_) {
-      sum += l.size;
-    }
-    return sum;
-  };
   bool has_start = false;
   size_t max_compaction_bytes = mutable_cf_options.max_compaction_bytes;
   size_t subcompact_size = 0;
@@ -1626,7 +1619,7 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
     if (has_start) {
       if (need_compact(map_element)) {
         if (subcompact_size < max_compaction_bytes) {
-          subcompact_size += range_size(map_element);
+          subcompact_size += map_element.EstimateSize();
           assign_user_key(range.limit, map_element.largest_key_);
         } else {
           assign_user_key(range.limit, map_element.smallest_key_);
@@ -1637,7 +1630,7 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
           if (input_range.size() >= ioptions_.max_subcompactions) {
             break;
           }
-          subcompact_size += range_size(map_element);
+          subcompact_size += map_element.EstimateSize();
           assign_user_key(range.start, map_element.smallest_key_);
           assign_user_key(range.limit, map_element.largest_key_);
         }
@@ -1657,7 +1650,7 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
       if (!need_compact(map_element)) {
         continue;
       }
-      subcompact_size += range_size(map_element);
+      subcompact_size += map_element.EstimateSize();
       has_start = true;
       assign_user_key(range.start, map_element.smallest_key_);
       assign_user_key(range.limit, map_element.largest_key_);

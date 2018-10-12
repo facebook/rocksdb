@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <numeric>
 #include <stdio.h>
 #include <string>
 #include <utility>
@@ -636,13 +637,12 @@ struct RangeTombstone {
 struct LinkSstElement {
   Slice largest_key_;
   uint64_t file_number_;
-  uint64_t key_count_;
 
-  LinkSstElement() : file_number_(uint64_t(-1)), key_count_(0) {}
+  LinkSstElement() : file_number_(uint64_t(-1)) {}
 
   bool Decode(Slice ikey, Slice value) {
     largest_key_ = ikey;
-    return GetFixed64(&value, &file_number_) && GetVarint64(&value, &key_count_);
+    return GetFixed64(&value, &file_number_);
   }
 
   Slice Key() const { return largest_key_; }
@@ -650,7 +650,6 @@ struct LinkSstElement {
   Slice Value(std::string* buffer) {
     buffer->clear();
     PutFixed64(buffer, file_number_);
-    PutVarint64(buffer, key_count_);
     return Slice(*buffer);
   }
 };
@@ -719,6 +718,12 @@ struct MapSstElement {
       PutFixed64(buffer, l.size);
     }
     return Slice(*buffer);
+  }
+
+  size_t EstimateSize() const {
+    return std::accumulate(
+        link_.begin(), link_.end(), size_t(0),
+        [](size_t val, const LinkTarget& l) { return val + l.size; });
   }
 };
 
