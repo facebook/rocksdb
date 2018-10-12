@@ -929,6 +929,9 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
 
 DEFINE_bool(sine_read_rate, false, "Use a sine wave read_rate_limit");
 
+DEFINE_double(read_rate_noise, 0.0,
+    "Add the noise ratio to the read rate, it is between 0.0 and 1.0");
+
 DEFINE_uint64(
     sine_read_rate_interval_milliseconds, 10000,
     "Interval of which the sine wave read_rate_limit is recalculated");
@@ -1495,7 +1498,7 @@ class GenerateTwoTermExpKeys {
       PrefixUnit p_unit;
       p_unit.prefix_start = prefix_start;
       if (0.0 >= prefix_p) {
-          p_unit.prefix_access = 0;
+        p_unit.prefix_access = 0;
       } else {
         p_unit.prefix_access =
             static_cast<int64_t>(std::floor(amplify * prefix_p));
@@ -1592,11 +1595,10 @@ class GenerateTwoTermExpKeys {
       }
     }
 
-    //combine the prefix and offset in prefix to get the Key ID
+    // combine the prefix and offset in prefix to get the Key ID
     Random64 rand_key(start);
     return prefix_size_ * prefix_id + rand_key.Next() % prefix_size_;
   }
-
 };
 
 // a class that reports stats to CSV file
@@ -3990,6 +3992,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     return FLAGS_sine_a*sin((FLAGS_sine_b*x) + FLAGS_sine_c) + FLAGS_sine_d;
   }
 
+  double AddNoise(double origin, double noise_ratio) {
+    if (noise_ratio < 0.0 || noise_ratio > 1.0) {
+      return origin;
+    }
+    int band_int = static_cast<int>(FLAGS_sine_a);
+    double delta = (rand() % band_int - band_int / 2) * noise_ratio;
+    if (origin + delta < 0) {
+      return origin;
+    } else {
+      return (origin + delta);
+    }
+  }
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
     const int64_t num_ops = writes_ == 0 ? num_ : writes_;
@@ -4634,15 +4648,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         FLAGS_prefix_dist_a != 0.0 || FLAGS_prefix_dist_c != 0.0) {
       use_special_workload = true;
       gen_exp.InitiateExpDistribution(
-          FLAGS_num, FLAGS_key_dist_a, FLAGS_key_dist_b,
-          FLAGS_key_dist_c, FLAGS_key_dist_d, FLAGS_prefix_dist_a,
-          FLAGS_prefix_dist_b, FLAGS_prefix_dist_c, FLAGS_prefix_dist_d);
+          FLAGS_num, FLAGS_key_dist_a, FLAGS_key_dist_b, FLAGS_key_dist_c,
+          FLAGS_key_dist_d, FLAGS_prefix_dist_a, FLAGS_prefix_dist_b,
+          FLAGS_prefix_dist_c, FLAGS_prefix_dist_d);
     }
 
-    if(FLAGS_sine_read_rate) {
+    if (FLAGS_sine_read_rate) {
       thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
-          1000000, 100000 /* refill_period_us */,
-          10 /* fairness */, RateLimiter::Mode::kReadsOnly));
+          1000000, 100000 /* refill_period_us */, 10 /* fairness */,
+          RateLimiter::Mode::kReadsOnly));
     }
 
     Duration duration(FLAGS_duration, reads_);
@@ -4680,8 +4694,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           double usecs_since_start =
               static_cast<double>(now - thread->stats.GetStart());
           thread->stats.ResetSineInterval();
-          uint64_t read_rate =
-              static_cast<uint64_t>(SineRate(usecs_since_start / 1000000.0));
+          double rate_with_noise = AddNoise(
+              SineRate(usecs_since_start / 1000000.0), FLAGS_read_rate_noise);
+          uint64_t read_rate = static_cast<uint64_t>(rate_with_noise);
           thread->shared->read_rate_limiter.reset(NewGenericRateLimiter(
               read_rate,
               FLAGS_sine_read_rate_interval_milliseconds * uint64_t{1000}, 10,
