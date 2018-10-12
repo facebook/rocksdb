@@ -18,9 +18,11 @@ namespace rocksdb {
 #ifdef ROCKSDB_JEMALLOC
 #ifdef __FreeBSD__
 #include <malloc_np.h>
-#define je_malloc_stats_print malloc_stats_print
 #else
 #include "jemalloc/jemalloc.h"
+#ifdef JEMALLOC_NO_RENAME
+#define malloc_stats_print je_malloc_stats_print
+#endif
 #endif
 
 typedef struct {
@@ -48,7 +50,7 @@ void DumpMallocStats(std::string* stats) {
   std::unique_ptr<char[]> buf{new char[kMallocStatusLen + 1]};
   mstat.cur = buf.get();
   mstat.end = buf.get() + kMallocStatusLen;
-  je_malloc_stats_print(GetJemallocStatus, &mstat, "");
+  malloc_stats_print(GetJemallocStatus, &mstat, "");
   stats->append(buf.get());
 }
 #else
