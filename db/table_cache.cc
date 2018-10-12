@@ -384,7 +384,7 @@ Status TableCache::Get(const ReadOptions& options,
                                                      GetInternalKeySeqno(k));
       *max_covering_tombstone_seq = std::max(
           *max_covering_tombstone_seq,
-          MaxCoveringTombstoneSeqnum(&fragment_iter, ExtractUserKey(k),
+          MaxCoveringTombstoneSeqnum(&fragment_iter, k,
                                      internal_comparator.user_comparator()));
     }
     if (s.ok()) {

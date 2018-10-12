@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <functional>
 
+#include <stdio.h>
+#include <inttypes.h>
+
 #include "util/kv_map.h"
 
 namespace rocksdb {
@@ -25,24 +28,6 @@ struct ParsedInternalKeyComparator {
 
   const InternalKeyComparator* cmp;
 };
-
-void SeekToHighestSeqnum(InternalIterator* iter, const Comparator* ucmp) {
-  if (!iter->Valid()) {
-    return;
-  }
-  Slice cur_key = ExtractUserKey(iter->key());
-  std::string pinned_key(cur_key.data(), cur_key.size());
-  while (iter->Valid() &&
-         ucmp->Compare(pinned_key, ExtractUserKey(iter->key())) == 0) {
-    iter->Prev();
-  }
-  if (!iter->Valid()) {
-    iter->SeekToFirst();
-  } else {
-    iter->Next();
-  }
-  assert(ucmp->Compare(ExtractUserKey(iter->key()), pinned_key) == 0);
-}
 
 }  // anonymous namespace
 
@@ -165,7 +150,8 @@ void FragmentedRangeTombstoneIterator::Seek(const Slice& target) {
     pos_ = tombstones_.end();
     return;
   }
-  RangeTombstone search(target, target, kMaxSequenceNumber);
+  RangeTombstone search(ExtractUserKey(target), ExtractUserKey(target),
+                        GetInternalKeySeqno(target));
   pos_ = std::lower_bound(tombstones_.begin(), tombstones_.end(), search,
                           tombstone_cmp_);
   UpdateKey();
@@ -197,15 +183,40 @@ bool FragmentedRangeTombstoneIterator::Valid() const {
 
 SequenceNumber MaxCoveringTombstoneSeqnum(
     InternalIterator* tombstone_iter,
-    const Slice& key, const Comparator* ucmp) {
-  InternalKey ikey(key, 0, kTypeRangeDeletion);
-  tombstone_iter->SeekForPrev(ikey.Encode());
-  SeekToHighestSeqnum(tombstone_iter, ucmp);
-  if (tombstone_iter->Valid() &&
-      ucmp->Compare(key, tombstone_iter->value()) < 0) {
-    return GetInternalKeySeqno(tombstone_iter->key());
+    const Slice& lookup_key, const Comparator* ucmp) {
+  SequenceNumber snapshot = GetInternalKeySeqno(lookup_key);
+  Slice user_key = ExtractUserKey(lookup_key);
+
+  tombstone_iter->Seek(lookup_key);
+  SequenceNumber highest_covering_seqnum = 0;
+  if (!tombstone_iter->Valid()) {
+#if 0
+    fprintf(stdout,
+        "seeked past last tombstone; key=%s\n",
+        user_key.ToString().c_str());
+#endif
+    // Seeked past the last tombstone
+    tombstone_iter->Prev();
   }
-  return 0;
+  while (tombstone_iter->Valid() &&
+         ucmp->Compare(user_key, tombstone_iter->value()) < 0) {
+    if (GetInternalKeySeqno(tombstone_iter->key()) <= snapshot &&
+        ucmp->Compare(ExtractUserKey(tombstone_iter->key()), user_key) <= 0) {
+#if 0
+      fprintf(stdout,
+              "potentially covering tombstone: [%s, %s)@%" PRIu64 "; key=%s\n",
+              ExtractUserKey(tombstone_iter->key()).ToString().c_str(),
+              tombstone_iter->value().ToString().c_str(),
+              GetInternalKeySeqno(tombstone_iter->key()),
+              user_key.ToString().c_str());
+#endif
+
+      highest_covering_seqnum = std::max(
+          highest_covering_seqnum, GetInternalKeySeqno(tombstone_iter->key()));
+    }
+    tombstone_iter->Prev();
+  }
+  return highest_covering_seqnum;
 }
 
 }  // namespace rocksdb

@@ -65,7 +65,7 @@ void VerifySeekForPrev(FragmentedRangeTombstoneIterator* iter,
 }
 
 struct MaxCoveringTombstoneSeqnumTestCase {
-  Slice key;
+  Slice user_key;
   int result;
 };
 
@@ -74,8 +74,10 @@ void VerifyMaxCoveringTombstoneSeqnum(
     const Comparator* ucmp,
     const std::vector<MaxCoveringTombstoneSeqnumTestCase>& cases) {
   for (const auto& testcase : cases) {
-    EXPECT_EQ(testcase.result,
-              MaxCoveringTombstoneSeqnum(iter, testcase.key, ucmp));
+    InternalKey key_and_snapshot(testcase.user_key, kMaxSequenceNumber,
+                                 kTypeValue);
+    EXPECT_EQ(testcase.result, MaxCoveringTombstoneSeqnum(
+                                   iter, key_and_snapshot.Encode(), ucmp));
   }
 }
 
