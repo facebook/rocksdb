@@ -59,6 +59,7 @@ rocksdb_arch_preprocessor_flags = {
 }
 
 build_mode = read_config("fbcode", "build_mode")
+
 is_opt_mode = build_mode.startswith("opt")
 
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
@@ -68,10 +69,9 @@ if is_opt_mode:
 
 default_allocator = read_config("fbcode", "default_allocator")
 
-if default_allocator in ["jemalloc", "jemalloc_debug"]:
+if default_allocator.startswith("jemalloc"):
     rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
-    rocksdb_external_deps.append(("jemalloc", None, "jemalloc"))
-
+    rocksdb_external_deps.append(("jemalloc", None, "headers"))
 
 cpp_library(
     name = "rocksdb_lib",
