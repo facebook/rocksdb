@@ -12,13 +12,10 @@ TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
 
 rocksdb_compiler_flags = [
     "-fno-builtin-memcmp",
-    "-DROCKSDB_BACKTRACE",
-    "-DROCKSDB_FALLOCATE_PRESENT",
-    "-DROCKSDB_JEMALLOC",
-    "-DROCKSDB_LIB_IO_POSIX",
-    "-DROCKSDB_MALLOC_USABLE_SIZE",
     "-DROCKSDB_PLATFORM_POSIX",
-    "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
+    "-DROCKSDB_LIB_IO_POSIX",
+    "-DROCKSDB_FALLOCATE_PRESENT",
+    "-DROCKSDB_MALLOC_USABLE_SIZE",
     "-DROCKSDB_RANGESYNC_PRESENT",
     "-DROCKSDB_SCHED_GETCPU_PRESENT",
     "-DROCKSDB_SUPPORT_THREAD_LOCAL",
@@ -34,6 +31,9 @@ rocksdb_compiler_flags = [
     "-DTBB",
     # Needed to compile in fbcode
     "-Wno-expansion-to-defined",
+    # Added missing flags from output of build_detect_platform
+    "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
+    "-DROCKSDB_BACKTRACE",
     "-Wnarrowing",
 ]
 
