@@ -429,22 +429,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
                            mem_id);
           imm_lists[pos]->current_->Remove(m, to_delete);
         }
-        // Re-sort the heap AFTER installing new MemTableListVersions.
-        const auto& memlist = imm_lists[pos]->current_->memlist_;
-        uint64_t batch_file_number = 0;
-        for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
-          MemTable* m = *it;
-          if (!m->flush_completed_) {
-            break;
-          } else if (it != memlist.rbegin() &&
-                     m->file_number_ != batch_file_number) {
-            heap.emplace(pos);
-            break;
-          }
-          if (it == memlist.rbegin()) {
-            batch_file_number = m->file_number_;
-          }
-        }
       }
     } else {
       for (size_t i = 0; i != batch_sz; ++i) {
@@ -464,6 +448,24 @@ Status MemTableList::TryInstallMemtableFlushResults(
         imm_lists[batch[i]]->imm_flush_needed.store(true,
                                                     std::memory_order_release);
         heap.emplace(batch[i]);  // Put back to the heap so that we can retry
+      }
+    }
+    // Re-sort the heap AFTER installing new MemTableListVersions.
+    for (auto pos : batch) {
+      const auto& memlist = imm_lists[pos]->current_->memlist_;
+      uint64_t batch_file_number = 0;
+      for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+        MemTable* m = *it;
+        if (!m->flush_completed_) {
+          break;
+        } else if (it != memlist.rbegin() &&
+                   m->file_number_ != batch_file_number) {
+          heap.emplace(pos);
+          break;
+        }
+        if (it == memlist.rbegin()) {
+          batch_file_number = m->file_number_;
+        }
       }
     }
   }
