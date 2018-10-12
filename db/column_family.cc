@@ -1023,7 +1023,7 @@ Compaction* ColumnFamilyData::CompactRange(
     int output_level, uint32_t output_path_id, uint32_t max_subcompactions,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
-    std::unordered_set<uint64_t>* files_being_compact,
+    const std::unordered_set<uint64_t>* files_being_compact,
     bool enable_lazy_compaction) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, current_->storage_info(), input_level,

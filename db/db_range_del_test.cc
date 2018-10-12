@@ -435,13 +435,12 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
   // output level is not bottommost. If no file boundary assertion fails, that
   // probably means universal compaction + subcompaction + range deletion are
   // compatible.
-  std::unordered_set<uint64_t> files_being_compact;
   ASSERT_OK(dbfull()->RunManualCompaction(
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd(),
       1 /* input_level */, 2 /* output_level */, 0 /* output_path_id */,
       0 /* max_subcompactions */, nullptr /* begin */, nullptr /* end */,
-      files_being_compact, true /* exclusive */,
+      nullptr /* files_being_compact */, true /* exclusive */,
       true /* disallow_trivial_move */));
 }
 #endif  // ROCKSDB_LITE

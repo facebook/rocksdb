@@ -80,7 +80,6 @@ struct CompactionParams {
   bool manual_compaction = false;
   double score = -1;
   bool deletion_compaction = false;
-  bool single_output = false;
   bool partial_compaction = false;
   SstPurpose compaction_purpose = kEssenceSst;
   std::vector<RangeStorage> input_range = {};
@@ -192,9 +191,6 @@ class Compaction {
 
   // If true, then the compaction can be done by simply deleting input files.
   bool deletion_compaction() const { return deletion_compaction_; }
-
-  // If true, then output single sst pre subsompact
-  bool single_output() const { return single_output_; }
 
   // If true, then enable partial compaction
   bool partial_compaction() const { return partial_compaction_; }
@@ -371,9 +367,6 @@ class Compaction {
   CompressionOptions output_compression_opts_;
   // If true, then the comaction can be done by simply deleting input files.
   const bool deletion_compaction_;
-  // If true, then output single sst pre subsompact
-  const bool single_output_;
-
   // If true, then enable partial compaction
   const bool partial_compaction_;
 

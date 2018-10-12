@@ -158,7 +158,7 @@ struct MutableCFOptions {
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression) {
-    RefreshDerivedOptions(options.num_levels, options.compaction_style);
+    RefreshDerivedOptions(options.num_levels);
   }
 
   MutableCFOptions()
@@ -192,10 +192,10 @@ struct MutableCFOptions {
   explicit MutableCFOptions(const Options& options);
 
   // Must be called after any change to MutableCFOptions
-  void RefreshDerivedOptions(int num_levels, CompactionStyle compaction_style);
+  void RefreshDerivedOptions(int num_levels);
 
   void RefreshDerivedOptions(const ImmutableCFOptions& ioptions) {
-    RefreshDerivedOptions(ioptions.num_levels, ioptions.compaction_style);
+    RefreshDerivedOptions(ioptions.num_levels);
   }
 
   int MaxBytesMultiplerAdditional(int level) const {

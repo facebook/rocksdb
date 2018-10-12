@@ -31,7 +31,7 @@ class UniversalCompactionPicker : public CompactionPicker {
       uint32_t output_path_id, uint32_t max_subcompactions,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      std::unordered_set<uint64_t>* files_being_compact,
+      const std::unordered_set<uint64_t>* files_being_compact,
       bool enable_lazy_compaction) override;
 
   virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
@@ -104,7 +104,7 @@ class UniversalCompactionPicker : public CompactionPicker {
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, int level, const InternalKey* begin,
       const InternalKey* end,
-      const std::unordered_set<uint64_t>& files_being_compact,
+      const std::unordered_set<uint64_t>* files_being_compact,
       bool* manual_conflict, LogBuffer* log_buffer);
 
   // Pick Universal compaction to limit read amplification

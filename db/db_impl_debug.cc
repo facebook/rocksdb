@@ -87,9 +87,8 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  std::unordered_set<uint64_t> files_being_compact;
   return RunManualCompaction(cfd, level, output_level, 0, 0, begin, end,
-                             files_being_compact, true, disallow_trivial_move);
+                             nullptr, true, disallow_trivial_move);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {

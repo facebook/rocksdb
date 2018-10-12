@@ -223,7 +223,6 @@ Compaction::Compaction(CompactionParams&& params)
       output_compression_(params.compression),
       output_compression_opts_(params.compression_opts),
       deletion_compaction_(params.deletion_compaction),
-      single_output_(params.single_output),
       partial_compaction_(params.partial_compaction),
       compaction_purpose_(params.compaction_purpose),
       input_range_(std::move(params.input_range)),

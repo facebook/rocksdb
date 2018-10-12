@@ -106,18 +106,15 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
   }
 }
 
-void MutableCFOptions::RefreshDerivedOptions(int num_levels,
-                                             CompactionStyle compaction_style) {
+void MutableCFOptions::RefreshDerivedOptions(int num_levels) {
   max_file_size.resize(num_levels);
-  for (int i = 0; i < num_levels; ++i) {
-    if (i == 0 && compaction_style == kCompactionStyleUniversal) {
-      max_file_size[i] = ULLONG_MAX;
-    } else if (i > 1) {
-      max_file_size[i] = MultiplyCheckOverflow(max_file_size[i - 1],
-                                               target_file_size_multiplier);
-    } else {
-      max_file_size[i] = target_file_size_base;
-    }
+  max_file_size[0] = 0; // unlimited
+  if (num_levels > 1) {
+    max_file_size[1] = target_file_size_base;
+  }
+  for (int i = 2; i < num_levels; ++i) {
+    max_file_size[i] = MultiplyCheckOverflow(max_file_size[i - 1],
+                                             target_file_size_multiplier);
   }
 }
 

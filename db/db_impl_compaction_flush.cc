@@ -391,7 +391,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options.target_path_id,
                             options.max_subcompactions, begin, end,
-                            files_being_compact, exclusive);
+                            &files_being_compact, exclusive);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -426,7 +426,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       }
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
                               options.max_subcompactions, begin, end,
-                              files_being_compact, exclusive, false,
+                              &files_being_compact, exclusive, false,
                               enable_lazy_compaction);
       if (!s.ok()) {
         break;
@@ -1057,7 +1057,7 @@ Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
 Status DBImpl::RunManualCompaction(
     ColumnFamilyData* cfd, int input_level, int output_level,
     uint32_t output_path_id, uint32_t max_subcompactions, const Slice* begin,
-    const Slice* end, std::unordered_set<uint64_t>& files_being_compact,
+    const Slice* end, const std::unordered_set<uint64_t>* files_being_compact,
     bool exclusive, bool disallow_trivial_move, bool enable_lazy_compaction) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
@@ -1078,7 +1078,6 @@ Status DBImpl::RunManualCompaction(
   manual.exclusive = exclusive;
   manual.disallow_trivial_move = disallow_trivial_move;
   manual.enable_lazy_compaction = enable_lazy_compaction;
-  manual.files_being_compact = std::move(files_being_compact);
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
@@ -1151,7 +1150,7 @@ Status DBImpl::RunManualCompaction(
                *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
                manual.output_level, manual.output_path_id, max_subcompactions,
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
-               &manual.files_being_compact, enable_lazy_compaction)) == nullptr &&
+               files_being_compact, enable_lazy_compaction)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange

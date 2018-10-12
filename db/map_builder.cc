@@ -659,46 +659,47 @@ Status MapBuilder::Build(const std::vector<CompactionInputFiles>& inputs,
     return s;
   }
   auto& ranges = level_ranges.front();
-  std::unordered_map<uint64_t, const FileMetaData*> sst_live;
-  bool build_map_sst = false;
-  // check is need build map
-  for (auto it = ranges.begin(); it != ranges.end(); ++it) {
-    if (it->depend.size() > 1) {
-      build_map_sst = true;
-      break;
+  if (output_level != 0 || ranges.size() == 1) {
+    std::unordered_map<uint64_t, const FileMetaData*> sst_live;
+    bool build_map_sst = false; 
+    // check is need build map
+    for (auto it = ranges.begin(); it != ranges.end(); ++it) {
+      if (it->depend.size() > 1) {
+        build_map_sst = true;
+        break;
+      }
+      auto f = iterator_cache.GetFileMetaData(it->depend.front());
+      assert(f != nullptr);
+      Range r(it->point[0].Encode(), it->point[1].Encode(), it->include[0],
+              it->include[1]);
+      if (!IsPrefaceRange(r, f, icomp)) {
+        build_map_sst = true;
+        break;
+      }
+      sst_live.emplace(it->depend.front(), f);
     }
-    auto f = iterator_cache.GetFileMetaData(it->depend.front());
-    assert(f != nullptr);
-    Range r(it->point[0].Encode(), it->point[1].Encode(), it->include[0],
-            it->include[1]);
-    if (!IsPrefaceRange(r, f, icomp)) {
-      build_map_sst = true;
-      break;
-    }
-    sst_live.emplace(it->depend.front(), f);
-  }
-  if (!build_map_sst) {
-    // unnecessary build map sst
-    for (auto& input_level : inputs) {
-      for (auto f : input_level.files) {
-        uint64_t file_number = f->fd.GetNumber();
-        if (sst_live.count(file_number) > 0) {
-          if (output_level != input_level.level) {
+    if (!build_map_sst) {
+      // unnecessary build map sst
+      for (auto& input_level : inputs) {
+        for (auto f : input_level.files) {
+          uint64_t file_number = f->fd.GetNumber();
+          if (sst_live.count(file_number) > 0) {
+            if (output_level != input_level.level) {
+              edit->DeleteFile(input_level.level, file_number);
+              edit->AddFile(output_level, *f);
+            }
+            sst_live.erase(file_number);
+          } else {
             edit->DeleteFile(input_level.level, file_number);
-            edit->AddFile(output_level, *f);
           }
-          sst_live.erase(file_number);
-        } else {
-          edit->DeleteFile(input_level.level, file_number);
         }
       }
+      for (auto& pair : sst_live) {
+        edit->AddFile(output_level, *pair.second);
+      }
+      return s;
     }
-    for (auto& pair : sst_live) {
-      edit->AddFile(output_level, *pair.second);
-    }
-    return s;
   }
-  sst_live.clear();
 
   using IterType = MapSstElementIterator;
   void* buffer = iterator_cache.GetArena()->AllocateAligned(sizeof(IterType));

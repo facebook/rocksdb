@@ -70,7 +70,7 @@ class CompactionPicker {
       uint32_t output_path_id, uint32_t max_subcompactions,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      std::unordered_set<uint64_t>* files_being_compact,
+      const std::unordered_set<uint64_t>* files_being_compact,
       bool enable_lazy_compaction);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
@@ -266,7 +266,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       uint32_t output_path_id, uint32_t max_subcompactions,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      std::unordered_set<uint64_t>* files_being_compact,
+      const std::unordered_set<uint64_t>* files_being_compact,
       bool enable_lazy_compaction) override;
 
   // The maximum allowed output level.  Always returns 0.
@@ -312,7 +312,7 @@ class NullCompactionPicker : public CompactionPicker {
       uint32_t /*max_subcompactions*/, const InternalKey* /*begin*/,
       const InternalKey* /*end*/, InternalKey** /*compaction_end*/,
       bool* /*manual_conflict*/,
-      std::unordered_set<uint64_t>* /*files_being_compact*/,
+      const std::unordered_set<uint64_t>* /*files_being_compact*/,
       bool /*enable_lazy_compaction*/) override {
     return nullptr;
   }

@@ -302,13 +302,13 @@ class ColumnFamilyData {
       bool enable_lazy_compaction);
 
   // REQUIRES: DB mutex held
-  Compaction* CompactRange(const MutableCFOptions& mutable_cf_options,
-                           int input_level, int output_level,
-                           uint32_t output_path_id, uint32_t max_subcompactions,
-                           const InternalKey* begin, const InternalKey* end,
-                           InternalKey** compaction_end, bool* manual_conflict,
-                           std::unordered_set<uint64_t>* files_being_compact,
-                           bool enable_lazy_compaction);
+  Compaction* CompactRange(
+      const MutableCFOptions& mutable_cf_options, int input_level,
+      int output_level, uint32_t output_path_id, uint32_t max_subcompactions,
+      const InternalKey* begin, const InternalKey* end,
+      InternalKey** compaction_end, bool* manual_conflict,
+      const std::unordered_set<uint64_t>* files_being_compact,
+      bool enable_lazy_compaction);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
   // thread-safe

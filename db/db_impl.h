@@ -358,13 +358,12 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
-  Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                             int output_level, uint32_t output_path_id,
-                             uint32_t max_subcompactions, const Slice* begin,
-                             const Slice* end,
-                             std::unordered_set<uint64_t>& files_being_compact,
-                             bool exclusive, bool disallow_trivial_move = false,
-                             bool enable_lazy_compaction = false);
+  Status RunManualCompaction(
+      ColumnFamilyData* cfd, int input_level, int output_level,
+      uint32_t output_path_id, uint32_t max_subcompactions, const Slice* begin,
+      const Slice* end, const std::unordered_set<uint64_t>* files_being_compact,
+      bool exclusive, bool disallow_trivial_move = false,
+      bool enable_lazy_compaction = false);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
@@ -1383,8 +1382,6 @@ class DBImpl : public DB {
     InternalKey* manual_end;      // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
     InternalKey tmp_storage1;     // Used to keep track of compaction progress
-    std::unordered_set<uint64_t> files_being_compact;
-                                  // Used to keep track of compaction progress
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
