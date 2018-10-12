@@ -432,6 +432,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
       }
     } else {
       for (size_t i = 0; i != batch_sz; ++i) {
+        size_t pos = batch[i];
         for (auto m : memtables_to_flush[i]) {
           uint64_t mem_id = m->GetID();
           ROCKS_LOG_BUFFER(log_buffer,
@@ -443,14 +444,12 @@ Status MemTableList::TryInstallMemtableFlushResults(
           m->flush_in_progress_ = false;
           m->edit_.Clear();
           m->file_number_ = 0;
-          imm_lists[batch[i]]->num_flush_not_started_++;
+          imm_lists[pos]->num_flush_not_started_++;
         }
-        imm_lists[batch[i]]->imm_flush_needed.store(true,
-                                                    std::memory_order_release);
-        heap.emplace(batch[i]);  // Put back to the heap so that we can retry
+        imm_lists[pos]->imm_flush_needed.store(true, std::memory_order_release);
       }
     }
-    // Re-sort the heap AFTER installing new MemTableListVersions.
+    // Adjust the heap AFTER installing new MemTableListVersions.
     for (auto pos : batch) {
       const auto& memlist = imm_lists[pos]->current_->memlist_;
       uint64_t batch_file_number = 0;
