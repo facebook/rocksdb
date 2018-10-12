@@ -313,6 +313,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
     ASSERT_EQ(comparator_name,
               fname_and_props.second->comparator_name);
   }
+  Close();
 
   // Also check comparator when it's provided via "unknown" CF options
   ASSERT_OK(RepairDB(dbname_, opts, {{"default", opts}},
