@@ -181,6 +181,8 @@ struct CompactionJobInfo {
   explicit CompactionJobInfo(const CompactionJobStats& _stats) :
       stats(_stats) {}
 
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
   // the name of the column family where the compaction happened.
   std::string cf_name;
   // the status indicating whether the compaction was successful or not.
@@ -300,6 +302,16 @@ class EventListener {
   // outside this function call, they should make copies from the
   // returned value.
   virtual void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
+
+  // A callback function to RocksDB which will be called before a
+  // RocksDB starts to compact.  The default implementation is
+  // no-op.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnCompactionBegin(DB* /*db*/,
+                                 const CompactionJobInfo& /*ci*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation

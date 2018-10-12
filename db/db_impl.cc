@@ -361,11 +361,20 @@ void DBImpl::WaitForBackgroundWork() {
 
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
-  InstrumentedMutexLock l(&mutex_);
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
+  InstrumentedMutexLock l(&mutex_);
+  // To avoid deadlock, `thread_dump_stats_->cancel()` needs to be called
+  // before grabbing db mutex because the actual worker function
+  // `DBImpl::DumpStats()` also holds db mutex
+  if (thread_dump_stats_ != nullptr) {
+    mutex_.Unlock();
+    thread_dump_stats_->cancel();
+    mutex_.Lock();
+    thread_dump_stats_.reset();
+  }
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
@@ -579,66 +588,68 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::MaybeDumpStats() {
-  mutex_.Lock();
-  unsigned int stats_dump_period_sec =
-      mutable_db_options_.stats_dump_period_sec;
-  mutex_.Unlock();
-  if (stats_dump_period_sec == 0) return;
+void DBImpl::StartTimedTasks() {
+  unsigned int stats_dump_period_sec = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
+    if (stats_dump_period_sec > 0) {
+      if (!thread_dump_stats_) {
+        thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+            [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
+            stats_dump_period_sec * 1000000));
+      }
+    }
+  }
+}
 
-  const uint64_t now_micros = env_->NowMicros();
-
-  if (last_stats_dump_time_microsec_ + stats_dump_period_sec * 1000000 <=
-      now_micros) {
-    // Multiple threads could race in here simultaneously.
-    // However, the last one will update last_stats_dump_time_microsec_
-    // atomically. We could see more than one dump during one dump
-    // period in rare cases.
-    last_stats_dump_time_microsec_ = now_micros;
-
+void DBImpl::DumpStats() {
+  TEST_SYNC_POINT("DBImpl::DumpStats:1");
 #ifndef ROCKSDB_LITE
-    const DBPropertyInfo* cf_property_info =
-        GetPropertyInfo(DB::Properties::kCFStats);
-    assert(cf_property_info != nullptr);
-    const DBPropertyInfo* db_property_info =
-        GetPropertyInfo(DB::Properties::kDBStats);
-    assert(db_property_info != nullptr);
+  const DBPropertyInfo* cf_property_info =
+      GetPropertyInfo(DB::Properties::kCFStats);
+  assert(cf_property_info != nullptr);
+  const DBPropertyInfo* db_property_info =
+      GetPropertyInfo(DB::Properties::kDBStats);
+  assert(db_property_info != nullptr);
 
-    std::string stats;
-    {
-      InstrumentedMutexLock l(&mutex_);
-      default_cf_internal_stats_->GetStringProperty(
-          *db_property_info, DB::Properties::kDBStats, &stats);
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->initialized()) {
-          cfd->internal_stats()->GetStringProperty(
-              *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
-              &stats);
-        }
-      }
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->initialized()) {
-          cfd->internal_stats()->GetStringProperty(
-              *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
-        }
+  std::string stats;
+  if (shutdown_initiated_) {
+    return;
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    default_cf_internal_stats_->GetStringProperty(
+        *db_property_info, DB::Properties::kDBStats, &stats);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram, &stats);
       }
     }
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "------- DUMPING STATS -------");
-    ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
-    if (immutable_db_options_.dump_malloc_stats) {
-      stats.clear();
-      DumpMallocStats(&stats);
-      if (!stats.empty()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "------- Malloc STATS -------");
-        ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->initialized()) {
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
       }
     }
+  }
+  TEST_SYNC_POINT("DBImpl::DumpStats:2");
+  ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                 "------- DUMPING STATS -------");
+  ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+  if (immutable_db_options_.dump_malloc_stats) {
+    stats.clear();
+    DumpMallocStats(&stats);
+    if (!stats.empty()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "------- Malloc STATS -------");
+      ROCKS_LOG_WARN(immutable_db_options_.info_log, "%s", stats.c_str());
+    }
+  }
 #endif  // !ROCKSDB_LITE
 
-    PrintStatistics();
-  }
+  PrintStatistics();
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
@@ -764,7 +775,22 @@ Status DBImpl::SetDBOptions(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
       }
-
+      if (new_options.stats_dump_period_sec !=
+          mutable_db_options_.stats_dump_period_sec) {
+          if (thread_dump_stats_) {
+            mutex_.Unlock();
+            thread_dump_stats_->cancel();
+            mutex_.Lock();
+          }
+          if (new_options.stats_dump_period_sec > 0) {
+            thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+                [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
+                new_options.stats_dump_period_sec * 1000000));
+          }
+          else {
+            thread_dump_stats_.reset();
+          }
+      }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
@@ -2156,7 +2182,7 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
 }
 
 // REQUIRED: mutex is NOT held.
-ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
+std::unique_ptr<ColumnFamilyHandle> DBImpl::GetColumnFamilyHandleUnlocked(
     uint32_t column_family_id) {
   ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
 
@@ -2166,7 +2192,8 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
     return nullptr;
   }
 
-  return cf_memtables->GetColumnFamilyHandle();
+  return std::unique_ptr<ColumnFamilyHandleImpl>(
+      new ColumnFamilyHandleImpl(cf_memtables->current(), this, &mutex_));
 }
 
 void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
@@ -3099,12 +3126,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Unexpected status returned from Version::Get: %s\n",
                       s.ToString().c_str());
-
-      return s;
     }
   }
 
-  return Status::OK();
+  return s;
 }
 
 Status DBImpl::IngestExternalFile(
