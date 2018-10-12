@@ -320,6 +320,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
   };
   // The top of the heap is the memtable with smallest atomic_flush_seqno_.
   std::priority_queue<size_t, std::vector<size_t>, decltype(comp)> heap(comp);
+  // Sequence number of the oldest unfinished atomic flush.
+  SequenceNumber min_unfinished_seqno = kMaxSequenceNumber;
   // Populate the heap with first element of each imm iff. it has been
   // flushed to storage, i.e. flush_completed_ is true.
   for (size_t i = 0; i != num; ++i) {
@@ -330,6 +332,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     auto it = memlist.rbegin();
     if ((*it)->flush_completed_) {
       heap.emplace(i);
+    } else if (min_unfinished_seqno > (*it)->atomic_flush_seqno_) {
+      min_unfinished_seqno = (*it)->atomic_flush_seqno_;
     }
   }
 
@@ -355,6 +359,11 @@ Status MemTableList::TryInstallMemtableFlushResults(
         break;
       }
     } while (!heap.empty());
+    if (seqno >= min_unfinished_seqno) {
+      // If there is an older, unfinished atomic flush, then we should not
+      // proceed.
+      break;
+    }
     uint32_t num_entries = 0;
     autovector<ColumnFamilyData*> tmp_cfds;
     autovector<const MutableCFOptions*> tmp_mutable_cf_options_list;
@@ -452,18 +461,12 @@ Status MemTableList::TryInstallMemtableFlushResults(
     // Adjust the heap AFTER installing new MemTableListVersions.
     for (auto pos : batch) {
       const auto& memlist = imm_lists[pos]->current_->memlist_;
-      uint64_t batch_file_number = 0;
-      for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
-        MemTable* m = *it;
-        if (!m->flush_completed_) {
-          break;
-        } else if (it != memlist.rbegin() &&
-                   m->file_number_ != batch_file_number) {
+      if (!memlist.empty()) {
+        MemTable* mem = *(memlist.rbegin());
+        if (mem->flush_completed_) {
           heap.emplace(pos);
-          break;
-        }
-        if (it == memlist.rbegin()) {
-          batch_file_number = m->file_number_;
+        } else if (min_unfinished_seqno > mem->atomic_flush_seqno_) {
+          min_unfinished_seqno = mem->atomic_flush_seqno_;
         }
       }
     }
