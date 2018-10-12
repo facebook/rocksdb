@@ -99,16 +99,17 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         Slice tmp;
 
-        time_t start_ts(0);
+        time_t start_ts = 0;
+        uint64_t orig_offset = 0;
         if (ShouldNotifyListeners()) {
           start_ts = std::chrono::system_clock::to_time_t(
               std::chrono::system_clock::now());
+          orig_offset = aligned_offset + buf.CurrentSize();
         }
         s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
                         buf.Destination());
         if (ShouldNotifyListeners()) {
-          NotifyOnFileReadFinish(aligned_offset + buf.CurrentSize(), tmp.size(),
-                                 start_ts, s);
+          NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, s);
         }
 
         buf.Size(buf.CurrentSize() + tmp.size());
@@ -144,7 +145,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         Slice tmp_result;
 
 #ifndef ROCKSDB_LITE
-        time_t start_ts(0);
+        time_t start_ts = 0;
         if (ShouldNotifyListeners()) {
           start_ts = std::chrono::system_clock::to_time_t(
               std::chrono::system_clock::now());
@@ -441,7 +442,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
 
 #ifndef ROCKSDB_LITE
-      time_t start_ts(0);
+      time_t start_ts = 0;
       uint64_t old_size = writable_file_->GetFileSize();
       if (ShouldNotifyListeners()) {
         start_ts = std::chrono::system_clock::to_time_t(
