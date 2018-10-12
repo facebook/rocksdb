@@ -1278,6 +1278,13 @@ TEST_P(BlockBasedTableTest, RangeDelBlock) {
   std::vector<std::string> keys = {"1pika", "2chu"};
   std::vector<std::string> vals = {"p", "c"};
 
+  std::vector<RangeTombstone> expected_tombstones = {
+      {"1pika", "2chu", 0},
+      {"2chu", "c", 1},
+      {"2chu", "c", 0},
+      {"c", "p", 0},
+  };
+
   for (int i = 0; i < 2; i++) {
     RangeTombstone t(keys[i], vals[i], i);
     std::pair<InternalKey, Slice> p = t.Serialize();
@@ -1310,14 +1317,15 @@ TEST_P(BlockBasedTableTest, RangeDelBlock) {
     ASSERT_FALSE(iter->Valid());
     iter->SeekToFirst();
     ASSERT_TRUE(iter->Valid());
-    for (int i = 0; i < 2; i++) {
+    for (size_t i = 0; i < expected_tombstones.size(); i++) {
       ASSERT_TRUE(iter->Valid());
       ParsedInternalKey parsed_key;
       ASSERT_TRUE(ParseInternalKey(iter->key(), &parsed_key));
       RangeTombstone t(parsed_key, iter->value());
-      ASSERT_EQ(t.start_key_, keys[i]);
-      ASSERT_EQ(t.end_key_, vals[i]);
-      ASSERT_EQ(t.seq_, i);
+      const auto& expected_t = expected_tombstones[i];
+      ASSERT_EQ(t.start_key_, expected_t.start_key_);
+      ASSERT_EQ(t.end_key_, expected_t.end_key_);
+      ASSERT_EQ(t.seq_, expected_t.seq_);
       iter->Next();
     }
     ASSERT_TRUE(!iter->Valid());

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/range_tombstone_fragmenter.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -114,6 +115,9 @@ class BlockBasedTable : public TableReader {
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
+
+  InternalIterator* NewUnfragmentedRangeTombstoneIterator(
+      const ReadOptions& read_options);
 
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
@@ -511,6 +515,7 @@ struct BlockBasedTable::Rep {
   // cache is enabled.
   CachableEntry<Block> range_del_entry;
   BlockHandle range_del_handle;
+  std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
 
   // If global_seqno is used, all Keys in this file will have the same
   // seqno with value `global_seqno`.

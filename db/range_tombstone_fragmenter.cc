@@ -12,19 +12,17 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#include "util/autovector.h"
 #include "util/kv_map.h"
 #include "util/vector_iterator.h"
 
 namespace rocksdb {
 
-FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
+FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
-    const InternalKeyComparator& icmp, SequenceNumber snapshot)
-    : tombstone_cmp_(icmp.user_comparator()),
-      icmp_(&icmp),
-      ucmp_(icmp.user_comparator()) {
+    const InternalKeyComparator& icmp, bool one_time_use,
+    SequenceNumber snapshot) {
   if (unfragmented_tombstones == nullptr) {
-    pos_ = tombstones_.end();
     return;
   }
   bool is_sorted = true;
@@ -34,7 +32,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next(), num_tombstones++) {
     if (num_tombstones > 0 &&
-        icmp_->Compare(last_start_key, unfragmented_tombstones->key()) > 0) {
+        icmp.Compare(last_start_key, unfragmented_tombstones->key()) > 0) {
       is_sorted = false;
       break;
     }
@@ -46,7 +44,8 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
     }
   }
   if (is_sorted) {
-    FragmentTombstones(std::move(unfragmented_tombstones), snapshot);
+    FragmentTombstones(std::move(unfragmented_tombstones), icmp, one_time_use,
+                       snapshot);
     return;
   }
 
@@ -63,15 +62,16 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   }
   // VectorIterator implicitly sorts by key during construction.
   auto iter = std::unique_ptr<VectorIterator>(
-      new VectorIterator(std::move(keys), std::move(values), icmp_));
-  FragmentTombstones(std::move(iter), snapshot);
+      new VectorIterator(std::move(keys), std::move(values), &icmp));
+  FragmentTombstones(std::move(iter), icmp, one_time_use, snapshot);
 }
 
-void FragmentedRangeTombstoneIterator::FragmentTombstones(
+void FragmentedRangeTombstoneList::FragmentTombstones(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
+    const InternalKeyComparator& icmp, bool one_time_use,
     SequenceNumber snapshot) {
   Slice cur_start_key(nullptr, 0);
-  auto cmp = ParsedInternalKeyComparator(icmp_);
+  auto cmp = ParsedInternalKeyComparator(&icmp);
 
   // Stores the end keys and sequence numbers of range tombstones with a start
   // key less than or equal to cur_start_key. Provides an ordering by end key
@@ -87,11 +87,11 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
     bool reached_next_start_key = false;
     for (; it != cur_end_keys.end() && !reached_next_start_key; ++it) {
       Slice cur_end_key = it->user_key;
-      if (icmp_->user_comparator()->Compare(cur_start_key, cur_end_key) == 0) {
+      if (icmp.user_comparator()->Compare(cur_start_key, cur_end_key) == 0) {
         // Empty tombstone.
         continue;
       }
-      if (icmp_->user_comparator()->Compare(next_start_key, cur_end_key) <= 0) {
+      if (icmp.user_comparator()->Compare(next_start_key, cur_end_key) <= 0) {
         // All of the end keys in [it, cur_end_keys.end()) are after
         // next_start_key, so the tombstones they represent can be used in
         // fragments that start with keys greater than or equal to
@@ -109,17 +109,32 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
       // Flush a range tombstone fragment [cur_start_key, cur_end_key), which
       // should not overlap with the last-flushed tombstone fragment.
       assert(tombstones_.empty() ||
-             icmp_->user_comparator()->Compare(tombstones_.back().end_key_,
+             icmp.user_comparator()->Compare(tombstones_.back().end_key_,
                                                cur_start_key) <= 0);
 
-      SequenceNumber max_seqnum = 0;
-      for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
-        max_seqnum = std::max(max_seqnum, flush_it->sequence);
+      if (one_time_use) {
+        SequenceNumber max_seqnum = 0;
+        for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
+          max_seqnum = std::max(max_seqnum, flush_it->sequence);
+        }
+
+        // Flush only the tombstone fragment with the highest sequence number.
+        tombstones_.push_back(
+            RangeTombstone(cur_start_key, cur_end_key, max_seqnum));
+      } else {
+        // Sort the sequence numbers of the tombstones being fragmented in
+        // descending order, and then flush them in that order.
+        autovector<SequenceNumber> seqnums_to_flush;
+        for (auto flush_it = it; flush_it != cur_end_keys.end(); ++flush_it) {
+          seqnums_to_flush.push_back(flush_it->sequence);
+        }
+        std::sort(seqnums_to_flush.begin(), seqnums_to_flush.end(),
+                  std::greater<SequenceNumber>());
+        for (const auto seq : seqnums_to_flush) {
+          tombstones_.push_back(
+              RangeTombstone(cur_start_key, cur_end_key, seq));
+        }
       }
-      // Flush only the tombstone fragment with the highest sequence
-      // number.
-      tombstones_.push_back(
-          RangeTombstone(cur_start_key, cur_end_key, max_seqnum));
       cur_start_key = cur_end_key;
     }
     if (!reached_next_start_key) {
@@ -140,7 +155,7 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
     const Slice& ikey = unfragmented_tombstones->key();
     Slice tombstone_start_key = ExtractUserKey(ikey);
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
-    if (tombstone_seq > snapshot) {
+    if (one_time_use && tombstone_seq > snapshot) {
       // The tombstone is not visible by this snapshot.
       continue;
     }
@@ -152,7 +167,7 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
                                   tombstone_end_key.size());
       tombstone_end_key = pinned_slices_.back();
     }
-    if (!cur_end_keys.empty() && icmp_->user_comparator()->Compare(
+    if (!cur_end_keys.empty() && icmp.user_comparator()->Compare(
                                      cur_start_key, tombstone_start_key) != 0) {
       // The start key has changed. Flush all tombstones that start before
       // this new start key.
@@ -177,29 +192,50 @@ void FragmentedRangeTombstoneIterator::FragmentTombstones(
     pinned_iters_mgr_.PinIterator(unfragmented_tombstones.release(),
                                   false /* arena */);
   }
+}
 
-  // With this, the caller must Seek before the iterator is valid.
-  pos_ = tombstones_.end();
-  pinned_pos_ = tombstones_.end();
+FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
+    const FragmentedRangeTombstoneList* tombstones,
+    const InternalKeyComparator& icmp)
+    : tombstone_cmp_(icmp.user_comparator()),
+      icmp_(&icmp),
+      ucmp_(icmp.user_comparator()),
+      tombstones_(tombstones) {
+  assert(tombstones_ != nullptr);
+  pos_ = tombstones_->end();
+  pinned_pos_ = tombstones_->end();
+}
+
+FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
+    const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
+    const InternalKeyComparator& icmp)
+    : tombstone_cmp_(icmp.user_comparator()),
+      icmp_(&icmp),
+      ucmp_(icmp.user_comparator()),
+      tombstones_ref_(tombstones),
+      tombstones_(tombstones_ref_.get()) {
+  assert(tombstones_ != nullptr);
+  pos_ = tombstones_->end();
+  pinned_pos_ = tombstones_->end();
 }
 
 void FragmentedRangeTombstoneIterator::SeekToFirst() {
-  pos_ = tombstones_.begin();
+  pos_ = tombstones_->begin();
 }
 
 void FragmentedRangeTombstoneIterator::SeekToLast() {
-  pos_ = tombstones_.end();
+  pos_ = tombstones_->end();
   Prev();
 }
 
 void FragmentedRangeTombstoneIterator::Seek(const Slice& target) {
-  if (tombstones_.empty()) {
-    pos_ = tombstones_.end();
+  if (tombstones_->empty()) {
+    pos_ = tombstones_->end();
     return;
   }
   RangeTombstone search(ExtractUserKey(target), ExtractUserKey(target),
                         GetInternalKeySeqno(target));
-  pos_ = std::lower_bound(tombstones_.begin(), tombstones_.end(), search,
+  pos_ = std::lower_bound(tombstones_->begin(), tombstones_->end(), search,
                           tombstone_cmp_);
 }
 
@@ -223,20 +259,24 @@ void FragmentedRangeTombstoneIterator::SeekForPrev(const Slice& target) {
 void FragmentedRangeTombstoneIterator::Next() { ++pos_; }
 
 void FragmentedRangeTombstoneIterator::Prev() {
-  if (pos_ == tombstones_.begin()) {
-    pos_ = tombstones_.end();
+  if (pos_ == tombstones_->begin()) {
+    pos_ = tombstones_->end();
     return;
   }
   --pos_;
 }
 
 bool FragmentedRangeTombstoneIterator::Valid() const {
-  return pos_ != tombstones_.end();
+  return tombstones_ != nullptr && pos_ != tombstones_->end();
 }
 
 SequenceNumber MaxCoveringTombstoneSeqnum(
     FragmentedRangeTombstoneIterator* tombstone_iter, const Slice& lookup_key,
     const Comparator* ucmp) {
+  if (tombstone_iter == nullptr) {
+    return 0;
+  }
+
   SequenceNumber snapshot = GetInternalKeySeqno(lookup_key);
   Slice user_key = ExtractUserKey(lookup_key);
 
