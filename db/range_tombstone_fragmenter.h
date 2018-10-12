@@ -17,10 +17,6 @@
 
 namespace rocksdb {
 
-SequenceNumber MaxCoveringTombstoneSeqnum(InternalIterator* tombstone_iter,
-                                          const Slice& key,
-                                          const Comparator* ucmp);
-
 // FragmentedRangeTombstoneIterator converts an InternalIterator of a range-del
 // meta block into an iterator over non-overlapping tombstone fragments. The
 // tombstone fragmentation process should be more efficient than the range
@@ -41,11 +37,17 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   void Next() override;
   void Prev() override;
   bool Valid() const override;
-  Slice key() const override { return current_start_key_.Encode(); }
+  Slice key() const override {
+    MaybePinKey();
+    return current_start_key_.Encode();
+  }
   Slice value() const override { return pos_->end_key_; }
   bool IsKeyPinned() const override { return false; }
   bool IsValuePinned() const override { return true; }
   Status status() const override { return Status::OK(); }
+
+  Slice user_key() const { return pos_->start_key_; }
+  SequenceNumber seq() const { return pos_->seq_; }
 
  private:
   struct FragmentedRangeTombstoneComparator {
@@ -62,10 +64,17 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     const Comparator* cmp;
   };
 
-  void UpdateKey() {
-    if (Valid()) {
+  void MaybePinKey() const {
+    if (pos_ != tombstones_.end() && pinned_pos_ != pos_) {
       current_start_key_.Set(pos_->start_key_, pos_->seq_, kTypeRangeDeletion);
+      pinned_pos_ = pos_;
     }
+  }
+
+  void ParseKey(ParsedInternalKey* parsed) const {
+    parsed->user_key = pos_->start_key_;
+    parsed->sequence = pos_->seq_;
+    parsed->type = kTypeRangeDeletion;
   }
 
   const FragmentedRangeTombstoneComparator tombstone_cmp_;
@@ -74,8 +83,13 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   std::vector<RangeTombstone> tombstones_;
   std::list<std::string> pinned_slices_;
   std::vector<RangeTombstone>::const_iterator pos_;
-  InternalKey current_start_key_;
+  mutable std::vector<RangeTombstone>::const_iterator pinned_pos_;
+  mutable InternalKey current_start_key_;
   PinnedIteratorsManager pinned_iters_mgr_;
 };
+
+SequenceNumber MaxCoveringTombstoneSeqnum(
+    FragmentedRangeTombstoneIterator* tombstone_iter, const Slice& key,
+    const Comparator* ucmp);
 
 }  // namespace rocksdb

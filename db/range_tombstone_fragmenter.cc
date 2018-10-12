@@ -133,11 +133,11 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
 
   // With this, the caller must Seek before the iterator is valid.
   pos_ = tombstones_.end();
+  pinned_pos_ = tombstones_.end();
 }
 
 void FragmentedRangeTombstoneIterator::SeekToFirst() {
   pos_ = tombstones_.begin();
-  UpdateKey();
 }
 
 void FragmentedRangeTombstoneIterator::SeekToLast() {
@@ -154,18 +154,27 @@ void FragmentedRangeTombstoneIterator::Seek(const Slice& target) {
                         GetInternalKeySeqno(target));
   pos_ = std::lower_bound(tombstones_.begin(), tombstones_.end(), search,
                           tombstone_cmp_);
-  UpdateKey();
 }
 
 void FragmentedRangeTombstoneIterator::SeekForPrev(const Slice& target) {
-  SeekForPrevImpl(target, icmp_);
+  Seek(target);
+  if (!Valid()) {
+    SeekToLast();
+  }
+  ParsedInternalKey parsed_target;
+  if (!ParseInternalKey(target, &parsed_target)) {
+    assert(false);
+  }
+  ParsedInternalKey parsed_start_key;
+  ParseKey(&parsed_start_key);
+  while (Valid() && icmp_->Compare(parsed_target, parsed_start_key) < 0) {
+    Prev();
+    ParseKey(&parsed_start_key);
+  }
 }
 
 void FragmentedRangeTombstoneIterator::Next() {
   ++pos_;
-  if (pos_ != tombstones_.end()) {
-    UpdateKey();
-  }
 }
 
 void FragmentedRangeTombstoneIterator::Prev() {
@@ -174,7 +183,6 @@ void FragmentedRangeTombstoneIterator::Prev() {
     return;
   }
   --pos_;
-  UpdateKey();
 }
 
 bool FragmentedRangeTombstoneIterator::Valid() const {
@@ -182,7 +190,7 @@ bool FragmentedRangeTombstoneIterator::Valid() const {
 }
 
 SequenceNumber MaxCoveringTombstoneSeqnum(
-    InternalIterator* tombstone_iter,
+    FragmentedRangeTombstoneIterator* tombstone_iter,
     const Slice& lookup_key, const Comparator* ucmp) {
   SequenceNumber snapshot = GetInternalKeySeqno(lookup_key);
   Slice user_key = ExtractUserKey(lookup_key);
@@ -190,29 +198,15 @@ SequenceNumber MaxCoveringTombstoneSeqnum(
   tombstone_iter->Seek(lookup_key);
   SequenceNumber highest_covering_seqnum = 0;
   if (!tombstone_iter->Valid()) {
-#if 0
-    fprintf(stdout,
-        "seeked past last tombstone; key=%s\n",
-        user_key.ToString().c_str());
-#endif
     // Seeked past the last tombstone
     tombstone_iter->Prev();
   }
   while (tombstone_iter->Valid() &&
          ucmp->Compare(user_key, tombstone_iter->value()) < 0) {
-    if (GetInternalKeySeqno(tombstone_iter->key()) <= snapshot &&
-        ucmp->Compare(ExtractUserKey(tombstone_iter->key()), user_key) <= 0) {
-#if 0
-      fprintf(stdout,
-              "potentially covering tombstone: [%s, %s)@%" PRIu64 "; key=%s\n",
-              ExtractUserKey(tombstone_iter->key()).ToString().c_str(),
-              tombstone_iter->value().ToString().c_str(),
-              GetInternalKeySeqno(tombstone_iter->key()),
-              user_key.ToString().c_str());
-#endif
-
+    if (tombstone_iter->seq() <= snapshot &&
+        ucmp->Compare(tombstone_iter->user_key(), user_key) <= 0) {
       highest_covering_seqnum = std::max(
-          highest_covering_seqnum, GetInternalKeySeqno(tombstone_iter->key()));
+          highest_covering_seqnum, tombstone_iter->seq());
     }
     tombstone_iter->Prev();
   }
