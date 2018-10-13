@@ -143,6 +143,15 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
+struct FileOperationInfo {
+  std::string path;
+  uint64_t offset;
+  size_t length;
+  time_t start_timestamp;
+  time_t finish_timestamp;
+  Status status;
+};
+
 struct FlushJobInfo {
   // the name of the column family
   std::string cf_name;
@@ -406,6 +415,18 @@ class EventListener {
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever a file read
+  // operation finishes.
+  virtual void OnFileReadFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file write
+  // operation finishes.
+  virtual void OnFileWriteFinish(const FileOperationInfo& /* info */) {}
+
+  // If true, the OnFileReadFinish and OnFileWriteFinish will be called. If
+  // false, then they won't be called.
+  virtual bool ShouldBeNotifiedOnFileIO() { return false; }
 
   // A callback function for RocksDB which will be called just before
   // starting the automatic recovery process for recoverable background
