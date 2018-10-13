@@ -144,12 +144,13 @@ struct TableFileDeletionInfo {
 };
 
 struct FileOperationInfo {
-  std::string path;
+  const std::string& path;
   uint64_t offset;
   size_t length;
   time_t start_timestamp;
   time_t finish_timestamp;
   Status status;
+  FileOperationInfo(const std::string& _path) : path(_path) {}
 };
 
 struct FlushJobInfo {

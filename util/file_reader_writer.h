@@ -66,8 +66,7 @@ class RandomAccessFileReader {
 #ifndef ROCKSDB_LITE
   void NotifyOnFileReadFinish(uint64_t offset, size_t length, time_t start_ts,
                               const Status& status) const {
-    FileOperationInfo info;
-    info.path = file_name_;
+    FileOperationInfo info(file_name_);
     info.offset = offset;
     info.length = length;
     info.start_timestamp = start_ts;
@@ -160,8 +159,7 @@ class WritableFileWriter {
 #ifndef ROCKSDB_LITE
   void NotifyOnFileWriteFinish(uint64_t offset, size_t length, time_t start_ts,
                                const Status& status) {
-    FileOperationInfo info;
-    info.path = file_name_;
+    FileOperationInfo info(file_name_);
     info.offset = offset;
     info.length = length;
     info.start_timestamp = start_ts;
