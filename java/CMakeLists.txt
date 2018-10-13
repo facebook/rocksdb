@@ -132,6 +132,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.TransactionLogIterator
         org.rocksdb.TransactionOptions
         org.rocksdb.TtlDB
+        org.rocksdb.UInt64AddOperator
         org.rocksdb.VectorMemTableConfig
         org.rocksdb.WBWIRocksIterator
         org.rocksdb.WriteBatch
@@ -294,6 +295,7 @@ add_jar(
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksMemoryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
+  src/main/java/org/rocksdb/UInt64AddOperator.java
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
