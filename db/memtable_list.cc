@@ -287,9 +287,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  size_t num = imm_lists.size();
-  assert(num == cfds.size());
-  for (size_t k = 0; k != num; ++k) {
+  for (size_t k = 0; k != mems_list.size(); ++k) {
     for (size_t i = 0; i != mems_list[k]->size(); ++i) {
       assert(i == 0 || (*mems_list[k])[i]->GetEdits()->NumEntries() == 0);
       (*mems_list[k])[i]->flush_completed_ = true;
@@ -324,6 +322,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
   SequenceNumber min_unfinished_seqno = kMaxSequenceNumber;
   // Populate the heap with first element of each imm iff. it has been
   // flushed to storage, i.e. flush_completed_ is true.
+  size_t num = imm_lists.size();
+  assert(num == cfds.size());
   for (size_t i = 0; i != num; ++i) {
     std::list<MemTable*>& memlist = imm_lists[i]->current_->memlist_;
     if (memlist.empty()) {
@@ -347,10 +347,12 @@ Status MemTableList::TryInstallMemtableFlushResults(
       const auto& memlist = imm_lists[pos]->current_->memlist_;
       MemTable* mem = *(memlist.rbegin());
       if (seqno == kMaxSequenceNumber) {
+        // First mem in this batch.
         seqno = mem->atomic_flush_seqno_;
         batch.emplace_back(pos);
         heap.pop();
       } else if (mem->atomic_flush_seqno_ == seqno) {
+        // mem has the same atomic_flush_seqno_, thus in the same atomic flush.
         batch.emplace_back(pos);
         heap.pop();
       } else if (mem->atomic_flush_seqno_ > seqno) {
@@ -362,8 +364,15 @@ Status MemTableList::TryInstallMemtableFlushResults(
     if (seqno >= min_unfinished_seqno) {
       // If there is an older, unfinished atomic flush, then we should not
       // proceed.
+      TEST_SYNC_POINT_CALLBACK(
+          "MemTableList::TryInstallMemtableFlushResults:"
+          "HasOlderUnfinishedAtomicFlush:0",
+          nullptr);
       break;
     }
+
+    // Found the earliest, complete atomic flush. No earlier atomic flush is
+    // pending. Therefore ready to record it to the MANIFEST.
     uint32_t num_entries = 0;
     autovector<ColumnFamilyData*> tmp_cfds;
     autovector<const MutableCFOptions*> tmp_mutable_cf_options_list;
@@ -392,7 +401,11 @@ Status MemTableList::TryInstallMemtableFlushResults(
       edit_lists.push_back(edits);
       memtables_to_flush.push_back(tmp_mems);
     }
+    TEST_SYNC_POINT_CALLBACK(
+        "MemTableList::TryInstallMemtableFlushResults:FoundBatchToCommit:0",
+        &num_entries);
 
+    // Mark the version edits as an atomic group
     uint32_t remaining = num_entries;
     for (auto& edit_list : edit_lists) {
       assert(edit_list.size() == 1);
@@ -415,6 +428,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
                                          memtables_to_flush[i], prep_tracker));
       }
     }
+    // this can release and reacquire the mutex.
     s = vset->LogAndApply(tmp_cfds, tmp_mutable_cf_options_list, edit_lists, mu,
                           db_directory);
 
@@ -458,7 +472,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
         imm_lists[pos]->imm_flush_needed.store(true, std::memory_order_release);
       }
     }
-    // Adjust the heap AFTER installing new MemTableListVersions.
+    // Adjust the heap AFTER installing new MemTableListVersions because the
+    // compare function 'comp' needs to capture the most up-to-date state of
+    // imm_lists.
     for (auto pos : batch) {
       const auto& memlist = imm_lists[pos]->current_->memlist_;
       if (!memlist.empty()) {

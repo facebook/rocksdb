@@ -463,7 +463,10 @@ class MemTable {
   // Memtable id to track flush.
   uint64_t id_ = 0;
 
-  // Currently used to link next memtables in the same atomic flush
+  // Sequence number of the atomic flush that is responsible for this memtable.
+  // The sequence number of atomic flush is a seq, such that no writes with
+  // sequence numbers greater than or equal to seq are flushed, while all
+  // writes with sequence number smaller than seq are flushed.
   SequenceNumber atomic_flush_seqno_;
 
   // Returns a heuristic flush decision

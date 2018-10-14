@@ -925,6 +925,104 @@ TEST_F(MemTableListTest, FlushMultipleCFsTest) {
   to_delete.clear();
 }
 
+TEST_F(MemTableListTest, HasOlderAtomicFlush) {
+  const size_t num_cfs = 3;
+  const size_t num_memtables_per_cf = 2;
+  SequenceNumber seq = 1;
+  Status s;
+
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableCFOptions ioptions(options);
+  InternalKeyComparator cmp(BytewiseComparator());
+  WriteBufferManager wb(options.db_write_buffer_size);
+  autovector<MemTable*> to_delete;
+
+  // Create MemTableLists
+  int min_write_buffer_number_to_merge = 3;
+  int max_write_buffer_number_to_maintain = 7;
+  autovector<MemTableList*> lists;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    lists.emplace_back(new MemTableList(min_write_buffer_number_to_merge,
+                                        max_write_buffer_number_to_maintain));
+  }
+
+  autovector<uint32_t> cf_ids;
+  std::vector<std::vector<MemTable*>> tables(num_cfs);
+  autovector<const MutableCFOptions*> mutable_cf_options_list;
+  uint32_t cf_id = 0;
+  for (auto& elem : tables) {
+    mutable_cf_options_list.emplace_back(new MutableCFOptions(options));
+    uint64_t memtable_id = 0;
+    for (int i = 0; i != num_memtables_per_cf; ++i) {
+      MemTable* mem =
+          new MemTable(cmp, ioptions, *(mutable_cf_options_list.back()), &wb,
+                       kMaxSequenceNumber, cf_id);
+      mem->SetID(memtable_id++);
+      mem->Ref();
+
+      std::string value;
+
+      mem->Add(++seq, kTypeValue, "key1", ToString(i));
+      mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
+      mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
+      mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
+      mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
+
+      elem.push_back(mem);
+    }
+    cf_ids.push_back(cf_id++);
+  }
+
+  // Add tables to column families' immutable memtable lists
+  for (size_t i = 0; i != num_cfs; ++i) {
+    for (size_t j = 0; j != num_memtables_per_cf; ++j) {
+      lists[i]->Add(tables[i][j], &to_delete);
+    }
+    lists[i]->FlushRequested();
+    ASSERT_EQ(num_memtables_per_cf, lists[i]->NumNotFlushed());
+    ASSERT_TRUE(lists[i]->IsFlushPending());
+    ASSERT_TRUE(lists[i]->imm_flush_needed.load(std::memory_order_acquire));
+  }
+  std::vector<autovector<MemTable*>> flush_candidates(num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    lists[i]->PickMemtablesToFlush(0, &flush_candidates[i]);
+    for (auto m : flush_candidates[i]) {
+      m->TEST_AtomicFlushSequenceNumber() = 123;
+    }
+    lists[i]->RollbackMemtableFlush(flush_candidates[i], 0);
+  }
+  uint64_t memtable_id = num_memtables_per_cf - 1;
+  autovector<MemTable*> other_flush_candidates;
+  lists[0]->PickMemtablesToFlush(&memtable_id, &other_flush_candidates);
+  for (auto m : other_flush_candidates) {
+    m->TEST_AtomicFlushSequenceNumber() = 124;
+    m->TEST_SetFlushCompleted(true);
+    m->TEST_SetFileNumber(1);
+  }
+  autovector<const autovector<MemTable*>*> to_flush;
+  to_flush.emplace_back(&other_flush_candidates);
+  bool has_older_unfinished_atomic_flush = false;
+  bool found_batch_to_commit = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTableList::TryInstallMemtableFlushResults:"
+      "HasOlderUnfinishedAtomicFlush:0",
+      [&](void* /*arg*/) { has_older_unfinished_atomic_flush = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTableList::TryInstallMemtableFlushResults:FoundBatchToCommit:0",
+      [&](void* /*arg*/) { found_batch_to_commit = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Mock_InstallMemtableFlushResults(lists, cf_ids, mutable_cf_options_list,
+                                       to_flush, &to_delete);
+  ASSERT_OK(s);
+  ASSERT_TRUE(has_older_unfinished_atomic_flush);
+  ASSERT_FALSE(found_batch_to_commit);
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
