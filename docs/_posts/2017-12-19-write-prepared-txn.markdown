@@ -29,12 +29,12 @@ The _CommitCache_ is a lock-free data structure that caches the recent commit en
 ### Benchmark Results
 Here we presents the improvements observed in MyRocks with sysbench and linkbench:
 * benchmark...........tps.........p95 latency....cpu/query
-* insert...................%68
-* update-noindex...%30......%38
-* update-index.......%61.......%28
-* read-write............%6........%3.5
-* read-only...........-%1.2.....-%1.8
-* linkbench.............%1.9......+overall........%0.6
+* insert...................68%
+* update-noindex...30%......38%
+* update-index.......61%.......28%
+* read-write............6%........3.5%
+* read-only...........-1.2%.....-1.8%
+* linkbench.............1.9%......+overall........0.6%
 
 Here are also the detailed results for [In-Memory Sysbench](https://gist.github.com/maysamyabandeh/bdb868091b2929a6d938615fdcf58424) and [SSD Sysbench](https://gist.github.com/maysamyabandeh/ff94f378ab48925025c34c47eff99306) curtesy of [@mdcallag](https://github.com/mdcallag).
 
