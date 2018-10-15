@@ -1014,6 +1014,15 @@ Status DBImpl::WriteRecoverableState() {
   return Status::OK();
 }
 
+// Assign sequence number for atomic flush.
+void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
+  assert(atomic_flush_);
+  auto seq = versions_->LastSequence();
+  for (auto cfd : cfds) {
+    cfd->imm()->AssignAtomicFlushSeq(seq);
+  }
+}
+
 Status DBImpl::SwitchWAL(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
@@ -1082,6 +1091,9 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
   }
   if (status.ok()) {
+    if (atomic_flush_) {
+      AssignAtomicFlushSeq(cfds);
+    }
     for (auto cfd : cfds) {
       cfd->imm()->FlushRequested();
     }
@@ -1146,6 +1158,9 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
   }
   if (status.ok()) {
+    if (atomic_flush_) {
+      AssignAtomicFlushSeq(cfds);
+    }
     for (const auto cfd : cfds) {
       cfd->imm()->FlushRequested();
     }
@@ -1295,6 +1310,9 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     }
   }
   if (status.ok()) {
+    if (atomic_flush_) {
+      AssignAtomicFlushSeq(cfds);
+    }
     FlushRequest flush_req;
     GenerateFlushRequest(cfds, &flush_req);
     SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);

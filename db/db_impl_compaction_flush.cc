@@ -1228,6 +1228,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     if (s.ok()) {
+      if (atomic_flush_) {
+        AssignAtomicFlushSeq(cfds);
+      }
       for (auto tmp_cfd : cfds) {
         tmp_cfd->imm()->FlushRequested();
       }
