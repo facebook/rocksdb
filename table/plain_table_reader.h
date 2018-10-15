@@ -153,8 +153,8 @@ class PlainTableReader: public TableReader {
   DynamicBloom bloom_;
   PlainTableReaderFileInfo file_info_;
   Arena arena_;
-  std::unique_ptr<char[]> index_block_alloc_;
-  std::unique_ptr<char[]> bloom_block_alloc_;
+  CacheAllocationPtr index_block_alloc_;
+  CacheAllocationPtr bloom_block_alloc_;
 
   const ImmutableCFOptions& ioptions_;
   uint64_t file_size_;

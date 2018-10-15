@@ -222,7 +222,7 @@ GeoIterator* GeoDBImpl::SearchRadial(const GeoPosition& pos,
   Iterator* iter = db_->NewIterator(ReadOptions());
 
   // Process each prospective quadkey
-  for (std::string qid : qids) {
+  for (const std::string& qid : qids) {
     // The user is interested in only these many objects.
     if (number_of_values == 0) {
       break;

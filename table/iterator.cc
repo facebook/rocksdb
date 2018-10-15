@@ -103,7 +103,7 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
     *prop = "0";
     return Status::OK();
   }
-  return Status::InvalidArgument("Undentified property.");
+  return Status::InvalidArgument("Unidentified property.");
 }
 
 namespace {

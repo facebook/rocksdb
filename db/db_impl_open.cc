@@ -238,8 +238,9 @@ Status DBImpl::NewDB() {
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
-    unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, env_options));
+    unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(file), manifest, env_options, nullptr /* stats */,
+        immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -1144,8 +1145,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       {
         InstrumentedMutexLock wl(&impl->log_write_mutex_);
         impl->logfile_number_ = new_log_number;
-        unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(lfile), log_fname, opt_env_options));
+        const auto& listeners = impl->immutable_db_options_.listeners;
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
+                                   nullptr /* stats */, listeners));
         impl->logs_.emplace_back(
             new_log_number,
             new log::Writer(
@@ -1294,6 +1297,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           "DB::Open() failed --- Unable to persist Options file",
           persist_options_status.ToString());
     }
+  }
+  if (s.ok()) {
+    impl->StartTimedTasks();
   }
   if (!s.ok()) {
     for (auto* h : *handles) {

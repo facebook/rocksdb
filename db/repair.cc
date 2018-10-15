@@ -163,11 +163,18 @@ class Repairer {
   }
 
   ~Repairer() {
+    if (db_lock_ != nullptr) {
+      env_->UnlockFile(db_lock_);
+    }
     delete table_cache_;
   }
 
   Status Run() {
-    Status status = FindFiles();
+    Status status = env_->LockFile(LockFileName(dbname_), &db_lock_);
+    if (!status.ok()) {
+      return status;
+    }
+    status = FindFiles();
     if (status.ok()) {
       // Discard older manifests and start a fresh one
       for (size_t i = 0; i < manifests_.size(); i++) {
@@ -245,6 +252,9 @@ class Repairer {
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
+  // Lock over the persistent DB state. Non-nullptr iff successfully
+  // acquired.
+  FileLock* db_lock_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;

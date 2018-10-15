@@ -3040,7 +3040,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t bytes = 0;
     int decompress_size;
     while (ok && bytes < 1024 * 1048576) {
-      char *uncompressed = nullptr;
+      CacheAllocationPtr uncompressed;
       switch (FLAGS_compression_type_e) {
         case rocksdb::kSnappyCompression: {
           // get size and allocate here to make comparison fair
@@ -3050,45 +3050,44 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             ok = false;
             break;
           }
-          uncompressed = new char[ulength];
+          uncompressed = AllocateBlock(ulength, nullptr);
           ok = Snappy_Uncompress(compressed.data(), compressed.size(),
-                                 uncompressed);
+                                 uncompressed.get());
           break;
         }
       case rocksdb::kZlibCompression:
         uncompressed = Zlib_Uncompress(uncompression_ctx, compressed.data(),
                                        compressed.size(), &decompress_size, 2);
-        ok = uncompressed != nullptr;
+        ok = uncompressed.get() != nullptr;
         break;
       case rocksdb::kBZip2Compression:
         uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
                                         &decompress_size, 2);
-        ok = uncompressed != nullptr;
+        ok = uncompressed.get() != nullptr;
         break;
       case rocksdb::kLZ4Compression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
                                       compressed.size(), &decompress_size, 2);
-        ok = uncompressed != nullptr;
+        ok = uncompressed.get() != nullptr;
         break;
       case rocksdb::kLZ4HCCompression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
                                       compressed.size(), &decompress_size, 2);
-        ok = uncompressed != nullptr;
+        ok = uncompressed.get() != nullptr;
         break;
       case rocksdb::kXpressCompression:
-        uncompressed = XPRESS_Uncompress(compressed.data(), compressed.size(),
-          &decompress_size);
-        ok = uncompressed != nullptr;
+        uncompressed.reset(XPRESS_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size));
+        ok = uncompressed.get() != nullptr;
         break;
       case rocksdb::kZSTD:
         uncompressed = ZSTD_Uncompress(uncompression_ctx, compressed.data(),
                                        compressed.size(), &decompress_size);
-        ok = uncompressed != nullptr;
+        ok = uncompressed.get() != nullptr;
         break;
       default:
         ok = false;
       }
-      delete[] uncompressed;
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kUncompress);
     }
