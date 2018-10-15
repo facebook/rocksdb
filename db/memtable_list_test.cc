@@ -948,10 +948,11 @@ TEST_F(MemTableListTest, HasOlderAtomicFlush) {
   }
 
   autovector<uint32_t> cf_ids;
-  std::vector<std::vector<MemTable*>> tables(num_cfs);
+  std::vector<std::vector<MemTable*>> tables;
   autovector<const MutableCFOptions*> mutable_cf_options_list;
   uint32_t cf_id = 0;
-  for (auto& elem : tables) {
+  for (size_t k = 0; k != num_cfs; ++k) {
+    std::vector<MemTable*> elem;
     mutable_cf_options_list.emplace_back(new MutableCFOptions(options));
     uint64_t memtable_id = 0;
     for (int i = 0; i != num_memtables_per_cf; ++i) {
@@ -971,6 +972,7 @@ TEST_F(MemTableListTest, HasOlderAtomicFlush) {
 
       elem.push_back(mem);
     }
+    tables.emplace_back(elem);
     cf_ids.push_back(cf_id++);
   }
 
@@ -1022,14 +1024,24 @@ TEST_F(MemTableListTest, HasOlderAtomicFlush) {
 
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  for (auto& elem : tables) {
-    for (auto& mem : elem) {
-      ASSERT_EQ(mem, mem->Unref());
-      delete mem;
-      mem = nullptr;
-    }
-    elem.clear();
+  ASSERT_TRUE(to_delete.empty());
+  for (auto list : lists) {
+    list->current()->Unref(&to_delete);
+    delete list;
   }
+  lists.clear();
+  ASSERT_EQ(num_cfs * num_memtables_per_cf, to_delete.size());
+  for (auto m : to_delete) {
+    m->Ref();
+    ASSERT_EQ(m, m->Unref());
+    delete m;
+  }
+  to_delete.clear();
+  for (auto& opts : mutable_cf_options_list) {
+    delete opts;
+    opts = nullptr;
+  }
+  mutable_cf_options_list.clear();
 }
 
 }  // namespace rocksdb
