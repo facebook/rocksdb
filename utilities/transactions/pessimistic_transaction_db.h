@@ -98,6 +98,10 @@ class PessimisticTransactionDB : public TransactionDB {
 
   Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
                  const std::string& key, bool exclusive);
+  Status TryRangeLock(PessimisticTransaction* txn,
+                      uint32_t cfh_id,
+                      const Slice& start_key,
+                      const Slice& end_key);
 
   void UnLock(PessimisticTransaction* txn, const TransactionKeyMap* keys,
               bool all_keys_hint=false);

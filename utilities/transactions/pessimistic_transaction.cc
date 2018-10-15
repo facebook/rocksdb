@@ -656,6 +656,18 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   return s;
 }
 
+Status
+PessimisticTransaction::GetRangeLock(ColumnFamilyHandle* column_family,
+                                     const Slice& start_key,
+                                     const Slice& end_key)
+{
+  ColumnFamilyHandle* cfh =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+  uint32_t cfh_id= GetColumnFamilyID(cfh);
+
+  return txn_db_impl_->TryRangeLock(this, cfh_id, start_key, end_key);
+}
+
 // Return OK() if this key has not been modified more recently than the
 // transaction snapshot_.
 // tracked_at_seq is the global seq at which we either locked the key or already

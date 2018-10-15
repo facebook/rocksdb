@@ -311,18 +311,23 @@ void RangeLockMgr::KillLockWait(void *cdata)
   ltm.kill_waiter(cdata);
 }
 
-// psergey: new code:
-//   (TODO: the below ignores column_family_id !)
-Status RangeLockMgr::TryLock(PessimisticTransaction* txn, 
-                               uint32_t column_family_id,
-                               const std::string& key, Env* env, bool exclusive)
+
+// Get a range lock on [start_key; end_key] range
+//  (TODO: check if we do what is inteded at the endpoints)
+
+Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
+                                  uint32_t column_family_id,
+                                  const rocksdb::Slice &start_key,
+                                  const rocksdb::Slice &end_key,
+                                  bool exclusive)
 {
   toku::lock_request request;
   request.create();
-  DBT key_dbt; 
+  DBT start_key_dbt, end_key_dbt;
 
-  toku_fill_dbt(&key_dbt, key.data(), key.size());
-  request.set(lt, txn->GetID(), &key_dbt, &key_dbt, toku::lock_request::WRITE,
+  toku_fill_dbt(&start_key_dbt, start_key.data(), start_key.size());
+  toku_fill_dbt(&end_key_dbt, end_key.data(), end_key.size());
+  request.set(lt, txn->GetID(), &start_key_dbt, &end_key_dbt, toku::lock_request::WRITE,
               false /* not a big txn */, (void*)txn->GetID() /*client_extra*/);
   
   uint64_t killed_time_msec = 0; // TODO: what should this have?
@@ -340,6 +345,16 @@ Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
     return Status::TimedOut(Status::SubCode::kLockTimeout);
 
   return Status::OK();
+}
+
+
+// Get a singlepoint lock
+//   (currently it is the same as getting a range lock)
+Status RangeLockMgr::TryLock(PessimisticTransaction* txn,
+                             uint32_t column_family_id,
+                             const std::string& key, Env* env, bool exclusive)
+{
+  return TryRangeLock(txn, column_family_id, key, key, exclusive);
 }
 
 

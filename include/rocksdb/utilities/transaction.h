@@ -276,6 +276,12 @@ class Transaction {
       return s;
     }
   }
+  //psergey:
+  virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
+                              const Slice& start_key,
+                              const Slice& end_key) {
+    return Status::NotSupported();
+  }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
                               std::string* value, bool exclusive = true,

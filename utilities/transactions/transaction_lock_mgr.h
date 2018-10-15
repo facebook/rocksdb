@@ -89,6 +89,15 @@ class RangeLockMgr :public BaseLockMgr {
 
   Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
                  const std::string& key, Env* env, bool exclusive) override ;
+
+  // Get a lock on a range
+  //  (TODO: this allows to acquire exclusive range locks although they are not
+  //  used ATM)
+  Status TryRangeLock(PessimisticTransaction* txn,
+                      uint32_t column_family_id,
+                      const rocksdb::Slice &start_key,
+                      const rocksdb::Slice &end_key,
+                      bool exclusive);
   
   void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
               Env* env) override ;

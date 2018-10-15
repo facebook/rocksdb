@@ -405,6 +405,20 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
     return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
+Status
+PessimisticTransactionDB::TryRangeLock(PessimisticTransaction *txn,
+                                       uint32_t cfh_id,
+                                       const Slice& start_key,
+                                       const Slice& end_key)
+{
+  if (use_range_locking) {
+    return range_lock_mgr_.TryRangeLock(txn, cfh_id, start_key,
+                                        end_key, /*exclusive=*/false);
+  }
+  else
+    return Status::NotSupported();
+}
+
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       const TransactionKeyMap* keys,
                                       bool all_keys_hint) {
