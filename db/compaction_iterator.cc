@@ -77,6 +77,12 @@ CompactionIterator::CompactionIterator(
     earliest_snapshot_ = snapshots_->at(0);
     latest_snapshot_ = snapshots_->back();
   }
+#ifndef NDEBUG
+  // findEarliestVisibleSnapshot assumes this ordering.
+  for (size_t i = 1; i < snapshots_->size(); ++i) {
+    assert(snapshots_->at(i - 1) <= snapshots_->at(i));
+  }
+#endif
   if (compaction_filter_ != nullptr) {
     if (compaction_filter_->IgnoreSnapshots()) {
       ignore_snapshots_ = true;
@@ -628,18 +634,23 @@ void CompactionIterator::PrepareOutput() {
 inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
-  SequenceNumber prev = kMaxSequenceNumber;
-  for (const auto cur : *snapshots_) {
-    assert(prev == kMaxSequenceNumber || prev <= cur);
-    if (cur >= in && (snapshot_checker_ == nullptr ||
-                      snapshot_checker_->IsInSnapshot(in, cur))) {
-      *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
+  auto snapshots_iter = std::lower_bound(
+      snapshots_->begin(), snapshots_->end(), in);
+  if (snapshots_iter == snapshots_->begin()) {
+    *prev_snapshot = 0;
+  } else {
+    *prev_snapshot = *std::prev(snapshots_iter);
+    assert(*prev_snapshot < in);
+  }
+  for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
+    auto cur = *snapshots_iter;
+    assert(in <= cur);
+    if (snapshot_checker_ == nullptr ||
+        snapshot_checker_->IsInSnapshot(in, cur)) {
       return cur;
     }
-    prev = cur;
-    assert(prev < kMaxSequenceNumber);
+    *prev_snapshot = cur;
   }
-  *prev_snapshot = prev;
   return kMaxSequenceNumber;
 }
 
