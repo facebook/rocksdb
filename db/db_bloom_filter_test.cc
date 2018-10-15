@@ -195,7 +195,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
     // ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     get_perf_context()->Reset();
-    get_perf_context()->DisablePerLevelPerfContext();
+    get_perf_context()->ClearPerLevelPerfContext();
   }
 }
 
@@ -245,7 +245,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
     // ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     get_perf_context()->Reset();
-    get_perf_context()->DisablePerLevelPerfContext();
+    get_perf_context()->ClearPerLevelPerfContext();
   }
 }
 
@@ -404,7 +404,7 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
     // ASSERT_EQ(12, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     get_perf_context()->Reset();
-    get_perf_context()->DisablePerLevelPerfContext();
+    get_perf_context()->ClearPerLevelPerfContext();
   }
 }
 
@@ -533,7 +533,7 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
     ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
     // ASSERT_GE((*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful, maxKey*0.98);
     get_perf_context()->Reset();
-    get_perf_context()->DisablePerLevelPerfContext();
+    get_perf_context()->ClearPerLevelPerfContext();
   }
 }
 
@@ -1214,7 +1214,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   ASSERT_EQ(2 /* index and data block */,
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
   get_perf_context()->Reset();
-  get_perf_context()->DisablePerLevelPerfContext();
+  get_perf_context()->ClearPerLevelPerfContext();
 }
 
 int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {

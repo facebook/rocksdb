@@ -212,6 +212,8 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #endif
 }
 
+// Caller need to ensure `ClearPerLevelPerfContext` is called at the end to
+// avoid memory leak
 void PerfContext::EnablePerLevelPerfContext() {
   if (!level_to_perf_context) {
     level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
