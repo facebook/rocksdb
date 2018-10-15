@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
+
 ### New Features
 * Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
 
