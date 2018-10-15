@@ -1021,6 +1021,15 @@ TEST_F(MemTableListTest, HasOlderAtomicFlush) {
   ASSERT_FALSE(found_batch_to_commit);
 
   SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (auto& elem : tables) {
+    for (auto& mem : elem) {
+      ASSERT_EQ(mem, mem->Unref());
+      delete mem;
+      mem = nullptr;
+    }
+    elem.clear();
+  }
 }
 
 }  // namespace rocksdb
