@@ -646,6 +646,26 @@ public class OptionsTest {
   }
 
   @Test
+  public void setWriteBufferManager() throws RocksDBException {
+    try (final Options opt = new Options()) {
+      final Cache cache = new LRUCache(1 * 1024 * 1024);
+      final long bufferSize = 2000l;
+      final WriteBufferManager writeBufferManager = new WriteBufferManager(bufferSize, cache);
+      opt.setWriteBufferManager(writeBufferManager);
+    }
+  }
+
+  @Test
+  public void setWriteBufferManagerWithZeroBufferSize() throws RocksDBException {
+    try (final Options opt = new Options()) {
+      final Cache cache = new LRUCache(1 * 1024 * 1024);
+      final long bufferSize = 0l;
+      final WriteBufferManager writeBufferManager = new WriteBufferManager(bufferSize, cache);
+      opt.setWriteBufferManager(writeBufferManager);
+    }
+  }
+
+  @Test
   public void accessHintOnCompactionStart() {
     try (final Options opt = new Options()) {
       final AccessHint accessHint = AccessHint.SEQUENTIAL;
