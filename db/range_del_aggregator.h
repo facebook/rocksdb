@@ -200,10 +200,12 @@ class RangeDelAggregator {
 
  private:
   // Maps snapshot seqnum -> map of tombstones that fall in that stripe, i.e.,
-  // their seqnums are greater than the next smaller snapshot's seqnum.
+  // their seqnums are greater than the next smaller snapshot's seqnum. Each
+  // entry is lazily initialized.
   typedef std::map<SequenceNumber, std::unique_ptr<RangeDelMap>> StripeMap;
 
   struct Rep {
+    std::vector<SequenceNumber> snapshots_;
     StripeMap stripe_map_;
     PinnedIteratorsManager pinned_iters_mgr_;
     std::list<std::string> pinned_slices_;
@@ -215,6 +217,7 @@ class RangeDelAggregator {
   void InitRep(const std::vector<SequenceNumber>& snapshots);
 
   std::unique_ptr<RangeDelMap> NewRangeDelMap();
+  RangeDelMap* GetRangeDelMapIfExists(SequenceNumber seq);
   RangeDelMap& GetRangeDelMap(SequenceNumber seq);
 
   SequenceNumber upper_bound_;

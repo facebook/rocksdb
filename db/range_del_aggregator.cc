@@ -441,11 +441,9 @@ RangeDelAggregator::RangeDelAggregator(const InternalKeyComparator& icmp,
 void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
   assert(rep_ == nullptr);
   rep_.reset(new Rep());
-  for (auto snapshot : snapshots) {
-    rep_->stripe_map_.emplace(snapshot, NewRangeDelMap());
-  }
+  rep_->snapshots_ = snapshots;
   // Data newer than any snapshot falls in this catch-all stripe
-  rep_->stripe_map_.emplace(kMaxSequenceNumber, NewRangeDelMap());
+  rep_->snapshots_.emplace_back(kMaxSequenceNumber);
   rep_->pinned_iters_mgr_.StartPinning();
 }
 
@@ -474,11 +472,11 @@ bool RangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
                                           RangeDelPositioningMode mode) {
   assert(IsValueType(parsed.type));
   assert(rep_ != nullptr);
-  auto& tombstone_map = GetRangeDelMap(parsed.sequence);
-  if (tombstone_map.IsEmpty()) {
+  auto* tombstone_map = GetRangeDelMapIfExists(parsed.sequence);
+  if (tombstone_map == nullptr || tombstone_map->IsEmpty()) {
     return false;
   }
-  return tombstone_map.ShouldDelete(parsed, mode);
+  return tombstone_map->ShouldDelete(parsed, mode);
 }
 
 bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
@@ -591,10 +589,13 @@ void RangeDelAggregator::InvalidateRangeDelMapPositions() {
   }
 }
 
-RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
+RangeDelMap* RangeDelAggregator::GetRangeDelMapIfExists(SequenceNumber seq) {
   assert(rep_ != nullptr);
   // The stripe includes seqnum for the snapshot above and excludes seqnum for
   // the snapshot below.
+  if (rep_->stripe_map_.empty()) {
+    return nullptr;
+  }
   StripeMap::iterator iter;
   if (seq > 0) {
     // upper_bound() checks strict inequality so need to subtract one
@@ -602,9 +603,30 @@ RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
   } else {
     iter = rep_->stripe_map_.begin();
   }
+  if (iter != rep_->stripe_map_.end()) {
+    return iter->second.get();
+  }
+  return nullptr;
+}
+
+RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
+  assert(rep_ != nullptr);
+  // The stripe includes seqnum for the snapshot above and excludes seqnum for
+  // the snapshot below.
+  std::vector<SequenceNumber>::iterator iter;
+  if (seq > 0) {
+    // upper_bound() checks strict inequality so need to subtract one
+    iter = std::upper_bound(rep_->snapshots_.begin(), rep_->snapshots_.end(),
+                            seq - 1);
+  } else {
+    iter = rep_->snapshots_.begin();
+  }
   // catch-all stripe justifies this assertion in either of above cases
-  assert(iter != rep_->stripe_map_.end());
-  return *iter->second;
+  assert(iter != rep_->snapshots_.end());
+  if (rep_->stripe_map_.find(*iter) == rep_->stripe_map_.end()) {
+    rep_->stripe_map_.emplace(*iter, NewRangeDelMap());
+  }
+  return *rep_->stripe_map_[*iter];
 }
 
 bool RangeDelAggregator::IsEmpty() {
