@@ -598,8 +598,7 @@ RangeDelMap* RangeDelAggregator::GetRangeDelMapIfExists(SequenceNumber seq) {
   }
   StripeMap::iterator iter;
   if (seq > 0) {
-    // upper_bound() checks strict inequality so need to subtract one
-    iter = rep_->stripe_map_.upper_bound(seq - 1);
+    iter = rep_->stripe_map_.lower_bound(seq);
   } else {
     iter = rep_->stripe_map_.begin();
   }
@@ -619,9 +618,8 @@ RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
   // the snapshot below.
   std::vector<SequenceNumber>::iterator iter;
   if (seq > 0) {
-    // upper_bound() checks strict inequality so need to subtract one
-    iter = std::upper_bound(rep_->snapshots_.begin(), rep_->snapshots_.end(),
-                            seq - 1);
+    iter = std::lower_bound(rep_->snapshots_.begin(), rep_->snapshots_.end(),
+                            seq);
   } else {
     iter = rep_->snapshots_.begin();
   }
