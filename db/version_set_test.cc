@@ -615,13 +615,19 @@ class ManifestWriterTest : public testing::Test {
 TEST_F(ManifestWriterTest, SameColumnFamilyGroupCommit) {
   NewDB();
   const int kGroupSize = 5;
-  std::vector<VersionEdit> edits(kGroupSize);
-  std::vector<ColumnFamilyData*> cfds(kGroupSize, cfds_[0]);
-  std::vector<MutableCFOptions> all_mutable_cf_options(kGroupSize,
-                                                       mutable_cf_options_);
-  std::vector<autovector<VersionEdit*>> edit_lists(kGroupSize);
+  autovector<VersionEdit> edits;
   for (int i = 0; i != kGroupSize; ++i) {
-    edit_lists[i].emplace_back(&edits[i]);
+    edits.emplace_back(VersionEdit());
+  }
+  autovector<ColumnFamilyData*> cfds;
+  autovector<const MutableCFOptions*> all_mutable_cf_options;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  for (int i = 0; i != kGroupSize; ++i) {
+    cfds.emplace_back(cfds_[0]);
+    all_mutable_cf_options.emplace_back(&mutable_cf_options_);
+    autovector<VersionEdit*> edit_list;
+    edit_list.emplace_back(&edits[i]);
+    edit_lists.emplace_back(edit_list);
   }
 
   int count = 0;
