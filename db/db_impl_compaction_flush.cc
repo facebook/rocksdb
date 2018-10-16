@@ -125,11 +125,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
-      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+      nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
+      &mutex_, &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+      snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+      GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
-      &event_logger_, mutable_cf_options.report_bg_io_stats);
+      &event_logger_, mutable_cf_options.report_bg_io_stats,
+      true /* sync_output_directory */, true /* write_manifest */);
 
   FileMetaData file_meta;
 
@@ -169,7 +171,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
                                        mutable_cf_options);
     if (made_progress) {
-      *made_progress = 1;
+      *made_progress = true;
     }
     VersionStorageInfo::LevelSummaryStorage tmp;
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
@@ -222,6 +224,194 @@ Status DBImpl::FlushMemTablesToOutputFiles(
       break;
     }
   }
+  return s;
+}
+
+/*
+ * Atomically flushes multiple column families.
+ *
+ * For each column family, all memtables with ID smaller than or equal to the
+ * ID specified in bg_flush_args will be flushed. Only after all column
+ * families finish flush will this function commit to MANIFEST. If any of the
+ * column families are not flushed successfully, this function does not have
+ * any side-effect on the state of the database.
+ */
+Status DBImpl::AtomicFlushMemTablesToOutputFiles(
+    const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
+    JobContext* job_context, LogBuffer* log_buffer) {
+  mutex_.AssertHeld();
+
+  autovector<ColumnFamilyData*> cfds;
+  for (const auto& arg : bg_flush_args) {
+    cfds.emplace_back(arg.cfd_);
+  }
+
+#ifndef NDEBUG
+  for (const auto cfd : cfds) {
+    assert(cfd->imm()->NumNotFlushed() != 0);
+    assert(cfd->imm()->IsFlushPending());
+  }
+#endif /* !NDEBUG */
+
+  SequenceNumber earliest_write_conflict_snapshot;
+  std::vector<SequenceNumber> snapshot_seqs =
+      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
+  auto snapshot_checker = snapshot_checker_.get();
+  if (use_custom_gc_ && snapshot_checker == nullptr) {
+    snapshot_checker = DisableGCSnapshotChecker::Instance();
+  }
+  autovector<Directory*> distinct_output_dirs;
+  std::vector<FlushJob> jobs;
+  int num_cfs = static_cast<int>(cfds.size());
+  for (int i = 0; i < num_cfs; ++i) {
+    auto cfd = cfds[i];
+    Directory* data_dir = GetDataDir(cfd, 0U);
+
+    // Add to distinct output directories if eligible. Use linear search. Since
+    // the number of elements in the vector is not large, performance should be
+    // tolerable.
+    bool found = false;
+    for (const auto dir : distinct_output_dirs) {
+      if (dir == data_dir) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      distinct_output_dirs.emplace_back(data_dir);
+    }
+
+    const MutableCFOptions& mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+    const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
+    jobs.emplace_back(
+        dbname_, cfds[i], immutable_db_options_, mutable_cf_options,
+        max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
+        &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+        data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
+        stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
+        false /* sync_output_directory */, false /* write_manifest */);
+    jobs.back().PickMemTable();
+  }
+
+  autovector<FileMetaData> file_meta;
+  Status s;
+  assert(num_cfs == static_cast<int>(jobs.size()));
+
+  for (int i = 0; i != num_cfs; ++i) {
+    file_meta.emplace_back(FileMetaData());
+
+#ifndef ROCKSDB_LITE
+    const MutableCFOptions& mutable_cf_options =
+        *cfds[i]->GetLatestMutableCFOptions();
+    // may temporarily unlock and lock the mutex.
+    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
+                       job_context->job_id, jobs[i].GetTableProperties());
+#endif /* !ROCKSDB_LITE */
+  }
+
+  if (logfile_number_ > 0) {
+    // TODO (yanqin) investigate whether we should sync the closed logs for
+    // single column family case.
+    s = SyncClosedLogs(job_context);
+  }
+
+  if (s.ok()) {
+    // TODO (yanqin): parallelize jobs with threads.
+    for (int i = 0; i != num_cfs; ++i) {
+      s = jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+
+  if (s.ok()) {
+    // Sync on all distinct output directories.
+    for (auto dir : distinct_output_dirs) {
+      if (dir != nullptr) {
+        s = dir->Fsync();
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
+
+    if (s.ok()) {
+      autovector<const autovector<MemTable*>*> mems_list;
+      for (int i = 0; i != num_cfs; ++i) {
+        const auto& mems = jobs[i].GetMemTables();
+        mems_list.emplace_back(&mems);
+      }
+      autovector<ColumnFamilyData*> all_cfds;
+      autovector<MemTableList*> imm_lists;
+      autovector<const MutableCFOptions*> mutable_cf_options_list;
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        all_cfds.emplace_back(cfd);
+        imm_lists.emplace_back(cfd->imm());
+        mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
+      }
+
+      s = MemTableList::TryInstallMemtableFlushResults(
+          imm_lists, all_cfds, mutable_cf_options_list, mems_list,
+          &atomic_flush_commit_in_progress_, &logs_with_prep_tracker_,
+          versions_.get(), &mutex_, file_meta, &job_context->memtables_to_free,
+          directories_.GetDbDir(), log_buffer);
+    }
+  }
+
+  if (s.ok()) {
+    assert(num_cfs ==
+           static_cast<int>(job_context->superversion_contexts.size()));
+    for (int i = 0; i != num_cfs; ++i) {
+      InstallSuperVersionAndScheduleWork(cfds[i],
+                                         &job_context->superversion_contexts[i],
+                                         *cfds[i]->GetLatestMutableCFOptions());
+      VersionStorageInfo::LevelSummaryStorage tmp;
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
+                       cfds[i]->GetName().c_str(),
+                       cfds[i]->current()->storage_info()->LevelSummary(&tmp));
+    }
+    if (made_progress) {
+      *made_progress = true;
+    }
+#ifndef ROCKSDB_LITE
+    auto sfm = static_cast<SstFileManagerImpl*>(
+        immutable_db_options_.sst_file_manager.get());
+    for (int i = 0; i != num_cfs; ++i) {
+      NotifyOnFlushCompleted(cfds[i], &file_meta[i],
+                             *cfds[i]->GetLatestMutableCFOptions(),
+                             job_context->job_id, jobs[i].GetTableProperties());
+      if (sfm) {
+        std::string file_path = MakeTableFileName(
+            cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
+        sfm->OnAddFile(file_path);
+        if (sfm->IsMaxAllowedSpaceReached() &&
+            error_handler_.GetBGError().ok()) {
+          Status new_bg_error =
+              Status::SpaceLimit("Max allowed space was reached");
+          error_handler_.SetBGError(new_bg_error,
+                                    BackgroundErrorReason::kFlush);
+        }
+      }
+    }
+#endif  // ROCKSDB_LITE
+  }
+
+  if (!s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      auto& mems = jobs[i].GetMemTables();
+      cfds[i]->imm()->RollbackMemtableFlush(mems, file_meta[i].fd.GetNumber());
+      jobs[i].Cancel();
+    }
+    if (!s.IsShutdownInProgress()) {
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+    }
+  }
+
   return s;
 }
 
@@ -982,7 +1172,6 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                  cfh->GetName().c_str(), s.ToString().c_str());
   return s;
 }
-
 
 Status DBImpl::FlushAllCFs(FlushReason flush_reason) {
   Status s;
