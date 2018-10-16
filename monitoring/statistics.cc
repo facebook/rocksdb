@@ -126,7 +126,7 @@ void StatisticsImpl::reduceTick(uint32_t tickerType, uint64_t count) {
     enable_internal_stats_ ?
       tickerType < INTERNAL_TICKER_ENUM_MAX :
       tickerType < TICKER_ENUM_MAX);
-  auto pv = per_core_stats_.Access()->tickers_[tickerType].fetch_sub(
+  auto pv __attribute__((__unused__)) = per_core_stats_.Access()->tickers_[tickerType].fetch_sub(
       count, std::memory_order_relaxed);
   assert(pv >= count);
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
