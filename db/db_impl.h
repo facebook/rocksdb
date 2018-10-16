@@ -1592,6 +1592,7 @@ class DBImpl : public DB {
 
   ErrorHandler error_handler_;
 
+  // True if DB enables atomic flush.
   bool atomic_flush_;
 
   // True if the DB is committing atomic flush.
