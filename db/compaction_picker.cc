@@ -219,7 +219,8 @@ void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
 
 bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
                                               VersionStorageInfo* vstorage,
-                                              CompactionInputFiles* inputs) {
+                                              CompactionInputFiles* inputs,
+                                              InternalKey** next_smallest) {
   // This isn't good compaction
   assert(!inputs->empty());
 
@@ -242,7 +243,8 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
     GetRange(*inputs, &smallest, &largest);
     inputs->clear();
     vstorage->GetOverlappingInputs(level, &smallest, &largest, &inputs->files,
-                                   hint_index, &hint_index);
+                                   hint_index, &hint_index, true,
+                                   next_smallest);
   } while (inputs->size() > old_size);
 
   // we started off with inputs non-empty and the previous loop only grew
@@ -649,7 +651,6 @@ Compaction* CompactionPicker::CompactRange(
       uint64_t s = inputs[i]->compensated_file_size;
       total += s;
       if (total >= limit) {
-        **compaction_end = inputs[i + 1]->smallest;
         covering_the_whole_range = false;
         inputs.files.resize(i + 1);
         break;
@@ -658,7 +659,10 @@ Compaction* CompactionPicker::CompactRange(
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
-  if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs) == false) {
+  InternalKey key_storage;
+  InternalKey* next_smallest = &key_storage;
+  if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs, &next_smallest) ==
+      false) {
     // manual compaction is now multi-threaded, so it can
     // happen that ExpandWhileOverlapping fails
     // we handle it higher in RunManualCompaction
@@ -666,8 +670,10 @@ Compaction* CompactionPicker::CompactRange(
     return nullptr;
   }
 
-  if (covering_the_whole_range) {
+  if (covering_the_whole_range || !next_smallest) {
     *compaction_end = nullptr;
+  } else {
+    **compaction_end = *next_smallest;
   }
 
   CompactionInputFiles output_level_inputs;
