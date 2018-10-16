@@ -25,7 +25,7 @@
 #include "options/cf_options.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
-#include "util/cache_allocator.h"
+#include "cache/cache_allocator.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {

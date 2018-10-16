@@ -11,7 +11,7 @@
 #include "table/block.h"
 #include "table/format.h"
 
-#include "util/cache_allocator.h"
+#include "cache/cache_allocator.h"
 
 namespace rocksdb {
 class BlockFetcher {

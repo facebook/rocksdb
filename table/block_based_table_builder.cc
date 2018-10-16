@@ -39,7 +39,7 @@
 #include "table/full_filter_block.h"
 #include "table/table_builder.h"
 
-#include "util/cache_allocator.h"
+#include "cache/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"

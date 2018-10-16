@@ -19,7 +19,7 @@
 #include "table/block_based_table_reader.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
-#include "util/cache_allocator.h"
+#include "cache/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
