@@ -106,12 +106,9 @@ void PerfContext::Reset() {
   env_new_logger_nanos = 0;
   if (per_level_perf_context_enabled && level_to_perf_context) {
     for (auto& kv : *level_to_perf_context) {
-      kv.second.bloom_filter_useful = 0;
-      kv.second.bloom_filter_full_positive = 0;
-      kv.second.bloom_filter_full_true_positive = 0;
+      kv.second.Reset();
     }
   }
-  per_level_perf_context_enabled = false;
 #endif
 }
 
@@ -130,6 +127,14 @@ void PerfContext::Reset() {
       }                                                           \
     }                                                             \
   }
+
+void PerfContextByLevel::Reset() {
+#ifndef NPERF_CONTEXT
+  bloom_filter_useful = 0;
+  bloom_filter_full_positive = 0;
+  bloom_filter_full_true_positive = 0;
+#endif
+}
 
 std::string PerfContextByLevel::ToString(bool exclude_zero_counters) const {
 #ifdef NPERF_CONTEXT

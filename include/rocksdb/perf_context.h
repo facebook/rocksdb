@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include <map>
 #include <stdint.h>
 #include <string>
-#include <map>
 
 #include "rocksdb/perf_level.h"
 
@@ -19,14 +19,16 @@ namespace rocksdb {
 
 struct PerfContextByLevel {
   // # of times bloom filter has avoided file reads, i.e., negatives.
-  uint64_t bloom_filter_useful;
+  uint64_t bloom_filter_useful = 0;
   // # of times bloom FullFilter has not avoided the reads.
-  uint64_t bloom_filter_full_positive;
+  uint64_t bloom_filter_full_positive = 0;
   // # of times bloom FullFilter has not avoided the reads and data actually
   // exist.
-  uint64_t bloom_filter_full_true_positive;
+  uint64_t bloom_filter_full_true_positive = 0;
 
   std::string ToString(bool exclude_zero_counters = false) const;
+
+  void Reset(); // reset all performance counters to zero
 };
 
 struct PerfContext {
