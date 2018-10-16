@@ -131,6 +131,18 @@ void PerfContext::Reset() {
     }                                                             \
   }
 
+std::string PerfContextByLevel::ToString(bool exclude_zero_counters) const {
+#ifdef NPERF_CONTEXT
+  return "";
+#else
+  std::ostringstream ss;
+  PERF_CONTEXT_OUTPUT(bloom_filter_useful);
+  PERF_CONTEXT_OUTPUT(bloom_filter_full_positive);
+  PERF_CONTEXT_OUTPUT(bloom_filter_full_true_positive);
+  return ss.str();
+#endif
+}
+
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #ifdef NPERF_CONTEXT
   return "";

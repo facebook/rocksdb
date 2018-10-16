@@ -25,6 +25,8 @@ struct PerfContextByLevel {
   // # of times bloom FullFilter has not avoided the reads and data actually
   // exist.
   uint64_t bloom_filter_full_true_positive;
+
+  std::string ToString(bool exclude_zero_counters = false) const;
 };
 
 struct PerfContext {
