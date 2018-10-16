@@ -98,7 +98,7 @@ Status ReadBlockFromFile(
 inline CacheAllocator* GetCacheAllocator(
     const BlockBasedTableOptions& table_options) {
   return table_options.block_cache.get()
-             ? table_options.block_cache->cache_allocator()
+             ? table_options.block_cache->GetCacheAllocator()
              : nullptr;
 }
 

@@ -13,9 +13,9 @@
 #include <limits>
 #include <string>
 
+#include "cache/cache_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "cache/cache_allocator.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 

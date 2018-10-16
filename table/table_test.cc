@@ -2480,7 +2480,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
 namespace {
 class CustomCacheAllocator : public CacheAllocator {
  public:
-  virtual const char* Name() const override { return "CustomCacheAllocator"; }
+  const char* Name() const override { return "CustomCacheAllocator"; }
 
   void* Allocate(size_t size) override {
     ++numAllocations;
@@ -2494,13 +2494,29 @@ class CustomCacheAllocator : public CacheAllocator {
     delete[] ptr;
   }
 
-  std::atomic<int> numAllocations;
-  std::atomic<int> numDeallocations;
+  static std::atomic<int> numAllocations;
+  static std::atomic<int> numDeallocations;
 };
+
+std::atomic<int> CustomCacheAllocator::numAllocations{0};
+std::atomic<int> CustomCacheAllocator::numDeallocations{0};
+
+class CustomCacheAllocatorFactory : public CacheAllocatorFactory {
+ public:
+  const char* Name() const override { return "CustomCacheAllocatorFactory"; }
+
+  Status NewCacheAllocator(std::unique_ptr<CacheAllocator>* cache_allocator) {
+    assert(cache_allocator != nullptr);
+    cache_allocator->reset(new CustomCacheAllocator());
+    return Status::OK();
+  }
+};
+
 }  // namespace
 
 TEST_P(BlockBasedTableTest, CacheAllocator) {
-  auto custom_cache_allocator = std::make_shared<CustomCacheAllocator>();
+  auto custom_cache_allocator_factory =
+      std::make_shared<CustomCacheAllocatorFactory>();
   {
     Options opt;
     unique_ptr<InternalKeyComparator> ikc;
@@ -2509,7 +2525,7 @@ TEST_P(BlockBasedTableTest, CacheAllocator) {
     BlockBasedTableOptions table_options;
     table_options.block_size = 1024;
     LRUCacheOptions lruOptions;
-    lruOptions.cache_allocator = custom_cache_allocator;
+    lruOptions.cache_allocator_factory = custom_cache_allocator_factory;
     lruOptions.capacity = 16 * 1024 * 1024;
     lruOptions.num_shard_bits = 4;
     table_options.block_cache = NewLRUCache(std::move(lruOptions));
@@ -2543,10 +2559,10 @@ TEST_P(BlockBasedTableTest, CacheAllocator) {
 
   // out of scope, block cache should have been deleted, all allocations
   // deallocated
-  EXPECT_EQ(custom_cache_allocator->numAllocations.load(),
-            custom_cache_allocator->numDeallocations.load());
+  EXPECT_EQ(CustomCacheAllocator::numAllocations.load(),
+            CustomCacheAllocator::numDeallocations.load());
   // make sure that allocations actually happened through the cache allocator
-  EXPECT_GT(custom_cache_allocator->numAllocations.load(), 0);
+  EXPECT_GT(CustomCacheAllocator::numAllocations.load(), 0);
 }
 
 TEST_P(BlockBasedTableTest, NewIndexIteratorLeak) {

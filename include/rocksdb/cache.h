@@ -59,20 +59,20 @@ struct LRUCacheOptions {
   // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
   double high_pri_pool_ratio = 0.0;
 
-  // If non-nullptr will use this allocator instead of system allocator when
-  // allocating memory for cache blocks. Call this method before you start using
-  // the cache!
-  std::shared_ptr<CacheAllocator> cache_allocator;
+  // If non-nullptr will use allocator generate from the factory class
+  // instead of system allocator, when allocating memory for cache blocks.
+  std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory;
 
   LRUCacheOptions() {}
-  LRUCacheOptions(size_t _capacity, int _num_shard_bits,
-                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
-                  std::shared_ptr<CacheAllocator> _cache_allocator = nullptr)
+  LRUCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      std::shared_ptr<CacheAllocatorFactory> _cache_allocator_factory = nullptr)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
-        cache_allocator(std::move(_cache_allocator)) {}
+        cache_allocator_factory(std::move(_cache_allocator_factory)) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -86,7 +86,7 @@ struct LRUCacheOptions {
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
-    std::shared_ptr<CacheAllocator> cache_allocator = nullptr);
+    std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory = nullptr);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -105,8 +105,7 @@ class Cache {
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache(std::shared_ptr<CacheAllocator> allocator = nullptr)
-      : cache_allocator_(std::move(allocator)) {}
+  Cache() {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -232,19 +231,17 @@ class Cache {
 
   virtual std::string GetPrintableOptions() const { return ""; }
 
+  virtual CacheAllocator* GetCacheAllocator() const { return nullptr; }
+
   // Mark the last inserted object as being a raw data block. This will be used
   // in tests. The default implementation does nothing.
   virtual void TEST_mark_as_data_block(const Slice& /*key*/,
                                        size_t /*charge*/) {}
 
-  CacheAllocator* cache_allocator() const { return cache_allocator_.get(); }
-
  private:
   // No copying allowed
   Cache(const Cache&);
   Cache& operator=(const Cache&);
-
-  std::shared_ptr<CacheAllocator> cache_allocator_;
 };
 
 }  // namespace rocksdb
