@@ -151,7 +151,8 @@ class CompactionPicker {
   // Will return false if it is impossible to apply this compaction.
   bool ExpandInputsToCleanCut(const std::string& cf_name,
                               VersionStorageInfo* vstorage,
-                              CompactionInputFiles* inputs);
+                              CompactionInputFiles* inputs,
+                              InternalKey** next_smallest = nullptr);
 
   // Returns true if any one of the parent files are being compacted
   bool IsRangeInCompaction(VersionStorageInfo* vstorage,
