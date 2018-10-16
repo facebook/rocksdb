@@ -53,6 +53,7 @@ class StatisticsImpl : public Statistics {
   virtual void setTickerCount(uint32_t ticker_type, uint64_t count) override;
   virtual uint64_t getAndResetTickerCount(uint32_t ticker_type) override;
   virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
+  virtual void reduceTick(uint32_t ticker_type, uint64_t count) override;
   virtual void measureTime(uint32_t histogram_type, uint64_t value) override;
 
   virtual Status Reset() override;
@@ -111,6 +112,13 @@ inline void RecordTick(Statistics* statistics, uint32_t ticker_type,
                        uint64_t count = 1) {
   if (statistics) {
     statistics->recordTick(ticker_type, count);
+  }
+}
+
+inline void ReduceTick(Statistics* statistics, uint32_t ticker_type,
+                       uint64_t count = 1) {
+  if (statistics) {
+    statistics->reduceTick(ticker_type, count);
   }
 }
 

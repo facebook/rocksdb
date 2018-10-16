@@ -160,7 +160,7 @@ class DBIter final: public Iterator {
     }
     // Compiler warning issue filed:
     // https://github.com/facebook/rocksdb/issues/3013
-    RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
+    ReduceTick(statistics_, NO_ITERATORS);
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {

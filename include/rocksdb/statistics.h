@@ -645,6 +645,7 @@ class Statistics {
                              HistogramData* const data) const = 0;
   virtual std::string getHistogramString(uint32_t /*type*/) const { return ""; }
   virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
+  virtual void reduceTick(uint32_t tickerType, uint64_t count = 0) = 0;
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
   virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;

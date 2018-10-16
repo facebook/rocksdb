@@ -121,6 +121,18 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
   }
 }
 
+void StatisticsImpl::reduceTick(uint32_t tickerType, uint64_t count) {
+  assert(
+    enable_internal_stats_ ?
+      tickerType < INTERNAL_TICKER_ENUM_MAX :
+      tickerType < TICKER_ENUM_MAX);
+  per_core_stats_.Access()->tickers_[tickerType].fetch_sub(
+      count, std::memory_order_relaxed);
+  if (stats_ && tickerType < TICKER_ENUM_MAX) {
+    stats_->reduceTick(tickerType, count);
+  }
+}
+
 void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
   assert(
     enable_internal_stats_ ?
