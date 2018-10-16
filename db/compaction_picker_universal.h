@@ -47,7 +47,8 @@ class UniversalCompactionPicker : public CompactionPicker {
           file(_file),
           size(_size),
           compensated_file_size(_compensated_file_size),
-          being_compacted(_being_compacted) {
+          being_compacted(_being_compacted),
+          wait_reduce(false) {
       assert(compensated_file_size > 0);
       assert(level != 0 || file != nullptr);
     }
@@ -69,6 +70,7 @@ class UniversalCompactionPicker : public CompactionPicker {
     uint64_t size;
     uint64_t compensated_file_size;
     bool being_compacted;
+    bool wait_reduce;
   };
 
   // Pick Universal compaction to limit read amplification
@@ -96,7 +98,8 @@ class UniversalCompactionPicker : public CompactionPicker {
   // Pick compaction which level has map or link sst
   Compaction* PickCompositeCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, LogBuffer* log_buffer);
+      VersionStorageInfo* vstorage, const std::vector<SortedRun>& sorted_runs,
+      LogBuffer* log_buffer);
 
   // Pick compaction which pointed range files
   // range use internal keys
@@ -111,7 +114,8 @@ class UniversalCompactionPicker : public CompactionPicker {
   Compaction* PickCompactionToReduceSortedRuns(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, double score,
-      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
+      std::vector<SortedRun>* sorted_runs, size_t reduce_sorted_run_target,
+      LogBuffer* log_buffer);
 
   // Used in universal compaction when the enabled_trivial_move
   // option is set. Checks whether there are any overlapping files

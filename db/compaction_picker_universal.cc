@@ -241,7 +241,7 @@ UniversalCompactionPicker::CalculateSortedRuns(
 
   std::vector<UniversalCompactionPicker::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
-    ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
+    ret.emplace_back(0, f, get_files_size(f), f->compensated_file_size,
                      f->being_compacted);
   }
   for (int level = 1; level < vstorage.num_levels(); level++) {
@@ -307,58 +307,69 @@ Compaction* UniversalCompactionPicker::PickCompaction(
 
   // Check for size amplification first.
   Compaction* c = nullptr;
-  if (sorted_runs.size() >=
-      static_cast<size_t>(
-          mutable_cf_options.level0_file_num_compaction_trigger)) {
+  if (vstorage->has_space_amplification() ||
+      sorted_runs.size() >=
+          static_cast<size_t>(
+              mutable_cf_options.level0_file_num_compaction_trigger)) {
     if (mutable_cf_options.enable_lazy_compaction) {
-      bool need_reduce_sorted_runs = false;
-      if ((c = PickTrivialMoveCompaction(cf_name, mutable_cf_options, vstorage,
+      bool has_map_compaction = false;
+      for (auto cip : compactions_in_progress_) {
+        if (cip->compaction_purpose() == kMapSst) {
+          has_map_compaction = true;
+          break;
+        }
+      }
+      size_t reduce_sorted_run_target = std::min<size_t>(
+          mutable_cf_options.level0_slowdown_writes_trigger,
+          mutable_cf_options.level0_file_num_compaction_trigger +
+              ioptions_.num_levels - 1);
+      if (has_map_compaction ||
+          (c = PickTrivialMoveCompaction(cf_name, mutable_cf_options, vstorage,
                                          log_buffer)) != nullptr) {
-        // set trivial move later
-      } else if (sorted_runs.size() >
-                 std::min<size_t>(
-                     mutable_cf_options.level0_slowdown_writes_trigger,
-                     mutable_cf_options.level0_file_num_compaction_trigger +
-                         ioptions_.num_levels - 1)) {
-        need_reduce_sorted_runs = true;
-      } else {
-        size_t level_max_read_amp = 1;
-        for (int level = 1; level < ioptions_.num_levels; ++level) {
-          if (!vstorage->has_space_amplification(level)) {
-            continue;
-          }
-          if (vstorage->LevelFiles(level).size() > 1) {
-            // PickCompositeCompaction for rebuild map
-            level_max_read_amp = 1;
-            break;
+        reduce_sorted_run_target = size_t(-1);
+      } else if (sorted_runs.size() > 1 &&
+                 sorted_runs.size() <= reduce_sorted_run_target) {
+        size_t level_read_amp_count = 0;
+        for (auto& sr : sorted_runs) {
+          FileMetaData* f;
+          if (sr.level > 0) {
+            if (!vstorage->has_space_amplification(sr.level)) {
+              continue;
+            }
+            auto& level_files = vstorage->LevelFiles(sr.level);
+            if (level_files.size() > 1) {
+              // PickCompositeCompaction for rebuild map
+              reduce_sorted_run_target = size_t(-1);
+              break;
+            }
+            f = level_files.front();
+          } else {
+            if (sr.file->sst_purpose != kMapSst) {
+              continue;
+            }
+            f = sr.file;
           }
           std::shared_ptr<const TableProperties> porps;
           auto s = table_cache_->GetTableProperties(
-              env_options_, *icmp_, vstorage->LevelFiles(level).front()->fd,
-              &porps, mutable_cf_options.prefix_extractor.get(), false);
+              env_options_, *icmp_, f->fd, &porps,
+              mutable_cf_options.prefix_extractor.get(), false);
           if (s.ok()) {
-            level_max_read_amp = std::max<size_t>(
-                level_max_read_amp,
-                GetSstReadAmp(porps->user_collected_properties));
+            size_t read_amp = GetSstReadAmp(porps->user_collected_properties);
+            if (read_amp > 1) {
+              level_read_amp_count += read_amp;
+            }
           }
         }
-        if (level_max_read_amp < 4) {
-          need_reduce_sorted_runs = true;
+        if (level_read_amp_count < reduce_sorted_run_target) {
+          reduce_sorted_run_target = std::max<size_t>(
+              mutable_cf_options.level0_file_num_compaction_trigger,
+              sorted_runs.size() - 1);
         }
       }
-      if (need_reduce_sorted_runs) {
-        for (auto cip : compactions_in_progress_) {
-          if (cip->compaction_purpose() == kMapSst) {
-            need_reduce_sorted_runs = false;
-            break;
-          }
-        }
-      }
-
-      if (need_reduce_sorted_runs &&
-          (c = PickCompactionToReduceSortedRuns(cf_name, mutable_cf_options,
-                                                vstorage, score, sorted_runs,
-                                                log_buffer)) != nullptr) {
+      if (sorted_runs.size() > reduce_sorted_run_target &&
+          (c = PickCompactionToReduceSortedRuns(
+               cf_name, mutable_cf_options, vstorage, score, &sorted_runs,
+               reduce_sorted_run_target, log_buffer)) != nullptr) {
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Universal: compacting for lazy compaction\n",
                          cf_name.c_str());
@@ -417,7 +428,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   }
   if (c == nullptr && table_cache_ != nullptr) {
     c = PickCompositeCompaction(cf_name, mutable_cf_options, vstorage,
-                                log_buffer);
+                                sorted_runs, log_buffer);
   }
 
   if (c == nullptr) {
@@ -634,20 +645,61 @@ uint32_t UniversalCompactionPicker::GetPathId(
 }
 
 namespace {
-struct RankingElem {
-  double cur_sr_ratio;  // = sr->size / size_sum
-  double max_sr_ratio;
-  uint64_t size_sum;
-  uint64_t size_max_val;  // most cases is sr->size
-  size_t size_max_idx;
-  size_t real_idx;
-};
-struct Candidate {
+
+struct SortedRunGroup {
   size_t start;
   size_t count;
-  uint64_t max_sr_size;
-  double max_sr_ratio;
+  double ratio;
 };
+
+double GenSortedRunGroup(const std::vector<double>& sr, size_t group,
+                         std::vector<SortedRunGroup>* output_group) {
+  double S = std::accumulate(sr.begin(), sr.end(), 0.0);
+  // sum of [q, q^2, q^3, ... , q^n]
+  auto F = [](double q, size_t n) {
+    return (std::pow(q, n + 1) - q) / (q - 1);
+  };
+  // let S = ¦²q^i, i in <1..n>, seek q
+  double q = std::pow(S, 1.0 / group);
+  if (S <= sr.size() + 1) {
+    q = 1;
+  } else {
+    // Newton-Raphson method
+    for (size_t c = 0; c < 8; ++c) {
+      double Fp = q, q_k = q;
+      for (size_t k = 2; k <= group; ++k) {
+        Fp += k * (q_k *= q);
+      }
+      q -= (F(q, group) - S) / Fp;
+    }
+  }
+  auto& o = *output_group;
+  o.resize(group);
+  // Standard Deviation pattern matching
+  double sr_acc = sr[0];
+  double q_acc = q;
+  double q_n = q;
+  size_t q_i = 0;
+  o[0].start = 0;
+  o[0].ratio = sr[0];
+  for (size_t i = 1; i < sr.size(); ++i) {
+    size_t end_i = sr.size() - (group - q_i);
+    double new_acc = sr_acc + sr[i];
+    if ((i > end_i || sr_acc > q_acc || sr_acc * new_acc > q_acc * q_acc) &&
+        q_i + 1 < group) {
+      o[q_i].count = i - o[q_i].start;
+      ++q_i;
+      q_acc += q_n *= q;
+      o[q_i].start = i;
+      o[q_i].ratio = 0;
+    }
+    sr_acc = new_acc;
+    o[q_i].ratio += sr[i];
+  }
+  o.back().count = sr.size() - o.back().start;
+  return q;
+}
+
 }  // namespace
 
 //
@@ -1147,56 +1199,41 @@ Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
     --output_level;
   }
   int start_level = 0;
+  auto is_compaction_output_level = [&](int l) {
+    for (auto c : compactions_in_progress_) {
+      if (c->output_level() == l) {
+        return true;
+      }
+    }
+    return false;
+  };
   while (true) {
     // found an empty level
     for (; output_level >= 1; --output_level) {
-      if (!vstorage->LevelFiles(output_level).empty()) {
-        continue;
+      if (vstorage->LevelFiles(output_level).empty() &&
+          !is_compaction_output_level(output_level)) {
+        break;
       }
-      bool invalid = false;
-      for (auto c : compactions_in_progress_) {
-        if (c->output_level() == output_level) {
-          invalid = true;
-          break;
-        }
-      }
-      if (invalid) {
-        continue;
-      }
-      break;
     }
     if (output_level < 1) {
       return nullptr;
     }
-    bool invalid = false;
+    bool found_start_level = false;
     // found an non empty level
     for (start_level = output_level - 1; start_level > 0; --start_level) {
-      invalid = false;
-      for (auto c : compactions_in_progress_) {
-        if (c->output_level() == start_level) {
-          invalid = true;
-          break;
-        }
+      if (!vstorage->LevelFiles(start_level).empty() &&
+          !is_compaction_output_level(start_level)) {
+        found_start_level = true;
+        break;
       }
-      if (!invalid && vstorage->LevelFiles(start_level).empty()) {
-        continue;
-      }
+    }
+    if (start_level == 0) {
+      // will move lv0 last sst
       break;
     }
-    if (!invalid) {
-      // will move lv0 last sst
-      if (start_level == 0) {
-        break;
-      }
-      auto& files = vstorage->LevelFiles(start_level);
-      for (size_t i = 0; i < files.size(); i++) {
-        if (files[i]->being_compacted) {
-          invalid = true;
-        }
-      }
-      if (!invalid) {
-        break;
-      }
+    if (found_start_level &&
+        !AreFilesInCompaction(vstorage->LevelFiles(start_level))) {
+      break;
     }
     output_level = start_level - 1;
   }
@@ -1228,40 +1265,39 @@ Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
 
 Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    VersionStorageInfo* vstorage, const std::vector<SortedRun>& sorted_runs,
+    LogBuffer* log_buffer) {
   if (!vstorage->has_space_amplification()) {
     return nullptr;
   }
   CompactionInputFiles inputs;
   inputs.level = -1;
   size_t max_read_amp = 0;
-  for (int level = vstorage->num_levels() - 1; level > 0; --level) {
-    if (!vstorage->has_space_amplification(level)) {
+  for (auto rit = sorted_runs.rbegin(); rit != sorted_runs.rend(); ++rit) {
+    auto& sr = *rit;
+    if (sr.wait_reduce) {
       continue;
     }
-    auto& level_files = vstorage->LevelFiles(level);
-    if (!AreFilesInCompaction(level_files)) {
+    FileMetaData* f;
+    if (sr.level > 0) {
+      if (!vstorage->has_space_amplification(sr.level)) {
+        continue;
+      }
+      auto& level_files = vstorage->LevelFiles(sr.level);
+      if (AreFilesInCompaction(level_files)) {
+        continue;
+      }
       if (level_files.size() > 1) {
-        inputs.level = level;
+        inputs.level = sr.level;
+        inputs.files.clear();
         break;
       }
-      std::shared_ptr<const TableProperties> porps;
-      auto s = table_cache_->GetTableProperties(
-          env_options_, *icmp_, level_files.front()->fd, &porps,
-          mutable_cf_options.prefix_extractor.get(), false);
-      if (s.ok()) {
-        size_t level_space_amplification =
-            GetSstReadAmp(porps->user_collected_properties);
-        if (level_space_amplification > max_read_amp) {
-          max_read_amp = level_space_amplification;
-          inputs.level = level;
-        }
+      f = level_files.front();
+    } else {
+      if (sr.file->being_compacted || sr.file->sst_purpose != kMapSst) {
+        continue;
       }
-    }
-  }
-  for (auto f : vstorage->LevelFiles(0)) {
-    if (f->being_compacted || f->sst_purpose != kMapSst) {
-      continue;
+      f = sr.file;
     }
     std::shared_ptr<const TableProperties> porps;
     auto s = table_cache_->GetTableProperties(
@@ -1270,18 +1306,15 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     if (s.ok()) {
       size_t level_space_amplification =
           GetSstReadAmp(porps->user_collected_properties);
-      if (level_space_amplification > max_read_amp) {
+      if (level_space_amplification >= max_read_amp) {
         max_read_amp = level_space_amplification;
-        inputs.level = 0;
+        inputs.level = sr.level;
         inputs.files = {f};
       }
     }
   }
   if (inputs.level == -1) {
     return nullptr;
-  }
-  if (inputs.level != 0) {
-    inputs.files = vstorage->LevelFiles(inputs.level);
   }
   SstPurpose compaction_purpose = kEssenceSst;
   uint32_t max_subcompactions = ioptions_.max_subcompactions;
@@ -1330,7 +1363,9 @@ Compaction* UniversalCompactionPicker::PickCompositeCompaction(
     return new Compaction(std::move(params));
   };
 
-  if (inputs.files.size() > 1) {
+  if (inputs.files.empty()) {
+    inputs.files = vstorage->LevelFiles(inputs.level);
+    assert(inputs.files.size() > 1);
     compaction_purpose = kMapSst;
     max_subcompactions = 1;
     return new_compaction();
@@ -1581,8 +1616,7 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
   inputs.files = level_files;
 
   if (level == 0 && level_files.size() > 1) {
-    uint32_t path_id =
-        GetPathId(ioptions_, mutable_cf_options, 1ULL << 20);
+    uint32_t path_id = GetPathId(ioptions_, mutable_cf_options, 1ULL << 20);
     CompactionParams params(vstorage, ioptions_, mutable_cf_options);
 
     params.inputs = {std::move(inputs)};
@@ -1726,170 +1760,61 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
 Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, double score,
-    const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer) {
-  unsigned int min_merge_width =
-      mutable_cf_options.compaction_options_universal.min_merge_width;
-  unsigned int max_merge_width =
-      mutable_cf_options.compaction_options_universal.max_merge_width;
-
-  size_t start_index = 0;
-  size_t candidate_count = 0;
-
-  size_t write_buffer_size = mutable_cf_options.write_buffer_size;
-  double skip_min_ratio = max_merge_width * std::log2(max_merge_width);
-  unsigned int max_files_to_compact = std::max(2U, max_merge_width);
-  min_merge_width = std::max(min_merge_width, 2U);
-  min_merge_width = std::min(min_merge_width, max_files_to_compact);
-
-  // Caller checks the size before executing this function. This invariant is
-  // important because otherwise we may have a possible integer underflow when
-  // dealing with unsigned types.
-  assert(sorted_runs.size() > 0);
-
-  std::vector<RankingElem> rankingVec(sorted_runs.size());
-  auto computeRanking = [&](size_t start_idx, size_t count) {
-    auto& rv = rankingVec;
-    rv.resize(count);
-    rv[0].cur_sr_ratio = 1.0;
-    rv[0].max_sr_ratio = 1.0;
-    rv[0].size_max_idx = 0;
-    rv[0].size_max_val = sorted_runs[start_idx].compensated_file_size;
-    rv[0].size_sum = sorted_runs[start_idx].compensated_file_size;
-    rv[0].real_idx = start_idx;
-    for (size_t i = 1; i < count; i++) {
-      auto& sr1 = sorted_runs[start_idx + i];
-      if (sr1.compensated_file_size > rv[i - 1].size_max_val) {
-        rv[i].size_max_val = sr1.compensated_file_size;
-        rv[i].size_max_idx = i;
-      } else {
-        rv[i].size_max_val = rv[i - 1].size_max_val;
-        rv[i].size_max_idx = rv[i - 1].size_max_idx;
-      }
-      rv[i].size_sum = rv[i - 1].size_sum + sr1.compensated_file_size;
-      rv[i].cur_sr_ratio = double(sr1.compensated_file_size) / rv[i].size_sum;
-      rv[i].max_sr_ratio = double(rv[i].size_max_val) / rv[i].size_sum;
-      rv[i].real_idx = i;
-    }
-    // a best candidate is which max_sr_ratio is the smallest
-    std::sort(rv.begin(), rv.begin() + count,
-              [](const RankingElem& x, const RankingElem& y) {
-                return x.max_sr_ratio < y.max_sr_ratio;
-              });
-  };
-  std::vector<const SortedRun*> sr_bysize(sorted_runs.size());
-  for (size_t i = 0; i < sr_bysize.size(); i++) {
-    sr_bysize[i] = &sorted_runs[i];
+    std::vector<SortedRun>* sorted_runs_ptr, size_t reduce_sorted_run_target,
+    LogBuffer* log_buffer) {
+  auto& sorted_runs = *sorted_runs_ptr;
+  if (reduce_sorted_run_target == 0) {
+    reduce_sorted_run_target = sorted_runs.size();
   }
-  std::stable_sort(sr_bysize.begin(), sr_bysize.end(),
-                   [write_buffer_size](const SortedRun* x, const SortedRun* y) {
-                     return x->compensated_file_size < y->compensated_file_size;
-                   });
-
-  std::vector<Candidate> candidate_vec;
-  candidate_vec.reserve(sorted_runs.size());
-
-  auto discard_small_sr = [&](uint64_t max_sr_size) {
-    while (candidate_count > min_merge_width &&
-           sorted_runs[start_index].size * skip_min_ratio < max_sr_size) {
-      char file_num_buf[kFormatFileNumberBufSize];
-      sorted_runs[start_index].Dump(file_num_buf, sizeof(file_num_buf), true);
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Universal: min/max = %7.5f too small, "
-                       "Skipping %s",
-                       cf_name.c_str(),
-                       sorted_runs[start_index].size / double(max_sr_size),
-                       file_num_buf);
-      ++start_index;
-      --candidate_count;
+  std::vector<double> sorted_run_ratio(sorted_runs.size());
+  double base_size = double(mutable_cf_options.write_buffer_size);
+  std::transform(sorted_runs.begin(), sorted_runs.end(),
+                 sorted_run_ratio.begin(),
+                 [&](const SortedRun& sr) { return sr.size / base_size; });
+  std::vector<SortedRunGroup> group;
+  auto common_ratio =
+      GenSortedRunGroup(sorted_run_ratio, reduce_sorted_run_target, &group);
+  ROCKS_LOG_BUFFER(
+      log_buffer,
+      "[%s] Universal: reduce to %zd sorted runs, common ratio = %f\n",
+      cf_name.c_str(), reduce_sorted_run_target, common_ratio);
+  size_t start_index = 0, end_index = 0;
+  for (size_t group_i = 0; group_i < group.size(); ++group_i) {
+    const auto& g = group[group_i];
+    bool being_compacted = false;
+    if (g.count > 1) {
+      for (size_t sr_i = g.start, sr_end = g.start + g.count; sr_i < sr_end;
+           ++sr_i) {
+        being_compacted |= sorted_runs[sr_i].being_compacted;
+        sorted_runs[sr_i].wait_reduce = true;
+      }
     }
-  };
-
-  // Considers a candidate file only if it is smaller than the
-  // total size accumulated so far.
-  const SortedRun* sr = nullptr;
-  for (size_t loop1 = 0; loop1 < sr_bysize.size(); loop1++) {
-    sr = sr_bysize[loop1];
-    if (sr->being_compacted) {
+    if (end_index != 0) {
       continue;
     }
-    size_t loop = sr - &sorted_runs[0];
-    candidate_count = 0;
-
-    char file_num_buf[kFormatFileNumberBufSize];
-    sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: Possible candidate %s[%d].",
-                     cf_name.c_str(), file_num_buf, loop);
-
-    // ignore compaction_options_universal.size_ratio and stop_style
-    uint64_t sum_sr_size = 0;
-    uint64_t max_sr_size = 0;
-    size_t limit = std::min(sorted_runs.size(), loop + max_files_to_compact);
-    for (size_t i = loop; i < limit && !sorted_runs[i].being_compacted; i++) {
-      auto x = sorted_runs[i].compensated_file_size;
-      sum_sr_size += x;
-      max_sr_size = std::max(max_sr_size, x);
-      candidate_count++;
+    if (g.count == 1) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Universal: group %zd, count = %zd, size = %zd, "
+                       "single sorted sun, skip\n",
+                       cf_name.c_str(), group_i + 1, g.count,
+                       size_t(g.ratio * base_size));
+      continue;
     }
-
-    auto logSkipping = [&](const char* reason) {
-      size_t limit2 = std::min(loop + candidate_count, sorted_runs.size());
-      for (size_t i = loop; i < limit2; i++) {
-        sorted_runs[i].DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
-        ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal:%s Skipping %s",
-                         cf_name.c_str(), reason, file_num_buf);
-      }
-    };
-
-    // Found a series of consecutive files that need compaction.
-    if (candidate_count >= min_merge_width) {
-      computeRanking(loop, candidate_count);
-      double max_sr_ratio = double(max_sr_size) / sum_sr_size;
-      for (size_t rank = 0; rank < candidate_count - min_merge_width; rank++) {
-        size_t merge_width = rankingVec[rank].real_idx + 1;
-        if (merge_width >= min_merge_width) {
-          max_sr_ratio = rankingVec[rank].max_sr_ratio;
-          max_sr_size = rankingVec[rank].size_max_val;
-          sum_sr_size = rankingVec[rank].size_sum;
-          candidate_count = merge_width;
-          // found a best picker which start from loop and has
-          // at least min_merge_width sorted runs
-          break;
-        }
-      }
-      Candidate cand;
-      cand.count = candidate_count;
-      cand.start = loop;
-      cand.max_sr_size = max_sr_size;
-      cand.max_sr_ratio = max_sr_ratio;
-      candidate_vec.push_back(cand);
-    } else if (candidate_count > 1) {  // do not print if candidate_count == 1
-      char buf[80];
-      sprintf(buf, " candidate_count(%zd) < min_merge_width(%d),",
-              candidate_count, min_merge_width);
-      logSkipping(buf);
+    if (being_compacted) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Universal: group %zd, count = %zd, size = %zd, "
+                       "being compacted, skip\n",
+                       cf_name.c_str(), group_i + 1, g.count,
+                       size_t(g.ratio * base_size));
+      continue;
     }
+    start_index = g.start;
+    end_index = g.start + g.count;
   }
-  if (candidate_vec.size() < 1) {
+  if (end_index == 0) {
     return nullptr;
   }
-  auto best = candidate_vec.begin();
-  for (auto iter = best + 1; iter < candidate_vec.end(); ++iter) {
-    if (iter->max_sr_ratio < best->max_sr_ratio) {
-      best = iter;
-    }
-  }
-  char file_num_buf[kFormatFileNumberBufSize];
-  sorted_runs[best->start].Dump(file_num_buf, sizeof(file_num_buf), true);
-  ROCKS_LOG_BUFFER(log_buffer,
-                   "[%s] Universal: repicked candidate %s[%d], "
-                   "count = %zd, max/sum = %7.5f",
-                   cf_name.c_str(), file_num_buf, best->start, best->count,
-                   best->max_sr_ratio);
-  start_index = best->start;
-  candidate_count = best->count;
-  discard_small_sr(best->max_sr_size);
 
-  size_t first_index_after = start_index + candidate_count;
   // Compression is enabled if files compacted earlier already reached
   // size ratio of compression.
   bool enable_compression = true;
@@ -1902,7 +1827,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     }
 
     uint64_t older_file_size = 0;
-    for (size_t i = sorted_runs.size() - 1; i >= first_index_after; i--) {
+    for (size_t i = sorted_runs.size() - 1; i >= end_index; i--) {
       older_file_size += sorted_runs[i].size;
       if (older_file_size * 100L >= total_size * (long)ratio_to_compress) {
         enable_compression = false;
@@ -1910,21 +1835,20 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       }
     }
   }
-
   uint64_t estimated_total_size = 0;
-  for (size_t i = start_index; i < first_index_after; i++) {
+  for (size_t i = start_index; i < end_index; i++) {
     estimated_total_size += sorted_runs[i].size;
   }
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
   int start_level = sorted_runs[start_index].level;
   int output_level;
-  if (first_index_after == sorted_runs.size()) {
+  if (end_index == sorted_runs.size()) {
     output_level = vstorage->num_levels() - 1;
-  } else if (sorted_runs[first_index_after].level == 0) {
+  } else if (sorted_runs[end_index].level == 0) {
     output_level = 0;
   } else {
-    output_level = sorted_runs[first_index_after].level - 1;
+    output_level = sorted_runs[end_index].level - 1;
   }
 
   // last level is reserved for the files ingested behind
@@ -1938,7 +1862,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
-  for (size_t i = start_index; i < first_index_after; i++) {
+  char file_num_buf[kFormatFileNumberBufSize];
+  for (size_t i = start_index; i < end_index; i++) {
     auto& picking_sr = sorted_runs[i];
     if (picking_sr.level == 0) {
       FileMetaData* picking_file = picking_sr.file;

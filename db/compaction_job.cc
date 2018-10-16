@@ -1917,8 +1917,19 @@ void CompactionJob::LogCompaction() {
         compaction->InputLevelSummary(&inputs_summary), compaction->score());
     char scratch[2345];
     compaction->Summary(scratch, sizeof(scratch));
-    ROCKS_LOG_INFO(db_options_.info_log, "[%s] Compaction start summary: %s\n",
-                   cfd->GetName().c_str(), scratch);
+    const char* purpose = "";
+    switch (compaction->compaction_purpose()) {
+      case kLinkSst:
+        purpose = "Link ";
+        break;
+      case kMapSst:
+        purpose = "Map ";
+        break;
+      default:
+        break;
+    }
+    ROCKS_LOG_INFO(db_options_.info_log, "[%s] %sCompaction start summary: %s\n",
+                   cfd->GetName().c_str(), purpose, scratch);
     // build event logger report
     auto stream = event_logger_->Log();
     stream << "job" << job_id_ << "event"
