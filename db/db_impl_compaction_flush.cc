@@ -1414,7 +1414,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     for (auto tmp_cfd : cfds) {
+      cfd->Ref();
       s = SwitchMemtable(tmp_cfd, &context);
+      cfd->Unref();
       if (!s.ok()) {
         break;
       }

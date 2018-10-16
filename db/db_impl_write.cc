@@ -1085,7 +1085,9 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
   }
   for (const auto cfd : cfds) {
+    cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
+    cfd->Unref();
     if (!status.ok()) {
       break;
     }
@@ -1291,6 +1293,9 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
+    for (auto cfd : cfds) {
+      cfd->Ref();
+    }
     flush_scheduler_.Clear();
   } else {
     ColumnFamilyData* tmp_cfd;

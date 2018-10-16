@@ -25,6 +25,12 @@ class DBFlushDirectIOTest : public DBFlushTest,
   DBFlushDirectIOTest() : DBFlushTest() {}
 };
 
+class DBAtomicFlushTest : public DBFlushTest,
+                          public ::testing::WithParamInterface<bool> {
+ public:
+  DBAtomicFlushTest() : DBFlushTest() {}
+};
+
 // We had issue when two background threads trying to flush at the same time,
 // only one of them get committed. The test verifies the issue is fixed.
 TEST_F(DBFlushTest, FlushWhileWritingManifest) {
@@ -170,60 +176,6 @@ TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
   t.join();
 }
 
-TEST_F(DBFlushTest, AtomicManualFlush) {
-  Options options = CurrentOptions();
-  options.atomic_flush = true;
-  // 64MB so that we do not trigger auto flush.
-  options.write_buffer_size = (1 << 26);
-  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
-  size_t num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  WriteOptions wopts;
-  wopts.disableWAL = true;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
-  }
-  ASSERT_OK(Flush(0 /*cf*/));
-  dbfull()->TEST_WaitForFlushMemTable();
-
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
-                           options);
-  num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_EQ("value", Get(i /*cf*/, "key"));
-  }
-}
-
-TEST_F(DBFlushTest, AtomicFlushTriggeredByMemTableFull) {
-  Options options = CurrentOptions();
-  options.atomic_flush = true;
-  // 4KB so that we can easily trigger auto flush.
-  options.write_buffer_size = 4096;
-  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
-  size_t num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  WriteOptions wopts;
-  wopts.disableWAL = true;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
-  }
-  // Keep writing to one of them column families to trigger auto flush.
-  for (int i = 0; i != 4000; ++i) {
-    ASSERT_OK(Put(static_cast<int>(num_cfs) - 1 /*cf*/,
-                  "key" + std::to_string(i), "value" + std::to_string(i),
-                  wopts));
-  }
-
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
-                           options);
-  num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_EQ("value", Get(i /*cf*/, "key"));
-  }
-}
-
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
@@ -268,8 +220,69 @@ TEST_F(DBFlushTest, FlushError) {
   ASSERT_NE(s, Status::OK());
 }
 
+TEST_P(DBAtomicFlushTest, AtomicManualFlush) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  // 64MB so that we do not trigger auto flush.
+  options.write_buffer_size = (1 << 26);
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  ASSERT_OK(Flush(0 /*cf*/));
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_EQ("value", Get(i /*cf*/, "key"));
+  }
+}
+
+TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  // 4KB so that we can easily trigger auto flush.
+  options.write_buffer_size = 4096;
+
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  // Keep writing to one of them column families to trigger auto flush.
+  for (int i = 0; i != 4000; ++i) {
+    ASSERT_OK(Put(static_cast<int>(num_cfs) - 1 /*cf*/,
+                  "key" + std::to_string(i), "value" + std::to_string(i),
+                  wopts));
+  }
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_EQ("value", Get(i /*cf*/, "key"));
+  }
+}
+
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
+
+INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
 }  // namespace rocksdb
 
