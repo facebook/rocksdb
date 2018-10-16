@@ -238,12 +238,21 @@ TEST_P(DBAtomicFlushTest, AtomicManualFlush) {
   ASSERT_OK(Flush(0 /*cf*/));
   dbfull()->TEST_WaitForFlushMemTable();
 
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
-                           options);
-  num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_EQ("value", Get(i /*cf*/, "key"));
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[0]);
+  ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+  ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+  if (options.atomic_flush) {
+    for (size_t i = 1; i != num_cfs; ++i) {
+      cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+      ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+    }
+  } else {
+    for (size_t i = 1; i != num_cfs; ++i) {
+      cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+      ASSERT_FALSE(cfh->cfd()->mem()->IsEmpty());
+    }
   }
 }
 
@@ -253,6 +262,11 @@ TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
   options.atomic_flush = GetParam();
   // 4KB so that we can easily trigger auto flush.
   options.write_buffer_size = 4096;
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:FlushFinish:0",
+        "DBAtomicFlushTest::AtomicFlushTriggeredByMemTableFull:BeforeCheck"}});
+  SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   size_t num_cfs = handles_.size();
@@ -269,15 +283,23 @@ TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
                   wopts));
   }
 
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
-                           options);
-  num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_EQ("value", Get(i /*cf*/, "key"));
+  TEST_SYNC_POINT(
+      "DBAtomicFlushTest::AtomicFlushTriggeredByMemTableFull:BeforeCheck");
+  if (options.atomic_flush) {
+    for (size_t i = 0; i != num_cfs - 1; ++i) {
+      auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+      ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+    }
+  } else {
+    for (size_t i = 0; i != num_cfs - 1; ++i) {
+      auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+      ASSERT_FALSE(cfh->cfd()->mem()->IsEmpty());
+    }
   }
+  SyncPoint::GetInstance()->DisableProcessing();
 }
-
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());

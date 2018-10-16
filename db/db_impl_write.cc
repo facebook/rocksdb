@@ -1073,7 +1073,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
-    SelectColumnFamiliesForAtomicFlush(&cfds);
+    SelectColumnFamiliesForAtomicFlush(&cfds, true);
   } else {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
@@ -1127,7 +1127,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
-    SelectColumnFamiliesForAtomicFlush(&cfds);
+    SelectColumnFamiliesForAtomicFlush(&cfds, false);
   } else {
     ColumnFamilyData* cfd_picked = nullptr;
     SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
@@ -1292,7 +1292,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   if (atomic_flush_) {
-    SelectColumnFamiliesForAtomicFlush(&cfds);
+    SelectColumnFamiliesForAtomicFlush(&cfds, false);
     for (auto cfd : cfds) {
       cfd->Ref();
     }

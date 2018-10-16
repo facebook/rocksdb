@@ -1405,7 +1405,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     if (atomic_flush_) {
-      SelectColumnFamiliesForAtomicFlush(&cfds);
+      SelectColumnFamiliesForAtomicFlush(&cfds, true);
     } else {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
@@ -1451,14 +1451,20 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 }
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
-    autovector<ColumnFamilyData*>* cfds) {
+    autovector<ColumnFamilyData*>* cfds, bool check_immutable_memtables) {
   for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
-      cfds->push_back(cfd);
+    if (check_immutable_memtables) {
+      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          !cached_recoverable_state_empty_.load()) {
+        cfds->push_back(cfd);
+      }
+    } else {
+      if (!cfd->mem()->IsEmpty()) {
+        cfds->push_back(cfd);
+      }
     }
   }
 }
@@ -1909,6 +1915,7 @@ void DBImpl::BackgroundCallFlush() {
       mutex_.Lock();
     }
 
+    TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:FlushFinish:0");
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
     // If flush failed, we want to delete all temporary files that we might have

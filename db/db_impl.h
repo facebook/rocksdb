@@ -965,7 +965,8 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
-  void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
+  void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds,
+                                          bool check_immutable_memtables);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
