@@ -188,6 +188,63 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
+namespace {
+
+class TestCacheAllocator : public CacheAllocator {
+ public:
+  const char* Name() const override { return "TestCacheAllocator"; }
+  void* Allocate(size_t /*size*/) override { return nullptr; }
+  void Deallocate(void* /*p*/) override {}
+};
+
+class TestCacheAllocatorFactory : public CacheAllocatorFactory {
+ public:
+  TestCacheAllocatorFactory(bool should_fail) : should_fail_(should_fail) {}
+
+  const char* Name() const override { return "TestCacheAllocatorFactory"; }
+
+  Status NewCacheAllocator(std::unique_ptr<CacheAllocator>* cache_allocator) {
+    assert(cache_allocator != nullptr);
+    if (should_fail_) {
+      return Status::Incomplete();
+    }
+    // Should only instantiate cache allocator once.
+    assert(cache_allocator_ == nullptr);
+    cache_allocator_ = new TestCacheAllocator();
+    cache_allocator->reset(cache_allocator_);
+    return Status::OK();
+  }
+
+  CacheAllocator* allocator() { return cache_allocator_; }
+
+ private:
+  CacheAllocator* cache_allocator_ = nullptr;
+  bool should_fail_ = false;
+};
+
+}  // namespace
+
+TEST_F(LRUCacheTest, CacheAllocator) {
+  // Test LRUCache return the same CacheAllocator generate from the given
+  // CacheAllocatorFactory.
+  std::shared_ptr<TestCacheAllocatorFactory> factory =
+      std::make_shared<TestCacheAllocatorFactory>(false /*should_fail*/);
+  LRUCacheOptions options;
+  options.cache_allocator_factory = factory;
+  std::shared_ptr<Cache> cache = NewLRUCache(options);
+  ASSERT_NE(cache, nullptr);
+  ASSERT_NE(factory->allocator(), nullptr);
+  ASSERT_EQ(cache->GetCacheAllocator(), factory->allocator());
+  factory.reset();
+  cache.reset();
+
+  // Test NewLRUCache should fail if NewCacheAllocator fail.
+  factory = std::make_shared<TestCacheAllocatorFactory>(true /*should_fail*/);
+  options.cache_allocator_factory = factory;
+  cache = NewLRUCache(options);
+  ASSERT_EQ(cache, nullptr);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
