@@ -170,6 +170,60 @@ TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
   t.join();
 }
 
+TEST_F(DBFlushTest, AtomicManualFlush) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  // 64MB so that we do not trigger auto flush.
+  options.write_buffer_size = (1 << 26);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  ASSERT_OK(Flush(0 /*cf*/));
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_EQ("value", Get(i /*cf*/, "key"));
+  }
+}
+
+TEST_F(DBFlushTest, AtomicFlushTriggeredByMemTableFull) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  // 4KB so that we can easily trigger auto flush.
+  options.write_buffer_size = 4096;
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+  // Keep writing to one of them column families to trigger auto flush.
+  for (int i = 0; i != 4000; ++i) {
+    ASSERT_OK(Put(static_cast<int>(num_cfs) - 1 /*cf*/,
+                  "key" + std::to_string(i), "value" + std::to_string(i),
+                  wopts));
+  }
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_EQ("value", Get(i /*cf*/, "key"));
+  }
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;

@@ -211,6 +211,10 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer) {
+  if (atomic_flush_) {
+    return AtomicFlushMemTablesToOutputFiles(bg_flush_args, made_progress,
+                                             job_context, log_buffer);
+  }
   Status s;
   for (auto& arg : bg_flush_args) {
     ColumnFamilyData* cfd = arg.cfd_;
