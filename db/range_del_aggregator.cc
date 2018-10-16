@@ -490,7 +490,7 @@ bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
   ParsedInternalKey start_ikey(start, kMaxSequenceNumber, kMaxValue);
   ParsedInternalKey end_ikey(end, 0, static_cast<ValueType>(0));
   for (const auto& stripe : rep_->stripe_map_) {
-    if (stripe.second->IsRangeOverlapped(start_ikey, end_ikey)) {
+    if (stripe.second.first->IsRangeOverlapped(start_ikey, end_ikey)) {
       return true;
     }
   }
@@ -585,7 +585,7 @@ void RangeDelAggregator::InvalidateRangeDelMapPositions() {
     return;
   }
   for (auto& stripe : rep_->stripe_map_) {
-    stripe.second->InvalidatePosition();
+    stripe.second.first->InvalidatePosition();
   }
 }
 
@@ -603,10 +603,14 @@ RangeDelMap* RangeDelAggregator::GetRangeDelMapIfExists(SequenceNumber seq) {
   } else {
     iter = rep_->stripe_map_.begin();
   }
-  if (iter != rep_->stripe_map_.end()) {
-    return iter->second.get();
+  if (iter == rep_->stripe_map_.end()) {
+    return nullptr;
   }
-  return nullptr;
+  size_t snapshot_idx = iter->second.second;
+  if (snapshot_idx > 0 && seq <= rep_->snapshots_[snapshot_idx - 1]) {
+    return nullptr;
+  }
+  return iter->second.first.get();
 }
 
 RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
@@ -624,9 +628,11 @@ RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
   // catch-all stripe justifies this assertion in either of above cases
   assert(iter != rep_->snapshots_.end());
   if (rep_->stripe_map_.find(*iter) == rep_->stripe_map_.end()) {
-    rep_->stripe_map_.emplace(*iter, NewRangeDelMap());
+    rep_->stripe_map_.emplace(
+        *iter,
+        std::make_pair(NewRangeDelMap(), iter - rep_->snapshots_.begin()));
   }
-  return *rep_->stripe_map_[*iter];
+  return *rep_->stripe_map_[*iter].first;
 }
 
 bool RangeDelAggregator::IsEmpty() {
@@ -634,7 +640,7 @@ bool RangeDelAggregator::IsEmpty() {
     return true;
   }
   for (const auto& stripe : rep_->stripe_map_) {
-    if (!stripe.second->IsEmpty()) {
+    if (!stripe.second.first->IsEmpty()) {
       return false;
     }
   }
@@ -718,7 +724,7 @@ std::unique_ptr<RangeDelIterator> RangeDelAggregator::NewIterator() {
       new MergingRangeDelIter(icmp_.user_comparator()));
   if (rep_ != nullptr) {
     for (const auto& stripe : rep_->stripe_map_) {
-      iter->AddIterator(stripe.second->NewIterator());
+      iter->AddIterator(stripe.second.first->NewIterator());
     }
   }
   return std::move(iter);
