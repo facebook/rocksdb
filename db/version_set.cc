@@ -2032,7 +2032,7 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range) const {
+    bool expand_range, InternalKey** next_smallest) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
@@ -2051,9 +2051,15 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
   const Comparator* user_cmp = user_comparator_;
   if (level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs,
-                                          hint_index, file_index);
+    GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs, hint_index,
+                                          file_index, false, next_smallest);
     return;
+  }
+
+  if (next_smallest) {
+    // next_smallest key only makes sense for non-level 0, where files are
+    // non-overlapping
+    *next_smallest = nullptr;
   }
 
   for (size_t i = 0; i < level_files_brief_[level].num_files; ) {
@@ -2183,7 +2189,7 @@ int sstableKeyCompare(const Comparator* user_cmp,
 void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool within_interval) const {
+    bool within_interval, InternalKey** next_smallest) const {
   assert(level > 0);
   int min = 0;
   int mid = 0;
@@ -2219,6 +2225,9 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
 
   // If there were no overlapping files, return immediately.
   if (!foundOverlap) {
+    if (next_smallest) {
+      next_smallest = nullptr;
+    }
     return;
   }
   // returns the index where an overlap is found
@@ -2238,6 +2247,15 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   // insert overlapping files into vector
   for (int i = start_index; i <= end_index; i++) {
     inputs->push_back(files_[level][i]);
+  }
+
+  if (next_smallest != nullptr) {
+    // Provide the next key outside the range covered by inputs
+    if (++end_index < static_cast<int>(files_[level].size())) {
+      **next_smallest = files_[level][end_index]->smallest;
+    } else {
+      *next_smallest = nullptr;
+    }
   }
 }
 
