@@ -13,9 +13,9 @@ namespace rocksdb {
 PerfContext perf_context;
 #else
 #if defined(OS_SOLARIS)
-__thread PerfContext perf_context_;
+thread_local PerfContext perf_context_;
 #else
-__thread PerfContext perf_context;
+thread_local PerfContext perf_context;
 #endif
 #endif
 
@@ -133,18 +133,6 @@ void PerfContextByLevel::Reset() {
   bloom_filter_useful = 0;
   bloom_filter_full_positive = 0;
   bloom_filter_full_true_positive = 0;
-#endif
-}
-
-std::string PerfContextByLevel::ToString(bool exclude_zero_counters) const {
-#ifdef NPERF_CONTEXT
-  return "";
-#else
-  std::ostringstream ss;
-  PERF_CONTEXT_OUTPUT(bloom_filter_useful);
-  PERF_CONTEXT_OUTPUT(bloom_filter_full_positive);
-  PERF_CONTEXT_OUTPUT(bloom_filter_full_true_positive);
-  return ss.str();
 #endif
 }
 

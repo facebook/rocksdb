@@ -26,8 +26,6 @@ struct PerfContextByLevel {
   // exist.
   uint64_t bloom_filter_full_true_positive = 0;
 
-  std::string ToString(bool exclude_zero_counters = false) const;
-
   void Reset(); // reset all performance counters to zero
 };
 
