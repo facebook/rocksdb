@@ -988,7 +988,7 @@ TEST_F(MemTableListTest, HasOlderAtomicFlush) {
   }
   std::vector<autovector<MemTable*>> flush_candidates(num_cfs);
   for (size_t i = 0; i != num_cfs; ++i) {
-    lists[i]->PickMemtablesToFlush(0, &flush_candidates[i]);
+    lists[i]->PickMemtablesToFlush(nullptr, &flush_candidates[i]);
     for (auto m : flush_candidates[i]) {
       m->TEST_AtomicFlushSequenceNumber() = 123;
     }
