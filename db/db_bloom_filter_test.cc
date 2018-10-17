@@ -147,6 +147,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
     options.prefix_extractor =
         std::make_shared<SliceTransformLimitedDomainGeneric>();
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     if (partition_filters) {
@@ -171,20 +172,29 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
 
     ASSERT_EQ("foo", Get("barbarbar"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    // TODO (Zhongyi): uncomment the asserts involving level_to_perf_context when per
+    // level perf context is enabled in block based table reader
+    // ASSERT_EQ(0, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     ASSERT_EQ("foo2", Get("barbarbar2"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    // ASSERT_EQ(0, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
     ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    // ASSERT_EQ(0, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    // ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    // ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ro.total_order_seek = true;
     ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    // ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    get_perf_context()->Reset();
   }
 }
 
@@ -193,6 +203,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     Options options = last_options_;
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     if (partition_filters) {
@@ -231,6 +242,8 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     ro.total_order_seek = true;
     ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    // ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    get_perf_context()->Reset();
   }
 }
 
@@ -239,6 +252,7 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     Options options = last_options_;
     options.prefix_extractor.reset(NewFixedPrefixTransform(3));
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
 
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
@@ -386,6 +400,8 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
     ASSERT_EQ("bar", Get("barfoo"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
+    // ASSERT_EQ(12, (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    get_perf_context()->Reset();
   }
 }
 
@@ -490,6 +506,7 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
     Options options = CurrentOptions();
     options.statistics = rocksdb::CreateDBStatistics();
+    get_perf_context()->EnablePerLevelPerfContext();
     CreateAndReopenWithCF({"pikachu"}, options);
 
     const int maxKey = 10000;
@@ -511,6 +528,8 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
       ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
     }
     ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
+    // ASSERT_GE((*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful, maxKey*0.98);
+    get_perf_context()->Reset();
   }
 }
 
@@ -1032,6 +1051,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.optimize_filters_for_hits = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  get_perf_context()->EnablePerLevelPerfContext();
   CreateAndReopenWithCF({"mypikachu"}, options);
 
   int numkeys = 200000;
@@ -1078,6 +1098,8 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   // no bloom filter. Most keys be checked bloom filters twice.
   ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 65000 * 2);
   ASSERT_LT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 120000 * 2);
+  // ASSERT_GT((*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful, 65000*2);
+  // ASSERT_LT((*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful, 120000*2);
 
   for (int i = 0; i < numkeys; i += 2) {
     ASSERT_EQ(Get(1, Key(i)), "val");
@@ -1187,6 +1209,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(2 /* index and data block */,
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  get_perf_context()->Reset();
 }
 
 int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
