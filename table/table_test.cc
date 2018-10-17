@@ -2505,7 +2505,8 @@ class CustomCacheAllocatorFactory : public CacheAllocatorFactory {
  public:
   const char* Name() const override { return "CustomCacheAllocatorFactory"; }
 
-  Status NewCacheAllocator(std::unique_ptr<CacheAllocator>* cache_allocator) {
+  Status NewCacheAllocator(
+      std::unique_ptr<CacheAllocator>* cache_allocator) override {
     assert(cache_allocator != nullptr);
     cache_allocator->reset(new CustomCacheAllocator());
     return Status::OK();

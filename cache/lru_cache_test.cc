@@ -199,11 +199,13 @@ class TestCacheAllocator : public CacheAllocator {
 
 class TestCacheAllocatorFactory : public CacheAllocatorFactory {
  public:
-  TestCacheAllocatorFactory(bool should_fail) : should_fail_(should_fail) {}
+  explicit TestCacheAllocatorFactory(bool should_fail)
+      : should_fail_(should_fail) {}
 
   const char* Name() const override { return "TestCacheAllocatorFactory"; }
 
-  Status NewCacheAllocator(std::unique_ptr<CacheAllocator>* cache_allocator) {
+  Status NewCacheAllocator(
+      std::unique_ptr<CacheAllocator>* cache_allocator) override {
     assert(cache_allocator != nullptr);
     if (should_fail_) {
       return Status::Incomplete();

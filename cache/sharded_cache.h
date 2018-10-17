@@ -104,7 +104,7 @@ class ShardedCache : public Cache {
   const int num_shard_bits_;
   // Hold a reference to the original CacheAllocatorFactory.
   const std::shared_ptr<CacheAllocatorFactory> cache_allocator_factory_;
-  const std::unique_ptr<CacheAllocator> cache_allocator_ = nullptr;
+  const std::unique_ptr<CacheAllocator> cache_allocator_;
 
   mutable port::Mutex capacity_mutex_;
   size_t capacity_;
