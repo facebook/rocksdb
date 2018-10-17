@@ -596,12 +596,7 @@ RangeDelMap* RangeDelAggregator::GetRangeDelMapIfExists(SequenceNumber seq) {
   if (rep_->stripe_map_.empty()) {
     return nullptr;
   }
-  StripeMap::iterator iter;
-  if (seq > 0) {
-    iter = rep_->stripe_map_.lower_bound(seq);
-  } else {
-    iter = rep_->stripe_map_.begin();
-  }
+  StripeMap::iterator iter = rep_->stripe_map_.lower_bound(seq);
   if (iter == rep_->stripe_map_.end()) {
     return nullptr;
   }
@@ -616,13 +611,8 @@ RangeDelMap& RangeDelAggregator::GetRangeDelMap(SequenceNumber seq) {
   assert(rep_ != nullptr);
   // The stripe includes seqnum for the snapshot above and excludes seqnum for
   // the snapshot below.
-  std::vector<SequenceNumber>::iterator iter;
-  if (seq > 0) {
-    iter = std::lower_bound(rep_->snapshots_.begin(), rep_->snapshots_.end(),
-                            seq);
-  } else {
-    iter = rep_->snapshots_.begin();
-  }
+  std::vector<SequenceNumber>::iterator iter =
+      std::lower_bound(rep_->snapshots_.begin(), rep_->snapshots_.end(), seq);
   // catch-all stripe justifies this assertion in either of above cases
   assert(iter != rep_->snapshots_.end());
   if (rep_->stripe_map_.find(*iter) == rep_->stripe_map_.end()) {
