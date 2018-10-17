@@ -236,7 +236,6 @@ void PerfContext::DisablePerLevelPerfContext(){
 
 void PerfContext::ClearPerLevelPerfContext(){
   if (level_to_perf_context) {
-    level_to_perf_context->clear();
     delete level_to_perf_context;
     level_to_perf_context = nullptr;
   }
