@@ -2861,7 +2861,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         shared->cv.SignalAll();
       }
     }
-    perf_context.ClearPerLevelPerfContext();
   }
 
   Stats RunBenchmark(int n, Slice name,

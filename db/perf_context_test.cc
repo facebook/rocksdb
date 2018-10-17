@@ -713,7 +713,6 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
             zero_excluded.find("bloom_filter_full_positive = 1@level0"));
   ASSERT_NE(std::string::npos,
             zero_excluded.find("bloom_filter_full_true_positive = 1@level2"));
-  get_perf_context()->ClearPerLevelPerfContext();
 }
 }  // namespace rocksdb
 

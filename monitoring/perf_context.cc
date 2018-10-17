@@ -13,7 +13,7 @@ namespace rocksdb {
 PerfContext perf_context;
 #else
 #if defined(OS_SOLARIS)
-thread_local PerfContext perf_context_;
+__thread PerfContext perf_context_;
 #else
 thread_local PerfContext perf_context;
 #endif
@@ -28,6 +28,12 @@ PerfContext* get_perf_context() {
 #else
   return &perf_context;
 #endif
+#endif
+}
+
+PerfContext::~PerfContext() {
+#if !defined(NPERF_CONTEXT) && defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && !defined(OS_SOLARIS)
+  ClearPerLevelPerfContext();
 #endif
 }
 
@@ -217,8 +223,6 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #endif
 }
 
-// Caller need to ensure `ClearPerLevelPerfContext` is called at the end to
-// avoid memory leak
 void PerfContext::EnablePerLevelPerfContext() {
   if (!level_to_perf_context) {
     level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
@@ -231,9 +235,11 @@ void PerfContext::DisablePerLevelPerfContext(){
 }
 
 void PerfContext::ClearPerLevelPerfContext(){
-  level_to_perf_context->clear();
-  delete level_to_perf_context;
-  level_to_perf_context = nullptr;
+  if (level_to_perf_context) {
+    level_to_perf_context->clear();
+    delete level_to_perf_context;
+    level_to_perf_context = nullptr;
+  }
   per_level_perf_context_enabled = false;
 }
 

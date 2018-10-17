@@ -31,21 +31,19 @@ struct PerfContextByLevel {
 
 struct PerfContext {
 
+  ~PerfContext();
+
   void Reset(); // reset all performance counters to zero
 
   std::string ToString(bool exclude_zero_counters = false) const;
 
   // enable per level perf context and allocate storage for PerfContextByLevel
-  // Always pair calls to `EnablePerLevelPerfContext()` with
-  // `ClearPerLevelPerfContext`, otherwise there will be memory leak
   void EnablePerLevelPerfContext();
 
   // temporarily disable per level perf contxt by setting the flag to false
   void DisablePerLevelPerfContext();
 
   // free the space for PerfContextByLevel, also disable per level perf context
-  // It is user's responsibility to call ClearPerLevelPerfContext() to avoid
-  // memory leak
   void ClearPerLevelPerfContext();
 
   uint64_t user_key_comparison_count; // total number of user key comparisons

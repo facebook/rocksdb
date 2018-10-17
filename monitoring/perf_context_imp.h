@@ -13,7 +13,7 @@ namespace rocksdb {
 extern PerfContext perf_context;
 #else
 #if defined(OS_SOLARIS)
-extern thread_local PerfContext perf_context_;
+extern __thread PerfContext perf_context_;
 #define perf_context (*get_perf_context())
 #else
 extern thread_local PerfContext perf_context;
