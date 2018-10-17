@@ -4230,7 +4230,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (levelMeta.level == 0) {
           for (auto& fileMeta : levelMeta.files) {
             fprintf(stdout, "Level[%d]: %s(size: %" PRIu64 " bytes)\n",
-                    levelMeta.level, fileMeta.name.c_str(), fileMeta.size);
+                    levelMeta.level, fileMeta.name.c_str(),
+                    static_cast<uint64_t>(fileMeta.size));
           }
         } else {
           fprintf(stdout, "Level[%d]: %s - %s(total size: %" PRIi64 " bytes)\n",
