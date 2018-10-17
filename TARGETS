@@ -226,6 +226,7 @@ cpp_library(
         "util/filename.cc",
         "util/filter_policy.cc",
         "util/hash.cc",
+        "util/jemalloc_nodump_allocator.cc",
         "util/log_buffer.cc",
         "util/murmurhash.cc",
         "util/random.cc",
@@ -929,6 +930,11 @@ ROCKS_TESTS = [
     [
         "range_del_aggregator_test",
         "db/range_del_aggregator_test.cc",
+        "serial",
+    ],
+    [
+        "range_tombstone_fragmenter_test",
+        "db/range_tombstone_fragmenter_test.cc",
         "serial",
     ],
     [
