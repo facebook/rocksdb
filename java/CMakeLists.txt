@@ -58,6 +58,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/writebatchhandlerjnicallback.cc
         rocksjni/write_batch_test.cc
         rocksjni/write_batch_with_index.cc
+        rocksjni/write_buffer_manager.cc
 )
 
 set(NATIVE_JAVA_CLASSES
@@ -145,6 +146,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.SnapshotTest
         org.rocksdb.WriteBatchTest
         org.rocksdb.WriteBatchTestInternalHelper
+        org.rocksdb.WriteBufferManager
 )
 
 include(FindJava)
@@ -283,6 +285,7 @@ add_jar(
   src/main/java/org/rocksdb/WriteBatch.java
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
+  src/main/java/org/rocksdb/WriteBufferManager.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
   src/main/java/org/rocksdb/util/DirectBytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
