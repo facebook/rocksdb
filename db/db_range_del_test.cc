@@ -1357,6 +1357,38 @@ TEST_F(DBRangeDelTest, DeletedMergeOperandReappearsIterPrev) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeys) {
+  const int kFileBytes = 1 << 20;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = kFileBytes;
+  Reopen(options);
+
+  ASSERT_OK(Put(Key(0), "a"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(10)));
+
+  db_->Flush(FlushOptions());
+
+  ReadOptions read_opts;
+  read_opts.snapshot = snapshot;
+  auto* iter = db_->NewIterator(read_opts);
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(Key(0), iter->key());
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  delete iter;
+  db_->ReleaseSnapshot(snapshot);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
