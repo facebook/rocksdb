@@ -52,19 +52,37 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeek(const uint32_t& cf_id,
+                            const uint64_t& trace_iter_uid, const Slice& key) {
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeek;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  PutFixed32(&trace.payload, cf_id);
+  PutFixed64(&trace.payload, trace_iter_uid);
+  PutLengthPrefixedSlice(&trace.payload, key);
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id,
+                                   const uint64_t& trace_iter_uid,
+                                   const Slice& key) {
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorSeekForPrev;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  PutFixed32(&trace.payload, cf_id);
+  PutFixed64(&trace.payload, trace_iter_uid);
+  PutLengthPrefixedSlice(&trace.payload, key);
+  return WriteTrace(trace);
+}
+
+Status Tracer::IteratorIterCount(const uint32_t& cf_id, const uint64_t& trace_iter_uid,
+                         const uint64_t& count) {
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.type = kTraceIteratorIterCount;
+  PutFixed32(&trace.payload, cf_id);
+  PutFixed64(&trace.payload, trace_iter_uid);
+  PutFixed64(&trace.payload, count);
   return WriteTrace(trace);
 }
 

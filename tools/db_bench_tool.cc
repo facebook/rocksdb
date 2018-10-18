@@ -929,7 +929,8 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
 
 DEFINE_bool(sine_read_rate, false, "Use a sine wave read_rate_limit");
 
-DEFINE_double(read_rate_noise, 0.0,
+DEFINE_double(
+    read_rate_noise, 0.0,
     "Add the noise ratio to the read rate, it is between 0.0 and 1.0");
 
 DEFINE_uint64(

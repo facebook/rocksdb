@@ -139,6 +139,9 @@ class DBIter final: public Iterator {
         read_callback_(read_callback),
         db_impl_(db_impl),
         cfd_(cfd),
+        trace_iter_uid_(0),
+        last_next_count_(0),
+        last_prev_count_(0),
         allow_blob_(allow_blob),
         is_blob_(false),
         start_seqnum_(read_options.iter_start_seqnum) {
@@ -158,6 +161,15 @@ class DBIter final: public Iterator {
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
     }
+
+#ifndef ROCKSDB_LITE
+    if (db_impl_ != nullptr && cfd_ != nullptr && trace_iter_uid_ != 0) {
+      uint64_t cur_iter_count = GetIterCount();
+      db_impl_->TraceIteratorIterCount(cfd_->GetID(), trace_iter_uid_,
+                                       cur_iter_count);
+    }
+#endif  // ROCKSDB_LITE
+
     // Compiler warning issue filed:
     // https://github.com/facebook/rocksdb/issues/3013
     RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
@@ -276,6 +288,12 @@ class DBIter final: public Iterator {
   // have a higher sequence number.
   inline SequenceNumber MaxVisibleSequenceNumber();
 
+  // Count the number of Next and Prev that are called in previous
+  // Seek or SeekForPrev
+  uint64_t GetIterCount();
+  // Rest the trace_iter_uid_ for a new one
+  void ResetIterUid();
+
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
   void TempPinData() {
@@ -350,6 +368,11 @@ class DBIter final: public Iterator {
   ReadCallback* read_callback_;
   DBImpl* db_impl_;
   ColumnFamilyData* cfd_;
+  // to identify the Seek or SeekForProv() in an iterator.
+  // timestamp+iter_ pointer as the value
+  uint64_t trace_iter_uid_;
+  uint64_t last_next_count_;
+  uint64_t last_prev_count_;
   bool allow_blob_;
   bool is_blob_;
   // for diff snapshots we want the lower bound on the seqnum;
@@ -1263,6 +1286,20 @@ SequenceNumber DBIter::MaxVisibleSequenceNumber() {
   return std::max(sequence_, read_callback_->MaxUnpreparedSequenceNumber());
 }
 
+uint64_t DBIter::GetIterCount() {
+  uint64_t ret = 0;
+  ret += local_stats_.next_count_ - last_next_count_;
+  ret += local_stats_.prev_count_ - last_prev_count_;
+  last_next_count_ = local_stats_.next_count_;
+  last_prev_count_ = local_stats_.prev_count_;
+  return ret;
+}
+
+void DBIter::ResetIterUid() {
+  trace_iter_uid_ = env_->NowMicros();
+  trace_iter_uid_ += reinterpret_cast<uintptr_t>(iter_);
+}
+
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
   status_ = Status::OK();
@@ -1275,7 +1312,13 @@ void DBIter::Seek(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
+    if (trace_iter_uid_ != 0) {
+      uint64_t cur_iter_count = GetIterCount();
+      db_impl_->TraceIteratorIterCount(cfd_->GetID(), trace_iter_uid_,
+                                       cur_iter_count);
+    }
+    ResetIterUid();
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), trace_iter_uid_, target);
   }
 #endif  // ROCKSDB_LITE
 
@@ -1345,7 +1388,13 @@ void DBIter::SeekForPrev(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
+    if (trace_iter_uid_ != 0) {
+      uint64_t cur_iter_count = GetIterCount();
+      db_impl_->TraceIteratorIterCount(cfd_->GetID(), trace_iter_uid_,
+                                       cur_iter_count);
+    }
+    ResetIterUid();
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), trace_iter_uid_, target);
   }
 #endif  // ROCKSDB_LITE
 
@@ -1398,6 +1447,17 @@ void DBIter::SeekToFirst() {
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    if (trace_iter_uid_ != 0) {
+      uint64_t cur_iter_count = GetIterCount();
+      db_impl_->TraceIteratorIterCount(cfd_->GetID(), trace_iter_uid_,
+                                       cur_iter_count);
+    }
+    trace_iter_uid_ = 0;
+  }
+#endif  // ROCKSDB_LITE
+
   RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
     saved_key_.SetUserKey(
@@ -1448,6 +1508,18 @@ void DBIter::SeekToLast() {
     iter_->SeekToLast();
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
+
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    if (trace_iter_uid_ != 0) {
+      uint64_t cur_iter_count = GetIterCount();
+      db_impl_->TraceIteratorIterCount(cfd_->GetID(), trace_iter_uid_,
+                                       cur_iter_count);
+    }
+    trace_iter_uid_ = 0;
+  }
+#endif  // ROCKSDB_LITE
+
   PrevInternal();
   if (statistics_ != nullptr) {
     RecordTick(statistics_, NUMBER_DB_SEEK);

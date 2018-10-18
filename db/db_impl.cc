@@ -3261,29 +3261,43 @@ Status DBImpl::EndTrace() {
   return s;
 }
 
-Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id,
+                                 const uint64_t& trace_iter_uid,
+                                 const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeek(cf_id, key);
+      s = tracer_->IteratorSeek(cf_id, trace_iter_uid, key);
     }
   }
   return s;
 }
 
-Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
-                                        const Slice& key) {
+Status DBImpl::TraceIteratorSeekForPrev(
+    const uint32_t& cf_id, const uint64_t& trace_iter_uid, const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeekForPrev(cf_id, key);
+      s = tracer_->IteratorSeekForPrev(cf_id, trace_iter_uid, key);
     }
   }
   return s;
 }
 
+Status DBImpl::TraceIteratorIterCount(const uint32_t& cf_id,
+                                      const uint64_t& trace_iter_uid,
+                                      const uint64_t& count) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      s = tracer_->IteratorIterCount(cf_id, trace_iter_uid, count);
+    }
+  }
+  return s;
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
