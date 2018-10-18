@@ -44,6 +44,10 @@ void PerfContext::Reset() {
   block_read_count = 0;
   block_read_byte = 0;
   block_read_time = 0;
+  block_cache_index_hit_count = 0;
+  index_block_read_count = 0;
+  block_cache_filter_hit_count = 0;
+  filter_block_read_count = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
   get_read_bytes = 0;
@@ -152,6 +156,10 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_read_count);
   PERF_CONTEXT_OUTPUT(block_read_byte);
   PERF_CONTEXT_OUTPUT(block_read_time);
+  PERF_CONTEXT_OUTPUT(block_cache_index_hit_count);
+  PERF_CONTEXT_OUTPUT(index_block_read_count);
+  PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
+  PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(get_read_bytes);
