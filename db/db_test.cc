@@ -2339,9 +2339,9 @@ static void GCThreadBody(void* arg) {
 
 }  // namespace
 
-#ifndef TRAVIS
-// Disable this test temporarily on Travis as it fails intermittently.
-// Github issue: #4151
+#if !defined(TRAVIS) && !defined(OS_WIN)
+// Disable this test temporarily on Travis and appveyor as it fails
+// intermittently. Github issue: #4151
 TEST_F(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
