@@ -220,42 +220,6 @@ TEST_F(DBFlushTest, FlushError) {
   ASSERT_NE(s, Status::OK());
 }
 
-TEST_P(DBAtomicFlushTest, AtomicManualFlush) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.atomic_flush = GetParam();
-  // 64MB so that we do not trigger auto flush.
-  options.write_buffer_size = (1 << 26);
-
-  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
-  size_t num_cfs = handles_.size();
-  ASSERT_EQ(3, num_cfs);
-  WriteOptions wopts;
-  wopts.disableWAL = true;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
-  }
-  ASSERT_OK(Flush(0 /*cf*/));
-  dbfull()->TEST_WaitForFlushMemTable();
-
-  auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[0]);
-  ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
-  ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
-  if (options.atomic_flush) {
-    for (size_t i = 1; i != num_cfs; ++i) {
-      cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
-      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
-      ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
-    }
-  } else {
-    for (size_t i = 1; i != num_cfs; ++i) {
-      cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
-      ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
-      ASSERT_FALSE(cfh->cfd()->mem()->IsEmpty());
-    }
-  }
-}
-
 TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
   Options options = CurrentOptions();
   options.create_if_missing = true;

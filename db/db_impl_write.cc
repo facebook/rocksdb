@@ -1014,6 +1014,25 @@ Status DBImpl::WriteRecoverableState() {
   return Status::OK();
 }
 
+void DBImpl::SelectColumnFamiliesForAtomicFlush(
+    autovector<ColumnFamilyData*>* cfds, bool check_immutable_memtables) {
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (check_immutable_memtables) {
+      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          !cached_recoverable_state_empty_.load()) {
+        cfds->push_back(cfd);
+      }
+    } else {
+      if (!cfd->mem()->IsEmpty()) {
+        cfds->push_back(cfd);
+      }
+    }
+  }
+}
+
 // Assign sequence number for atomic flush.
 void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
   assert(atomic_flush_);
