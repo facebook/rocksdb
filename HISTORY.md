@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
+
 ### New Features
 * Introduced `Memoryllocator`, which lets the user specify custom allocator for memory in block cache.
 * Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context.
