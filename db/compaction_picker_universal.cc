@@ -327,7 +327,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
           (c = PickTrivialMoveCompaction(cf_name, mutable_cf_options, vstorage,
                                          log_buffer)) != nullptr) {
         reduce_sorted_run_target = size_t(-1);
-      } else if (sorted_runs.size() > 1 &&
+      } else if (table_cache_ != nullptr && sorted_runs.size() > 1 &&
                  sorted_runs.size() <= reduce_sorted_run_target) {
         size_t level_read_amp_count = 0;
         for (auto& sr : sorted_runs) {
@@ -1221,8 +1221,10 @@ Compaction* UniversalCompactionPicker::PickTrivialMoveCompaction(
     bool found_start_level = false;
     // found an non empty level
     for (start_level = output_level - 1; start_level > 0; --start_level) {
-      if (!vstorage->LevelFiles(start_level).empty() &&
-          !is_compaction_output_level(start_level)) {
+      if (is_compaction_output_level(start_level)) {
+        break;
+      }
+      if (!vstorage->LevelFiles(start_level).empty()) {
         found_start_level = true;
         break;
       }
@@ -1657,10 +1659,22 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
     if (end != nullptr && ic.Compare(e.smallest_key_, end->Encode()) > 0) {
       return false;
     }
+    auto& depend_files = vstorage->depend_files();
     for (auto& link : e.link_) {
       if (files_being_compact->count(link.file_number) > 0) {
         return true;
       }
+      auto find = depend_files.find(link.file_number);
+      if (find == depend_files.end()) {
+        // TODO: log error
+        continue;
+      }
+      auto f = find->second;
+      for (auto file_number : f->sst_depend) {
+        if (files_being_compact->count(file_number) > 0) {
+          return true;
+        }
+      };
     }
     return false;
   };
@@ -1683,6 +1697,7 @@ Compaction* UniversalCompactionPicker::PickRangeCompaction(
           estimated_total_size += subcompact_size;
           input_range.emplace_back(std::move(range));
           if (input_range.size() >= ioptions_.max_subcompactions) {
+            has_start = false;
             break;
           }
           subcompact_size += map_element.EstimateSize();
@@ -1858,7 +1873,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     output_level--;
   }
 
-  std::vector<CompactionInputFiles> inputs(vstorage->num_levels());
+  std::vector<CompactionInputFiles> inputs(end_index - start_index);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
@@ -1869,10 +1884,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
       FileMetaData* picking_file = picking_sr.file;
       inputs[0].files.push_back(picking_file);
     } else {
-      auto& files = inputs[picking_sr.level - start_level].files;
-      for (auto* f : vstorage->LevelFiles(picking_sr.level)) {
-        files.push_back(f);
-      }
+      inputs[picking_sr.level - start_level].files =
+          vstorage->LevelFiles(picking_sr.level);
     }
     picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), i);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: Picking %s", cf_name.c_str(),

@@ -597,8 +597,18 @@ void CompactionPicker::InitFilesBeingCompact(
           break;
         }
       }
+      auto& depend_files = vstorage->depend_files();
       for (auto& link : element.link_) {
         files_being_compact->emplace(link.file_number);
+        auto find = depend_files.find(link.file_number);
+        if (find == depend_files.end()) {
+          // TODO: log error
+          continue;
+        }
+        auto f = find->second;
+        for (auto file_number : f->sst_depend) {
+          files_being_compact->emplace(file_number);
+        };
       }
     }
   }

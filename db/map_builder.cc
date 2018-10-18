@@ -371,17 +371,17 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
   assert(!ranges_a.empty() && !ranges_b.empty());
   const RangeWithDepend* source;
   auto put_left = [&](const InternalKey& key, bool include,
-                      const RangeWithDepend& r) {
+                      const RangeWithDepend* r) {
     assert(output.empty() || icomp.Compare(output.back().point[1], key) < 0 ||
            !output.back().include[1] || !include);
     output.emplace_back();
     auto& back = output.back();
     back.point[0] = key;
     back.include[0] = include;
-    source = &r;
+    source = r;
   };
   auto put_right = [&](const InternalKey& key, bool include,
-                       const RangeWithDepend& r) {
+                       const RangeWithDepend* r) {
     auto& back = output.back();
     if (back.depend.empty() || (icomp.Compare(key, back.point[0]) == 0 &&
                                 (!back.include[0] || !include))) {
@@ -394,7 +394,7 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
     if (IsEmptyMapSstElement(back, icomp)) {
       output.pop_back();
     }
-    if (source != &r) {
+    if (source == nullptr || r == nullptr || source != r) {
       back.stable = false;
     }
   };
@@ -462,67 +462,67 @@ std::vector<RangeWithDepend> PartitionRangeWithDepend(
       // out ranges_a , out ranges_b , enter ranges_a
       case CASE(0, 0, 1, 0):
         put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-                 ranges_a[ai]);
+                 &ranges_a[ai]);
         put_depend(&ranges_a[ai], nullptr);
         break;
       // in ranges_a , out ranges_b , leave ranges_a
       case CASE(1, 0, 1, 0):
         put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-                  ranges_a[ai]);
+                  &ranges_a[ai]);
         break;
       // out ranges_a , out ranges_b , enter ranges_b
       case CASE(0, 0, 0, 1):
         put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb],
-                 ranges_b[bi]);
+                 &ranges_b[bi]);
         put_depend(nullptr, &ranges_b[bi]);
         break;
       // out ranges_a , in ranges_b , leave ranges_b
       case CASE(0, 1, 0, 1):
         put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb],
-                  ranges_b[bi]);
+                  &ranges_b[bi]);
         break;
       // in ranges_a , out ranges_b , begin ranges_b
       case CASE(1, 0, 0, 1):
         put_right(ranges_b[bi].point[bb], !ranges_b[bi].include[bb],
-                  ranges_b[bi]);
+                  nullptr);
         put_left(ranges_b[bi].point[bb], ranges_b[bi].include[bb],
-                 ranges_b[bi]);
+                 &ranges_b[bi]);
         put_depend(&ranges_a[ai], &ranges_b[bi]);
         break;
       // in ranges_a , in ranges_b , leave ranges_b
       case CASE(1, 1, 0, 1):
         put_right(ranges_b[bi].point[bb], ranges_b[bi].include[bb],
-                  ranges_b[bi]);
+                  &ranges_b[bi]);
         put_left(ranges_b[bi].point[bb], !ranges_b[bi].include[bb],
-                 ranges_b[bi]);
+                 nullptr);
         put_depend(&ranges_a[ai], nullptr);
         break;
       // out ranges_a , in ranges_b , begin ranges_a
       case CASE(0, 1, 1, 0):
         put_right(ranges_a[ai].point[ab], !ranges_a[ai].include[ab],
-                  ranges_a[ai]);
+                  nullptr);
         put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-                 ranges_a[ai]);
+                 &ranges_a[ai]);
         put_depend(&ranges_a[ai], &ranges_b[bi]);
         break;
       // in ranges_a , in ranges_b , leave ranges_a
       case CASE(1, 1, 1, 0):
         put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-                  ranges_a[ai]);
+                  &ranges_a[ai]);
         put_left(ranges_a[ai].point[ab], !ranges_a[ai].include[ab],
-                 ranges_a[ai]);
+                 nullptr);
         put_depend(nullptr, &ranges_b[bi]);
         break;
       // out ranges_a , out ranges_b , enter ranges_a , enter ranges_b
       case CASE(0, 0, 1, 1):
         put_left(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-                 ranges_a[ai]);
+                 nullptr);
         put_depend(&ranges_a[ai], &ranges_b[bi]);
         break;
       // in ranges_a , in ranges_b , leave ranges_a , leave ranges_b
       case CASE(1, 1, 1, 1):
         put_right(ranges_a[ai].point[ab], ranges_a[ai].include[ab],
-                  ranges_a[ai]);
+                  nullptr);
         break;
       default:
         assert(false);
@@ -1046,6 +1046,7 @@ struct MapElementIterator : public InternalIterator {
       assert(iter_->Valid());
       iter_->Next();
       if (iter_->Valid()) {
+        Update();
         return;
       }
     }
@@ -1066,6 +1067,7 @@ struct MapElementIterator : public InternalIterator {
       assert(iter_->Valid());
       iter_->Prev();
       if (iter_->Valid()) {
+        Update();
         return;
       }
     }

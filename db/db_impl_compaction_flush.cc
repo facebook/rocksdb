@@ -1442,10 +1442,15 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
   mutex_.AssertHeld();
+  bool need_speedup_compaction = write_controller_.NeedSpeedupCompaction();
+  for (auto cfd : *versions_->column_family_set_) {
+    need_speedup_compaction |=
+        cfd->current()->storage_info()->has_space_amplification();
+  }
   return GetBGJobLimits(immutable_db_options_.max_background_flushes,
                         mutable_db_options_.max_background_compactions,
                         mutable_db_options_.max_background_jobs,
-                        write_controller_.NeedSpeedupCompaction());
+                        need_speedup_compaction);
 }
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
