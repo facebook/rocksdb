@@ -3293,11 +3293,19 @@ Status VersionSet::ApplyOneVersionEdit(
           edit.column_family_name_);
     }
     auto cf_options = name_to_options.find(edit.column_family_name_);
-    if (cf_options == name_to_options.end()) {
+    // implicitly add persistent_stats column family without requiring user
+    // to specify
+    bool isPersistStatsColumnFamily = edit.column_family_name_.compare(
+        kPersistentStatsColumnFamilyName) == 0;
+    if (cf_options == name_to_options.end() && !isPersistStatsColumnFamily) {
       column_families_not_found.insert(
           {edit.column_family_, edit.column_family_name_});
     } else {
-      cfd = CreateColumnFamily(cf_options->second, &edit);
+      if (isPersistStatsColumnFamily) {
+        cfd = CreateColumnFamily(ColumnFamilyOptions(), &edit);
+      } else {
+        cfd = CreateColumnFamily(cf_options->second, &edit);
+      }
       cfd->set_initialized();
       builders.insert(
           {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
@@ -3478,11 +3486,17 @@ Status VersionSet::Recover(
     std::string scratch;
     std::vector<VersionEdit> replay_buffer;
     size_t num_entries_decoded = 0;
+    bool persistent_stats_cfd_exists = false;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (!s.ok()) {
         break;
+      }
+      // reopening a DB which already contains column family _persistent_stats
+      if (edit.column_family_name_.compare(
+          kPersistentStatsColumnFamilyName) == 0) {
+        persistent_stats_cfd_exists = true;
       }
 
       if (edit.is_in_atomic_group_) {
@@ -3536,21 +3550,15 @@ Status VersionSet::Recover(
         break;
       }
     }
-    bool persistent_stats_cfd_exists = false;
-    // reopening a DB which already contains column family _persistent_stats
-    for (auto& kv : column_families_not_found) {
-      if (kv.second.compare(kPersistentStatsColumnFamilyName) == 0) {
-        column_families_not_found.erase(kv.first);
-        persistent_stats_cfd_exists = true;
-        break;
-      }
-    }
-    if (mutable_db_options_->stats_persist_period_sec != 0 ||
-        persistent_stats_cfd_exists) {
+    // use persistent_stats_version_edit to restore column family for the
+    // first time
+    if (mutable_db_options_->stats_persist_period_sec != 0 &&
+        !persistent_stats_cfd_exists) {
       ColumnFamilyOptions persistent_stats_options;
       VersionEdit persistent_stats_cf_edit;
       persistent_stats_cf_edit.AddColumnFamily(kPersistentStatsColumnFamilyName);
-      persistent_stats_cf_edit.SetColumnFamily(UINT32_MAX);
+      uint32_t next_id = column_family_set_->GetNextColumnFamilyID();
+      persistent_stats_cf_edit.SetColumnFamily(next_id);
       ColumnFamilyData* persistent_stats_cfd =
           CreateColumnFamily(persistent_stats_options, &persistent_stats_cf_edit);
       // In recovery, nobody else can access it, so it's fine to set it to be
@@ -3559,7 +3567,7 @@ Status VersionSet::Recover(
       BaseReferencedVersionBuilder* builder =
           new BaseReferencedVersionBuilder(persistent_stats_cfd);
       builder->version_builder()->Apply(&persistent_stats_cf_edit);
-      builders.insert({UINT32_MAX, builder});
+      builders.insert({next_id, builder});
     }
   }
 

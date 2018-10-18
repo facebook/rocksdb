@@ -696,7 +696,7 @@ void DBImpl::PersistStats() {
   std::string now_micros_string = std::to_string(now_micros);
   int keycount = 0;
   for (auto iter = stats_map.begin(); iter != stats_map.end(); ++iter) {
-    // how do we maintain a historical view if key/value pairs are overwritten?
+    // TODO(Zhongyi) use more readable timestamp?
     std::string key = iter->first + now_micros_string;
     Status s = DB::Put(wo, persist_stats_cf_handle_, key,
             iter->second);

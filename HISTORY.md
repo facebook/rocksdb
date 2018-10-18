@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Improved `DeleteRange` to prevent read performance degradation. The feature is no longer marked as experimental.
+* Introduced Persistent Stats which automatically records RocksDB statistics in memory and/or to disk. Recorded stats can be queried through `GetStatsHistory` or iterating through column family `PersistentStatsColumnFamily()`.
 
 ### Public API Change
 * `NO_ITERATORS` is divided into two counters `NO_ITERATOR_CREATED` and `NO_ITERATOR_DELETE`. Both of them are only increasing now, just as other counters.
