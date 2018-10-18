@@ -3882,7 +3882,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (writes_per_range_tombstone_ > 0 &&
             num_written >= writes_before_delete_range_ &&
             (num_written - writes_before_delete_range_) /
-                    writes_per_range_tombstone_ <=
+                    writes_per_range_tombstone_ <
                 max_num_range_tombstones_ &&
             (num_written - writes_before_delete_range_) %
                     writes_per_range_tombstone_ ==
