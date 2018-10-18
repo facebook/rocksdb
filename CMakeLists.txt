@@ -687,7 +687,6 @@ if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
     util/crc32c.cc
     PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
-  endif()
 endif()
 
 if(HAVE_POWER8)
