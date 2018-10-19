@@ -46,22 +46,37 @@ struct WriteBatchIndexEntry {
       : offset(is_forward_direction ? 0 : port::kMaxSizet),
         column_family(_column_family),
         key_offset(0),
-        key_size(is_seek_to_first ? kFlagSeekToFirstInCf : 0),
+        key_size(is_seek_to_first ? kFlagMinInCf : 0),
         search_key(_search_key) {
     assert(_search_key != nullptr || is_seek_to_first);
   }
 
   // If this flag appears in the key_size, it indicates a
   // key that is smaller than any other entry for the same column family.
-  static const size_t kFlagSeekToFirstInCf = port::kMaxSizet;
+  static const size_t kFlagMinInCf = port::kMaxSizet;
 
-  size_t offset;           // offset of an entry in write batch's string buffer.
-  uint32_t column_family;  // column family of the entry.
+  bool is_min_in_cf() const {
+    assert(key_size != kFlagMinInCf ||
+           (key_offset == 0 && search_key == nullptr));
+    return key_size == kFlagMinInCf;
+  }
+
+  // offset of an entry in write batch's string buffer. If this is a dummy
+  // lookup key, in which case search_key != nullptr, offset is set to either
+  // 0 or max, only for comparison purpose. Because when entries have the same
+  // key, the entry with larger offset is larger, offset = 0 will make a seek
+  // key small or equal than all the entries with the seek key, so that Seek()
+  // will find all the entries of the same key. Similarly, offset = MAX will
+  // make the entry just larger than all entries with the search key so
+  // SeekForPrev() will see all the keys with the same key.
+  size_t offset;
+  uint32_t column_family;  // c1olumn family of the entry.
   size_t key_offset;       // offset of the key in write batch's string buffer.
-  size_t key_size;         // size of the key. kFlagSeekToFirstInCf indicates
+  size_t key_size;         // size of the key. kFlagMinInCf indicates
                            // that this is a dummy look up entry for
-                           // SeekForPrev() to the beginning of the column
-                           // family.
+                           // SeekToFirst() to the beginning of the column
+                           // family. We use the flag here to save a boolean
+                           // in the struct.
 
   const Slice* search_key;  // if not null, instead of reading keys from
                             // write batch, use it to compare. This is used
