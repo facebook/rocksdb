@@ -3274,8 +3274,9 @@ Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id,
   return s;
 }
 
-Status DBImpl::TraceIteratorSeekForPrev(
-    const uint32_t& cf_id, const uint64_t& trace_iter_uid, const Slice& key) {
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
+                                        const uint64_t& trace_iter_uid,
+                                        const Slice& key) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);

@@ -75,8 +75,9 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id,
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorIterCount(const uint32_t& cf_id, const uint64_t& trace_iter_uid,
-                         const uint64_t& count) {
+Status Tracer::IteratorIterCount(const uint32_t& cf_id,
+                                 const uint64_t& trace_iter_uid,
+                                 const uint64_t& count) {
   Trace trace;
   trace.ts = env_->NowMicros();
   trace.type = kTraceIteratorIterCount;

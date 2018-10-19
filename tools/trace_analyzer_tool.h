@@ -32,7 +32,8 @@ enum TraceOperationType : int {
   kMerge = 5,
   kIteratorSeek = 6,
   kIteratorSeekForPrev = 7,
-  kTaTypeNum = 8
+  kIteratorIterCount = 8,
+  kTaTypeNum = 9
 };
 
 struct TraceUnit {
@@ -155,6 +156,10 @@ struct CfUnit {
   uint64_t a_count;  // the total keys in this cf that are accessed
   std::map<uint64_t, uint64_t> w_key_size_stats;  // whole key space key size
                                                   // statistic this cf
+  std::map<uint32_t, uint32_t> iter_len_stats;
+  std::map<uint32_t, std::pair<uint32_t, uint64_t>> ave_iter_len_sec;
+  std::unique_ptr<rocksdb::WritableFile> iter_len_dist_f;
+  std::unique_ptr<rocksdb::WritableFile> ave_iter_len_sec_f;
 };
 
 class TraceAnalyzer {
@@ -188,6 +193,8 @@ class TraceAnalyzer {
                      const Slice& value);
   Status HandleIter(uint32_t column_family_id, const std::string& key,
                     const uint64_t& ts, TraceType& trace_type);
+  Status HandleIterCount(uint32_t column_family_id, const uint64_t& ts,
+                         const uint64_t& count);
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
@@ -222,6 +229,7 @@ class TraceAnalyzer {
   Status KeyStatsInsertion(const uint32_t& type, const uint32_t& cf_id,
                            const std::string& key, const size_t value_size,
                            const uint64_t ts);
+  Status InitCFS(const uint32_t& cf_id);
   Status StatsUnitCorrelationUpdate(StatsUnit& unit, const uint32_t& type,
                                     const uint64_t& ts, const std::string& key);
   Status OpenStatsOutputFiles(const std::string& type, TraceStats& new_stats);
