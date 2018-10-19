@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+
+# Unreleased
+### Bug Fixes
+* Fix the bug that WriteBatchWithIndex's SeekForPrev() doesn't see the entries with the same key.
+
 ## 5.16.5 (10/16/2018)
 ### Bug Fixes
 * Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
