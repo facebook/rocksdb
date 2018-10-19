@@ -123,7 +123,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           // in clean shutdown we don't expect any error in the log files
           ReportCorruption(drop_size, "truncated header");
         }
-	FALLTHROUGH_INTENDED;
+        FALLTHROUGH_INTENDED;
 
       case kEof:
         if (in_fragmented_record) {
@@ -153,7 +153,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           }
           return false;
         }
-	FALLTHROUGH_INTENDED;
+        FALLTHROUGH_INTENDED;
 
       case kBadRecord:
         if (in_fragmented_record) {
