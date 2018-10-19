@@ -621,7 +621,7 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
     for (int i = 0; i < 128; i++) {
       // Random walk and make sure iter and result_iter returns the
       // same key and value
-      int type = rnd.Uniform(5);
+      int type = rnd.Uniform(6);
       ASSERT_OK(iter->status());
       switch (type) {
         case 0:
@@ -642,7 +642,15 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
           result_iter->Seek(key);
           break;
         }
-        case 3:
+        case 3: {
+          // SeekForPrev to random key
+          auto key_idx = rnd.Uniform(static_cast<int>(source_strings.size()));
+          auto key = source_strings[key_idx];
+          iter->SeekForPrev(key);
+          result_iter->SeekForPrev(key);
+          break;
+        }
+        case 4:
           // Next
           if (is_valid) {
             iter->Next();
@@ -652,7 +660,7 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
           }
           break;
         default:
-          assert(type == 4);
+          assert(type == 5);
           // Prev
           if (is_valid) {
             iter->Prev();
