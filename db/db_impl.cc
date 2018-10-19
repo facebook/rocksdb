@@ -3108,11 +3108,21 @@ Status DBImpl::IngestExternalFile(
       TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
                                &need_flush);
       if (status.ok() && need_flush) {
-        mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(),
-                               FlushReason::kExternalFileIngestion,
-                               true /* writes_stopped */);
-        mutex_.Lock();
+        if (atomic_flush_) {
+          mutex_.Unlock();
+          autovector<ColumnFamilyData*> cfds;
+          SelectColumnFamiliesForAtomicFlush(&cfds, true);
+          status = AtomicFlushMemTables(cfds, FlushOptions(),
+                                        FlushReason::kExternalFileIngestion,
+                                        true /* writes_stopped */);
+          mutex_.Lock();
+        } else {
+          mutex_.Unlock();
+          status = FlushMemTable(cfd, FlushOptions(),
+                                 FlushReason::kExternalFileIngestion,
+                                 true /* writes_stopped */);
+          mutex_.Lock();
+        }
       }
     }
 
