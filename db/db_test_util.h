@@ -46,6 +46,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/filename.h"
+#include "util/mock_time_env.h"
 #include "util/mutexlock.h"
 
 #include "util/string_util.h"
@@ -580,37 +581,6 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
-};
-
-class MockTimeEnv : public EnvWrapper {
- public:
-  explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
-
-  virtual Status GetCurrentTime(int64_t* time) override {
-    assert(time != nullptr);
-    assert(current_time_ <=
-           static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
-    *time = static_cast<int64_t>(current_time_);
-    return Status::OK();
-  }
-
-  virtual uint64_t NowMicros() override {
-    assert(current_time_ <= std::numeric_limits<uint64_t>::max() / 1000000);
-    return current_time_ * 1000000;
-  }
-
-  virtual uint64_t NowNanos() override {
-    assert(current_time_ <= std::numeric_limits<uint64_t>::max() / 1000000000);
-    return current_time_ * 1000000000;
-  }
-
-  void set_current_time(uint64_t time) {
-    assert(time >= current_time_);
-    current_time_ = time;
-  }
-
- private:
-  std::atomic<uint64_t> current_time_{0};
 };
 
 #ifndef ROCKSDB_LITE
