@@ -1114,13 +1114,15 @@ void CompactionJob::ProcessEssenceCompaction(SubcompactionState* sub_compact) {
     }
     const Slice* next_key = nullptr;
     if (output_file_ended) {
+      assert(sub_compact->compaction->output_level() != 0);
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
       }
       // compaction_picker use user_key boundary, single user_key in multi
       // sst will make picker pick one or more unnecessary sst file(s) ???
       // And it will make range del expose deleted keys. (Fixed in #4356 ?)
-      if (mutable_cf_options->enable_lazy_compaction && next_key != nullptr &&
+      if (sub_compact->compaction->partial_compaction() &&
+          next_key != nullptr &&
           cfd->user_comparator()->Compare(
               ExtractUserKey(*next_key),
               sub_compact->outputs.back().meta.largest.user_key()) == 0) {

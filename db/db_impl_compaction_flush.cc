@@ -571,7 +571,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
   int final_output_level = 0;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
-      cfd->NumberLevels() > 1 && !enable_lazy_compaction) {
+      cfd->NumberLevels() > 1 &&
+      (!enable_lazy_compaction || (begin == nullptr && end == nullptr))) {
     // Always compact all files together.
     final_output_level = cfd->NumberLevels() - 1;
     // if bottom most level is reserved
@@ -581,7 +582,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options.target_path_id,
                             options.max_subcompactions, begin, end,
-                            &files_being_compact, exclusive);
+                            &files_being_compact, exclusive, false,
+                            enable_lazy_compaction);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;

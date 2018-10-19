@@ -344,7 +344,8 @@ Compaction* CompactionPicker::CompactFiles(
   CompactionParams params(vstorage, ioptions_, mutable_cf_options);
   params.inputs = std::move(input_files);
   params.output_level = output_level;
-  params.target_file_size = compact_options.output_file_size_limit;
+  params.target_file_size =
+      output_level == 0 ? 0 : compact_options.output_file_size_limit;
   params.max_compaction_bytes = mutable_cf_options.max_compaction_bytes;
   params.output_path_id = output_path_id;
   params.compression = compression_type;
@@ -1691,7 +1692,6 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
         CompactionParams params(vstorage, ioptions_, mutable_cf_options);
         params.inputs = {comp_inputs};
-        params.target_file_size = 16 * 1024 * 1024;
         params.compression = mutable_cf_options.compression;
         params.compression_opts = ioptions_.compression_opts;
         params.score = vstorage->CompactionScore(0);

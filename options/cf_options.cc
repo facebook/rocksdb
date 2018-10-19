@@ -102,7 +102,7 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
   } else {
     assert(level >= 0 && base_level >= 0);
     assert(level - base_level < (int)cf_options.max_file_size.size());
-    return cf_options.max_file_size[level - base_level];
+    return cf_options.max_file_size[std::max(1, level - base_level)];
   }
 }
 
