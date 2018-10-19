@@ -369,12 +369,12 @@ class WBWIIteratorImpl : public WBWIIterator {
   }
 
   virtual void Seek(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_);
+    WriteBatchIndexEntry search_entry(&key, column_family_id_, true);
     skip_list_iter_.Seek(&search_entry);
   }
 
   virtual void SeekForPrev(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_);
+    WriteBatchIndexEntry search_entry(&key, column_family_id_, false);
     skip_list_iter_.SeekForPrev(&search_entry);
   }
 

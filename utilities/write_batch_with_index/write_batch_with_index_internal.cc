@@ -94,9 +94,11 @@ int WriteBatchEntryComparator::operator()(
     return -1;
   }
 
-  if (entry1->offset == WriteBatchIndexEntry::kFlagMin) {
+  if (entry1->offset == WriteBatchIndexEntry::kFlagMin &&
+      entry1->search_key == nullptr) {
     return -1;
-  } else if (entry2->offset == WriteBatchIndexEntry::kFlagMin) {
+  } else if (entry2->offset == WriteBatchIndexEntry::kFlagMin &&
+             entry2->search_key == nullptr) {
     return 1;
   }
 
