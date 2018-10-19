@@ -640,9 +640,11 @@ DEFINE_bool(optimize_filters_for_hits, false,
 DEFINE_uint64(delete_obsolete_files_period_micros, 0,
               "Ignored. Left here for backward compatibility");
 
+DEFINE_int64(writes_before_delete_range, 0,
+             "Number of writes before DeleteRange is called regularly.");
+
 DEFINE_int64(writes_per_range_tombstone, 0,
-             "Number of writes between range "
-             "tombstones");
+             "Number of writes between range tombstones");
 
 DEFINE_int64(range_tombstone_width, 100, "Number of keys in tombstone's range");
 
@@ -1968,6 +1970,7 @@ class Benchmark {
   int prefix_size_;
   int64_t keys_per_prefix_;
   int64_t entries_per_batch_;
+  int64_t writes_before_delete_range_;
   int64_t writes_per_range_tombstone_;
   int64_t range_tombstone_width_;
   int64_t max_num_range_tombstones_;
@@ -2495,6 +2498,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       value_size_ = FLAGS_value_size;
       key_size_ = FLAGS_key_size;
       entries_per_batch_ = FLAGS_batch_size;
+      writes_before_delete_range_ = FLAGS_writes_before_delete_range;
       writes_per_range_tombstone_ = FLAGS_writes_per_range_tombstone;
       range_tombstone_width_ = FLAGS_range_tombstone_width;
       max_num_range_tombstones_ = FLAGS_max_num_range_tombstones;
@@ -3876,9 +3880,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         bytes += value_size_ + key_size_;
         ++num_written;
         if (writes_per_range_tombstone_ > 0 &&
-            num_written / writes_per_range_tombstone_ <=
+            num_written > writes_before_delete_range_ &&
+            (num_written - writes_before_delete_range_) /
+                    writes_per_range_tombstone_ <=
                 max_num_range_tombstones_ &&
-            num_written % writes_per_range_tombstone_ == 0) {
+            (num_written - writes_before_delete_range_) %
+                    writes_per_range_tombstone_ ==
+                0) {
           int64_t begin_num = key_gens[id]->Next();
           if (FLAGS_expand_range_tombstones) {
             for (int64_t offset = 0; offset < range_tombstone_width_;
