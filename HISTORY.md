@@ -7,12 +7,10 @@
 ### Bug Fixes
 * Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
 * Properly set the stop key for a truncated manual CompactRange
+* Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
 
 ### New Features
 * Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
-
-### Bug Fixes
-* Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change
