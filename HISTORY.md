@@ -1,11 +1,14 @@
 # Rocksdb Change Log
 ## Unreleased
 ### New Features
-* Introduced CacheAllocator, which lets the user specify custom allocator for memory in block cache.
+* Introduced `CacheAllocator`, which lets the user specify custom allocator for memory in block cache.
+* Introduced `PerfContextByLevel` as part of `PerfContext` which allows storing perf context at each level. Also replaced `__thread` with `thread_local` keyword for perf_context.
 
 ### Bug Fixes
 * Fix corner case where a write group leader blocked due to write stall blocks other writers in queue with WriteOptions::no_slowdown set.
 * Fix in-memory range tombstone truncation to avoid erroneously covering newer keys at a lower level, and include range tombstones in compacted files whose largest key is the range tombstone's start key.
+* Properly set the stop key for a truncated manual CompactRange
+* Fix slow flush/compaction when DB contains many snapshots. The problem became noticeable to us in DBs with 100,000+ snapshots, though it will affect others at different thresholds.
 
 ## 5.17.0 (10/05/2018)
 ### Public API Change

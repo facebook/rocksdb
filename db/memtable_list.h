@@ -163,6 +163,18 @@ class MemTableListVersion {
 // write thread.)
 class MemTableList {
  public:
+  // Commit a successful atomic flush in the manifest file
+  static Status TryInstallMemtableFlushResults(
+      autovector<MemTableList*>& imm_lists,
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const autovector<const autovector<MemTable*>*>& mems_list,
+      bool* atomic_flush_commit_in_progress, LogsWithPrepTracker* prep_tracker,
+      VersionSet* vset, InstrumentedMutex* mu,
+      const autovector<FileMetaData>& file_meta,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
+
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
                         int max_write_buffer_number_to_maintain)
@@ -201,7 +213,8 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
-  void PickMemtablesToFlush(autovector<MemTable*>* mems);
+  void PickMemtablesToFlush(const uint64_t* max_memtable_id,
+                            autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
@@ -281,7 +294,8 @@ class MemTableList {
   // committing in progress
   bool commit_in_progress_;
 
-  // Requested a flush of all memtables to storage
+  // Requested a flush of memtables to storage. It's possible to request that
+  // a subset of memtables be flushed.
   bool flush_requested_;
 
   // The current memory usage.

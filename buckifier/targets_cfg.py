@@ -70,6 +70,16 @@ is_opt_mode = build_mode.startswith("opt")
 # doesn't harm and avoid forgetting to add it.
 if is_opt_mode:
     rocksdb_compiler_flags.append("-DNDEBUG")
+
+default_allocator = read_config("fbcode", "default_allocator")
+
+sanitizer = read_config("fbcode", "sanitizer")
+
+# Let RocksDB aware of jemalloc existence.
+# Do not enable it if sanitizer presents.
+if default_allocator.startswith("jemalloc") and sanitizer == "":
+    rocksdb_compiler_flags.append("-DROCKSDB_JEMALLOC")
+    rocksdb_external_deps.append(("jemalloc", None, "headers"))
 """
 
 
