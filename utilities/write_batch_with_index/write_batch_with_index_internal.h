@@ -31,21 +31,37 @@ struct WriteBatchIndexEntry {
         key_offset(ko),
         key_size(ksz),
         search_key(nullptr) {}
-  WriteBatchIndexEntry(const Slice* sk, uint32_t c, bool forward_direction)
-      : offset(forward_direction ? 0 : port::kMaxSizet),
-        column_family(c),
+  // Create a dummy entry as the search key. This index entry won't be backed
+  // by an entry from the write batch, but a pointer to the search key. Or a
+  // special flag of offset can indicate we are seek to first.
+  // @_search_key: the search key
+  // @_column_family: column family
+  // @is_forward_direction: true for Seek(). False for SeekForPrev()
+  // @is_seek_to_first: true if we seek to the beginning of the column family
+  //                    _search_key should be null in this case.
+  WriteBatchIndexEntry(const Slice* _search_key, uint32_t _column_family,
+                       bool is_forward_direction, bool is_seek_to_first)
+      // For SeekForPrev(), we need to make the dummy entry larger than any
+      // entry who has the same search key. Otherwise, we'll miss those entries.
+      : offset(is_forward_direction ? 0 : port::kMaxSizet),
+        column_family(_column_family),
         key_offset(0),
-        key_size(0),
-        search_key(sk) {}
+        key_size(is_seek_to_first ? kFlagSeekToFirstInCf : 0),
+        search_key(_search_key) {
+    assert(_search_key != nullptr || is_seek_to_first);
+  }
 
-  // If this flag appears in the offset and search_key is null, it indicates a
-  // key that is smaller than any other entry for the same column family
-  static const size_t kFlagMin = port::kMaxSizet;
+  // If this flag appears in the key_size, it indicates a
+  // key that is smaller than any other entry for the same column family.
+  static const size_t kFlagSeekToFirstInCf = port::kMaxSizet;
 
   size_t offset;           // offset of an entry in write batch's string buffer.
   uint32_t column_family;  // column family of the entry.
   size_t key_offset;       // offset of the key in write batch's string buffer.
-  size_t key_size;         // size of the key.
+  size_t key_size;         // size of the key. kFlagSeekToFirstInCf indicates
+                           // that this is a dummy look up entry for
+                           // SeekForPrev() to the beginning of the column
+                           // family.
 
   const Slice* search_key;  // if not null, instead of reading keys from
                             // write batch, use it to compare. This is used

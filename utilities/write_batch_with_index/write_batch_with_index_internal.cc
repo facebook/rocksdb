@@ -94,22 +94,25 @@ int WriteBatchEntryComparator::operator()(
     return -1;
   }
 
-  if (entry1->offset == WriteBatchIndexEntry::kFlagMin &&
-      entry1->search_key == nullptr) {
+  // Deal with special case of seeking to the beginning of a column family
+  if (entry1->key_size == WriteBatchIndexEntry::kFlagSeekToFirstInCf) {
+    assert(entry1->key_offset == 0 && entry1->search_key == nullptr);
     return -1;
-  } else if (entry2->offset == WriteBatchIndexEntry::kFlagMin &&
-             entry2->search_key == nullptr) {
+  } else if (entry2->key_size == WriteBatchIndexEntry::kFlagSeekToFirstInCf) {
+    assert(entry2->key_offset == 0 && entry2->search_key == nullptr);
     return 1;
   }
 
   Slice key1, key2;
   if (entry1->search_key == nullptr) {
+    assert(entry1->key_size != WriteBatchIndexEntry::kFlagSeekToFirstInCf);
     key1 = Slice(write_batch_->Data().data() + entry1->key_offset,
                  entry1->key_size);
   } else {
     key1 = *(entry1->search_key);
   }
   if (entry2->search_key == nullptr) {
+    assert(entry1->key_size != WriteBatchIndexEntry::kFlagSeekToFirstInCf);
     key2 = Slice(write_batch_->Data().data() + entry2->key_offset,
                  entry2->key_size);
   } else {
