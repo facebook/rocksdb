@@ -1999,7 +1999,8 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
     DBOptions db_options;
     log::Reader reader(db_options.info_log, std::move(wal_file_reader),
-                       &reporter, true /* checksum */, log_number);
+                       &reporter, true /* checksum */, log_number,
+                       false /* retry_after_eof */);
     std::string scratch;
     WriteBatch batch;
     Slice record;

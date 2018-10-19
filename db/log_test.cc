@@ -164,7 +164,8 @@ class LogTest : public ::testing::TestWithParam<int> {
             new StringSource(reader_contents_), "" /* file name */)),
         writer_(std::move(dest_holder_), 123, GetParam()),
         reader_(nullptr, std::move(source_holder_), &report_,
-                true /* checksum */, 123 /* log_number */) {
+                true /* checksum */, 123 /* log_number */,
+                false /* retry_after_eof */) {
     int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
     initial_offset_last_record_offsets_[0] = 0;
     initial_offset_last_record_offsets_[1] = header_size + 10000;
@@ -651,6 +652,177 @@ TEST_P(LogTest, Recycle) {
 }
 
 INSTANTIATE_TEST_CASE_P(bool, LogTest, ::testing::Values(0, 2));
+
+class RetriableLogTest : public ::testing::TestWithParam<int> {
+ private:
+  class ReportCollector : public Reader::Reporter {
+   public:
+    size_t dropped_bytes_;
+    std::string message_;
+
+    ReportCollector() : dropped_bytes_(0) {}
+    virtual void Corruption(size_t bytes, const Status& status) override {
+      dropped_bytes_ += bytes;
+      message_.append(status.ToString());
+    }
+  };
+
+  Slice contents_;
+  unique_ptr<WritableFileWriter> dest_holder_;
+  unique_ptr<Writer> log_writer_;
+  Env* env_;
+  EnvOptions env_options_;
+  const std::string test_dir_;
+  const std::string log_file_;
+  unique_ptr<WritableFileWriter> writer_;
+  unique_ptr<SequentialFileReader> reader_;
+  ReportCollector report_;
+  unique_ptr<Reader> log_reader_;
+
+ public:
+  RetriableLogTest()
+      : contents_(),
+        dest_holder_(nullptr),
+        log_writer_(nullptr),
+        env_(Env::Default()),
+        test_dir_(test::PerThreadDBPath("retriable_log_test")),
+        log_file_(test_dir_ + "/log"),
+        writer_(nullptr),
+        reader_(nullptr),
+        log_reader_(nullptr) {}
+
+  Status SetupTestEnv() {
+    dest_holder_.reset(test::GetWritableFileWriter(
+        new test::StringSink(&contents_), "" /* file name */));
+    assert(dest_holder_ != nullptr);
+    log_writer_.reset(new Writer(std::move(dest_holder_), 123, GetParam()));
+    assert(log_writer_ != nullptr);
+
+    Status s;
+    s = env_->CreateDirIfMissing(test_dir_);
+    unique_ptr<WritableFile> writable_file;
+    if (s.ok()) {
+      s = env_->NewWritableFile(log_file_, &writable_file, env_options_);
+    }
+    if (s.ok()) {
+      writer_.reset(new WritableFileWriter(std::move(writable_file), log_file_,
+                                           env_options_));
+      assert(writer_ != nullptr);
+    }
+    unique_ptr<SequentialFile> seq_file;
+    if (s.ok()) {
+      s = env_->NewSequentialFile(log_file_, &seq_file, env_options_);
+    }
+    if (s.ok()) {
+      reader_.reset(new SequentialFileReader(std::move(seq_file), log_file_));
+      assert(reader_ != nullptr);
+      log_reader_.reset(new Reader(nullptr, std::move(reader_), &report_,
+                                   true /* checksum */, 123 /* log_number */,
+                                   true /* retry_after_eof */));
+      assert(log_reader_ != nullptr);
+    }
+    return s;
+  }
+
+  std::string contents() {
+    auto file =
+        dynamic_cast<test::StringSink*>(log_writer_->file()->writable_file());
+    assert(file != nullptr);
+    return file->contents_;
+  }
+
+  void Encode(const std::string& msg) { log_writer_->AddRecord(Slice(msg)); }
+
+  void Write(const Slice& data) {
+    writer_->Append(data);
+    writer_->Sync(true);
+  }
+
+  std::string Read() {
+    auto wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+    std::string scratch;
+    Slice record;
+    if (log_reader_->ReadRecord(&record, &scratch, wal_recovery_mode)) {
+      return record.ToString();
+    } else {
+      return "Read error";
+    }
+  }
+};
+
+TEST_P(RetriableLogTest, TailLog_PartialHeader) {
+  ASSERT_OK(SetupTestEnv());
+  std::vector<int> remaining_bytes_in_last_record;
+  size_t header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RetriableLogTest::TailLog:AfterPart1",
+        "RetriableLogTest::TailLog:BeforeReadRecord"},
+       {"LogReader::ReadMore:FirstEOF",
+        "RetriableLogTest::TailLog:BeforePart2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  size_t delta = header_size - 1;
+  port::Thread log_writer_thread([&]() {
+    size_t old_sz = contents().size();
+    Encode("foo");
+    size_t new_sz = contents().size();
+    std::string part1 = contents().substr(old_sz, delta);
+    std::string part2 =
+        contents().substr(old_sz + delta, new_sz - old_sz - delta);
+    Write(Slice(part1));
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:AfterPart1");
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforePart2");
+    Write(Slice(part2));
+  });
+
+  std::string record;
+  port::Thread log_reader_thread([&]() {
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforeReadRecord");
+    record = Read();
+  });
+  log_reader_thread.join();
+  log_writer_thread.join();
+  ASSERT_EQ("foo", record);
+}
+
+TEST_P(RetriableLogTest, TailLog_FullHeader) {
+  ASSERT_OK(SetupTestEnv());
+  std::vector<int> remaining_bytes_in_last_record;
+  size_t header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RetriableLogTest::TailLog:AfterPart1",
+        "RetriableLogTest::TailLog:BeforeReadRecord"},
+       {"LogReader::ReadMore:FirstEOF",
+        "RetriableLogTest::TailLog:BeforePart2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  size_t delta = header_size + 1;
+  port::Thread log_writer_thread([&]() {
+    size_t old_sz = contents().size();
+    Encode("foo");
+    size_t new_sz = contents().size();
+    std::string part1 = contents().substr(old_sz, delta);
+    std::string part2 =
+        contents().substr(old_sz + delta, new_sz - old_sz - delta);
+    Write(Slice(part1));
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:AfterPart1");
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforePart2");
+    Write(Slice(part2));
+  });
+
+  std::string record;
+  port::Thread log_reader_thread([&]() {
+    TEST_SYNC_POINT("RetriableLogTest::TailLog:BeforeReadRecord");
+    record = Read();
+  });
+  log_reader_thread.join();
+  log_writer_thread.join();
+  ASSERT_EQ("foo", record);
+}
+
+INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
 }  // namespace log
 }  // namespace rocksdb
