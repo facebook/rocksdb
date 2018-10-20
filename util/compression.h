@@ -790,6 +790,7 @@ inline bool LZ4_Compress(const CompressionContext& ctx,
 #else   // up to r123
   outlen = LZ4_compress_limitedOutput(input, &(*output)[output_header_len],
                                       static_cast<int>(length), compress_bound);
+  (void)ctx;
 #endif  // LZ4_VERSION_NUMBER >= 10400
 
   if (outlen == 0) {
@@ -853,6 +854,7 @@ inline CacheAllocationPtr LZ4_Uncompress(const UncompressionContext& ctx,
   *decompress_size = LZ4_decompress_safe(input_data, output.get(),
                                          static_cast<int>(input_length),
                                          static_cast<int>(output_len));
+  (void)ctx;
 #endif  // LZ4_VERSION_NUMBER >= 10400
 
   if (*decompress_size < 0) {
