@@ -956,6 +956,49 @@ Status TraceAnalyzer::ReProcessing() {
       }
     }
 
+    // Output the iterator count distribution and average count of each second
+    if (FLAGS_analyze_iterator) {
+      if (cf_it.second.iter_len_dist_f) {
+        for (auto& iter_len_it : cf_it.second.iter_len_stats) {
+          ret = sprintf(buffer_, "%" PRIu64 " %" PRIu64 "\n",
+                        iter_len_it.first, iter_len_it.second);
+          if (ret < 0) {
+            return Status::IOError("Format the output failed");
+          }
+          std::string printout(buffer_);
+          s = cf_it.second.iter_len_dist_f->Append(printout);
+          if (!s.ok()) {
+            fprintf(
+                stderr,
+                "Write iterator Next/Prev count distribution file failed\n");
+            return s;
+          }
+        }
+      }
+
+      if (cf_it.second.ave_iter_len_sec_f) {
+        for (auto& iter_ave_it : cf_it.second.ave_iter_len_sec) {
+          uint32_t ave = 0;
+          if (iter_ave_it.second.first != 0) {
+            ave = static_cast<uint32_t>(iter_ave_it.second.second /
+                                        iter_ave_it.second.first);
+          }
+          ret = sprintf(buffer_, "%u %u\n", iter_ave_it.first, ave);
+          if (ret < 0) {
+            return Status::IOError("Format the output failed");
+          }
+          std::string printout(buffer_);
+          s = cf_it.second.ave_iter_len_sec_f->Append(printout);
+          if (!s.ok()) {
+            fprintf(stderr,
+                    "Write iterator Next/Prev count average in second file "
+                    "failed\n");
+            return s;
+          }
+        }
+      }
+    }
+
     // process the whole key space if needed
     if (!FLAGS_key_space_dir.empty()) {
       std::string whole_key_path =
@@ -1227,7 +1270,8 @@ Status TraceAnalyzer::InitCFS(const uint32_t& cf_id) {
     file_name = output_path_ + "/" + FLAGS_output_prefix + "-" +
                 std::to_string(cf_id) + "-iterator_length_distribution.txt";
     Status s;
-    s = env_->NewWritableFile(file_name, &(cfs_[cf_id].iter_len_dist_f), env_options_);
+    s = env_->NewWritableFile(file_name, &(cfs_[cf_id].iter_len_dist_f),
+                              env_options_);
     if (!s.ok()) {
       fprintf(stderr, "Cannot open file: %s\n", file_name.c_str());
       exit(1);

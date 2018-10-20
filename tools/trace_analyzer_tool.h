@@ -32,8 +32,7 @@ enum TraceOperationType : int {
   kMerge = 5,
   kIteratorSeek = 6,
   kIteratorSeekForPrev = 7,
-  kIteratorIterCount = 8,
-  kTaTypeNum = 9
+  kTaTypeNum = 8
 };
 
 struct TraceUnit {
@@ -156,7 +155,7 @@ struct CfUnit {
   uint64_t a_count;  // the total keys in this cf that are accessed
   std::map<uint64_t, uint64_t> w_key_size_stats;  // whole key space key size
                                                   // statistic this cf
-  std::map<uint32_t, uint32_t> iter_len_stats;
+  std::map<uint64_t, uint64_t> iter_len_stats;
   std::map<uint32_t, std::pair<uint32_t, uint64_t>> ave_iter_len_sec;
   std::unique_ptr<rocksdb::WritableFile> iter_len_dist_f;
   std::unique_ptr<rocksdb::WritableFile> ave_iter_len_sec_f;

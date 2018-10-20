@@ -418,6 +418,12 @@ void DBIter::Next() {
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
   }
 
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    last_next_count_++;
+  }
+#endif //ROCSDBlite
+
   if (statistics_ != nullptr) {
     local_stats_.next_count_++;
   }
@@ -768,6 +774,13 @@ void DBIter::Prev() {
   if (ok) {
     PrevInternal();
   }
+
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    last_prev_count_++;
+  }
+#endif //ROCSDBlite
+
   if (statistics_ != nullptr) {
     local_stats_.prev_count_++;
     if (valid_) {
@@ -1287,11 +1300,10 @@ SequenceNumber DBIter::MaxVisibleSequenceNumber() {
 }
 
 uint64_t DBIter::GetIterCount() {
-  uint64_t ret = 0;
-  ret += local_stats_.next_count_ - last_next_count_;
-  ret += local_stats_.prev_count_ - last_prev_count_;
-  last_next_count_ = local_stats_.next_count_;
-  last_prev_count_ = local_stats_.prev_count_;
+  uint64_t ret;
+  ret = last_next_count_ + last_prev_count_;
+  last_next_count_ = 0;
+  last_prev_count_ = 0;
   return ret;
 }
 
