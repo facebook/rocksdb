@@ -104,7 +104,7 @@ void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
     return;
   }
 
-  paths_buffer_[buffer_idx_] = path;
+  paths_buffer_[buffer_idx_] = std::move(path);
   buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
 }
 
