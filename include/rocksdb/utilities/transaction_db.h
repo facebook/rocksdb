@@ -171,8 +171,8 @@ struct KeyLockInfo {
 struct DeadlockInfo {
   TransactionID m_txn_id;
   uint32_t m_cf_id;
-  std::string m_waiting_key;
   bool m_exclusive;
+  std::string m_waiting_key;
 };
 
 struct DeadlockPath {
