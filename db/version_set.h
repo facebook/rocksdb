@@ -735,9 +735,7 @@ struct ObsoleteFileInfo {
   }
 };
 
-namespace {
 class BaseReferencedVersionBuilder;
-}
 
 class VersionSet {
  public:
@@ -799,11 +797,23 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
+  Status ReadAndApply(InstrumentedMutex* mu,
+                      std::unique_ptr<log::Reader>* manifest_reader,
+                      std::unordered_set<ColumnFamilyData*>* cfds_changed);
+
+  Status GetCurrentManifestPath(std::string* manifest_filename);
+
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false);
+
+  Status RecoverAsSecondary(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::unique_ptr<log::Reader>* manifest_reader,
+      std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
+      std::unique_ptr<Status>* manifest_reader_status);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.
@@ -984,6 +994,7 @@ class VersionSet {
 
   friend class Version;
   friend class DBImpl;
+  friend class DBImplReadOnly;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
@@ -1007,7 +1018,8 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
-  Status ApplyOneVersionEdit(
+  // REQUIRES db mutex
+  Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit,
       const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_opts,
       std::unordered_map<int, std::string>& column_families_not_found,
@@ -1017,6 +1029,18 @@ class VersionSet {
       bool* have_last_sequence, SequenceNumber* last_sequence,
       uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
 
+  // REQUIRES db mutex
+  Status ApplyOneVersionEditToBuilder(
+      VersionEdit& edit, bool* have_log_number, uint64_t* log_number,
+      bool* have_prev_log_number, uint64_t* previous_log_number,
+      bool* have_next_file, uint64_t* next_file, bool* have_last_sequence,
+      SequenceNumber* last_sequence, uint64_t* min_log_number_to_keep,
+      uint32_t* max_column_family);
+
+  Status MaybeSwitchManifest(log::Reader::Reporter* reporter,
+                             std::unique_ptr<log::Reader>* manifest_reader);
+
+  // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
                                InstrumentedMutex* mu, Directory* db_directory,
                                bool new_descriptor_log,
@@ -1070,12 +1094,15 @@ class VersionSet {
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
 
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      active_version_builders_;
+
   // No copying allowed
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
 
   void LogAndApplyCFHelper(VersionEdit* edit);
-  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b, Version* v,
+  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                          VersionEdit* edit, InstrumentedMutex* mu);
 };
 

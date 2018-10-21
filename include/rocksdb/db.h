@@ -162,6 +162,15 @@ class DB {
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
       bool error_if_log_file_exist = false);
 
+  static Status OpenAsSecondary(const Options& options, const std::string& name,
+                                const std::string& secondary_name, DB** dbptr);
+
+  static Status OpenAsSecondary(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& secondary_name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
   // Open DB with column families.
   // db_options specify database specific options
   // column_families is the vector of all column families in the database,
