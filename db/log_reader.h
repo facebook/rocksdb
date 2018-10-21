@@ -85,6 +85,8 @@ class Reader {
 
   SequentialFileReader* file() { return file_.get(); }
 
+  Reporter* GetReporter() const { return reporter_; }
+
  private:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;

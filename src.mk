@@ -22,6 +22,7 @@ LIB_SOURCES =                                                   \
   db/db_impl_files.cc                                           \
   db/db_impl_open.cc                                            \
   db/db_impl_readonly.cc                                        \
+  db/db_impl_secondary.cc                                       \
   db/db_impl_write.cc                                           \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \

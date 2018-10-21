@@ -1162,6 +1162,8 @@ class DBImpl : public DB {
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
   InstrumentedMutex log_write_mutex_;
+
+ protected:
   // State below is protected by mutex_
   // With two_write_queues enabled, some of the variables that accessed during
   // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
@@ -1169,6 +1171,7 @@ class DBImpl : public DB {
   // more description.
   mutable InstrumentedMutex mutex_;
 
+ private:
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
@@ -1199,8 +1202,12 @@ class DBImpl : public DB {
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
+
+ protected:
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
+
+ private:
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number)
@@ -1267,12 +1274,16 @@ class DBImpl : public DB {
   WriteBatch cached_recoverable_state_;
   std::atomic<bool> cached_recoverable_state_empty_ = {true};
   std::atomic<uint64_t> total_log_size_;
+
+ protected:
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
   // If true, we have only one (default) column family. We use this to optimize
   // some code-paths
   bool single_column_family_mode_;
+
+ private:
   // If this is non-empty, we need to delete these log files in background
   // threads. Protected by db mutex.
   autovector<log::Writer*> logs_to_free_;
@@ -1485,12 +1496,14 @@ class DBImpl : public DB {
 
   std::string db_absolute_path_;
 
+ protected:
   // The options to access storage files
   const EnvOptions env_options_;
 
   // Additonal options for compaction and flush
   EnvOptions env_options_for_compaction_;
 
+ private:
   // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_;
