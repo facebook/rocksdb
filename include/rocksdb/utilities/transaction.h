@@ -437,6 +437,12 @@ class Transaction {
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
 
   virtual uint64_t GetLogNumber() const { return log_number_; }
+  
+  // Sequence number in WAL where operations start, only valid after
+  // a successfull commit with the WRITE_COMMITTED db txn policy
+  virtual SequenceNumber GetCommitedSeqNumber() const {
+    return 0;
+  }
 
   virtual Status SetName(const TransactionName& name) = 0;
 
