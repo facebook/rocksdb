@@ -407,9 +407,9 @@ class VersionStorageInfo {
   // @param last_level Level after which we check for overlap
   // @param last_l0_idx If `last_level == 0`, index of L0 file after which we
   //    check for overlap; otherwise, must be -1
-  bool RangeMightExistAfterSortedRun(const Slice& smallest_key,
-                                     const Slice& largest_key, int last_level,
-                                     int last_l0_idx);
+  bool RangeMightExistAfterSortedRun(const Slice& smallest_user_key,
+                                     const Slice& largest_user_key,
+                                     int last_level, int last_l0_idx);
 
  private:
   const InternalKeyComparator* internal_comparator_;
