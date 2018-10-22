@@ -102,10 +102,6 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -faligned-new -xc++ /dev/null 2>&1))
-CXXFLAGS += -faligned-new -DHAVE_ALIGNED_NEW
-endif
-
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 CXXFLAGS += -DHAS_ALTIVEC
 CFLAGS += -DHAS_ALTIVEC
