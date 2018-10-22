@@ -309,6 +309,7 @@ class VersionStorageInfo {
   }
 
   int base_level() const { return base_level_; }
+  double level_multiplier() const { return level_multiplier_; }
 
   // REQUIRES: lock is held
   // Set the index that is used to offset into files_by_compaction_pri_ to find
@@ -434,6 +435,8 @@ class VersionStorageInfo {
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
+
+  double level_multiplier_;
 
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file
