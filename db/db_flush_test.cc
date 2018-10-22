@@ -224,7 +224,7 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.atomic_flush = GetParam();
-  options.write_buffer_size = 64 << 20;
+  options.write_buffer_size = (static_cast<size_t>(64) << 20);
 
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   size_t num_cfs = handles_.size();
